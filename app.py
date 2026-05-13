@@ -7862,7 +7862,7 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(680px, calc(100vw - 36px));
+    width: min(420px, calc(100vw - 36px));
     min-height: auto;
     max-width: calc(100vw - 36px);
     background:
@@ -8719,7 +8719,7 @@ LOGIN_HTML = r"""
 {% raw %}
 <!-- ===== 7 COSMIC LOGIN BACKGROUNDS — one per day of week ===== -->
 <canvas id="cosmicBg" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
-<div id="cgTip" style="display:none;position:fixed;z-index:200;pointer-events:none;"></div>
+<div id="cgTip" style="display:none;position:fixed;z-index:200;pointer-events:none;width:0;height:0;overflow:visible;"></div>
 <script>
 (function(){
 'use strict';
@@ -8809,15 +8809,29 @@ function buildTipNodes(positions){
 }
 function showTip(nd,mx,my){
   var t=TIPS[nd.tipIdx];
-  var tw=300,pad=16;
-  var tx=Math.min(mx+14,W-tw-pad);
-  var ty=Math.min(my-20,H-180);if(ty<pad)ty=my+14;
+  var tw=280,pad=16;
+  /* Anchor near the node, not the mouse — node coords are stable */
+  var nx=nd.cx, ny=nd.cy;
+  /* Default: place tip to the right of the node */
+  var tx=nx+18;
+  /* If too close to right edge, flip left */
+  if(tx+tw+pad>W) tx=nx-tw-18;
+  /* Clamp horizontally */
+  tx=Math.max(pad,Math.min(tx,W-tw-pad));
+  /* Vertically: below node, but clamp to viewport */
+  var ty=ny+18;
+  if(ty+180>H) ty=ny-200;
+  ty=Math.max(pad,Math.min(ty,H-200));
+  /* Restore full dimensions now that we are placing it */
+  tip.style.width=tw+'px';
+  tip.style.height='auto';
+  tip.style.overflow='visible';
   tip.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;"><span style="font-size:22px;flex-shrink:0;line-height:1.2;">'+t.icon+'</span><div><div style="font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:5px;line-height:1.3;">'+t.title+'</div><div style="font-size:12px;color:#94a3b8;line-height:1.55;">'+t.body+'</div></div></div><div style="font-size:10px;color:#475569;margin-top:8px;text-align:right;">click anywhere to close</div>';
   tip.style.cssText='display:block;left:'+tx+'px;top:'+ty+'px;width:'+tw+'px;background:rgba(8,12,30,.97);border:1px solid rgba(124,58,237,.55);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,.75);backdrop-filter:blur(14px);pointer-events:none;z-index:200;';
   activeTip=nd;nd.lit=true;
   clearTimeout(tipTO);tipTO=setTimeout(hideTip,7000);
 }
-function hideTip(){tip.style.display='none';activeTip=null;}
+function hideTip(){tip.style.display='none';tip.style.width='0';tip.style.height='0';activeTip=null;}
 function hitNode(mx,my){
   var best=null,bd=18;
   tipNodes.forEach(function(n){
@@ -11477,10 +11491,7 @@ HTML = r"""
       '  margin:0!important;flex-shrink:0!important;',
       '}',
       /* Hide the decorative round-table circle */
-      'html[data-phone] #tableWrap .table{display:none!important;}',
-      /* Hide group console before first paint — prevents 1-frame flash */
-      'html[data-phone] .operator{display:none!important;}',
-      'html[data-phone] #operator{display:none!important;}'
+      'html[data-phone] #tableWrap .table{display:none!important;}'
     ].join('');
     document.head.appendChild(s);
   }
@@ -31325,476 +31336,412 @@ document.addEventListener('click',e=>{
 
 })();
 </script>
-<!-- ===== MOBILE LAYOUT v5 — Clean list + native chat bar ===== -->
+<!-- ===== END MOBILE BOTTOM SHEET ===== -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     MOBILE LAYOUT — FINAL DEFINITIVE v4
+     Architecture:
+       1. Seat cards — clean scrollable list (full width)
+       2. Group Console — collapsible accordion at top
+       3. Pinned chat panel (320px) — always at bottom
+     Fixes: ghost panels, text bleed, tiny chat, missing console
+═══════════════════════════════════════════════════════════ -->
 {% raw %}
 <style>
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE MASTER RESET  (≤720 px)
-   This block is LAST in the stylesheet — wins every cascade fight.
-   Goal: seat cards are clean document-flow blocks, nothing floats,
-   nothing bleeds, Group Console is desktop-only.
-═══════════════════════════════════════════════════════════════ */
-@media(max-width:720px){
-
-  /* 1 ── Kill every desktop ghost panel ─────────────────────── */
-  .side, .sideCard, .stage > .side,
-  #seatPassRow, #threadActionsRow, #followRow,
-  .followBox, #followMsg, #sendFollow,
-  #dmAttachBtn, #dmAttachDrop, #dmAttachWrap,
-  #dmFiles, #dmAttachList, #micStatusDm,
-  .groupCard, .underTable, #sharedMemoryCard,
-  #groupReplies, #groupPassRow,
-  /* Group console — desktop only */
-  .operator, #operator,
-  #opPrompt, #sendGroup, #opStatus,
-  #opReload, .opText, .opRow,
-  #mobConsoleTrigger, #mobConsoleBody,
-  #saMobPanel, #saMobPanelHdr,
-  #saMobPanelThread, #saMobPanelInput,
-  #saMobPanelMic, #saMobPanelMenu,
-  #saMobPanelSend, #saMobPanelMsg,
-  #saMobPanelAv, #saMobPanelName,
-  #saMobPanelRole, #saMobPanelStatus {
-    display: none !important;
-    height:  0    !important;
-    max-height: 0 !important;
-    overflow: hidden !important;
-    position: static !important;
-  }
-
-  /* 2 ── Stage: single column, bottom padding for chat bar ─── */
-  .stage {
-    display: grid !important;
-    grid-template-columns: 1fr !important;
-    padding-bottom: 0 !important;
-  }
-
-  /* 3 ── tableWrap: clean vertical flex ───────────────────── */
-  #tableWrap, .tableWrap {
-    position:        relative   !important;
-    display:         flex       !important;
-    flex-direction:  column     !important;
-    align-items:     stretch    !important;
-    width:           100%       !important;
-    max-width:       100%       !important;
-    height:          auto       !important;
-    min-height:      0          !important;
-    overflow:        visible    !important;
-    padding:         10px 12px 130px !important; /* 130px = chat bar */
-    gap:             10px       !important;
-    box-sizing:      border-box !important;
-    transform:       none       !important;
-  }
-
-  /* 4 ── Hide decorative circle ────────────────────────────── */
-  #tableWrap .table, .tableWrap .table { display: none !important; }
-
-  /* 5 ── rtStage: flat flex column ───────────────────────── */
-  #tableWrap #rtStage, #rtStage {
-    position:        static    !important;
-    display:         flex      !important;
-    flex-direction:  column    !important;
-    gap:             10px      !important;
-    width:           100%      !important;
-    height:          auto      !important;
-    transform:       none      !important;
-  }
-
-  /* 6 ── Seat cards: full-width list items (original portrait layout) */
-  #tableWrap .seat, .tableWrap .seat,
-  #tableWrap #rtStage .seat {
-    position:    relative   !important;
-    left:        auto       !important;
-    top:         auto       !important;
-    right:       auto       !important;
-    bottom:      auto       !important;
-    transform:   none       !important;
-    width:       100%       !important;
-    max-width:   100%       !important;
-    height:      auto       !important;
-    min-height:  76px       !important;
-    margin:      0          !important;
-    overflow:    hidden     !important;
-    isolation:   isolate    !important;
-    z-index:     1          !important;
-    box-sizing:  border-box !important;
-    flex-shrink: 0          !important;
-    /* Keep original vertical/column layout — do NOT change flex-direction */
-    cursor:      pointer    !important;
-  }
-
-  /* Selected seat — purple glow ring matching original .seat.sel */
-  #tableWrap .seat.sel,
-  #rtStage .seat.sel {
-    border-color: rgba(124,58,237,.92) !important;
-    background:   rgba(22,18,70,.96)   !important;
-    box-shadow:   0 0 0 1px rgba(124,58,237,.2) inset,
-                  0 0 24px rgba(124,58,237,.42),
-                  0 6px 28px rgba(0,0,0,.5)      !important;
-  }
-
-  /* Thread preview — last AI line shown under status in selected card */
-  .mobThreadPreview {
-    font-size:     11px                    !important;
-    color:         rgba(148,163,184,.65)   !important;
-    margin-top:    5px                     !important;
-    white-space:   nowrap                  !important;
-    overflow:      hidden                  !important;
-    text-overflow: ellipsis                !important;
-    max-width:     100%                    !important;
-    pointer-events:none                    !important;
-  }
-}
-
 /* ─────────────────────────────────────────────────────────────
-   MOBILE CHAT BAR  — pinned to bottom, native app feel
-   Styled to match the seat cards exactly: same background,
-   same border language, same font — grows from the design,
-   not dropped on top of it.
+   NUCLEAR RESET: every desktop ghost panel → gone on mobile
+   This block is LAST in stylesheet, wins every cascade fight
 ───────────────────────────────────────────────────────────── */
-#mobChatBar {
-  display: none; /* shown only on mobile */
-}
-
 @media(max-width:720px){
-  #mobChatBar {
-    display:         flex          !important;
-    flex-direction:  column        !important;
-    position:        fixed         !important;
-    bottom:          0             !important;
-    left:            0             !important;
-    right:           0             !important;
-    z-index:         9000          !important;
-    background:      linear-gradient(160deg,rgba(20,30,64,.99),rgba(10,16,42,.99)) !important;
-    border-top:      1px solid rgba(42,58,106,.85) !important;
-    box-shadow:      0 -4px 24px rgba(0,0,0,.55)   !important;
-    padding-bottom:  env(safe-area-inset-bottom)    !important;
+
+  /* 1. Kill desktop side panel completely */
+  .side,
+  .sideCard,
+  .stage>.side,
+  #thread,
+  #seatPassRow,
+  #threadActionsRow,
+  #followRow,
+  .followBox,
+  #followMsg,
+  #sendFollow,
+  #dmAttachBtn,
+  #dmAttachDrop,
+  #dmAttachWrap,
+  #dmFiles,
+  #dmAttachList,
+  #micStatusDm,
+  .groupCard,
+  .underTable,
+  #sharedMemoryCard,
+  #groupReplies,
+  #groupPassRow{
+    display:none!important;
+    height:0!important;min-height:0!important;max-height:0!important;
+    overflow:hidden!important;position:static!important;
   }
 
-  /* Top strip: who you're talking to */
-  #mobChatWho {
-    display:     flex        !important;
-    align-items: center      !important;
-    gap:         10px        !important;
-    padding:     8px 14px 6px !important;
-    border-bottom: 1px solid rgba(42,58,106,.45) !important;
+  /* 2. Stage: single column */
+  .stage{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    padding-bottom:330px!important; /* room for pinned panel */
   }
 
-  #mobChatAvatar {
-    width:           32px          !important;
-    height:          32px          !important;
-    min-width:       32px          !important;
-    border-radius:   9px           !important;
-    background:      rgba(124,58,237,.4) !important;
-    display:         flex          !important;
-    align-items:     center        !important;
-    justify-content: center        !important;
-    font-size:       13px          !important;
-    font-weight:     900           !important;
-    color:           #fff          !important;
-    flex-shrink:     0             !important;
-    transition:      background .2s !important;
+  /* 3. tableWrap: flex column, no absolute children */
+  #tableWrap,.tableWrap{
+    position:relative!important;display:flex!important;
+    flex-direction:column!important;align-items:stretch!important;
+    width:100%!important;max-width:100%!important;
+    height:auto!important;min-height:0!important;
+    overflow:visible!important;
+    padding:8px 10px 0!important;
+    gap:8px!important;
+    box-sizing:border-box!important;transform:none!important;
   }
 
-  #mobChatName {
-    font-size:   13px          !important;
-    font-weight: 700           !important;
-    color:       #e2e8f0       !important;
-    flex:        1             !important;
-    min-width:   0             !important;
+  /* 4. Hide decorative circle */
+  #tableWrap .table,.tableWrap .table{display:none!important;}
+
+  /* 5. rtStage wrapper: flat flex column */
+  #tableWrap #rtStage,#rtStage{
+    position:static!important;display:flex!important;
+    flex-direction:column!important;gap:8px!important;
+    width:100%!important;height:auto!important;transform:none!important;
   }
 
-  #mobChatHint {
-    font-size: 11px          !important;
-    color:     rgba(100,116,139,.6) !important;
-    font-style: italic       !important;
+  /* 6. Each seat card: clean block, no bleed */
+  #tableWrap .seat,.tableWrap .seat,#tableWrap #rtStage .seat{
+    position:relative!important;left:auto!important;top:auto!important;
+    right:auto!important;bottom:auto!important;transform:none!important;
+    width:100%!important;max-width:100%!important;
+    height:auto!important;min-height:72px!important;
+    margin:0!important;overflow:hidden!important;
+    isolation:isolate!important;z-index:1!important;
+    box-sizing:border-box!important;flex-shrink:0!important;
   }
 
-  /* Input row */
-  #mobChatInputRow {
-    display:     flex        !important;
-    align-items: flex-end    !important;
-    gap:         8px         !important;
-    padding:     7px 10px 8px !important;
+  /* 7. Operator (group console): collapsible at BOTTOM of seat list */
+  #tableWrap .operator,.tableWrap .operator{
+    position:relative!important;left:auto!important;top:auto!important;
+    transform:none!important;width:100%!important;
+    order:9999!important;margin:0!important;
+    border-radius:14px!important;
+    overflow:hidden!important;
   }
 
-  #mobChatInput {
-    flex:          1               !important;
-    background:    rgba(14,22,48,.7) !important;
-    border:        1px solid rgba(42,58,106,.7) !important;
-    border-radius: 10px            !important;
-    padding:       9px 12px        !important;
-    font-size:     15px            !important;
-    color:         #e2e8f0         !important;
-    resize:        none            !important;
-    min-height:    38px            !important;
-    max-height:    100px           !important;
-    font-family:   inherit         !important;
-    outline:       none            !important;
-    line-height:   1.4             !important;
-    -webkit-overflow-scrolling: touch !important;
+  /* 8. Group console collapse toggle */
+  .mobConsoleTrigger{
+    display:flex!important;
+    align-items:center;justify-content:space-between;
+    padding:10px 14px;
+    background:rgba(12,18,40,.98);
+    border:1px solid rgba(80,110,200,.3);
+    border-radius:14px;
+    cursor:pointer;
+    font-size:13px;font-weight:700;color:#c4b5fd;
+    width:100%;text-align:left;
+    margin-top:4px;
   }
+  .mobConsoleTrigger .mct-arrow{transition:transform .25s;}
+  .mobConsoleTrigger.open .mct-arrow{transform:rotate(180deg);}
 
-  #mobChatInput::placeholder { color: rgba(100,116,139,.55) !important; }
-  #mobChatInput:focus {
-    border-color: rgba(124,58,237,.7) !important;
-    background:   rgba(14,22,48,.9)   !important;
+  .mobConsoleBody{
+    display:none;
+    padding:10px;
+    background:rgba(8,12,28,.97);
+    border:1px solid rgba(80,110,200,.25);
+    border-top:none;
+    border-radius:0 0 14px 14px;
   }
-
-  #mobChatSend {
-    width:           40px           !important;
-    height:          40px           !important;
-    flex-shrink:     0              !important;
-    background:      rgba(124,58,237,.85) !important;
-    border:          1px solid rgba(124,58,237,.5) !important;
-    border-radius:   10px           !important;
-    color:           #fff           !important;
-    font-size:       18px           !important;
-    display:         flex           !important;
-    align-items:     center         !important;
-    justify-content: center         !important;
-    cursor:          pointer        !important;
-    transition:      background .15s, transform .1s !important;
-  }
-  #mobChatSend:active {
-    background:  rgba(99,68,255,.95) !important;
-    transform:   scale(.93)          !important;
-  }
-}
-
-@media(min-width:721px){
-  #mobChatBar { display: none !important; }
+  .mobConsoleBody.open{display:block;}
 }
 </style>
 
-<!-- Mobile chat bar DOM ──────────────────────────────────────── -->
-<div id="mobChatBar">
-  <div id="mobChatWho">
-    <div id="mobChatAvatar">?</div>
-    <div id="mobChatName">Tap a teammate to start chatting</div>
-    <div id="mobChatHint"></div>
+<!-- ── Pinned mobile chat panel ── -->
+<div id="saMobPanel" style="display:none;">
+  <div id="saMobPanelHdr">
+    <div id="saMobPanelAv">?</div>
+    <div style="flex:1;min-width:0;">
+      <div id="saMobPanelName">Tap a teammate above to chat</div>
+      <div id="saMobPanelRole"></div>
+    </div>
+    <div id="saMobPanelStatus"></div>
   </div>
-  <div id="mobChatInputRow">
-    <textarea id="mobChatInput"
-      placeholder="Message teammate…"
-      rows="1"
-      autocomplete="off"
-      autocorrect="off"
-      autocapitalize="off"
-      spellcheck="false"></textarea>
-    <button id="mobChatSend" aria-label="Send">&#x21B5;</button>
+  <div id="saMobPanelThread">
+    <div class="saMobEmpty">Select a teammate above to open their chat.</div>
   </div>
+  <div id="saMobPanelInput">
+    <button id="saMobPanelMenu" title="Voice / attach">+</button>
+    <textarea id="saMobPanelMsg" placeholder="Message teammate…" rows="1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    <button id="saMobPanelSend">↵</button>
+  </div>
+  <div id="saMobPanelMic">Mic: idle</div>
 </div>
 
+<!-- Mobile group console trigger (injected below seat list by JS) -->
+<button id="mobConsoleTrigger" class="mobConsoleTrigger" style="display:none;">
+  💬 Group Console <span class="mct-arrow">▾</span>
+</button>
+<div id="mobConsoleBody" class="mobConsoleBody"></div>
+
+<style>
+/* ── Pinned panel ─────────────────────────────── */
+@media(max-width:720px){
+  #saMobPanel{
+    display:flex!important;flex-direction:column;
+    position:fixed;bottom:0;left:0;right:0;
+    height:320px;                  /* taller = 3→7 lines visible */
+    z-index:8600;
+    background:rgba(6,10,24,.99);
+    border-top:1.5px solid rgba(124,58,237,.55);
+    border-radius:20px 20px 0 0;
+    box-shadow:0 -8px 40px rgba(0,0,0,.75);
+    overflow:hidden;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #saMobPanelHdr{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 14px 7px;
+    border-bottom:1px solid rgba(42,58,106,.55);
+    background:rgba(10,15,35,.99);
+    flex-shrink:0;
+  }
+  #saMobPanelAv{
+    width:32px;height:32px;border-radius:9px;
+    background:#374151;display:flex;align-items:center;
+    justify-content:center;font-size:13px;font-weight:900;
+    color:#fff;flex-shrink:0;transition:background .25s;
+  }
+  #saMobPanelName{font-size:14px;font-weight:800;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #saMobPanelRole{font-size:10px;color:#64748b;margin-top:1px;}
+  #saMobPanelStatus{font-size:10px;color:#64748b;flex-shrink:0;}
+  #saMobPanelThread{
+    flex:1;overflow-y:auto;padding:8px 12px;
+    -webkit-overflow-scrolling:touch;min-height:0;
+    /* Enough room for 7+ lines before scrolling */
+  }
+  .saMobEmpty{color:#334155;font-size:12px;text-align:center;padding:12px 0;font-style:italic;}
+  #saMobPanelInput{
+    display:flex;gap:6px;align-items:flex-end;
+    padding:7px 10px 6px;
+    border-top:1px solid rgba(42,58,106,.4);
+    flex-shrink:0;background:rgba(6,10,24,.99);
+  }
+  #saMobPanelMenu{
+    width:36px;height:36px;flex-shrink:0;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(42,58,106,.5);
+    border-radius:9px;color:#94a3b8;
+    font-size:18px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  #saMobPanelMsg{
+    flex:1;background:rgba(14,22,48,.9);
+    border:1px solid rgba(42,58,106,.6);
+    border-radius:9px;padding:8px 10px;
+    font-size:14px;color:#e2e8f0;resize:none;
+    min-height:36px;max-height:80px;
+    font-family:inherit;outline:none;line-height:1.4;
+  }
+  #saMobPanelMsg:focus{border-color:rgba(124,58,237,.7);}
+  #saMobPanelSend{
+    width:40px;height:36px;flex-shrink:0;
+    background:rgba(79,70,229,.9);
+    border:1px solid rgba(124,58,237,.55);
+    border-radius:9px;color:#fff;font-size:17px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+  }
+  #saMobPanelMic{
+    font-size:10px;color:rgba(100,116,139,.45);
+    padding:2px 12px 5px;flex-shrink:0;
+    background:rgba(6,10,24,.99);
+  }
+}
+@media(min-width:721px){
+  #saMobPanel,#mobConsoleTrigger,#mobConsoleBody{display:none!important;}
+}
+</style>
+
 <script>
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE CHAT BAR — v5
-   Pure progressive enhancement:
-   • Waits for selectSeat / refreshThread to exist
-   • Patches selectSeat so the bar always reflects the active seat
-   • Send routes through the existing #followMsg → #sendFollow pipe
-   • Thread preview shown inline in the selected seat card
-   • Group console left to desktop — no mobile equivalent
-═══════════════════════════════════════════════════════════════ */
 (function(){
-  'use strict';
+'use strict';
+var isMob=function(){return window.innerWidth<=720;};
+function ge(id){return document.getElementById(id);}
+var _seat=null;
 
-  var isMob = function(){ return window.innerWidth <= 720; };
-
-  function ge(id){ return document.getElementById(id); }
-
-  /* ── Update bar header when seat changes ── */
-  function updateBar(name){
-    if(!isMob()) return;
-
-    var av   = ge('mobChatAvatar');
-    var nm   = ge('mobChatName');
-    var hint = ge('mobChatHint');
-    if(!av || !nm) return;
-
-    if(!name){
-      av.textContent         = '?';
-      av.style.background    = 'rgba(124,58,237,.4)';
-      nm.textContent         = 'Tap a teammate to start chatting';
-      if(hint) hint.textContent = '';
-      return;
+/* ── Set panel header ── */
+function setHdr(name){
+  var av=ge('saMobPanelAv'), nm=ge('saMobPanelName'), rl=ge('saMobPanelRole');
+  if(!av||!nm) return;
+  var color='#7c3aed';
+  try{
+    var el=document.querySelector('.seat[data-name="'+CSS.escape(name)+'"]');
+    if(el){
+      var ae=el.querySelector('[class*="Avatar"],[style*="background"][class*="av"]');
+      if(!ae) ae=el.querySelector('[style*="background:#"],[style*="background: #"],[style*="background:rgb"]');
+      if(ae&&ae.style&&ae.style.background) color=ae.style.background;
     }
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    rl.textContent=d.job_title||d.role||'';
+  }catch(e){rl.textContent='';}
+  av.textContent=(name||'?')[0].toUpperCase();
+  av.style.background=color;
+  nm.textContent=name;
+}
 
-    /* Pull avatar colour from the seat card */
-    var color = 'rgba(124,58,237,.8)';
-    try{
-      var seatEl = document.querySelector('.seat[data-name]');
-      /* findSeatEl by iterating — data-name may not always be set */
-      document.querySelectorAll('.seat').forEach(function(s){
-        var nm2 = s.querySelector('.seatName');
-        if(nm2 && nm2.textContent.trim() === name){
-          var avEl = s.querySelector('.seatAvatar');
-          if(avEl && avEl.style.background) color = avEl.style.background;
-        }
-      });
-    }catch(_){}
+/* ── Sync thread ── */
+function syncThread(){
+  var dt=ge('thread'), mt=ge('saMobPanelThread');
+  if(!dt||!mt) return;
+  mt.innerHTML=dt.innerHTML||'<div class="saMobEmpty">No messages yet.</div>';
+  mt.scrollTop=mt.scrollHeight;
+}
 
-    av.textContent      = (name||'?')[0].toUpperCase();
-    av.style.background = color;
-    nm.textContent      = name;
-
-    /* Role subtitle */
-    try{
-      var st = (window.state && window.state.installed || {})[name] || {};
-      if(hint) hint.textContent = st.job_title || st.role || '';
-    }catch(_){ if(hint) hint.textContent = ''; }
+/* ── Pick seat ── */
+function pick(name){
+  if(!isMob()) return;
+  _seat=name; setHdr(name);
+  document.querySelectorAll('.seat').forEach(function(s){
+    s.classList.toggle('sel', s.getAttribute('data-name')===name);
+  });
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(name)
+      .then(function(){setTimeout(syncThread,300);})
+      .catch(function(){setTimeout(syncThread,300);});
   }
+}
 
-  /* ── Thread preview: last AI line inside the selected card ── */
-  function updatePreview(){
-    if(!isMob()) return;
-    /* Clear old previews */
-    document.querySelectorAll('.mobThreadPreview').forEach(function(el){ el.remove(); });
-
-    var thread = ge('thread');
-    if(!thread) return;
-
-    /* Find last assistant message text */
-    var msgs = thread.querySelectorAll('.msg.assistant');
-    if(!msgs.length) return;
-    var last = msgs[msgs.length - 1];
-    var text = (last.textContent || '').trim().replace(/\s+/g,' ').slice(0, 80);
-    if(!text) return;
-
-    /* Find the selected seat card */
-    var selSeat = document.querySelector('.seat.sel');
-    if(!selSeat) return;
-    var meta = selSeat.querySelector('.seatMeta, .seatStatus');
-    if(!meta) return;
-
-    var prev = document.createElement('div');
-    prev.className   = 'mobThreadPreview';
-    prev.textContent = '↩ ' + text + (text.length >= 80 ? '…' : '');
-    meta.after(prev);
-  }
-
-  /* ── Send ── */
-  function doSend(){
-    var inp = ge('mobChatInput');
-    if(!inp) return;
-    var txt = inp.value.trim();
-    if(!txt) return;
-
-    /* Route through existing desktop followMsg → sendFollow */
-    var fm = ge('followMsg');
-    var sf = ge('sendFollow');
-    if(fm && sf){
-      fm.value = txt;
-      sf.click();
-      inp.value = '';
-      inp.style.height = 'auto';
-      /* Refresh preview after response */
-      setTimeout(updatePreview, 1200);
-      return;
-    }
-
-    /* Fallback: direct API */
-    if(window.selectedSeat){
-      try{
-        fetch('/api/followup',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({name: window.selectedSeat, message: txt})
-        }).then(function(r){ return r.json(); })
-          .then(function(d){ if(window.refreshThread) window.refreshThread(); });
-        inp.value = '';
-        inp.style.height = 'auto';
-      }catch(_){}
-    }
-  }
-
-  /* ── Wire send button + Enter key ── */
-  var sendBtn = ge('mobChatSend');
-  if(sendBtn) sendBtn.addEventListener('click', doSend);
-
-  var inp = ge('mobChatInput');
-  if(inp){
-    inp.addEventListener('keydown', function(e){
-      if(e.key === 'Enter' && !e.shiftKey){
-        e.preventDefault();
-        doSend();
-      }
-    });
-    inp.addEventListener('input', function(){
-      this.style.height = 'auto';
-      this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+/* ── Send ── */
+function doSend(){
+  var msg=ge('saMobPanelMsg');
+  if(!msg||!_seat) return;
+  var txt=msg.value.trim(); if(!txt) return;
+  /* Route through existing desktop send */
+  var fm=ge('followMsg'), sf=ge('sendFollow');
+  if(fm&&sf){fm.value=txt;sf.click();msg.value='';msg.style.height='auto';setTimeout(syncThread,700);return;}
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(_seat).then(function(){
+      var fm2=ge('followMsg'),sf2=ge('sendFollow');
+      if(fm2&&sf2){fm2.value=txt;sf2.click();msg.value='';}
     });
   }
+}
 
-  /* ── Patch selectSeat ── */
-  function patchSelectSeat(){
-    var orig = window.selectSeat;
-    if(!orig || orig._mobV5) return;
+var sb=ge('saMobPanelSend'); if(sb) sb.addEventListener('click',doSend);
+var ma=ge('saMobPanelMsg');
+if(ma){
+  ma.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}});
+  ma.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px';});
+}
 
-    var patched = function(name){
-      var result = orig.apply(this, arguments);
-      if(isMob()){
-        updateBar(name);
-        /* After thread loads, show preview */
-        Promise.resolve(result)
-          .then(function(){ setTimeout(updatePreview, 400); })
-          .catch(function(){});
-      }
-      return result;
+/* + menu mirrors desktop attach */
+var mn=ge('saMobPanelMenu');
+if(mn) mn.addEventListener('click',function(){var b=ge('dmAttachBtn');if(b)b.click();});
+
+/* ── Seat tap hooks ── */
+function hookSeats(){
+  document.querySelectorAll('.seat[data-name]').forEach(function(s){
+    if(s._mph) return; s._mph=true;
+    s.addEventListener('click',function(){if(!isMob())return;pick(s.getAttribute('data-name'));},true);
+  });
+}
+
+/* ── Live thread sync ── */
+function watchThread(){
+  var dt=ge('thread'); if(!dt||!window.MutationObserver) return;
+  new MutationObserver(function(){
+    if(!isMob()||!_seat) return;
+    syncThread();
+    var mic=ge('micStatusDm'),sm=ge('saMobPanelMic');
+    if(mic&&sm) sm.textContent=mic.textContent;
+  }).observe(dt,{childList:true,subtree:true,characterData:true});
+}
+
+/* ── Patch selectSeat ── */
+function patchSS(){
+  var orig=window.selectSeat; if(!orig||orig._mpp) return;
+  var p=function(name){
+    var r=orig.apply(this,arguments);
+    if(isMob()){_seat=name;setHdr(name);Promise.resolve(r).then(function(){setTimeout(syncThread,350);}).catch(function(){});}
+    return r;
+  };
+  p._mpp=true; window.selectSeat=p;
+}
+
+/* ── Group Console: inject collapsible at bottom of seat list ── */
+function injectConsole(){
+  if(!isMob()) return;
+  var trigger=ge('mobConsoleTrigger');
+  var body=ge('mobConsoleBody');
+  var tableWrap=ge('tableWrap');
+  var op=tableWrap?tableWrap.querySelector('.operator'):null;
+  if(!trigger||!body||!op) return;
+
+  /* Move trigger+body into tableWrap at bottom */
+  if(!trigger._injected){
+    trigger._injected=true;
+    tableWrap.appendChild(trigger);
+    tableWrap.appendChild(body);
+    trigger.style.display='flex';
+  }
+
+  /* Clone operator contents into body */
+  if(!body._built){
+    body._built=true;
+    /* Copy the op prompt textarea + send button */
+    var opPrompt=op.querySelector('#opPrompt,textarea,.opPrompt');
+    var opSend=op.querySelector('#sendGroup,button[id*="send"],button[id*="Send"]');
+    var opStatus=op.querySelector('#opStatus,.opStatus');
+
+    /* Build a minimal group prompt UI */
+    var gta=document.createElement('textarea');
+    gta.id='mobGroupPrompt';
+    gta.placeholder='Message all teammates at once...';
+    gta.rows=2;
+    gta.style.cssText='width:100%;background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.6);border-radius:9px;padding:8px 10px;font-size:14px;color:#e2e8f0;resize:vertical;min-height:52px;font-family:inherit;outline:none;';
+    body.appendChild(gta);
+
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;gap:8px;margin-top:8px;';
+    var sg=document.createElement('button');
+    sg.textContent='Send to all ↵';
+    sg.style.cssText='flex:1;background:rgba(79,70,229,.9);border:1px solid rgba(124,58,237,.55);border-radius:9px;color:#fff;font-size:14px;font-weight:700;padding:10px;cursor:pointer;';
+    sg.onclick=function(){
+      var gp=ge('opPrompt');
+      if(gp&&gta.value.trim()){gp.value=gta.value;var s=ge('sendGroup');if(s)s.click();gta.value='';}
     };
-    patched._mobV5 = true;
-    window.selectSeat = patched;
+    row.appendChild(sg);
+    body.appendChild(row);
   }
 
-  /* ── Watch #thread for live preview updates ── */
-  function watchThread(){
-    var thread = ge('thread');
-    if(!thread || !window.MutationObserver) return;
-    new MutationObserver(function(){
-      if(!isMob()) return;
-      updatePreview();
-    }).observe(thread, {childList:true, subtree:true});
-  }
+  /* Toggle */
+  trigger.onclick=function(){
+    var open=body.classList.contains('open');
+    body.classList.toggle('open',!open);
+    trigger.classList.toggle('open',!open);
+  };
 
-  /* ── Seat card tap: forward to selectSeat ── */
-  function hookSeats(){
-    document.querySelectorAll('.seat').forEach(function(seat){
-      if(seat._mobV5) return;
-      seat._mobV5 = true;
-      seat.addEventListener('click', function(){
-        if(!isMob()) return;
-        /* Find seat name from seatName child */
-        var nmEl = seat.querySelector('.seatName');
-        var name = nmEl ? nmEl.textContent.trim() : null;
-        if(name && window.selectSeat) window.selectSeat(name);
-      }, true);
-    });
-  }
+  /* Hide original operator div */
+  op.style.display='none';
+}
 
-  /* ── Init ── */
-  function tryInit(){
-    if(typeof window.selectSeat === 'function'){
-      patchSelectSeat();
-      hookSeats();
-      watchThread();
-    } else {
-      setTimeout(tryInit, 400);
-    }
-  }
+/* ── Init ── */
+function tryInit(){
+  if(typeof window.selectSeat==='function'){patchSS();hookSeats();watchThread();}
+  else{setTimeout(tryInit,500);}
+  if(isMob()) setTimeout(injectConsole,800);
+}
 
-  /* Re-hook after dynamic seat renders */
-  if(window.MutationObserver){
-    new MutationObserver(function(){ if(isMob()) hookSeats(); })
-      .observe(document.documentElement, {childList:true, subtree:true});
-  }
-
-  setTimeout(tryInit, 800);
-  setTimeout(hookSeats, 1500);
-
+if(window.MutationObserver){
+  new MutationObserver(function(){hookSeats();}).observe(document.documentElement,{childList:true,subtree:true});
+}
+setTimeout(tryInit,900);
+setTimeout(hookSeats,1600);
 })();
 </script>
 {% endraw %}
-<!-- ===== END MOBILE LAYOUT v5 ===== -->
+<!-- ===== END MOBILE LAYOUT v4 ===== -->
 
 </body>
 </html>
