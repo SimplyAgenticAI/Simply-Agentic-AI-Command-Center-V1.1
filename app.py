@@ -11477,7 +11477,10 @@ HTML = r"""
       '  margin:0!important;flex-shrink:0!important;',
       '}',
       /* Hide the decorative round-table circle */
-      'html[data-phone] #tableWrap .table{display:none!important;}'
+      'html[data-phone] #tableWrap .table{display:none!important;}',
+      /* Hide group console before first paint — prevents 1-frame flash */
+      'html[data-phone] .operator{display:none!important;}',
+      'html[data-phone] #operator{display:none!important;}'
     ].join('');
     document.head.appendChild(s);
   }
@@ -31397,107 +31400,49 @@ document.addEventListener('click',e=>{
     transform:       none      !important;
   }
 
-  /* 6 ── Seat cards: full-width list items ─────────────────── */
+  /* 6 ── Seat cards: full-width list items (original portrait layout) */
   #tableWrap .seat, .tableWrap .seat,
   #tableWrap #rtStage .seat {
-    position:    relative    !important;
-    left:        auto        !important;
-    top:         auto        !important;
-    right:       auto        !important;
-    bottom:      auto        !important;
-    transform:   none        !important;
-    width:       100%        !important;
-    max-width:   100%        !important;
-    height:      auto        !important;
-    min-height:  72px        !important;
-    margin:      0           !important;
-    overflow:    hidden      !important;
-    isolation:   isolate     !important;
-    z-index:     1           !important;
-    box-sizing:  border-box  !important;
-    flex-shrink: 0           !important;
-    /* Horizontal card layout on mobile */
-    flex-direction: row      !important;
-    align-items:    center   !important;
-    padding:        12px 14px !important;
-    gap:            12px     !important;
-    cursor:         pointer  !important;
+    position:    relative   !important;
+    left:        auto       !important;
+    top:         auto       !important;
+    right:       auto       !important;
+    bottom:      auto       !important;
+    transform:   none       !important;
+    width:       100%       !important;
+    max-width:   100%       !important;
+    height:      auto       !important;
+    min-height:  76px       !important;
+    margin:      0          !important;
+    overflow:    hidden     !important;
+    isolation:   isolate    !important;
+    z-index:     1          !important;
+    box-sizing:  border-box !important;
+    flex-shrink: 0          !important;
+    /* Keep original vertical/column layout — do NOT change flex-direction */
+    cursor:      pointer    !important;
   }
 
-  /* Seat card internals ─────────────────────────────────────── */
-  #tableWrap .seat .seatAvatar,
-  #rtStage .seat .seatAvatar {
-    width:       42px !important;
-    height:      42px !important;
-    min-width:   42px !important;
-    font-size:   18px !important;
-    border-radius: 12px !important;
-    flex-shrink: 0 !important;
-  }
-
-  /* Meta block fills remaining space */
-  #tableWrap .seat .seatMeta,
-  #rtStage .seat .seatMeta {
-    flex: 1 !important;
-    min-width: 0 !important;
-    align-items: flex-start !important;
-    gap: 2px !important;
-  }
-
-  #tableWrap .seat .seatName,
-  #rtStage .seat .seatName {
-    font-size:   14px !important;
-    text-align:  left !important;
-    font-weight: 800  !important;
-  }
-
-  #tableWrap .seat .seatRole,
-  #rtStage .seat .seatRole {
-    font-size:  11px !important;
-    text-align: left !important;
-  }
-
-  #tableWrap .seat .seatStatus,
-  #rtStage .seat .seatStatus {
-    font-size:  10px !important;
-    margin-top: 4px  !important;
-  }
-
-  /* Seat tools (Edit/Stack) — hide on mobile, use long-press instead */
-  .seatTools { display: none !important; }
-
-  /* Selected seat ─ purple glow ring */
+  /* Selected seat — purple glow ring matching original .seat.sel */
   #tableWrap .seat.sel,
   #rtStage .seat.sel {
-    border-color: rgba(124,58,237,.95) !important;
-    background:   rgba(22,16,60,.97)   !important;
-    box-shadow:   0 0 0 1px rgba(124,58,237,.25) inset,
-                  0 0 18px rgba(124,58,237,.35),
-                  0 4px 20px rgba(0,0,0,.5)      !important;
+    border-color: rgba(124,58,237,.92) !important;
+    background:   rgba(22,18,70,.96)   !important;
+    box-shadow:   0 0 0 1px rgba(124,58,237,.2) inset,
+                  0 0 24px rgba(124,58,237,.42),
+                  0 6px 28px rgba(0,0,0,.5)      !important;
   }
 
-  /* Chevron arrow on selected card ─────────────────────────── */
-  #tableWrap .seat.sel::after,
-  #rtStage   .seat.sel::after {
-    content:     '›';
-    position:    absolute;
-    right:       14px;
-    top:         50%;
-    transform:   translateY(-50%);
-    font-size:   20px;
-    color:       rgba(124,58,237,.8);
-    pointer-events: none;
-  }
-
-  /* Thread preview inline in selected card ──────────────────── */
+  /* Thread preview — last AI line shown under status in selected card */
   .mobThreadPreview {
-    font-size:   11px !important;
-    color:       rgba(148,163,184,.7) !important;
-    margin-top:  4px  !important;
-    white-space: nowrap !important;
-    overflow:    hidden !important;
-    text-overflow: ellipsis !important;
-    max-width:   100% !important;
+    font-size:     11px                    !important;
+    color:         rgba(148,163,184,.65)   !important;
+    margin-top:    5px                     !important;
+    white-space:   nowrap                  !important;
+    overflow:      hidden                  !important;
+    text-overflow: ellipsis                !important;
+    max-width:     100%                    !important;
+    pointer-events:none                    !important;
   }
 }
 
