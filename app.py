@@ -16057,8 +16057,9 @@ input[type="range"]::-moz-range-progress {
 // This means no individual fetch() call needs to be changed.
 // =============================================================
 (function() {
+  var _csrfToken    = window._csrfToken || '';   /* global — set by _loadCsrf */
   var _csrfFetching = false;
-  var _csrfQueue = [];
+  var _csrfQueue    = [];
 
   function _loadCsrf(cb) {
     if (_csrfToken) { cb(_csrfToken); return; }
