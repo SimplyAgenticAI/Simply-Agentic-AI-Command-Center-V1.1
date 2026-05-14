@@ -7862,7 +7862,7 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(480px, calc(100vw - 36px));
+    width: min(680px, calc(100vw - 36px));
     min-height: auto;
     max-width: calc(100vw - 36px);
     background:
@@ -8712,6 +8712,13 @@ LOGIN_HTML = r"""
 /* Pause wing beat during landing phase (38%-55% = ~2.3s-3.2s into 5.8s) */
 .dragonflySvg:hover .dfWing{ animation-play-state:paused; }
 
+</style>
+<style>
+/* Desktop: scale login card so it feels compact at 100% zoom.
+   ONLY changes visual scale — border-radius, padding, shape all identical. */
+@media(min-width:641px){
+  .card{ transform:scale(0.82); transform-origin:center center; }
+}
 </style>
 
 </head><body>
@@ -31549,7 +31556,11 @@ document.addEventListener('click',e=>{
   }
 }
 
-  /* ── Scroll clearance: tableWrap padding pushes last card above chat bar ── */
+
+}  /* close @media(max-width:720px) */
+
+@media(max-width:720px){
+  /* ── Scroll clearance — inside @media so desktop is unaffected ── */
   #tableWrap, .tableWrap {
     padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
     overflow:visible!important;
@@ -31560,6 +31571,7 @@ document.addEventListener('click',e=>{
     overflow-x:hidden!important;
     padding-bottom:0!important;
   }
+}
 
 /* Desktop: hide mobile panel entirely */
 @media(min-width:721px){
