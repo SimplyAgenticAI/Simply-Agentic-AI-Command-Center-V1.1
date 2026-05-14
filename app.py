@@ -7862,7 +7862,7 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(680px, calc(100vw - 36px));
+    width: min(480px, calc(100vw - 36px));
     min-height: auto;
     max-width: calc(100vw - 36px);
     background:
@@ -31329,7 +31329,7 @@ document.addEventListener('click',e=>{
 
 
 <!-- ── Mobile chat panel (compact, native feel) ── -->
-<div id="saMobPanel">
+<div id="saMobPanel" style="display:none;">
   <div id="saMobPanelHdr">
     <div id="saMobPanelAv">?</div>
     <div style="flex:1;min-width:0;overflow:hidden;">
@@ -31390,18 +31390,10 @@ document.addEventListener('click',e=>{
     overflow:visible!important;
   }
 
-  /* Body/html: must scroll freely on mobile */
-  html {
-    overflow-y:auto!important;
+  /* Prevent horizontal scroll on mobile, leave vertical alone */
+  html, body {
     overflow-x:hidden!important;
-    height:auto!important;
-  }
-  body {
-    overflow-y:auto!important;
-    overflow-x:hidden!important;
-    height:auto!important;
-    min-height:100%!important;
-    padding-bottom:0!important;
+    /* Do NOT set overflow-y — breaks position:fixed on mobile Safari */
   }
 
   /* 3. tableWrap: flex column, padding clears the chat bar */
