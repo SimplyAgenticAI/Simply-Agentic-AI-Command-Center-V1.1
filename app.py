@@ -7859,19 +7859,20 @@ AUTH_BASE_CSS = r"""
     display:flex;
     align-items:center;
     justify-content:center;
-    padding: 28px 18px;
+    padding: 16px 16px;
   }
   .card{
-    width: min(680px, calc(100vw - 36px));
+    /* Zoom-proof: vw units shrink/grow with zoom, clamped for readability */
+    width: clamp(300px, 36vw, 390px);
     min-height: auto;
-    max-width: calc(100vw - 36px);
+    max-width: calc(100vw - 32px);
     background:
       linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
-      radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
+      radial-gradient(600px 380px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
     border:1px solid rgba(76,92,148,.72);
-    border-radius: 26px;
-    padding: 34px 34px 30px;
-    box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
+    border-radius: 22px;
+    padding: 26px 28px 22px;
+    box-shadow: 0 16px 60px rgba(0,0,0,.55), 0 0 24px rgba(124,58,237,.10);
     backdrop-filter: blur(14px);
     position: relative;
     overflow: hidden;
@@ -7905,18 +7906,18 @@ AUTH_BASE_CSS = r"""
     flex: 0 0 auto;
   }
   .muted{ color: var(--muted); font-size: 15px; line-height: 1.5; }
-  label{ display:block; font-size: 14px; color: #d8defd; margin: 14px 0 8px 0; font-weight: 800; letter-spacing:.2px; }
+  label{ display:block; font-size: 13px; color: #d8defd; margin: 10px 0 5px 0; font-weight: 800; letter-spacing:.2px; }
   input{
     width:100%;
     border-radius: 16px;
     border:1px solid rgba(82,98,156,.92);
     background: rgba(12,18,38,.94);
     color: var(--text);
-    padding:16px 18px;
+    padding:11px 14px;
     outline:none;
-    font-size:16px;
+    font-size:15px;
     line-height:1.4;
-    min-height: 54px;
+    min-height: 44px;
     box-shadow: inset 0 0 0 1px rgba(247,211,106,.04);
   }
   input:focus{ border-color: rgba(167,139,250,.85); box-shadow: 0 0 0 3px rgba(124,58,237,.18), 0 0 18px rgba(124,58,237,.14); outline:none; }
@@ -7925,15 +7926,15 @@ AUTH_BASE_CSS = r"""
     border:1px solid rgba(82,98,156,.9);
     background: rgba(11,16,36,.92);
     color:var(--text);
-    padding:14px 18px;
-    border-radius:16px;
+    padding:11px 16px;
+    border-radius:13px;
     cursor:pointer;
-    font-size:16px;
+    font-size:15px;
     font-weight:700;
-    min-height: 52px;
+    min-height: 44px;
   }
   .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+  .card form{ max-width: 100%; }
   .btnPrimary{
     border:1px solid rgba(247,211,106,.72);
     background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
@@ -11578,7 +11579,7 @@ HTML = r"""
       font-size:13px;
     }
     .btn:hover{ background: rgba(20,28,60,.96); }
-  .card form{ max-width: 640px; }
+  .card form{ max-width: 100%; }
     .btnPrimary{
       border:1px solid rgba(124,58,237,.75);
       background: linear-gradient(180deg, rgba(124,58,237,.35), rgba(59,130,246,.12));
@@ -31391,7 +31392,7 @@ document.addEventListener('click',e=>{
     min-height:0!important;
     overflow:visible!important;
     /* 110px chat bar + safe area + 16px breathing room */
-    padding:8px 12px calc(126px + env(safe-area-inset-bottom))!important;
+    padding:8px 12px calc(150px + env(safe-area-inset-bottom))!important;
     gap:10px!important;
     box-sizing:border-box!important;
     transform:none!important;
@@ -31531,6 +31532,29 @@ document.addEventListener('click',e=>{
     transform:scale(.93)!important;
   }
 }
+
+  /* ── Definitive scroll clearance — wins every earlier rule ── */
+  /* Chat panel ≈ 100px + safe-area. 150px gives comfortable breathing room. */
+  #tableWrap, .tableWrap, #rtStage,
+  .stage, .container, section, section.sec {
+    padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
+  }
+  /* Body must NOT add extra padding that fights scroll */
+  body {
+    padding-bottom: 0 !important;
+  }
+  /* Make sure the document itself can scroll past the fixed bar */
+  html {
+    overflow-y: auto !important;
+    scroll-padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
+  }
+}
+@media(max-width:720px){
+  /* Safety net: if any wrapper clips content, open it */
+  #tableWrap, .tableWrap, #rtStage {
+    overflow: visible !important;
+    overflow-x: hidden !important;
+  }
 
 /* Desktop: hide mobile panel entirely */
 @media(min-width:721px){
