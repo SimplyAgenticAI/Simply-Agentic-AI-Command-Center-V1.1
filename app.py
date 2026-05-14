@@ -31361,7 +31361,7 @@ document.addEventListener('click',e=>{
    MOBILE MASTER RESET — appended last, wins every cascade fight
    Kills ghost panels, fixes scroll, hides group console forever
 ═══════════════════════════════════════════════════════════════ */
-@media(max-width:720px){
+@media(max-width:960px){
 
   /* 1. Kill ALL desktop ghost panels */
   .side,.sideCard,.stage>.side,
@@ -31562,9 +31562,9 @@ document.addEventListener('click',e=>{
 }
 
 
-}  /* close @media(max-width:720px) */
+}  /* close @media(max-width:960px) */
 
-@media(max-width:720px){
+@media(max-width:960px){
   /* ── Scroll clearance — inside @media so desktop is unaffected ── */
   #tableWrap, .tableWrap {
     padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
@@ -31579,7 +31579,7 @@ document.addEventListener('click',e=>{
 }
 
 /* Desktop: hide mobile panel entirely */
-@media(min-width:721px){
+@media(min-width:961px){
   #saMobPanel { display:none!important; }
 }
 </style>
@@ -31587,7 +31587,7 @@ document.addEventListener('click',e=>{
 <script>
 (function(){
 'use strict';
-var isMob=function(){return window.innerWidth<=720;};
+var isMob=function(){return window.innerWidth<=960;};
 function ge(id){return document.getElementById(id);}
 var _seat=null;
 
@@ -31678,6 +31678,43 @@ function patchSS(){
   p._smPatch=true; window.selectSeat=p;
 }
 
+function forcePin(){
+  var p = ge('saMobPanel');
+  if(!p) return;
+  if(isMob()){
+    /* Move to body so no ancestor can affect positioning */
+    if(p.parentNode !== document.body) document.body.appendChild(p);
+    /* Force fixed via inline style — cannot be overridden */
+    p.style.cssText = [
+      'display:block!important',
+      'position:fixed!important',
+      'bottom:0!important',
+      'left:0!important',
+      'right:0!important',
+      'top:auto!important',
+      'width:100%!important',
+      'z-index:999999!important',
+      'background:rgba(10,15,35,.99)!important',
+      'border-top:1px solid rgba(42,58,106,.85)!important',
+      'box-shadow:0 -4px 20px rgba(0,0,0,.55)!important',
+      'padding-bottom:env(safe-area-inset-bottom)!important',
+      'flex-direction:column!important',
+      'border-radius:0!important'
+    ].join(';');
+    /* Force children visible */
+    var hdr = ge('saMobPanelHdr');
+    var row = ge('saMobPanelInputRow');
+    if(hdr) hdr.style.cssText='display:flex!important;align-items:center!important;gap:10px!important;padding:8px 14px 6px!important;border-bottom:1px solid rgba(42,58,106,.45)!important;flex-shrink:0!important;';
+    if(row) row.style.cssText='display:flex!important;align-items:flex-end!important;gap:8px!important;padding:7px 10px 8px!important;flex-shrink:0!important;';
+    var inp = ge('saMobPanelMsg');
+    if(inp) inp.style.cssText='flex:1!important;background:rgba(14,22,48,.8)!important;border:1px solid rgba(42,58,106,.7)!important;border-radius:10px!important;padding:8px 12px!important;font-size:15px!important;color:#e2e8f0!important;resize:none!important;min-height:36px!important;max-height:80px!important;font-family:inherit!important;outline:none!important;line-height:1.4!important;';
+    var btn = ge('saMobPanelSend');
+    if(btn) btn.style.cssText='width:38px!important;height:38px!important;flex-shrink:0!important;background:rgba(124,58,237,.85)!important;border:1px solid rgba(124,58,237,.5)!important;border-radius:10px!important;color:#fff!important;font-size:16px!important;display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;';
+  } else {
+    p.style.cssText = 'display:none!important';
+  }
+}
+
 function tryInit(){
   if(typeof window.selectSeat==='function'){patchSS();hookSeats();}
   else{setTimeout(tryInit,400);}
@@ -31689,6 +31726,10 @@ if(window.MutationObserver){
 }
 setTimeout(tryInit,800);
 setTimeout(hookSeats,1500);
+/* Pin on load and resize */
+setTimeout(forcePin, 200);
+setTimeout(forcePin, 1000);
+window.addEventListener('resize', forcePin);
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v5 ===== -->
