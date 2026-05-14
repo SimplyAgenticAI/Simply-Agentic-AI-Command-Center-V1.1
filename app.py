@@ -31336,7 +31336,7 @@ document.addEventListener('click',e=>{
 
 
 <!-- ── Mobile chat panel (compact, native feel) ── -->
-<div id="saMobPanel" style="display:none;">
+<div id="saMobPanel">
   <div id="saMobPanelHdr">
     <div id="saMobPanelAv">?</div>
     <div style="flex:1;min-width:0;overflow:hidden;">
@@ -31350,6 +31350,11 @@ document.addEventListener('click',e=>{
     <button id="saMobPanelSend" aria-label="Send">&#x21B5;</button>
   </div>
 </div>
+
+<style>
+/* saMobPanel hidden by default everywhere; mobile @media shows it */
+#saMobPanel { display:none; }
+</style>
 
 <style>
 /* ═══════════════════════════════════════════════════════════════
