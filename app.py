@@ -15943,7 +15943,28 @@ input[type="range"]::-moz-range-progress {
             <div class="tiny" id="micStatusGroup" style="display:none;">Mic: idle</div>
           </div>
 
-        </div>
+        
+          <!-- ═══ MOBILE CHAT BAR ═══════════════════════════════════
+               Sits at bottom of tableWrap as a normal flow element.
+               No position:fixed — zero browser compat issues.
+               Hidden on desktop via CSS, visible on mobile.
+          ══════════════════════════════════════════════════════════ -->
+          <div id="mobChatBar">
+            <div id="mobChatWho">
+              <div id="mobChatAv">?</div>
+              <div id="mobChatLabel">
+                <div id="mobChatName">Tap a teammate above to chat</div>
+                <div id="mobChatRole"></div>
+              </div>
+            </div>
+            <div id="mobChatRow">
+              <textarea id="mobChatMsg" placeholder="Message teammate…"
+                rows="1" autocomplete="off" autocorrect="off"
+                autocapitalize="off" spellcheck="false"></textarea>
+              <button id="mobChatSend">&#x21B5;</button>
+            </div>
+          </div>
+</div>
       </div>
 
       <div class="underTable">
@@ -31335,301 +31356,137 @@ document.addEventListener('click',e=>{
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
 
-<!-- ── Mobile chat panel (compact, native feel) ── -->
-<div id="saMobPanel">
-  <div id="saMobPanelHdr">
-    <div id="saMobPanelAv">?</div>
-    <div style="flex:1;min-width:0;overflow:hidden;">
-      <div id="saMobPanelName">Tap a teammate to chat</div>
-      <div id="saMobPanelRole"></div>
-    </div>
-  </div>
-  <div id="saMobPanelInputRow">
-    <textarea id="saMobPanelMsg" placeholder="Message teammate…" rows="1"
-      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
-    <button id="saMobPanelSend" aria-label="Send">&#x21B5;</button>
-  </div>
-</div>
-
+<!-- ===== MOBILE CHAT BAR v6 ===== -->
 <style>
-/* saMobPanel hidden by default everywhere; mobile @media shows it */
-#saMobPanel { display:none; }
-</style>
+/* Mobile chat bar — static flow element inside tableWrap.
+   Desktop: hidden. Mobile: visible at bottom of card list. */
+#mobChatBar { display:none; }
 
-<style>
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE MASTER RESET — appended last, wins every cascade fight
-   Kills ghost panels, fixes scroll, hides group console forever
-═══════════════════════════════════════════════════════════════ */
 @media(max-width:960px){
-
-  /* 1. Kill ALL desktop ghost panels */
-  .side,.sideCard,.stage>.side,
-  #thread,#seatPassRow,#threadActionsRow,
-  #followRow,.followBox,#followMsg,#sendFollow,
-  #dmAttachBtn,#dmAttachDrop,#dmAttachWrap,
-  #dmFiles,#dmAttachList,#micStatusDm,
-  .groupCard,.underTable,#sharedMemoryCard,
-  #groupReplies,#groupPassRow,
-  /* Group console — desktop only */
-  .operator,#operator,
-  #opPrompt,#sendGroup,#opStatus,.opRow,.opText,
-  /* Old mobile console elements */
-  #mobConsoleTrigger,#mobConsoleBody {
-    display:none!important;
-    height:0!important;
-    min-height:0!important;
-    max-height:0!important;
-    overflow:hidden!important;
-    position:static!important;
-    visibility:hidden!important;
+  /* Show the bar on mobile */
+  #mobChatBar {
+    display:block;
+    margin-top:16px;
+    border-radius:16px;
+    overflow:hidden;
+    border:1px solid rgba(42,58,106,.85);
+    background:rgba(10,15,35,.99);
+    box-shadow:0 4px 24px rgba(0,0,0,.45);
+    /* Sticky — sticks to bottom of viewport as you scroll past it */
+    position:sticky;
+    bottom:0;
+    z-index:100;
   }
 
-  /* 2. Stage: single column, NO min-height (that was blocking scroll) */
-  .stage {
-    display:grid!important;
-    grid-template-columns:1fr!important;
-    min-height:0!important;        /* kills calc(100vh-24px) that stops scroll */
-    height:auto!important;
-    overflow:visible!important;
+  /* Who row */
+  #mobChatWho {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:9px 14px 7px;
+    border-bottom:1px solid rgba(42,58,106,.5);
+    background:rgba(12,18,42,.99);
   }
-
-  /* Arena wrapper: remove bottom padding that adds dead space */
-  .arena {
-    padding-bottom:0!important;
-    min-height:0!important;
-    height:auto!important;
-    overflow:visible!important;
+  #mobChatAv {
+    width:30px;height:30px;min-width:30px;
+    border-radius:8px;
+    background:rgba(124,58,237,.55);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;font-weight:900;color:#fff;
+    flex-shrink:0;transition:background .2s;
   }
-
-  /* Prevent horizontal scroll on mobile, leave vertical alone */
-  html, body {
-    overflow-x:hidden!important;
-    /* Do NOT set overflow-y — breaks position:fixed on mobile Safari */
+  #mobChatName {
+    font-size:13px;font-weight:700;color:#e2e8f0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-
-  /* 3. tableWrap: flex column, padding clears the chat bar */
-  #tableWrap,.tableWrap {
-    position:relative!important;
-    display:flex!important;
-    flex-direction:column!important;
-    align-items:stretch!important;
-    width:100%!important;
-    max-width:100%!important;
-    height:auto!important;
-    min-height:0!important;
-    overflow:visible!important;
-    /* 110px chat bar + safe area + 16px breathing room */
-    padding:8px 12px calc(150px + env(safe-area-inset-bottom))!important;
-    gap:10px!important;
-    box-sizing:border-box!important;
-    transform:none!important;
-  }
-
-  /* 4. Hide decorative circle */
-  #tableWrap .table,.tableWrap .table { display:none!important; }
-
-  /* 5. rtStage: flat flex column */
-  #tableWrap #rtStage,#rtStage {
-    position:static!important;
-    display:flex!important;
-    flex-direction:column!important;
-    gap:10px!important;
-    width:100%!important;
-    height:auto!important;
-    transform:none!important;
-  }
-
-  /* 6. Seat cards: full-width, original vertical portrait layout */
-  #tableWrap .seat,.tableWrap .seat,
-  #tableWrap #rtStage .seat {
-    position:relative!important;
-    left:auto!important;top:auto!important;
-    right:auto!important;bottom:auto!important;
-    transform:none!important;
-    width:100%!important;max-width:100%!important;
-    height:auto!important;min-height:76px!important;
-    margin:0!important;
-    overflow:hidden!important;
-    isolation:isolate!important;
-    z-index:1!important;
-    box-sizing:border-box!important;
-    flex-shrink:0!important;
-    /* NO flex-direction change — keeps original vertical card layout */
-  }
-
-  /* 7. Selected seat glow ring */
-  #tableWrap .seat.sel,#rtStage .seat.sel {
-    border-color:rgba(124,58,237,.9)!important;
-    background:rgba(22,18,70,.96)!important;
-    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,
-               0 0 22px rgba(124,58,237,.38),
-               0 6px 28px rgba(0,0,0,.5)!important;
-  }
-
-  /* 8. Compact chat panel — fixed at bottom */
-  #saMobPanel {
-    display:flex!important;
-    flex-direction:column!important;
-    position:fixed!important;
-    bottom:0!important;left:0!important;right:0!important;
-    /* Compact: just header + input row, no thread scroll area */
-    height:auto!important;
-    z-index:9000!important;
-    background:rgba(10,15,35,.99)!important;
-    border-top:1px solid rgba(42,58,106,.85)!important;
-    box-shadow:0 -4px 20px rgba(0,0,0,.55)!important;
-    padding-bottom:env(safe-area-inset-bottom)!important;
-    /* Match the seat card border language */
-    border-radius:0!important;
-  }
-
-  /* Panel header */
-  #saMobPanelHdr {
-    display:flex!important;
-    align-items:center!important;
-    gap:10px!important;
-    padding:8px 14px 6px!important;
-    border-bottom:1px solid rgba(42,58,106,.45)!important;
-    flex-shrink:0!important;
-  }
-
-  #saMobPanelAv {
-    width:28px!important;height:28px!important;min-width:28px!important;
-    border-radius:8px!important;
-    background:rgba(124,58,237,.5)!important;
-    display:flex!important;align-items:center!important;
-    justify-content:center!important;
-    font-size:12px!important;font-weight:900!important;
-    color:#fff!important;flex-shrink:0!important;
-    transition:background .2s!important;
-  }
-
-  #saMobPanelName {
-    font-size:13px!important;font-weight:700!important;
-    color:#e2e8f0!important;
-    white-space:nowrap!important;overflow:hidden!important;
-    text-overflow:ellipsis!important;
-  }
-
-  #saMobPanelRole {
-    font-size:10px!important;color:#64748b!important;margin-top:1px!important;
+  #mobChatRole {
+    font-size:10px;color:#64748b;margin-top:1px;
   }
 
   /* Input row */
-  #saMobPanelInputRow {
-    display:flex!important;
-    align-items:flex-end!important;
-    gap:8px!important;
-    padding:7px 10px 8px!important;
-    flex-shrink:0!important;
+  #mobChatRow {
+    display:flex;
+    align-items:flex-end;
+    gap:8px;
+    padding:8px 10px 10px;
   }
-
-  #saMobPanelMsg {
-    flex:1!important;
-    background:rgba(14,22,48,.8)!important;
-    border:1px solid rgba(42,58,106,.7)!important;
-    border-radius:10px!important;
-    padding:8px 12px!important;
-    font-size:15px!important;
-    color:#e2e8f0!important;
-    resize:none!important;
-    min-height:36px!important;
-    max-height:80px!important;
-    font-family:inherit!important;
-    outline:none!important;
-    line-height:1.4!important;
+  #mobChatMsg {
+    flex:1;
+    background:rgba(14,22,48,.8);
+    border:1px solid rgba(42,58,106,.7);
+    border-radius:10px;
+    padding:8px 12px;
+    font-size:15px;color:#e2e8f0;
+    resize:none;min-height:36px;max-height:80px;
+    font-family:inherit;outline:none;line-height:1.4;
   }
-  #saMobPanelMsg::placeholder { color:rgba(100,116,139,.5)!important; }
-  #saMobPanelMsg:focus { border-color:rgba(124,58,237,.7)!important; }
-
-  #saMobPanelSend {
-    width:38px!important;height:38px!important;
-    flex-shrink:0!important;
-    background:rgba(124,58,237,.85)!important;
-    border:1px solid rgba(124,58,237,.5)!important;
-    border-radius:10px!important;
-    color:#fff!important;font-size:16px!important;
-    display:flex!important;align-items:center!important;
-    justify-content:center!important;
-    cursor:pointer!important;
-    transition:background .15s,transform .1s!important;
+  #mobChatMsg:focus { border-color:rgba(124,58,237,.7); }
+  #mobChatSend {
+    width:38px;height:38px;flex-shrink:0;
+    background:rgba(124,58,237,.85);
+    border:1px solid rgba(124,58,237,.5);
+    border-radius:10px;color:#fff;font-size:17px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
   }
-  #saMobPanelSend:active {
-    background:rgba(99,68,255,.95)!important;
-    transform:scale(.93)!important;
-  }
-}
+  #mobChatSend:active { background:rgba(100,60,255,.95); transform:scale(.93); }
 
-
-}  /* close @media(max-width:960px) */
-
-@media(max-width:960px){
-  /* ── Scroll clearance — inside @media so desktop is unaffected ── */
+  /* Remove tableWrap bottom padding — bar is inline now */
   #tableWrap, .tableWrap {
-    padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
-    overflow:visible!important;
-    overflow-x:hidden!important;
+    padding-bottom:16px!important;
   }
-  #rtStage {
-    overflow:visible!important;
-    overflow-x:hidden!important;
-    padding-bottom:0!important;
-  }
-}
-
-/* Desktop: hide mobile panel entirely */
-@media(min-width:961px){
-  #saMobPanel { display:none!important; }
 }
 </style>
 
 <script>
 (function(){
 'use strict';
-var isMob=function(){return window.innerWidth<=960;};
+var mob=function(){return window.innerWidth<=960;};
 function ge(id){return document.getElementById(id);}
-var _seat=null;
+var _name=null;
 
-/* ── Update panel header ── */
-function setHdr(name){
-  var av=ge('saMobPanelAv'),nm=ge('saMobPanelName'),rl=ge('saMobPanelRole');
+function setWho(name){
+  var av=ge('mobChatAv'),nm=ge('mobChatName'),rl=ge('mobChatRole');
   if(!av||!nm) return;
-  var color='rgba(124,58,237,.7)';
-  try{
-    document.querySelectorAll('.seat').forEach(function(s){
-      var sn=s.querySelector('.seatName');
-      if(sn&&sn.textContent.trim()===name){
-        var ae=s.querySelector('.seatAvatar');
-        if(ae&&ae.style.background) color=ae.style.background;
-      }
-    });
-    var d=(window.state&&window.state.installed||{})[name]||{};
-    rl.textContent=d.job_title||d.role||'';
-  }catch(_){rl.textContent='';}
-  av.textContent=(name||'?')[0].toUpperCase();
+  if(!name){
+    av.textContent='?'; av.style.background='rgba(124,58,237,.55)';
+    nm.textContent='Tap a teammate above to chat';
+    if(rl) rl.textContent=''; return;
+  }
+  /* Get avatar colour from seat card */
+  var color='rgba(124,58,237,.8)';
+  document.querySelectorAll('.seat').forEach(function(s){
+    var sn=s.querySelector('.seatName');
+    if(sn&&sn.textContent.trim()===name){
+      var ae=s.querySelector('.seatAvatar');
+      if(ae&&ae.style.background) color=ae.style.background;
+    }
+  });
+  av.textContent=(name[0]||'?').toUpperCase();
   av.style.background=color;
   nm.textContent=name;
+  try{
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    if(rl) rl.textContent=d.job_title||d.role||'';
+  }catch(_){ if(rl) rl.textContent=''; }
 }
 
-/* ── Send ── */
 function doSend(){
-  var msg=ge('saMobPanelMsg');
-  if(!msg||!_seat) return;
+  var msg=ge('mobChatMsg');
+  if(!msg||!_name) return;
   var txt=msg.value.trim(); if(!txt) return;
   var fm=ge('followMsg'),sf=ge('sendFollow');
-  if(fm&&sf){fm.value=txt;sf.click();msg.value='';msg.style.height='auto';return;}
+  if(fm&&sf){ fm.value=txt; sf.click(); msg.value=''; msg.style.height='auto'; return; }
   if(typeof window.selectSeat==='function'){
-    window.selectSeat(_seat).then(function(){
+    window.selectSeat(_name).then(function(){
       var fm2=ge('followMsg'),sf2=ge('sendFollow');
-      if(fm2&&sf2){fm2.value=txt;sf2.click();msg.value='';}
+      if(fm2&&sf2){ fm2.value=txt; sf2.click(); msg.value=''; }
     });
   }
 }
 
-var sb=ge('saMobPanelSend');
-if(sb) sb.addEventListener('click',doSend);
-var ma=ge('saMobPanelMsg');
+var sb=ge('mobChatSend'); if(sb) sb.addEventListener('click',doSend);
+var ma=ge('mobChatMsg');
 if(ma){
   ma.addEventListener('keydown',function(e){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}
@@ -31640,99 +31497,52 @@ if(ma){
   });
 }
 
-/* ── Pick seat ── */
-function pick(name){
-  if(!isMob()) return;
-  _seat=name; setHdr(name);
-  document.querySelectorAll('.seat').forEach(function(s){
-    var sn=s.querySelector('.seatName');
-    s.classList.toggle('sel',sn&&sn.textContent.trim()===name);
-  });
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(name).then(function(){}).catch(function(){});
-  }
-}
-
-/* ── Hook seat taps ── */
 function hookSeats(){
   document.querySelectorAll('.seat').forEach(function(seat){
-    if(seat._smh) return; seat._smh=true;
+    if(seat._mc6) return; seat._mc6=true;
     seat.addEventListener('click',function(){
-      if(!isMob()) return;
+      if(!mob()) return;
       var sn=seat.querySelector('.seatName');
       var name=sn?sn.textContent.trim():seat.getAttribute('data-name');
-      if(name) pick(name);
+      if(!name) return;
+      _name=name; setWho(name);
+      document.querySelectorAll('.seat').forEach(function(s){
+        var ssn=s.querySelector('.seatName');
+        s.classList.toggle('sel',ssn&&ssn.textContent.trim()===name);
+      });
+      if(typeof window.selectSeat==='function'){
+        window.selectSeat(name).catch(function(){});
+      }
+      /* Scroll bar into view */
+      var bar=ge('mobChatBar');
+      if(bar) bar.scrollIntoView({behavior:'smooth',block:'nearest'});
     },true);
   });
 }
 
-/* ── Patch selectSeat ── */
 function patchSS(){
-  var orig=window.selectSeat;
-  if(!orig||orig._smPatch) return;
-  var p=function(name){
-    var r=orig.apply(this,arguments);
-    if(isMob()){_seat=name;setHdr(name);}
+  var o=window.selectSeat; if(!o||o._mc6) return;
+  var p=function(n){
+    var r=o.apply(this,arguments);
+    if(mob()){_name=n;setWho(n);}
     return r;
   };
-  p._smPatch=true; window.selectSeat=p;
-}
-
-function forcePin(){
-  var p = ge('saMobPanel');
-  if(!p) return;
-  if(isMob()){
-    /* Move to body so no ancestor can affect positioning */
-    if(p.parentNode !== document.body) document.body.appendChild(p);
-    /* Force fixed via inline style — cannot be overridden */
-    p.style.cssText = [
-      'display:block!important',
-      'position:fixed!important',
-      'bottom:0!important',
-      'left:0!important',
-      'right:0!important',
-      'top:auto!important',
-      'width:100%!important',
-      'z-index:999999!important',
-      'background:rgba(10,15,35,.99)!important',
-      'border-top:1px solid rgba(42,58,106,.85)!important',
-      'box-shadow:0 -4px 20px rgba(0,0,0,.55)!important',
-      'padding-bottom:env(safe-area-inset-bottom)!important',
-      'flex-direction:column!important',
-      'border-radius:0!important'
-    ].join(';');
-    /* Force children visible */
-    var hdr = ge('saMobPanelHdr');
-    var row = ge('saMobPanelInputRow');
-    if(hdr) hdr.style.cssText='display:flex!important;align-items:center!important;gap:10px!important;padding:8px 14px 6px!important;border-bottom:1px solid rgba(42,58,106,.45)!important;flex-shrink:0!important;';
-    if(row) row.style.cssText='display:flex!important;align-items:flex-end!important;gap:8px!important;padding:7px 10px 8px!important;flex-shrink:0!important;';
-    var inp = ge('saMobPanelMsg');
-    if(inp) inp.style.cssText='flex:1!important;background:rgba(14,22,48,.8)!important;border:1px solid rgba(42,58,106,.7)!important;border-radius:10px!important;padding:8px 12px!important;font-size:15px!important;color:#e2e8f0!important;resize:none!important;min-height:36px!important;max-height:80px!important;font-family:inherit!important;outline:none!important;line-height:1.4!important;';
-    var btn = ge('saMobPanelSend');
-    if(btn) btn.style.cssText='width:38px!important;height:38px!important;flex-shrink:0!important;background:rgba(124,58,237,.85)!important;border:1px solid rgba(124,58,237,.5)!important;border-radius:10px!important;color:#fff!important;font-size:16px!important;display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;';
-  } else {
-    p.style.cssText = 'display:none!important';
-  }
+  p._mc6=true; window.selectSeat=p;
 }
 
 function tryInit(){
   if(typeof window.selectSeat==='function'){patchSS();hookSeats();}
   else{setTimeout(tryInit,400);}
 }
-
 if(window.MutationObserver){
-  new MutationObserver(function(){hookSeats();})
+  new MutationObserver(hookSeats)
     .observe(document.documentElement,{childList:true,subtree:true});
 }
 setTimeout(tryInit,800);
-setTimeout(hookSeats,1500);
-/* Pin on load and resize */
-setTimeout(forcePin, 200);
-setTimeout(forcePin, 1000);
-window.addEventListener('resize', forcePin);
+setTimeout(hookSeats,1600);
 })();
 </script>
-<!-- ===== END MOBILE LAYOUT v5 ===== -->
+<!-- ===== END MOBILE CHAT BAR v6 ===== -->
 
 </body>
 </html>
