@@ -11461,7 +11461,7 @@ HTML = r"""
       '  width:100%!important;max-width:100%!important;',
       '  height:auto!important;min-height:0!important;',
       '  overflow:visible!important;touch-action:auto!important;',
-      '  padding:90px 12px 24px!important;gap:10px!important;', /* 90px top = strip height */
+      '  padding:8px 12px 8px!important;gap:10px!important;', /* normal padding - strip is at bottom */
       '  margin:0!important;transform:none!important;',
       '}',
       /* Flatten #rtStage if pan-zoom created it — double-ID wins on specificity */
@@ -16373,17 +16373,13 @@ if (typeof window.showToast !== "function") {
     }
 
 function applyModalPos(){
-      const win = $("modalWin");
-      if(!win) return;
-      win.style.cssText = [
-        "position:fixed","top:0","left:0","right:0","bottom:0",
-        "width:100vw","height:100vh",
-        "max-width:100vw","max-height:100vh",
-        "border-radius:0","transform:none",
-        "resize:none","margin:0","padding:0"
-      ].join("!important;") + "!important";
-      const sc = $("modalScroll");
-      if(sc){ sc.style.height="calc(100vh - 52px)"; sc.style.maxHeight="none"; sc.style.overflowY="auto"; }
+      const win = $("modalWin"); if(!win) return;
+      win.style.cssText = ["position:fixed","top:0","left:0","right:0","bottom:0",
+        "width:100vw","height:100vh","max-width:100vw","max-height:100vh",
+        "border-radius:0","transform:none","resize:none","margin:0","padding:0"
+      ].join("!important;")+"!important";
+      const sc=$("modalScroll");
+      if(sc){sc.style.height="calc(100vh - 52px)";sc.style.maxHeight="none";sc.style.overflowY="auto";}
     }
 
 
@@ -31380,654 +31376,273 @@ document.addEventListener('click',e=>{
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
-<!-- ═══════════════════════════════════════════════════════════════
-     MOBILE TWO-SCREEN REDESIGN v12
-     Screen 1: Team list  (translateX 0)
-     Screen 2: Full-screen chat  (slides in from right)
-     Bottom tab bar: Team / CRM / Create / Settings
-     Zero position:fixed fights. Zero z-index wars.
-     Both screens are normal block divs — CSS transform slides them.
-     applyModalPos already patched to full-screen above.
-═══════════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════
+     MOBILE LAYOUT v10 — DEFINITIVE
+     Strip: position:fixed, direct body child, immune to transforms.
+     Scroll: pre-paint sets padding-top:90px + min-height:0 everywhere.
+     Cards: full scroll to last card — no void.
+══════════════════════════════════════════════════════════ -->
 
-<!-- ── Screen 1: Team list ── -->
-<div id="msc1">
-  <div id="msc1Header">
-    <div id="msc1Logo">Simply Agentic</div>
-    <div id="msc1Icons">
-      <button id="msc1NotifBtn" onclick="toggleNotifPanel()" aria-label="Notifications">
-        <i class="ti ti-bell" aria-hidden="true"></i>
-        <span id="msc1NotifDot"></span>
-      </button>
-      <button id="msc1MenuBtn" onclick="openMobileDrawer()" aria-label="Menu">
-        <i class="ti ti-menu-2" aria-hidden="true"></i>
-      </button>
+<!-- Chat strip: rendered early as body child -->
+<div id="mobStrip">
+  <div id="mobStripWho">
+    <div id="mobStripAv"></div>
+    <div id="mobStripMeta">
+      <div id="mobStripName">Tap a teammate to chat</div>
+      <div id="mobStripRole"></div>
     </div>
   </div>
-  <div id="msc1Cards"><!-- seat cards injected here by JS --></div>
-  <nav id="mscTabBar" role="tablist">
-    <button class="mscTab mscTabActive" onclick="mscTabClick('team')" aria-label="Team">
-      <i class="ti ti-users" aria-hidden="true"></i>
-      <span>Team</span>
-    </button>
-    <button class="mscTab" onclick="mscTabClick('crm')" aria-label="CRM">
-      <i class="ti ti-address-book" aria-hidden="true"></i>
-      <span>CRM</span>
-    </button>
-    <button class="mscTab" onclick="mscTabClick('create')" aria-label="Create">
-      <i class="ti ti-pencil" aria-hidden="true"></i>
-      <span>Create</span>
-    </button>
-    <button class="mscTab" onclick="mscTabClick('settings')" aria-label="Settings">
-      <i class="ti ti-settings" aria-hidden="true"></i>
-      <span>Settings</span>
-    </button>
-  </nav>
-</div>
-
-<!-- ── Screen 2: Full-screen chat ── -->
-<div id="msc2">
-  <div id="msc2Header">
-    <button id="msc2Back" onclick="mscGoBack()" aria-label="Back to team">
-      <i class="ti ti-arrow-left" aria-hidden="true"></i>
-    </button>
-    <div id="msc2Av"></div>
-    <div id="msc2Info">
-      <div id="msc2Name">Teammate</div>
-      <div id="msc2Role"></div>
-    </div>
-    <div id="msc2Status"></div>
+  <div id="mobStripRow">
+    <textarea id="mobStripMsg"
+      placeholder="Message teammate…"
+      rows="1" autocomplete="off" autocorrect="off"
+      autocapitalize="sentences" spellcheck="false"></textarea>
+    <button id="mobStripSend">&#x21B5;</button>
   </div>
-
-  <!-- Real thread + input from desktop, moved here on mobile -->
-  <div id="msc2ThreadSlot"></div>
-  <div id="msc2Pills">
-    <button class="msc2Pill" onclick="mscPill('prompts')"><i class="ti ti-books" aria-hidden="true"></i>Prompts</button>
-    <button class="msc2Pill" onclick="mscPill('summarize')"><i class="ti ti-file-text" aria-hidden="true"></i>Summarize</button>
-    <button class="msc2Pill" onclick="mscPill('deepdive')"><i class="ti ti-microscope" aria-hidden="true"></i>Deep Dive</button>
-    <button class="msc2Pill" onclick="mscPill('voice')"><i class="ti ti-microphone" aria-hidden="true"></i>Voice</button>
-  </div>
-  <div id="msc2InputSlot"></div>
 </div>
 
 <style>
-/* ═══ MOBILE TWO-SCREEN: hidden on desktop ══════════════════════ */
-#msc1, #msc2 { display: none; }
+/* Default hidden */
+#mobStrip{ display:none; }
 
 @media(max-width:960px){
 
-  /* ── Kill ALL desktop layout ── */
-  .saNavBar,
-  .side, .sideCard, .stage, .arena,
-  #tableWrap, .tableWrap,
-  .operator, #operator,
-  .groupCard, .underTable, #sharedMemoryCard,
-  #groupReplies, #groupPassRow,
-  .mobileDrawerOverlay,
-  #mobStrip, #mobChatBar, #saMobPanel,
-  #mobileSheet, #sheetBackdrop {
-    display: none !important;
+  /* ── 1. Strip: fixed at top, immune to everything ── */
+  #mobStrip{
+    display:flex!important; flex-direction:column!important;
+    position:fixed!important; bottom:0!important; top:auto!important;
+    left:0!important; right:0!important;
+    z-index:8500!important;
+    background:rgba(8,12,28,.99)!important;
+    border-top:1.5px solid rgba(124,58,237,.5)!important;
+    border-bottom:none!important;
+    box-shadow:0 -3px 18px rgba(0,0,0,.6)!important;
+    filter:none!important; transform:none!important; will-change:auto!important;
+    padding-bottom:env(safe-area-inset-bottom)!important;
+  }
+  #mobStripWho{
+    display:flex!important; align-items:center!important; gap:10px!important;
+    padding:8px 14px 6px!important;
+    border-bottom:1px solid rgba(42,58,106,.45)!important;
+    flex-shrink:0!important;
+  }
+  #mobStripAv{
+    width:28px!important; height:28px!important; min-width:28px!important;
+    border-radius:8px!important; background:rgba(124,58,237,.5)!important;
+    display:flex!important; align-items:center!important; justify-content:center!important;
+    font-size:12px!important; font-weight:900!important; color:#fff!important;
+    flex-shrink:0!important; transition:background .2s!important;
+  }
+  #mobStripName{
+    font-size:13px!important; font-weight:700!important; color:#e2e8f0!important;
+    overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
+  }
+  #mobStripRole{ font-size:10px!important; color:#64748b!important; margin-top:1px!important; }
+  #mobStripRow{
+    display:flex!important; align-items:flex-end!important;
+    gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
+  }
+  #mobStripMsg{
+    flex:1!important; background:rgba(14,22,48,.85)!important;
+    border:1px solid rgba(42,58,106,.7)!important; border-radius:10px!important;
+    padding:8px 12px!important; font-size:15px!important; color:#e2e8f0!important;
+    resize:none!important; min-height:36px!important; max-height:88px!important;
+    font-family:inherit!important; outline:none!important; line-height:1.4!important;
+  }
+  #mobStripMsg::placeholder{ color:rgba(100,116,139,.5)!important; }
+  #mobStripMsg:focus{ border-color:rgba(124,58,237,.7)!important; }
+  #mobStripSend{
+    width:40px!important; height:40px!important; flex-shrink:0!important;
+    background:rgba(124,58,237,.9)!important; border:1px solid rgba(124,58,237,.5)!important;
+    border-radius:10px!important; color:#fff!important; font-size:18px!important;
+    display:flex!important; align-items:center!important; justify-content:center!important;
+    cursor:pointer!important;
+  }
+  #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
+
+  /* ── 2. Kill ghost panels ── */
+  .side,.sideCard,.stage>.side,
+  #threadActionsRow,#followRow,.followBox,#followMsg,#sendFollow,
+  #dmAttachBtn,#dmAttachDrop,#dmAttachWrap,#dmFiles,#dmAttachList,#micStatusDm,
+  .groupCard,.underTable,#sharedMemoryCard,#groupReplies,#groupPassRow,
+  .operator,#operator,#opPrompt,#sendGroup,.opRow,.opText,#opStatus,
+  #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel{
+    display:none!important; height:0!important; min-height:0!important;
+    max-height:0!important; overflow:hidden!important; position:static!important;
   }
 
-  /* ── Root: full-screen container ── */
-  html, body {
-    overflow: hidden !important;
-    height: 100% !important;
-    width: 100% !important;
+  /* ── 3. Stage/arena: no void ── */
+  .stage{
+    display:grid!important; grid-template-columns:1fr!important;
+    min-height:0!important; height:auto!important; overflow:visible!important;
+  }
+  .arena{ min-height:0!important; height:auto!important; overflow:visible!important; }
+
+  /* ── 4. tableWrap: padding-top handled by pre-paint script ── */
+  #tableWrap,.tableWrap{
+    display:flex!important; flex-direction:column!important;
+    align-items:stretch!important; width:100%!important; max-width:100%!important;
+    height:auto!important; min-height:0!important; overflow:visible!important;
+    padding-left:12px!important; padding-right:12px!important;
+    padding-bottom:calc(100px + env(safe-area-inset-bottom))!important;
+    gap:10px!important; box-sizing:border-box!important; transform:none!important;
+  }
+  #tableWrap .table,.tableWrap .table{ display:none!important; }
+
+  /* ── 5. rtStage: flat column, no void ── */
+  #tableWrap #rtStage,#rtStage{
+    position:static!important; display:flex!important; flex-direction:column!important;
+    gap:10px!important; width:100%!important;
+    height:auto!important; min-height:0!important; max-height:none!important;
+    transform:none!important; overflow:visible!important;
   }
 
-  /* ── Screen 1 ── */
-  #msc1 {
-    display:        flex !important;
-    flex-direction: column !important;
-    position:       fixed !important;
-    inset:          0 !important;
-    z-index:        1000 !important;
-    background:     #07091a !important;
-    transition:     transform .35s cubic-bezier(.32,0,.15,1) !important;
-    filter:         none !important;
-  }
-  #msc1.mscOut {
-    transform: translateX(-28%) !important;
+  /* ── 6. Seat cards: original portrait layout ── */
+  #tableWrap .seat,.tableWrap .seat,#rtStage .seat{
+    position:relative!important; left:auto!important; top:auto!important;
+    right:auto!important; bottom:auto!important; transform:none!important;
+    width:100%!important; max-width:100%!important;
+    height:auto!important; min-height:76px!important;
+    margin:0!important; overflow:hidden!important; isolation:isolate!important;
+    z-index:1!important; box-sizing:border-box!important;
+    flex-shrink:0!important; cursor:pointer!important;
   }
 
-  #msc1Header {
-    display:         flex !important;
-    align-items:     center !important;
-    justify-content: space-between !important;
-    padding:         10px 14px 8px !important;
-    border-bottom:   1px solid rgba(42,58,106,.6) !important;
-    background:      rgba(8,12,30,.99) !important;
-    flex-shrink:     0 !important;
-  }
-  #msc1Logo {
-    font-size:   15px !important;
-    font-weight: 800 !important;
-    color:       #c4b5fd !important;
-    letter-spacing: .3px !important;
-  }
-  #msc1Icons {
-    display:     flex !important;
-    gap:         8px !important;
-    align-items: center !important;
-  }
-  #msc1Icons button {
-    width:           34px !important;
-    height:          34px !important;
-    border-radius:   9px !important;
-    background:      rgba(14,22,48,.8) !important;
-    border:          1px solid rgba(42,58,106,.6) !important;
-    color:           #64748b !important;
-    font-size:       16px !important;
-    display:         flex !important;
-    align-items:     center !important;
-    justify-content: center !important;
-    cursor:          pointer !important;
-    position:        relative !important;
-  }
-  #msc1NotifDot {
-    display:      none;
-    position:     absolute;
-    top:          4px;
-    right:        4px;
-    width:        7px;
-    height:       7px;
-    border-radius:50%;
-    background:   #ef4444;
+  /* ── 7. Selected seat glow ── */
+  #rtStage .seat.sel,.tableWrap .seat.sel,#tableWrap .seat.sel{
+    border-color:rgba(124,58,237,.9)!important;
+    background:rgba(22,18,70,.97)!important;
+    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,0 0 22px rgba(124,58,237,.4),0 6px 28px rgba(0,0,0,.5)!important;
   }
 
-  #msc1Cards {
-    flex:                   1 !important;
-    overflow-y:             auto !important;
-    padding:                10px 12px !important;
-    display:                flex !important;
-    flex-direction:         column !important;
-    gap:                    8px !important;
-    -webkit-overflow-scrolling: touch !important;
+  /* ── 8. Pass buttons: horizontal scroll ── */
+  #seatPassRow{
+    display:flex!important; overflow-x:auto!important; flex-wrap:nowrap!important;
+    gap:6px!important; padding:4px 0!important;
+    -webkit-overflow-scrolling:touch!important; scrollbar-width:none!important;
   }
-  #msc1Cards::-webkit-scrollbar { display: none !important; }
+  #seatPassRow::-webkit-scrollbar{ display:none!important; }
+  #seatPassRow .passBtn{ flex-shrink:0!important; }
 
-  /* ── Seat cards in Screen 1 ── */
-  .mscCard {
-    display:      flex !important;
-    align-items:  center !important;
-    gap:          11px !important;
-    padding:      12px 13px !important;
-    background:   rgba(13,20,48,.85) !important;
-    border:       1px solid rgba(42,58,106,.5) !important;
-    border-radius:15px !important;
-    cursor:       pointer !important;
-    transition:   border-color .15s, background .15s !important;
-  }
-  .mscCard:active { background: rgba(20,16,50,.95) !important; }
-  .mscCard.mscSel {
-    border-color: rgba(124,58,237,.9) !important;
-    background:   rgba(20,16,60,.97) !important;
-  }
-  .mscCardAv {
-    width:           42px !important;
-    height:          42px !important;
-    min-width:       42px !important;
-    border-radius:   12px !important;
-    display:         flex !important;
-    align-items:     center !important;
-    justify-content: center !important;
-    font-size:       17px !important;
-    font-weight:     900 !important;
-    color:           #fff !important;
-    flex-shrink:     0 !important;
-  }
-  .mscCardInfo { flex: 1 !important; min-width: 0 !important; }
-  .mscCardName {
-    font-size:   15px !important;
-    font-weight: 800 !important;
-    color:       #e2e8f0 !important;
-    margin-bottom: 2px !important;
-  }
-  .mscCardRole {
-    font-size:     11px !important;
-    color:         #64748b !important;
-    overflow:      hidden !important;
-    text-overflow: ellipsis !important;
-    white-space:   nowrap !important;
-  }
-  .mscCardSt {
-    display:     flex !important;
-    align-items: center !important;
-    gap:         5px !important;
-    margin-top:  4px !important;
-  }
-  .mscDot {
-    width:         6px !important;
-    height:        6px !important;
-    border-radius: 50% !important;
-    background:    #22c55e !important;
-    flex-shrink:   0 !important;
-  }
-  .mscDot.off { background: #334155 !important; }
-  .mscCardStTxt { font-size: 10px !important; color: #64748b !important; }
-  .mscCardChev { color: #2d3f6e !important; font-size: 16px !important; }
-
-  /* ── Tab bar ── */
-  #mscTabBar {
-    display:       flex !important;
-    border-top:    1px solid rgba(42,58,106,.55) !important;
-    background:    rgba(7,9,26,.99) !important;
-    flex-shrink:   0 !important;
-    padding-bottom:env(safe-area-inset-bottom) !important;
-  }
-  .mscTab {
-    flex:           1 !important;
-    display:        flex !important;
-    flex-direction: column !important;
-    align-items:    center !important;
-    gap:            3px !important;
-    padding:        9px 2px 6px !important;
-    background:     none !important;
-    border:         none !important;
-    color:          #334155 !important;
-    font-size:      10px !important;
-    font-weight:    600 !important;
-    cursor:         pointer !important;
-    letter-spacing: .2px !important;
-    transition:     color .15s !important;
-  }
-  .mscTab i { font-size: 21px !important; }
-  .mscTab.mscTabActive { color: #a78bfa !important; }
-
-  /* ── Screen 2 ── */
-  #msc2 {
-    display:        flex !important;
-    flex-direction: column !important;
-    position:       fixed !important;
-    inset:          0 !important;
-    z-index:        1001 !important;
-    background:     #07091a !important;
-    transform:      translateX(100%) !important;
-    transition:     transform .35s cubic-bezier(.32,0,.15,1) !important;
-    filter:         none !important;
-  }
-  #msc2.mscIn { transform: translateX(0) !important; }
-
-  #msc2Header {
-    display:       flex !important;
-    align-items:   center !important;
-    gap:           10px !important;
-    padding:       9px 12px 8px !important;
-    border-bottom: 1px solid rgba(42,58,106,.55) !important;
-    background:    rgba(8,12,30,.99) !important;
-    flex-shrink:   0 !important;
-  }
-  #msc2Back {
-    width:           34px !important;
-    height:          34px !important;
-    border-radius:   9px !important;
-    background:      rgba(14,22,48,.8) !important;
-    border:          1px solid rgba(42,58,106,.6) !important;
-    color:           #94a3b8 !important;
-    font-size:       16px !important;
-    display:         flex !important;
-    align-items:     center !important;
-    justify-content: center !important;
-    cursor:          pointer !important;
-    flex-shrink:     0 !important;
-  }
-  #msc2Av {
-    width:           34px !important;
-    height:          34px !important;
-    min-width:       34px !important;
-    border-radius:   10px !important;
-    display:         flex !important;
-    align-items:     center !important;
-    justify-content: center !important;
-    font-size:       14px !important;
-    font-weight:     900 !important;
-    color:           #fff !important;
-    flex-shrink:     0 !important;
-    transition:      background .2s !important;
-  }
-  #msc2Name {
-    font-size:   14px !important;
-    font-weight: 800 !important;
-    color:       #e2e8f0 !important;
-  }
-  #msc2Role { font-size: 10px !important; color: #64748b !important; margin-top: 1px !important; }
-  #msc2Status {
-    margin-left: auto !important;
-    font-size:   11px !important;
-    color:       #22c55e !important;
-    display:     flex !important;
-    align-items: center !important;
-    gap:         4px !important;
-  }
-
-  /* Thread slot — real #thread lives here on mobile */
-  #msc2ThreadSlot {
-    flex:        1 !important;
-    overflow-y:  auto !important;
-    min-height:  0 !important;
-    -webkit-overflow-scrolling: touch !important;
-  }
-  #msc2ThreadSlot .thread {
-    height:     100% !important;
-    padding:    10px 12px !important;
-    box-sizing: border-box !important;
-  }
-  #msc2ThreadSlot .msg {
-    max-width: 88% !important;
-  }
-
-  /* Pills */
-  #msc2Pills {
-    display:    flex !important;
-    gap:        6px !important;
-    padding:    6px 12px !important;
-    overflow-x: auto !important;
-    flex-shrink:0 !important;
-    -webkit-overflow-scrolling: touch !important;
-    scrollbar-width: none !important;
-    border-top: 1px solid rgba(42,58,106,.35) !important;
-  }
-  #msc2Pills::-webkit-scrollbar { display: none !important; }
-  .msc2Pill {
-    display:      flex !important;
-    align-items:  center !important;
-    gap:          4px !important;
-    padding:      5px 10px !important;
-    background:   rgba(14,22,48,.8) !important;
-    border:       1px solid rgba(42,58,106,.6) !important;
-    border-radius:20px !important;
-    color:        #64748b !important;
-    font-size:    11px !important;
-    font-weight:  600 !important;
-    white-space:  nowrap !important;
-    cursor:       pointer !important;
-    flex-shrink:  0 !important;
-    transition:   color .15s, border-color .15s !important;
-  }
-  .msc2Pill i { font-size: 13px !important; }
-  .msc2Pill:active { color: #c4b5fd !important; border-color: rgba(124,58,237,.6) !important; }
-
-  /* Input slot — real #followRow lives here on mobile */
-  #msc2InputSlot {
-    flex-shrink: 0 !important;
-    border-top:  1px solid rgba(42,58,106,.45) !important;
-    padding:     8px 10px !important;
-    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
-    background:  rgba(8,12,28,.99) !important;
-  }
-  #msc2InputSlot .followBox {
-    font-size:     15px !important;
-    padding:       9px 12px !important;
-    border-radius: 10px !important;
-    min-height:    40px !important;
-    max-height:    100px !important;
-  }
-  #msc2InputSlot #sendFollow {
-    min-height: 40px !important;
-    border-radius: 10px !important;
-  }
+  /* ── 9. html/body: scroll freely ── */
+  html,body{ overflow-x:hidden!important; height:auto!important; }
 }
-
-@media(min-width:961px){
-  #msc1, #msc2 { display: none !important; }
-}
+@media(min-width:961px){ #mobStrip{ display:none!important; } }
 </style>
 
 <script>
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE TWO-SCREEN v12
-   - Screen 1: inject mscCards from existing .seat elements
-   - Screen 2: physically move #thread + #followRow into slots
-   - selectSeat patched to update Screen 2 header
-   - swipe-back gesture on Screen 2
-═══════════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
-var MOB = function(){ return window.innerWidth <= 960; };
-function ge(id){ return document.getElementById(id); }
+var MOB=function(){return window.innerWidth<=960;};
+function ge(id){return document.getElementById(id);}
+var _nm=null;
 
-/* ── Track DOM homes for thread + input row ── */
-var _threadHome = null, _threadNext = null;
-var _inputHome  = null, _inputNext  = null;
-var _inputRow   = null;
-var _inScreen2  = false;
-
-function storeHomes(){
-  if(_threadHome) return;
-  var th = ge('thread');
-  var fm = ge('followMsg');
-  if(!th || !fm) return;
-  _threadHome = th.parentNode;
-  _threadNext = th.nextSibling;
-  /* Input row = parent of followMsg that also contains sendFollow */
-  var p = fm.parentNode;
-  while(p && !p.contains(ge('sendFollow'))) p = p.parentNode;
-  _inputRow   = p;
-  _inputHome  = p ? p.parentNode : null;
-  _inputNext  = p ? p.nextSibling : null;
+/* Always keep strip as direct body child */
+function pin(){
+  var s=ge('mobStrip');
+  if(s&&s.parentNode!==document.body) document.body.appendChild(s);
 }
 
-function moveToScreen2(){
-  storeHomes();
-  var th  = ge('thread');
-  var ts  = ge('msc2ThreadSlot');
-  var isl = ge('msc2InputSlot');
-  if(th && ts && th.parentNode !== ts) ts.appendChild(th);
-  if(_inputRow && isl && _inputRow.parentNode !== isl) isl.appendChild(_inputRow);
-  _inScreen2 = true;
-}
-
-function moveToDesktop(){
-  var th = ge('thread');
-  if(th && _threadHome){
-    if(_threadNext && _threadNext.parentNode === _threadHome)
-      _threadHome.insertBefore(th, _threadNext);
-    else _threadHome.appendChild(th);
+/* Update who-row */
+function setWho(name){
+  var av=ge('mobStripAv'),nm=ge('mobStripName'),rl=ge('mobStripRole');
+  if(!av||!nm)return;
+  if(!name){
+    av.textContent='';av.style.background='rgba(124,58,237,.5)';
+    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';return;
   }
-  if(_inputRow && _inputHome){
-    if(_inputNext && _inputNext.parentNode === _inputHome)
-      _inputHome.insertBefore(_inputRow, _inputNext);
-    else _inputHome.appendChild(_inputRow);
-  }
-  _inScreen2 = false;
-}
-
-/* ── Build Screen 1 card list from .seat elements ── */
-function buildCardList(){
-  if(!MOB()) return;
-  var slot = ge('msc1Cards');
-  if(!slot) return;
-  slot.innerHTML = '';
-
-  var seats = document.querySelectorAll('#tableWrap .seat, #rtStage .seat');
-  if(!seats.length) seats = document.querySelectorAll('.seat[data-name]');
-  if(!seats.length){ setTimeout(buildCardList, 600); return; }
-
-  seats.forEach(function(seat){
-    var name  = seat.getAttribute('data-name') || '';
-    var nmEl  = seat.querySelector('.seatName');
-    var rlEl  = seat.querySelector('.seatRole, .seatSub');
-    var avEl  = seat.querySelector('.seatAvatar');
-    var stEl  = seat.querySelector('.seatStatus');
-    if(!name && nmEl) name = nmEl.textContent.trim();
-    if(!name) return;
-
-    var role   = rlEl  ? rlEl.textContent.trim()  : '';
-    var color  = avEl  && avEl.style.background ? avEl.style.background : 'rgba(124,58,237,.7)';
-    var status = stEl  ? stEl.textContent.trim()  : 'Idle';
-    var active = /activ|typing|think/i.test(status);
-
-    var card = document.createElement('div');
-    card.className   = 'mscCard';
-    card.dataset.mscName = name;
-    card.innerHTML =
-      '<div class="mscCardAv" style="background:' + color + '">' + (name[0]||'?').toUpperCase() + '</div>' +
-      '<div class="mscCardInfo">' +
-        '<div class="mscCardName">' + name + '</div>' +
-        (role ? '<div class="mscCardRole">' + role + '</div>' : '') +
-        '<div class="mscCardSt">' +
-          '<div class="mscDot' + (active ? '' : ' off') + '"></div>' +
-          '<span class="mscCardStTxt">' + status + '</span>' +
-        '</div>' +
-      '</div>' +
-      '<i class="ti ti-chevron-right mscCardChev" aria-hidden="true"></i>';
-
-    card.addEventListener('click', function(){
-      if(!MOB()) return;
-      mscOpenChat(name, color, role, active);
-    });
-    slot.appendChild(card);
-  });
-}
-
-/* ── Open Screen 2 ── */
-window.mscOpenChat = function(name, color, role, active){
-  if(!MOB()) return;
-
-  /* Update header */
-  var av = ge('msc2Av'), nm = ge('msc2Name'), rl = ge('msc2Role'), st = ge('msc2Status');
-  if(av){ av.textContent = (name[0]||'?').toUpperCase(); av.style.background = color || 'rgba(124,58,237,.7)'; }
-  if(nm) nm.textContent = name;
-  if(rl) rl.textContent = role || '';
-  if(st){
-    st.innerHTML = active
-      ? '<div class="mscDot"></div>Active'
-      : '<div class="mscDot off"></div>Idle';
-    st.style.color = active ? '#22c55e' : '#64748b';
-  }
-
-  /* Highlight card */
-  document.querySelectorAll('.mscCard').forEach(function(c){
-    c.classList.toggle('mscSel', c.dataset.mscName === name);
-  });
-
-  /* Select seat (loads thread) then move elements into S2 */
-  var doOpen = function(){
-    moveToScreen2();
-    ge('msc1').classList.add('mscOut');
-    ge('msc2').classList.add('mscIn');
-    /* Scroll thread to bottom */
-    setTimeout(function(){
-      var ts = ge('msc2ThreadSlot');
-      if(ts) ts.scrollTop = ts.scrollHeight;
-      var fm = ge('followMsg');
-      if(fm) fm.focus();
-    }, 380);
-  };
-
-  if(typeof window.selectSeat === 'function'){
-    var r = window.selectSeat(name);
-    if(r && typeof r.then === 'function') r.then(doOpen).catch(doOpen);
-    else { setTimeout(doOpen, 100); }
-  } else { doOpen(); }
-};
-
-/* ── Back to Screen 1 ── */
-window.mscGoBack = function(){
-  ge('msc1').classList.remove('mscOut');
-  ge('msc2').classList.remove('mscIn');
-  setTimeout(function(){
-    if(MOB()) moveToDesktop();
-  }, 360);
-};
-
-/* ── Pill actions ── */
-window.mscPill = function(action){
-  if(action === 'prompts'){
-    var b = ge('promptLibraryBtn'); if(b) b.click();
-  } else if(action === 'summarize'){
-    var fm = ge('followMsg'), sf = ge('sendFollow');
-    if(fm && sf){ fm.value = 'Summarize our conversation so far in clear bullet points.'; sf.click(); }
-  } else if(action === 'deepdive'){
-    if(typeof _saOpenDeepDive === 'function') _saOpenDeepDive();
-  } else if(action === 'voice'){
-    var vb = ge('talkDmBtn'); if(vb) vb.click();
-  }
-};
-
-/* ── Tab bar ── */
-window.mscTabClick = function(tab){
-  document.querySelectorAll('.mscTab').forEach(function(t){ t.classList.remove('mscTabActive'); });
-  event.currentTarget.classList.add('mscTabActive');
-  if(tab === 'crm'){ var b = ge('crmBtn'); if(b) b.click(); }
-  else if(tab === 'create'){ var b2 = ge('socialStudioBtn'); if(b2) b2.click(); }
-  else if(tab === 'settings'){ var b3 = ge('settingsBtn'); if(b3) b3.click(); }
-};
-
-/* ── Swipe-right-to-go-back on Screen 2 ── */
-var _tx = 0, _dragging = false;
-var s2 = ge('msc2');
-if(s2){
-  s2.addEventListener('touchstart', function(e){
-    if(e.touches[0].clientX > 30) return;
-    _tx = e.touches[0].clientX; _dragging = true;
-    s2.style.transition = 'none';
-  }, {passive:true});
-  s2.addEventListener('touchmove', function(e){
-    if(!_dragging) return;
-    var dx = e.touches[0].clientX - _tx;
-    if(dx > 0) s2.style.transform = 'translateX(' + dx + 'px)';
-  }, {passive:true});
-  s2.addEventListener('touchend', function(e){
-    if(!_dragging) return;
-    _dragging = false; s2.style.transition = '';
-    var dx = e.changedTouches[0].clientX - _tx;
-    if(dx > 80) window.mscGoBack();
-    else s2.style.transform = ge('msc2').classList.contains('mscIn') ? 'translateX(0)' : 'translateX(100%)';
-  });
-}
-
-/* ── Patch selectSeat to update Screen 2 header if open ── */
-function patchSS(){
-  var o = window.selectSeat;
-  if(!o || o._msc12) return;
-  var p = function(name){
-    var r = o.apply(this, arguments);
-    if(MOB()){
-      var defn = ((window.state||{}).installed||{})[name]||{};
-      var av   = document.querySelector('.mscCard[data-msc-name="' + name + '"] .mscCardAv');
-      var color = av ? av.style.background : 'rgba(124,58,237,.7)';
-      var role  = defn.job_title || defn.role || '';
-      var nm2   = ge('msc2Name'); if(nm2) nm2.textContent = name;
-      var rl2   = ge('msc2Role'); if(rl2) rl2.textContent = role;
-      var av2   = ge('msc2Av');
-      if(av2){ av2.textContent = (name[0]||'?').toUpperCase(); av2.style.background = color; }
+  var color='rgba(124,58,237,.75)';
+  document.querySelectorAll('.seat').forEach(function(s){
+    var sn=s.querySelector('.seatName');
+    if(sn&&sn.textContent.trim()===name){
+      var ae=s.querySelector('.seatAvatar');
+      if(ae&&ae.style&&ae.style.background)color=ae.style.background;
     }
+  });
+  av.textContent=(name[0]||'?').toUpperCase(); av.style.background=color;
+  nm.textContent=name;
+  try{
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    if(rl)rl.textContent=d.job_title||d.role||'';
+  }catch(_){if(rl)rl.textContent='';}
+}
+
+/* Send via real pipeline */
+function doSend(){
+  var msg=ge('mobStripMsg');
+  if(!msg||!_nm)return;
+  var txt=msg.value.trim();if(!txt)return;
+  var fm=ge('followMsg'),sf=ge('sendFollow');
+  if(fm&&sf){fm.value=txt;sf.click();msg.value='';msg.style.height='auto';return;}
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(_nm).then(function(){
+      var f=ge('followMsg'),s2=ge('sendFollow');
+      if(f&&s2){f.value=txt;s2.click();msg.value='';}
+    });
+  }
+}
+
+var sb=ge('mobStripSend');
+if(sb)sb.addEventListener('click',doSend);
+var ma=ge('mobStripMsg');
+if(ma){
+  ma.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}
+  });
+  ma.addEventListener('input',function(){
+    this.style.height='auto';
+    this.style.height=Math.min(this.scrollHeight,88)+'px';
+  });
+}
+
+/* Hook seat taps */
+function hookSeats(){
+  document.querySelectorAll('.seat').forEach(function(seat){
+    if(seat._v10)return; seat._v10=true;
+    seat.addEventListener('click',function(){
+      if(!MOB())return;
+      var sn=seat.querySelector('.seatName');
+      var name=sn?sn.textContent.trim():seat.getAttribute('data-name');
+      if(!name)return;
+      _nm=name; setWho(name);
+      document.querySelectorAll('.seat').forEach(function(s){
+        var ssn=s.querySelector('.seatName');
+        s.classList.toggle('sel',ssn&&ssn.textContent.trim()===name);
+      });
+      if(typeof window.selectSeat==='function')window.selectSeat(name).catch(function(){});
+      setTimeout(function(){var m=ge('mobStripMsg');if(m)m.focus();},200);
+    },true);
+  });
+}
+
+/* Patch selectSeat */
+function patchSS(){
+  var o=window.selectSeat;if(!o||o._v10)return;
+  var p=function(n){
+    var r=o.apply(this,arguments);
+    if(MOB()){_nm=n;setWho(n);}
     return r;
   };
-  p._msc12 = true; window.selectSeat = p;
+  p._v10=true; window.selectSeat=p;
 }
 
-/* ── Handle resize: if going desktop, restore DOM ── */
-window.addEventListener('resize', function(){
-  if(!MOB() && _inScreen2) moveToDesktop();
-  if(MOB()) buildCardList();
-});
-
-/* ── Watch for seat changes (dynamic installs) ── */
+/* MutationObserver: re-pin if anything moves strip, re-hook new seats */
 if(window.MutationObserver){
-  var _rebuildTO;
-  new MutationObserver(function(){
-    clearTimeout(_rebuildTO);
-    _rebuildTO = setTimeout(function(){ if(MOB()) buildCardList(); }, 400);
-  }).observe(document.documentElement, {childList:true, subtree:true});
+  new MutationObserver(function(){ pin(); hookSeats(); })
+    .observe(document.documentElement,{childList:true,subtree:true});
 }
 
-/* ── Init ── */
 function init(){
-  if(!MOB()) return;
-  storeHomes();
-  if(typeof window.selectSeat === 'function') patchSS();
-  else setTimeout(init, 500);
-  buildCardList();
+  pin();
+  if(typeof window.selectSeat==='function'){patchSS();hookSeats();}
+  else{setTimeout(init,400);}
 }
-
-setTimeout(init, 700);
-setTimeout(function(){ if(MOB()) buildCardList(); }, 1800);
+pin();
+setTimeout(init,600);
+setTimeout(hookSeats,1400);
 })();
 </script>
-<!-- ===== END MOBILE LAYOUT v12 ===== -->
+<!-- ===== END MOBILE LAYOUT v10 ===== -->
 
 </body>
 </html>
