@@ -11486,8 +11486,14 @@ HTML = r"""
       /* Hide the decorative round-table circle */
       'html[data-phone] #tableWrap .table{display:none!important;}',
       /* Group console — desktop only, hidden before first paint */
-      'html[data-phone] #operator{display:none!important;}'
-      ,'html[data-phone] .operator{display:none!important;}'
+      'html[data-phone] #operator{display:none!important;}',
+      'html[data-phone] .operator{display:none!important;}',
+      /* Strip padding: reserves 90px at top for fixed chat strip */
+      'html[data-phone] .tableWrap#tableWrap{padding-top:90px!important;}',
+      /* Kill void space from stage min-height */
+      'html[data-phone] .stage{min-height:0!important;height:auto!important;}',
+      'html[data-phone] .arena{min-height:0!important;height:auto!important;}',
+      'html[data-phone] #rtStage{min-height:0!important;height:auto!important;}'
     ].join('');
     document.head.appendChild(s);
   }
@@ -15925,10 +15931,7 @@ input[type="range"]::-moz-range-progress {
 
             <div class="passRow" id="groupPassRow" style="display:none;" title="Analysis tools — appear after a group response">
               <span style="font-size:10px;color:#64748b;margin-right:4px;">Analysis →</span>
-              <button class="btn btnMini passBtn" id="passGroupRisk" title="Run Risk Assessment on the most recent group output">&#128269; Risk</button>
-              <button class="btn btnMini passBtn" id="passGroupScale" title="Run Scalability Ranking on the most recent group output">&#128200; Scale</button>
-              <button class="btn btnMini passBtn" id="passGroupConstr" title="Run Constraint Scan on the most recent group output">&#129513; Constraints</button>
-              <button class="btn btnMini passBtn" id="passGroupOpt" title="Run Optimization Pass on the most recent group output">&#9889; Optimize</button>
+
             </div>
 
             <div class="pillRow">
@@ -15989,12 +15992,13 @@ input[type="range"]::-moz-range-progress {
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
-        <!-- Pass row -->
+        <!-- Seat action row — useful quick-actions per teammate -->
         <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
-          <button class="btn btnMini passBtn" id="passSeatRisk" title="Risk Assessment">⚠️ Risk</button>
-          <button class="btn btnMini passBtn" id="passSeatScale" title="Scalability">📈 Scale</button>
-          <button class="btn btnMini passBtn" id="passSeatConstr" title="Constraints">🧩 Constraints</button>
-          <button class="btn btnMini passBtn" id="passSeatOpt" title="Optimize">⚡ Optimize</button>
+          <button class="btn btnMini passBtn" id="passSeatPrompts" title="Browse prompt library for this teammate" onclick="var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompts</button>
+          <button class="btn btnMini passBtn" id="passSeatWeb" title="Ask this teammate to search the web" onclick="var fm=document.getElementById('followMsg');if(fm){fm.value='Search the web for: ';fm.focus();fm.setSelectionRange(fm.value.length,fm.value.length);}">🔍 Web Search</button>
+          <button class="btn btnMini passBtn" id="passSeatSumm" title="Summarize the conversation so far" onclick="var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Please summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
+          <button class="btn btnMini passBtn" id="passSeatDraft" title="Start a draft with this teammate" onclick="var fm=document.getElementById('followMsg');if(fm){fm.value='Write a first draft of: ';fm.focus();fm.setSelectionRange(fm.value.length,fm.value.length);}">✍️ Draft</button>
+          <button class="btn btnMini passBtn" id="passSeatScreen" title="Share your screen with this teammate" onclick="var b=document.getElementById('screenDmBtn');if(b)b.click();">🖥 Screenshot</button>
         </div>
         <!-- Thread actions toolbar -->
         <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
@@ -31337,260 +31341,296 @@ document.addEventListener('click',e=>{
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
-<!-- ═══════════════════════════════════════════════════════
-     MOBILE LAYOUT v8 — Sticky-top chat strip
-     Structure:
-       [nav bar]
-       [chat strip — sticky, always visible, updates on tap]
-       [seat cards — clean scroll list]
-     No position:fixed, no sheets, no overlap.
-═══════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════
+     MOBILE LAYOUT v9  — Fixed strip at top, clean card list
+     The strip is position:fixed from a body child.
+     body{filter:none} already patched → fixed works.
+     Pre-paint script sets padding-top:90px on tableWrap.
+     Void space killed by pre-paint min-height:0 on stage.
+══════════════════════════════════════════════════════════ -->
 
-<!-- Sticky chat strip — injected as first child of .stage by JS -->
-<div id="mobStrip" style="display:none;">
+<!-- Chat strip: direct body child, rendered before page JS -->
+<div id="mobStrip">
   <div id="mobStripWho">
     <div id="mobStripAv"></div>
     <div id="mobStripMeta">
-      <div id="mobStripName">Tap a teammate below to chat</div>
+      <div id="mobStripName">Tap a teammate to chat</div>
       <div id="mobStripRole"></div>
     </div>
   </div>
-  <div id="mobStripInput">
-    <textarea id="mobStripMsg" placeholder="Message teammate…"
-      rows="1" autocomplete="off" autocorrect="off"
-      autocapitalize="off" spellcheck="false"></textarea>
+  <div id="mobStripRow">
+    <textarea id="mobStripMsg"
+      placeholder="Message teammate…"
+      rows="1"
+      autocomplete="off" autocorrect="off"
+      autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
   </div>
 </div>
 
 <style>
-/* ── MOBILE MASTER RESET ────────────────────────────────────
-   Kills every desktop ghost. Last in file → wins cascade.
-─────────────────────────────────────────────────────────── */
+/* ── Strip: hidden by default, shown on mobile ── */
+#mobStrip { display: none; }
+
 @media(max-width:960px){
 
-  /* 1. Kill desktop side panel + ghost elements */
-  .side,.sideCard,.stage>.side,
-  #seatPassRow,#threadActionsRow,#followRow,
-  .followBox,#followMsg,#sendFollow,
-  #dmAttachBtn,#dmAttachDrop,#dmAttachWrap,
-  #dmFiles,#dmAttachList,#micStatusDm,
-  .groupCard,.underTable,#sharedMemoryCard,
-  #groupReplies,#groupPassRow,
-  .operator,#operator,#opPrompt,#sendGroup,
-  .opRow,.opText,#opStatus,
-  /* Remove old chat attempts */
-  #mobileSheet,#sheetBackdrop,
-  #mobChatBar,#saMobPanel {
-    display:none!important;
-    height:0!important;
-    min-height:0!important;
-    max-height:0!important;
-    overflow:hidden!important;
-    position:static!important;
+  /* ── 1. Strip fixed at top ── */
+  #mobStrip {
+    display:         flex !important;
+    flex-direction:  column !important;
+    position:        fixed !important;
+    top:             0 !important;
+    left:            0 !important;
+    right:           0 !important;
+    z-index:         8500 !important;
+    background:      rgba(8,12,28,.99) !important;
+    border-bottom:   1.5px solid rgba(124,58,237,.5) !important;
+    box-shadow:      0 3px 18px rgba(0,0,0,.6) !important;
+    padding-bottom:  0 !important;
+    filter:          none !important;
+    transform:       none !important;
+    will-change:     auto !important;
+    isolation:       auto !important;
+  }
+  #mobStripWho {
+    display:       flex !important;
+    align-items:   center !important;
+    gap:           10px !important;
+    padding:       8px 14px 6px !important;
+    border-bottom: 1px solid rgba(42,58,106,.45) !important;
+    flex-shrink:   0 !important;
+  }
+  #mobStripAv {
+    width:           28px !important;
+    height:          28px !important;
+    min-width:       28px !important;
+    border-radius:   8px !important;
+    background:      rgba(124,58,237,.5) !important;
+    display:         flex !important;
+    align-items:     center !important;
+    justify-content: center !important;
+    font-size:       12px !important;
+    font-weight:     900 !important;
+    color:           #fff !important;
+    flex-shrink:     0 !important;
+    transition:      background .2s !important;
+  }
+  #mobStripName {
+    font-size:     13px !important;
+    font-weight:   700 !important;
+    color:         #e2e8f0 !important;
+    overflow:      hidden !important;
+    text-overflow: ellipsis !important;
+    white-space:   nowrap !important;
+  }
+  #mobStripRole {
+    font-size:   10px !important;
+    color:       #64748b !important;
+    margin-top:  1px !important;
+  }
+  #mobStripRow {
+    display:     flex !important;
+    align-items: flex-end !important;
+    gap:         8px !important;
+    padding:     6px 10px 8px !important;
+    flex-shrink: 0 !important;
+  }
+  #mobStripMsg {
+    flex:          1 !important;
+    background:    rgba(14,22,48,.85) !important;
+    border:        1px solid rgba(42,58,106,.7) !important;
+    border-radius: 10px !important;
+    padding:       8px 12px !important;
+    font-size:     15px !important;
+    color:         #e2e8f0 !important;
+    resize:        none !important;
+    min-height:    36px !important;
+    max-height:    88px !important;
+    font-family:   inherit !important;
+    outline:       none !important;
+    line-height:   1.4 !important;
+  }
+  #mobStripMsg::placeholder { color: rgba(100,116,139,.5) !important; }
+  #mobStripMsg:focus        { border-color: rgba(124,58,237,.7) !important; }
+  #mobStripSend {
+    width:           40px !important;
+    height:          40px !important;
+    flex-shrink:     0 !important;
+    background:      rgba(124,58,237,.9) !important;
+    border:          1px solid rgba(124,58,237,.5) !important;
+    border-radius:   10px !important;
+    color:           #fff !important;
+    font-size:       18px !important;
+    display:         flex !important;
+    align-items:     center !important;
+    justify-content: center !important;
+    cursor:          pointer !important;
+  }
+  #mobStripSend:active {
+    background: rgba(99,60,255,.95) !important;
+    transform:  scale(.93) !important;
   }
 
-  /* 2. Stage → single column */
+  /* ── 2. Kill ghost panels ── */
+  .side, .sideCard, .stage > .side,
+  #threadActionsRow, #followRow,
+  .followBox, #followMsg, #sendFollow,
+  #dmAttachBtn, #dmAttachDrop, #dmAttachWrap,
+  #dmFiles, #dmAttachList, #micStatusDm,
+  .groupCard, .underTable, #sharedMemoryCard,
+  #groupReplies, #groupPassRow,
+  .operator, #operator, #opPrompt, #sendGroup,
+  .opRow, .opText, #opStatus,
+  #mobileSheet, #sheetBackdrop,
+  #mobChatBar, #saMobPanel {
+    display:    none !important;
+    height:     0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    overflow:   hidden !important;
+    position:   static !important;
+  }
+
+  /* ── 3. Stage → single column, no void ── */
   .stage {
-    display:grid!important;
-    grid-template-columns:1fr!important;
-    min-height:0!important;
-    height:auto!important;
-    overflow:visible!important;
+    display:               grid !important;
+    grid-template-columns: 1fr !important;
+    min-height:            0 !important;
+    height:                auto !important;
+    overflow:              visible !important;
+  }
+  .arena {
+    min-height: 0 !important;
+    height:     auto !important;
+    overflow:   visible !important;
   }
 
-  /* 3. tableWrap → clean flex column
-        top padding reserves space for sticky strip */
-  #tableWrap,.tableWrap {
-    position:relative!important;
-    display:flex!important;
-    flex-direction:column!important;
-    align-items:stretch!important;
-    width:100%!important;
-    max-width:100%!important;
-    height:auto!important;
-    min-height:0!important;
-    overflow:visible!important;
-    padding:0 12px 24px!important;
-    gap:10px!important;
-    box-sizing:border-box!important;
-    transform:none!important;
+  /* ── 4. tableWrap → clean flex column ── */
+  /* padding-top set by pre-paint script (highest specificity wins) */
+  #tableWrap, .tableWrap {
+    display:        flex !important;
+    flex-direction: column !important;
+    align-items:    stretch !important;
+    width:          100% !important;
+    max-width:      100% !important;
+    height:         auto !important;
+    min-height:     0 !important;
+    overflow:       visible !important;
+    padding-left:   12px !important;
+    padding-right:  12px !important;
+    padding-bottom: 24px !important;
+    gap:            10px !important;
+    box-sizing:     border-box !important;
+    transform:      none !important;
+  }
+  #tableWrap .table, .tableWrap .table {
+    display: none !important;
   }
 
-  /* 4. Hide decorative circle */
-  #tableWrap .table,.tableWrap .table { display:none!important; }
-
-  /* 5. rtStage → flat column */
-  #tableWrap #rtStage,#rtStage {
-    position:static!important;
-    display:flex!important;
-    flex-direction:column!important;
-    gap:10px!important;
-    width:100%!important;
-    height:auto!important;
-    transform:none!important;
-    overflow:visible!important;
+  /* ── 5. rtStage → flat column, no void ── */
+  #tableWrap #rtStage, #rtStage {
+    position:       static !important;
+    display:        flex !important;
+    flex-direction: column !important;
+    gap:            10px !important;
+    width:          100% !important;
+    height:         auto !important;
+    min-height:     0 !important;
+    max-height:     none !important;
+    transform:      none !important;
+    overflow:       visible !important;
   }
 
-  /* 6. Seat cards → full-width portrait (ORIGINAL look unchanged) */
-  #tableWrap .seat,.tableWrap .seat,#rtStage .seat {
-    position:relative!important;
-    left:auto!important;top:auto!important;
-    right:auto!important;bottom:auto!important;
-    transform:none!important;
-    width:100%!important;
-    max-width:100%!important;
-    height:auto!important;
-    min-height:76px!important;
-    margin:0!important;
-    overflow:hidden!important;
-    isolation:isolate!important;
-    z-index:1!important;
-    box-sizing:border-box!important;
-    flex-shrink:0!important;
-    cursor:pointer!important;
+  /* ── 6. Seat cards: original portrait layout, untouched ── */
+  #tableWrap .seat, .tableWrap .seat, #rtStage .seat {
+    position:    relative !important;
+    left:        auto !important;
+    top:         auto !important;
+    right:       auto !important;
+    bottom:      auto !important;
+    transform:   none !important;
+    width:       100% !important;
+    max-width:   100% !important;
+    height:      auto !important;
+    min-height:  76px !important;
+    margin:      0 !important;
+    overflow:    hidden !important;
+    isolation:   isolate !important;
+    z-index:     1 !important;
+    box-sizing:  border-box !important;
+    flex-shrink: 0 !important;
+    cursor:      pointer !important;
   }
 
-  /* 7. Selected seat glow */
-  #rtStage .seat.sel,.tableWrap .seat.sel {
-    border-color:rgba(124,58,237,.9)!important;
-    background:rgba(22,18,70,.97)!important;
+  /* ── 7. Selected seat glow ── */
+  #rtStage .seat.sel, .tableWrap .seat.sel,
+  #tableWrap .seat.sel {
+    border-color: rgba(124,58,237,.9) !important;
+    background:   rgba(22,18,70,.97) !important;
     box-shadow:
       0 0 0 1px rgba(124,58,237,.22) inset,
       0 0 22px rgba(124,58,237,.4),
-      0 6px 28px rgba(0,0,0,.5)!important;
+      0 6px 28px rgba(0,0,0,.5) !important;
   }
 
-  /* 8. Sticky chat strip */
-  #mobStrip {
-    display:flex!important;
-    flex-direction:column!important;
-    position:sticky!important;
-    top:0!important;
-    z-index:50!important;
-    background:rgba(8,12,28,.98)!important;
-    border-bottom:1.5px solid rgba(124,58,237,.45)!important;
-    box-shadow:0 4px 20px rgba(0,0,0,.5)!important;
-    margin:0 -12px 10px!important; /* stretch edge-to-edge */
-    padding:0!important;
-    flex-shrink:0!important;
-    /* immune to body filter */
-    filter:none!important;
-    transform:none!important;
+  /* ── 8. seatPassRow: horizontal scroll on mobile ── */
+  #seatPassRow {
+    display:    flex !important;
+    overflow-x: auto !important;
+    flex-wrap:  nowrap !important;
+    gap:        6px !important;
+    padding:    4px 0 4px !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
   }
+  #seatPassRow::-webkit-scrollbar { display: none !important; }
+  #seatPassRow .passBtn { flex-shrink: 0 !important; }
 
-  /* Who row */
-  #mobStripWho {
-    display:flex!important;
-    align-items:center!important;
-    gap:10px!important;
-    padding:8px 14px 6px!important;
-    border-bottom:1px solid rgba(42,58,106,.45)!important;
-  }
-  #mobStripAv {
-    width:30px!important;height:30px!important;min-width:30px!important;
-    border-radius:8px!important;
-    background:rgba(124,58,237,.45)!important;
-    display:flex!important;align-items:center!important;
-    justify-content:center!important;
-    font-size:13px!important;font-weight:900!important;color:#fff!important;
-    flex-shrink:0!important;transition:background .2s!important;
-  }
-  #mobStripName {
-    font-size:13px!important;font-weight:700!important;
-    color:#e2e8f0!important;
-    white-space:nowrap!important;overflow:hidden!important;
-    text-overflow:ellipsis!important;
-  }
-  #mobStripRole {
-    font-size:10px!important;color:#64748b!important;margin-top:1px!important;
-  }
-
-  /* Input row */
-  #mobStripInput {
-    display:flex!important;
-    align-items:flex-end!important;
-    gap:8px!important;
-    padding:7px 12px 9px!important;
-  }
-  #mobStripMsg {
-    flex:1!important;
-    background:rgba(14,22,48,.8)!important;
-    border:1px solid rgba(42,58,106,.65)!important;
-    border-radius:10px!important;
-    padding:8px 12px!important;
-    font-size:15px!important;
-    color:#e2e8f0!important;
-    resize:none!important;
-    min-height:36px!important;
-    max-height:90px!important;
-    font-family:inherit!important;
-    outline:none!important;
-    line-height:1.4!important;
-  }
-  #mobStripMsg::placeholder { color:rgba(100,116,139,.5)!important; }
-  #mobStripMsg:focus { border-color:rgba(124,58,237,.7)!important; }
-  #mobStripSend {
-    width:40px!important;height:40px!important;flex-shrink:0!important;
-    background:rgba(124,58,237,.9)!important;
-    border:1px solid rgba(124,58,237,.5)!important;
-    border-radius:10px!important;
-    color:#fff!important;font-size:18px!important;
-    display:flex!important;align-items:center!important;
-    justify-content:center!important;cursor:pointer!important;
-  }
-  #mobStripSend:active {
-    background:rgba(100,60,255,.95)!important;
-    transform:scale(.93)!important;
-  }
-
-  /* html+body: scroll freely, no clipping */
-  html,body {
-    overflow-x:hidden!important;
-    height:auto!important;
-    min-height:100%!important;
+  /* ── 9. Body/html scroll freely ── */
+  html, body {
+    overflow-x: hidden !important;
+    height:     auto !important;
   }
 }
 
 @media(min-width:961px){
-  #mobStrip { display:none!important; }
+  #mobStrip { display: none !important; }
 }
 </style>
 
 <script>
+/* ══════════════════════════════════════════════════════════
+   MOBILE STRIP  v9
+   • Body child → immune to rtStage transform
+   • Sends via real followMsg/sendFollow pipeline
+   • Updates on seat tap and selectSeat() calls
+══════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
-var isMob = function(){ return window.innerWidth <= 960; };
+var MOB = function(){ return window.innerWidth <= 960; };
 function ge(id){ return document.getElementById(id); }
 var _name = null;
 
-/* ── Place strip as first child of tableWrap so it scrolls with page
-      and sticks to top of viewport via position:sticky ── */
-function mountStrip(){
-  var strip = ge('mobStrip');
-  var tw    = ge('tableWrap');
-  if(!strip || !tw) return;
-  if(strip.parentNode !== tw || tw.firstElementChild !== strip){
-    tw.insertBefore(strip, tw.firstChild);
-  }
+/* ── Keep strip as direct body child always ── */
+function pin(){
+  var s = ge('mobStrip');
+  if(s && s.parentNode !== document.body) document.body.appendChild(s);
 }
 
-/* ── Update strip who-row ── */
-function setStrip(name){
+/* ── Update who-row ── */
+function setWho(name){
   var av = ge('mobStripAv');
   var nm = ge('mobStripName');
   var rl = ge('mobStripRole');
   if(!av || !nm) return;
-
   if(!name){
     av.textContent = '';
-    av.style.background = 'rgba(124,58,237,.45)';
-    nm.textContent = 'Tap a teammate below to chat';
+    av.style.background = 'rgba(124,58,237,.5)';
+    nm.textContent = 'Tap a teammate to chat';
     if(rl) rl.textContent = '';
     return;
   }
-
-  var color = 'rgba(124,58,237,.7)';
+  var color = 'rgba(124,58,237,.75)';
   document.querySelectorAll('.seat').forEach(function(s){
     var sn = s.querySelector('.seatName');
     if(sn && sn.textContent.trim() === name){
@@ -31598,36 +31638,31 @@ function setStrip(name){
       if(ae && ae.style && ae.style.background) color = ae.style.background;
     }
   });
-  av.textContent = (name[0]||'?').toUpperCase();
-  av.style.background = color;
-  nm.textContent = name;
+  av.textContent        = (name[0]||'?').toUpperCase();
+  av.style.background   = color;
+  nm.textContent        = name;
   try{
     var d = (window.state&&window.state.installed||{})[name]||{};
     if(rl) rl.textContent = d.job_title || d.role || '';
   }catch(_){ if(rl) rl.textContent = ''; }
 }
 
-/* ── Send via real desktop followMsg → sendFollow ── */
+/* ── Send ── */
 function doSend(){
   var msg = ge('mobStripMsg');
   if(!msg || !_name) return;
   var txt = msg.value.trim();
   if(!txt) return;
-
-  var fm = ge('followMsg');
-  var sf = ge('sendFollow');
+  var fm = ge('followMsg'), sf = ge('sendFollow');
   if(fm && sf){
-    fm.value = txt;
-    sf.click();
-    msg.value = '';
-    msg.style.height = 'auto';
+    fm.value = txt; sf.click();
+    msg.value = ''; msg.style.height = 'auto';
     return;
   }
-  /* Fallback */
   if(typeof window.selectSeat === 'function'){
     window.selectSeat(_name).then(function(){
-      var f = ge('followMsg'), s2 = ge('sendFollow');
-      if(f && s2){ f.value = txt; s2.click(); msg.value = ''; }
+      var f=ge('followMsg'),s2=ge('sendFollow');
+      if(f&&s2){ f.value=txt; s2.click(); msg.value=''; }
     });
   }
 }
@@ -31637,88 +31672,73 @@ if(sb) sb.addEventListener('click', doSend);
 
 var ma = ge('mobStripMsg');
 if(ma){
-  ma.addEventListener('keydown', function(e){
-    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doSend(); }
+  ma.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); }
   });
-  ma.addEventListener('input', function(){
-    this.style.height = 'auto';
-    this.style.height = Math.min(this.scrollHeight, 90) + 'px';
+  ma.addEventListener('input',function(){
+    this.style.height='auto';
+    this.style.height=Math.min(this.scrollHeight,88)+'px';
   });
 }
 
 /* ── Hook seat taps ── */
 function hookSeats(){
   document.querySelectorAll('.seat').forEach(function(seat){
-    if(seat._v8) return;
-    seat._v8 = true;
-    seat.addEventListener('click', function(){
-      if(!isMob()) return;
+    if(seat._v9) return;
+    seat._v9 = true;
+    seat.addEventListener('click',function(){
+      if(!MOB()) return;
       var sn   = seat.querySelector('.seatName');
       var name = sn ? sn.textContent.trim() : seat.getAttribute('data-name');
       if(!name) return;
-
       _name = name;
-      setStrip(name);
-
-      /* Highlight selected card */
+      setWho(name);
       document.querySelectorAll('.seat').forEach(function(s){
         var ssn = s.querySelector('.seatName');
         s.classList.toggle('sel', ssn && ssn.textContent.trim() === name);
       });
-
-      /* Load thread in background */
       if(typeof window.selectSeat === 'function'){
         window.selectSeat(name).catch(function(){});
       }
-
-      /* Focus the input — keyboard opens, strip stays visible at top */
-      setTimeout(function(){
-        var msg = ge('mobStripMsg');
-        if(msg) msg.focus();
-      }, 150);
-
+      /* Focus input */
+      setTimeout(function(){ var m=ge('mobStripMsg'); if(m) m.focus(); }, 200);
     }, true);
   });
 }
 
-/* ── Patch selectSeat so strip updates from any caller ── */
+/* ── Patch selectSeat ── */
 function patchSS(){
   var o = window.selectSeat;
-  if(!o || o._v8) return;
-  var p = function(name){
-    var r = o.apply(this, arguments);
-    if(isMob()){ _name = name; setStrip(name); }
+  if(!o||o._v9) return;
+  var p = function(n){
+    var r = o.apply(this,arguments);
+    if(MOB()){ _name=n; setWho(n); }
     return r;
   };
-  p._v8 = true;
-  window.selectSeat = p;
+  p._v9=true; window.selectSeat=p;
 }
 
 /* ── Init ── */
 function init(){
-  mountStrip();
-  if(typeof window.selectSeat === 'function'){
-    patchSS();
-    hookSeats();
-  } else {
-    setTimeout(init, 400);
-    return;
-  }
+  pin();
+  if(typeof window.selectSeat==='function'){ patchSS(); hookSeats(); }
+  else { setTimeout(init,400); }
 }
 
-/* Re-mount and re-hook after dynamic seat renders */
+/* MutationObserver: re-pin if anything moves the strip, re-hook new seats */
 if(window.MutationObserver){
   new MutationObserver(function(){
-    mountStrip();
+    pin();
     hookSeats();
-  }).observe(document.documentElement, {childList:true, subtree:true});
+  }).observe(document.documentElement,{childList:true,subtree:true});
 }
 
-setTimeout(init, 600);
-setTimeout(hookSeats, 1400);
+pin();
+setTimeout(init,600);
+setTimeout(hookSeats,1400);
 })();
 </script>
-<!-- ===== END MOBILE LAYOUT v8 ===== -->
+<!-- ===== END MOBILE LAYOUT v9 ===== -->
 
 </body>
 </html>
