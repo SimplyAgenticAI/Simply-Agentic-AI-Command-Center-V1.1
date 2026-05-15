@@ -12291,6 +12291,12 @@ HTML = r"""
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
     /* All modal content: centered column, comfortable reading width */
     .modalForm .modalInner{ max-width:860px; margin:0 auto; }
+    @media(max-width:960px){
+      .modalForm .modalInner{ max-width:100% !important; margin:0 !important; padding:0 !important; }
+      .modalForm{ padding:0 !important; }
+      #modalScroll{ height:calc(100vh - 56px) !important; max-height:none !important; overflow-y:auto !important; }
+      #modalWin{ border-radius:0 !important; }
+    }
     /* 2-column field pairs inside the centered column */
     .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
     .formGrid2 .spanFull{ grid-column:1/-1; }
@@ -13677,6 +13683,10 @@ label         { font-size: 14px !important; }
             <span>📊 Manage</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saManageDrop">
+            <button class="saDropItem" id="teamBtn">👥 My Team</button>
+            <button class="saDropItem" id="operatorProfileBtn">🧑‍💼 Operator Profile</button>
+            <button class="saDropItem" id="sessionObjectiveBtn">🎯 Session Objective</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
@@ -13692,9 +13702,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="customizeBtn">🎨 Customize</button>
-            <button class="saDropItem" id="teamBtn">👥 My Team</button>
-            <button class="saDropItem" id="operatorProfileBtn">Operator profile</button>
-            <button class="saDropItem" id="sessionObjectiveBtn">Session objective</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
             <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
@@ -13872,6 +13879,9 @@ label         { font-size: 14px !important; }
           <div class="mdGroupBody">
             <button class="btn" data-click="settingsBtn" onclick="closeMobileDrawer()">⚙️ Settings</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showCustomizeModal,200);">🎨 Customize</button>
+            <button class="btn" data-click="teamBtn" onclick="closeMobileDrawer()">👥 My Team</button>
+            <button class="btn" data-click="operatorProfileBtn" onclick="closeMobileDrawer()">🧑‍💼 Operator Profile</button>
+            <button class="btn" data-click="sessionObjectiveBtn" onclick="closeMobileDrawer()">🎯 Session Objective</button>
             <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 Get OpenAI Key</button>
             <a class="btn" href="/getting-started" style="text-decoration:none;display:block;text-align:left;">📚 Getting started</a>
             <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
@@ -16073,7 +16083,7 @@ input[type="range"]::-moz-range-progress {
         <!-- Quick-action row -->
         <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
           <button class="btn btnMini passBtn" id="passSeatPrompts" title="Open Prompt Library for this teammate" onclick="var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompts</button>
-          <button class="btn btnMini passBtn" id="passSeatWeb" title="Ask this teammate to search the web" onclick="var fm=document.getElementById('followMsg');if(fm){fm.value='Search the web for: ';fm.focus();fm.setSelectionRange(fm.value.length,fm.value.length);}">🔍 Web Search</button>
+          <button class="btn btnMini passBtn" id="passSeatVoice" title="Activate voice mode with this teammate" onclick="var b=document.getElementById('talkDmBtn');if(b)b.click();">🎙 Voice</button>
           <button class="btn btnMini passBtn" id="passSeatSumm" title="Summarize conversation" onclick="var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
           <button class="btn btnMini passBtn" id="passSeatDeep" title="Deep Dive — 3 rounds of self-critique" onclick="if(typeof _saOpenDeepDive==='function')_saOpenDeepDive();else{var b=document.getElementById('deepDiveBtn');if(b)b.click();}">🔬 Deep Dive</button>
         </div>
@@ -31418,14 +31428,7 @@ document.addEventListener('click',e=>{
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
-<!-- ══════════════════════════════════════════════════════════
-     MOBILE LAYOUT v10 — DEFINITIVE
-     Strip: position:fixed, direct body child, immune to transforms.
-     Scroll: pre-paint sets padding-top:90px + min-height:0 everywhere.
-     Cards: full scroll to last card — no void.
-══════════════════════════════════════════════════════════ -->
-
-<!-- Chat strip: rendered early as body child -->
+<!-- MOBILE LAYOUT v10 — chat strip fixed at top, clean card scroll -->
 <div id="mobStrip">
   <div id="mobStripWho">
     <div id="mobStripAv"></div>
@@ -31435,137 +31438,87 @@ document.addEventListener('click',e=>{
     </div>
   </div>
   <div id="mobStripRow">
-    <textarea id="mobStripMsg"
-      placeholder="Message teammate…"
-      rows="1" autocomplete="off" autocorrect="off"
-      autocapitalize="sentences" spellcheck="false"></textarea>
+    <textarea id="mobStripMsg" placeholder="Message teammate…" rows="1"
+      autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
   </div>
 </div>
 
 <style>
-/* Default hidden */
-#mobStrip{ display:none; }
-
+#mobStrip{display:none;}
 @media(max-width:960px){
-
-  /* ── 1. Strip: fixed at top, immune to everything ── */
   #mobStrip{
-    display:flex!important; flex-direction:column!important;
-    position:fixed!important; top:0!important; left:0!important; right:0!important;
+    display:flex!important;flex-direction:column!important;
+    position:fixed!important;top:0!important;left:0!important;right:0!important;
     z-index:8500!important;
     background:rgba(8,12,28,.99)!important;
     border-bottom:1.5px solid rgba(124,58,237,.5)!important;
     box-shadow:0 3px 18px rgba(0,0,0,.6)!important;
-    filter:none!important; transform:none!important; will-change:auto!important;
+    filter:none!important;transform:none!important;will-change:auto!important;
   }
-  #mobStripWho{
-    display:flex!important; align-items:center!important; gap:10px!important;
-    padding:8px 14px 6px!important;
-    border-bottom:1px solid rgba(42,58,106,.45)!important;
-    flex-shrink:0!important;
-  }
-  #mobStripAv{
-    width:28px!important; height:28px!important; min-width:28px!important;
-    border-radius:8px!important; background:rgba(124,58,237,.5)!important;
-    display:flex!important; align-items:center!important; justify-content:center!important;
-    font-size:12px!important; font-weight:900!important; color:#fff!important;
-    flex-shrink:0!important; transition:background .2s!important;
-  }
-  #mobStripName{
-    font-size:13px!important; font-weight:700!important; color:#e2e8f0!important;
-    overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
-  }
-  #mobStripRole{ font-size:10px!important; color:#64748b!important; margin-top:1px!important; }
-  #mobStripRow{
-    display:flex!important; align-items:flex-end!important;
-    gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
-  }
-  #mobStripMsg{
-    flex:1!important; background:rgba(14,22,48,.85)!important;
-    border:1px solid rgba(42,58,106,.7)!important; border-radius:10px!important;
-    padding:8px 12px!important; font-size:15px!important; color:#e2e8f0!important;
-    resize:none!important; min-height:36px!important; max-height:88px!important;
-    font-family:inherit!important; outline:none!important; line-height:1.4!important;
-  }
-  #mobStripMsg::placeholder{ color:rgba(100,116,139,.5)!important; }
-  #mobStripMsg:focus{ border-color:rgba(124,58,237,.7)!important; }
-  #mobStripSend{
-    width:40px!important; height:40px!important; flex-shrink:0!important;
-    background:rgba(124,58,237,.9)!important; border:1px solid rgba(124,58,237,.5)!important;
-    border-radius:10px!important; color:#fff!important; font-size:18px!important;
-    display:flex!important; align-items:center!important; justify-content:center!important;
-    cursor:pointer!important;
-  }
-  #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
+  #mobStripWho{display:flex!important;align-items:center!important;gap:10px!important;padding:8px 14px 6px!important;border-bottom:1px solid rgba(42,58,106,.45)!important;flex-shrink:0!important;}
+  #mobStripAv{width:28px!important;height:28px!important;min-width:28px!important;border-radius:8px!important;background:rgba(124,58,237,.5)!important;display:flex!important;align-items:center!important;justify-content:center!important;font-size:12px!important;font-weight:900!important;color:#fff!important;flex-shrink:0!important;transition:background .2s!important;}
+  #mobStripName{font-size:13px!important;font-weight:700!important;color:#e2e8f0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+  #mobStripRole{font-size:10px!important;color:#64748b!important;margin-top:1px!important;}
+  #mobStripRow{display:flex!important;align-items:flex-end!important;gap:8px!important;padding:6px 10px 8px!important;flex-shrink:0!important;}
+  #mobStripMsg{flex:1!important;background:rgba(14,22,48,.85)!important;border:1px solid rgba(42,58,106,.7)!important;border-radius:10px!important;padding:8px 12px!important;font-size:15px!important;color:#e2e8f0!important;resize:none!important;min-height:36px!important;max-height:88px!important;font-family:inherit!important;outline:none!important;line-height:1.4!important;}
+  #mobStripMsg::placeholder{color:rgba(100,116,139,.5)!important;}
+  #mobStripMsg:focus{border-color:rgba(124,58,237,.7)!important;}
+  #mobStripSend{width:40px!important;height:40px!important;flex-shrink:0!important;background:rgba(124,58,237,.9)!important;border:1px solid rgba(124,58,237,.5)!important;border-radius:10px!important;color:#fff!important;font-size:18px!important;display:flex!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;}
+  #mobStripSend:active{background:rgba(99,60,255,.95)!important;transform:scale(.93)!important;}
 
-  /* ── 2. Kill ghost panels ── */
+  /* Kill ghost panels */
   .side,.sideCard,.stage>.side,
   #threadActionsRow,#followRow,.followBox,#followMsg,#sendFollow,
   #dmAttachBtn,#dmAttachDrop,#dmAttachWrap,#dmFiles,#dmAttachList,#micStatusDm,
   .groupCard,.underTable,#sharedMemoryCard,#groupReplies,#groupPassRow,
   .operator,#operator,#opPrompt,#sendGroup,.opRow,.opText,#opStatus,
   #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel{
-    display:none!important; height:0!important; min-height:0!important;
-    max-height:0!important; overflow:hidden!important; position:static!important;
+    display:none!important;height:0!important;min-height:0!important;
+    max-height:0!important;overflow:hidden!important;position:static!important;
   }
 
-  /* ── 3. Stage/arena: no void ── */
-  .stage{
-    display:grid!important; grid-template-columns:1fr!important;
-    min-height:0!important; height:auto!important; overflow:visible!important;
-  }
-  .arena{ min-height:0!important; height:auto!important; overflow:visible!important; }
+  .stage{display:grid!important;grid-template-columns:1fr!important;min-height:0!important;height:auto!important;overflow:visible!important;}
+  .arena{min-height:0!important;height:auto!important;overflow:visible!important;}
 
-  /* ── 4. tableWrap: padding-top handled by pre-paint script ── */
+  /* tableWrap: pre-paint sets padding-top:90px — we just handle sides+bottom */
   #tableWrap,.tableWrap{
-    display:flex!important; flex-direction:column!important;
-    align-items:stretch!important; width:100%!important; max-width:100%!important;
-    height:auto!important; min-height:0!important; overflow:visible!important;
-    padding-left:12px!important; padding-right:12px!important; padding-bottom:24px!important;
-    gap:10px!important; box-sizing:border-box!important; transform:none!important;
+    display:flex!important;flex-direction:column!important;align-items:stretch!important;
+    width:100%!important;max-width:100%!important;
+    height:auto!important;min-height:0!important;overflow:visible!important;
+    padding-left:12px!important;padding-right:12px!important;padding-bottom:24px!important;
+    gap:10px!important;box-sizing:border-box!important;transform:none!important;
   }
-  #tableWrap .table,.tableWrap .table{ display:none!important; }
+  #tableWrap .table,.tableWrap .table{display:none!important;}
 
-  /* ── 5. rtStage: flat column, no void ── */
   #tableWrap #rtStage,#rtStage{
-    position:static!important; display:flex!important; flex-direction:column!important;
-    gap:10px!important; width:100%!important;
-    height:auto!important; min-height:0!important; max-height:none!important;
-    transform:none!important; overflow:visible!important;
+    position:static!important;display:flex!important;flex-direction:column!important;
+    gap:10px!important;width:100%!important;
+    height:auto!important;min-height:0!important;max-height:none!important;
+    transform:none!important;overflow:visible!important;
   }
 
-  /* ── 6. Seat cards: original portrait layout ── */
   #tableWrap .seat,.tableWrap .seat,#rtStage .seat{
-    position:relative!important; left:auto!important; top:auto!important;
-    right:auto!important; bottom:auto!important; transform:none!important;
-    width:100%!important; max-width:100%!important;
-    height:auto!important; min-height:76px!important;
-    margin:0!important; overflow:hidden!important; isolation:isolate!important;
-    z-index:1!important; box-sizing:border-box!important;
-    flex-shrink:0!important; cursor:pointer!important;
+    position:relative!important;left:auto!important;top:auto!important;
+    right:auto!important;bottom:auto!important;transform:none!important;
+    width:100%!important;max-width:100%!important;
+    height:auto!important;min-height:76px!important;
+    margin:0!important;overflow:hidden!important;isolation:isolate!important;
+    z-index:1!important;box-sizing:border-box!important;flex-shrink:0!important;cursor:pointer!important;
   }
 
-  /* ── 7. Selected seat glow ── */
   #rtStage .seat.sel,.tableWrap .seat.sel,#tableWrap .seat.sel{
-    border-color:rgba(124,58,237,.9)!important;
-    background:rgba(22,18,70,.97)!important;
+    border-color:rgba(124,58,237,.9)!important;background:rgba(22,18,70,.97)!important;
     box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,0 0 22px rgba(124,58,237,.4),0 6px 28px rgba(0,0,0,.5)!important;
   }
 
-  /* ── 8. Pass buttons: horizontal scroll ── */
-  #seatPassRow{
-    display:flex!important; overflow-x:auto!important; flex-wrap:nowrap!important;
-    gap:6px!important; padding:4px 0!important;
-    -webkit-overflow-scrolling:touch!important; scrollbar-width:none!important;
-  }
-  #seatPassRow::-webkit-scrollbar{ display:none!important; }
-  #seatPassRow .passBtn{ flex-shrink:0!important; }
+  #seatPassRow{display:flex!important;overflow-x:auto!important;flex-wrap:nowrap!important;gap:6px!important;padding:4px 0!important;-webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;}
+  #seatPassRow::-webkit-scrollbar{display:none!important;}
+  #seatPassRow .passBtn{flex-shrink:0!important;}
 
-  /* ── 9. html/body: scroll freely ── */
-  html,body{ overflow-x:hidden!important; height:auto!important; }
+  html,body{overflow-x:hidden!important;height:auto!important;}
 }
-@media(min-width:961px){ #mobStrip{ display:none!important; } }
+@media(min-width:961px){ #mobStrip { display:none !important; } }
 </style>
 
 <script>
@@ -31575,109 +31528,64 @@ var MOB=function(){return window.innerWidth<=960;};
 function ge(id){return document.getElementById(id);}
 var _nm=null;
 
-/* Always keep strip as direct body child */
-function pin(){
-  var s=ge('mobStrip');
-  if(s&&s.parentNode!==document.body) document.body.appendChild(s);
-}
+function pin(){var s=ge('mobStrip');if(s&&s.parentNode!==document.body)document.body.appendChild(s);}
 
-/* Update who-row */
 function setWho(name){
   var av=ge('mobStripAv'),nm=ge('mobStripName'),rl=ge('mobStripRole');
   if(!av||!nm)return;
-  if(!name){
-    av.textContent='';av.style.background='rgba(124,58,237,.5)';
-    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';return;
-  }
+  if(!name){av.textContent='';av.style.background='rgba(124,58,237,.5)';nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';return;}
   var color='rgba(124,58,237,.75)';
   document.querySelectorAll('.seat').forEach(function(s){
     var sn=s.querySelector('.seatName');
-    if(sn&&sn.textContent.trim()===name){
-      var ae=s.querySelector('.seatAvatar');
-      if(ae&&ae.style&&ae.style.background)color=ae.style.background;
-    }
+    if(sn&&sn.textContent.trim()===name){var ae=s.querySelector('.seatAvatar');if(ae&&ae.style&&ae.style.background)color=ae.style.background;}
   });
-  av.textContent=(name[0]||'?').toUpperCase(); av.style.background=color;
-  nm.textContent=name;
-  try{
-    var d=(window.state&&window.state.installed||{})[name]||{};
-    if(rl)rl.textContent=d.job_title||d.role||'';
-  }catch(_){if(rl)rl.textContent='';}
+  av.textContent=(name[0]||'?').toUpperCase();av.style.background=color;nm.textContent=name;
+  try{var d=(window.state&&window.state.installed||{})[name]||{};if(rl)rl.textContent=d.job_title||d.role||'';}
+  catch(_){if(rl)rl.textContent='';}
 }
 
-/* Send via real pipeline */
 function doSend(){
-  var msg=ge('mobStripMsg');
-  if(!msg||!_nm)return;
+  var msg=ge('mobStripMsg');if(!msg||!_nm)return;
   var txt=msg.value.trim();if(!txt)return;
   var fm=ge('followMsg'),sf=ge('sendFollow');
   if(fm&&sf){fm.value=txt;sf.click();msg.value='';msg.style.height='auto';return;}
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(_nm).then(function(){
-      var f=ge('followMsg'),s2=ge('sendFollow');
-      if(f&&s2){f.value=txt;s2.click();msg.value='';}
-    });
-  }
+  if(typeof window.selectSeat==='function'){window.selectSeat(_nm).then(function(){var f=ge('followMsg'),s2=ge('sendFollow');if(f&&s2){f.value=txt;s2.click();msg.value='';}});}
 }
 
-var sb=ge('mobStripSend');
-if(sb)sb.addEventListener('click',doSend);
+var sb=ge('mobStripSend');if(sb)sb.addEventListener('click',doSend);
 var ma=ge('mobStripMsg');
 if(ma){
-  ma.addEventListener('keydown',function(e){
-    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}
-  });
-  ma.addEventListener('input',function(){
-    this.style.height='auto';
-    this.style.height=Math.min(this.scrollHeight,88)+'px';
-  });
+  ma.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}});
+  ma.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,88)+'px';});
 }
 
-/* Hook seat taps */
 function hookSeats(){
   document.querySelectorAll('.seat').forEach(function(seat){
-    if(seat._v10)return; seat._v10=true;
+    if(seat._v10)return;seat._v10=true;
     seat.addEventListener('click',function(){
       if(!MOB())return;
       var sn=seat.querySelector('.seatName');
       var name=sn?sn.textContent.trim():seat.getAttribute('data-name');
       if(!name)return;
-      _nm=name; setWho(name);
-      document.querySelectorAll('.seat').forEach(function(s){
-        var ssn=s.querySelector('.seatName');
-        s.classList.toggle('sel',ssn&&ssn.textContent.trim()===name);
-      });
+      _nm=name;setWho(name);
+      document.querySelectorAll('.seat').forEach(function(s){var ssn=s.querySelector('.seatName');s.classList.toggle('sel',ssn&&ssn.textContent.trim()===name);});
       if(typeof window.selectSeat==='function')window.selectSeat(name).catch(function(){});
       setTimeout(function(){var m=ge('mobStripMsg');if(m)m.focus();},200);
     },true);
   });
 }
 
-/* Patch selectSeat */
 function patchSS(){
   var o=window.selectSeat;if(!o||o._v10)return;
-  var p=function(n){
-    var r=o.apply(this,arguments);
-    if(MOB()){_nm=n;setWho(n);}
-    return r;
-  };
-  p._v10=true; window.selectSeat=p;
+  var p=function(n){var r=o.apply(this,arguments);if(MOB()){_nm=n;setWho(n);}return r;};
+  p._v10=true;window.selectSeat=p;
 }
 
-/* MutationObserver: re-pin if anything moves strip, re-hook new seats */
 if(window.MutationObserver){
-  new MutationObserver(function(){ pin(); hookSeats(); })
-    .observe(document.documentElement,{childList:true,subtree:true});
+  new MutationObserver(function(){pin();hookSeats();}).observe(document.documentElement,{childList:true,subtree:true});
 }
-
-function init(){
-  pin();
-  if(typeof window.selectSeat==='function'){patchSS();hookSeats();}
-  else{setTimeout(init,400);}
-}
-pin();
-setTimeout(init,600);
-setTimeout(hookSeats,1400);
+function init(){pin();if(typeof window.selectSeat==='function'){patchSS();hookSeats();}else{setTimeout(init,400);}}
+pin();setTimeout(init,600);setTimeout(hookSeats,1400);
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
