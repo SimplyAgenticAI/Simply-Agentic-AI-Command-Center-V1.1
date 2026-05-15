@@ -27874,13 +27874,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
         body, .rt-arena, #dmPanel, .saDrop, .saNavBar, #saNavBar {
           background-color: ${c} !important;
         }
-        body { filter: brightness(${brightness}) !important; }
+        .stage, .arena, #tableWrap, .tableWrap { filter: brightness(${brightness}) !important; }
+        body { filter: none !important; }
       `;
     }
 
     if (p.bg_brightness && !p.bg_color) {
       const brightness = parseFloat(p.bg_brightness) / 100;
-      css += `body { filter: brightness(${brightness}) !important; }`;
+      css += `.stage, .arena, #tableWrap, .tableWrap { filter: brightness(${brightness}) !important; } body { filter: none !important; }`;
     }
 
     if (p.cal_glow_color) {
@@ -31351,6 +31352,12 @@ document.addEventListener('click',e=>{
     border-top:1px solid rgba(42,58,106,.85)!important;
     box-shadow:0 -4px 24px rgba(0,0,0,.6)!important;
     padding-bottom:env(safe-area-inset-bottom)!important;
+    /* Neutralise any filter/transform on ancestors */
+    filter:none!important;
+    transform:none!important;
+    -webkit-transform:none!important;
+    will-change:auto!important;
+    isolation:auto!important;
   }
   #mobChatWho{display:flex!important;align-items:center!important;gap:10px!important;padding:9px 14px 7px!important;border-bottom:1px solid rgba(42,58,106,.5)!important;background:rgba(12,18,42,.99)!important;flex-shrink:0!important;}
   #mobChatAv{width:30px!important;height:30px!important;min-width:30px!important;border-radius:8px!important;background:rgba(124,58,237,.55)!important;display:flex!important;align-items:center!important;justify-content:center!important;font-size:13px!important;font-weight:900!important;color:#fff!important;flex-shrink:0!important;transition:background .2s!important;}
