@@ -31337,49 +31337,39 @@ document.addEventListener('click',e=>{
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
-<!-- ═══════════════════════════════════════════════════════════
-     MOBILE BOTTOM SHEET — Option A
-     Tap a seat card → sheet slides up with real thread + input.
-     Cards stay clean. No overlap. No duplicates. No fixed issues.
-═══════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════
+     MOBILE LAYOUT v8 — Sticky-top chat strip
+     Structure:
+       [nav bar]
+       [chat strip — sticky, always visible, updates on tap]
+       [seat cards — clean scroll list]
+     No position:fixed, no sheets, no overlap.
+═══════════════════════════════════════════════════════ -->
 
-<!-- Sheet backdrop + panel (direct body children) -->
-<div id="sheetBackdrop" onclick="sheetClose()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);"></div>
-
-<div id="mobileSheet" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:9001;background:rgba(8,12,28,.98);border-top:1.5px solid rgba(124,58,237,.5);border-radius:22px 22px 0 0;box-shadow:0 -8px 40px rgba(0,0,0,.7);max-height:72vh;display:none;flex-direction:column;overflow:hidden;padding-bottom:env(safe-area-inset-bottom);transition:transform .3s cubic-bezier(.32,0,.15,1);transform:translateY(100%);filter:none!important;">
-
-  <!-- Handle -->
-  <div onclick="sheetClose()" style="flex-shrink:0;padding:10px 0 6px;cursor:pointer;">
-    <div style="width:38px;height:4px;background:rgba(255,255,255,.18);border-radius:2px;margin:0 auto;"></div>
-  </div>
-
-  <!-- Header: who are we talking to -->
-  <div id="sheetHeader" style="flex-shrink:0;display:flex;align-items:center;gap:10px;padding:6px 16px 10px;border-bottom:1px solid rgba(42,58,106,.5);">
-    <div id="sheetAv" style="width:34px;height:34px;min-width:34px;border-radius:10px;background:rgba(124,58,237,.6);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;flex-shrink:0;"></div>
-    <div>
-      <div id="sheetName" style="font-size:15px;font-weight:800;color:#e2e8f0;"></div>
-      <div id="sheetRole" style="font-size:11px;color:#64748b;margin-top:1px;"></div>
+<!-- Sticky chat strip — injected as first child of .stage by JS -->
+<div id="mobStrip" style="display:none;">
+  <div id="mobStripWho">
+    <div id="mobStripAv"></div>
+    <div id="mobStripMeta">
+      <div id="mobStripName">Tap a teammate below to chat</div>
+      <div id="mobStripRole"></div>
     </div>
-    <button onclick="sheetClose()" style="margin-left:auto;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#94a3b8;font-size:15px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
-
-  <!-- Thread container — real #thread gets moved here on mobile -->
-  <div id="sheetThreadSlot" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;"></div>
-
-  <!-- Input slot — real input row gets moved here on mobile -->
-  <div id="sheetInputSlot" style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.45);padding:10px 14px 8px;"></div>
-
+  <div id="mobStripInput">
+    <textarea id="mobStripMsg" placeholder="Message teammate…"
+      rows="1" autocomplete="off" autocorrect="off"
+      autocapitalize="off" spellcheck="false"></textarea>
+    <button id="mobStripSend">&#x21B5;</button>
+  </div>
 </div>
 
 <style>
-/* ── Desktop: sheet never shows ── */
-@media(min-width:961px){
-  #mobileSheet,#sheetBackdrop{display:none!important;}
-}
-
-/* ── Mobile: seat cards clean, no overlap ── */
+/* ── MOBILE MASTER RESET ────────────────────────────────────
+   Kills every desktop ghost. Last in file → wins cascade.
+─────────────────────────────────────────────────────────── */
 @media(max-width:960px){
-  /* Kill all desktop ghost panels */
+
+  /* 1. Kill desktop side panel + ghost elements */
   .side,.sideCard,.stage>.side,
   #seatPassRow,#threadActionsRow,#followRow,
   .followBox,#followMsg,#sendFollow,
@@ -31389,89 +31379,181 @@ document.addEventListener('click',e=>{
   #groupReplies,#groupPassRow,
   .operator,#operator,#opPrompt,#sendGroup,
   .opRow,.opText,#opStatus,
-  #mobChatBar {
+  /* Remove old chat attempts */
+  #mobileSheet,#sheetBackdrop,
+  #mobChatBar,#saMobPanel {
     display:none!important;
-    height:0!important;overflow:hidden!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    overflow:hidden!important;
+    position:static!important;
   }
 
-  /* Stage: single column */
-  .stage{display:grid!important;grid-template-columns:1fr!important;}
-
-  /* tableWrap: clean flex column */
-  #tableWrap,.tableWrap{
-    position:relative!important;display:flex!important;
-    flex-direction:column!important;align-items:stretch!important;
-    width:100%!important;height:auto!important;min-height:0!important;
+  /* 2. Stage → single column */
+  .stage {
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    min-height:0!important;
+    height:auto!important;
     overflow:visible!important;
-    padding:8px 12px 24px!important;
-    gap:10px!important;box-sizing:border-box!important;transform:none!important;
   }
 
-  /* Hide decorative circle + operator */
-  #tableWrap .table,.tableWrap .table{display:none!important;}
-
-  /* rtStage: flat column */
-  #tableWrap #rtStage,#rtStage{
-    position:static!important;display:flex!important;
-    flex-direction:column!important;gap:10px!important;
-    width:100%!important;height:auto!important;transform:none!important;
+  /* 3. tableWrap → clean flex column
+        top padding reserves space for sticky strip */
+  #tableWrap,.tableWrap {
+    position:relative!important;
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:stretch!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:visible!important;
+    padding:0 12px 24px!important;
+    gap:10px!important;
+    box-sizing:border-box!important;
+    transform:none!important;
   }
 
-  /* Seat cards: full-width portrait layout — UNCHANGED from original */
-  #tableWrap .seat,.tableWrap .seat,#tableWrap #rtStage .seat{
-    position:relative!important;left:auto!important;top:auto!important;
-    right:auto!important;bottom:auto!important;transform:none!important;
-    width:100%!important;max-width:100%!important;
-    height:auto!important;min-height:76px!important;
-    margin:0!important;overflow:hidden!important;
-    isolation:isolate!important;z-index:1!important;
-    box-sizing:border-box!important;flex-shrink:0!important;
+  /* 4. Hide decorative circle */
+  #tableWrap .table,.tableWrap .table { display:none!important; }
+
+  /* 5. rtStage → flat column */
+  #tableWrap #rtStage,#rtStage {
+    position:static!important;
+    display:flex!important;
+    flex-direction:column!important;
+    gap:10px!important;
+    width:100%!important;
+    height:auto!important;
+    transform:none!important;
+    overflow:visible!important;
+  }
+
+  /* 6. Seat cards → full-width portrait (ORIGINAL look unchanged) */
+  #tableWrap .seat,.tableWrap .seat,#rtStage .seat {
+    position:relative!important;
+    left:auto!important;top:auto!important;
+    right:auto!important;bottom:auto!important;
+    transform:none!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:auto!important;
+    min-height:76px!important;
+    margin:0!important;
+    overflow:hidden!important;
+    isolation:isolate!important;
+    z-index:1!important;
+    box-sizing:border-box!important;
+    flex-shrink:0!important;
     cursor:pointer!important;
   }
 
-  /* Selected seat glow */
-  #tableWrap .seat.sel,.tableWrap .seat.sel,#rtStage .seat.sel{
+  /* 7. Selected seat glow */
+  #rtStage .seat.sel,.tableWrap .seat.sel {
     border-color:rgba(124,58,237,.9)!important;
     background:rgba(22,18,70,.97)!important;
-    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,
-               0 0 22px rgba(124,58,237,.4),
-               0 6px 28px rgba(0,0,0,.5)!important;
+    box-shadow:
+      0 0 0 1px rgba(124,58,237,.22) inset,
+      0 0 22px rgba(124,58,237,.4),
+      0 6px 28px rgba(0,0,0,.5)!important;
   }
 
-  /* Sheet thread slot */
-  #sheetThreadSlot .thread,
-  #sheetThreadSlot > div {
-    padding:10px 14px;
+  /* 8. Sticky chat strip */
+  #mobStrip {
+    display:flex!important;
+    flex-direction:column!important;
+    position:sticky!important;
+    top:0!important;
+    z-index:50!important;
+    background:rgba(8,12,28,.98)!important;
+    border-bottom:1.5px solid rgba(124,58,237,.45)!important;
+    box-shadow:0 4px 20px rgba(0,0,0,.5)!important;
+    margin:0 -12px 10px!important; /* stretch edge-to-edge */
+    padding:0!important;
+    flex-shrink:0!important;
+    /* immune to body filter */
+    filter:none!important;
+    transform:none!important;
   }
 
-  /* Sheet input area */
-  #sheetInputSlot .followBox,
-  #sheetInputSlot textarea {
-    width:100%!important;
+  /* Who row */
+  #mobStripWho {
+    display:flex!important;
+    align-items:center!important;
+    gap:10px!important;
+    padding:8px 14px 6px!important;
+    border-bottom:1px solid rgba(42,58,106,.45)!important;
+  }
+  #mobStripAv {
+    width:30px!important;height:30px!important;min-width:30px!important;
+    border-radius:8px!important;
+    background:rgba(124,58,237,.45)!important;
+    display:flex!important;align-items:center!important;
+    justify-content:center!important;
+    font-size:13px!important;font-weight:900!important;color:#fff!important;
+    flex-shrink:0!important;transition:background .2s!important;
+  }
+  #mobStripName {
+    font-size:13px!important;font-weight:700!important;
+    color:#e2e8f0!important;
+    white-space:nowrap!important;overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+  #mobStripRole {
+    font-size:10px!important;color:#64748b!important;margin-top:1px!important;
+  }
+
+  /* Input row */
+  #mobStripInput {
+    display:flex!important;
+    align-items:flex-end!important;
+    gap:8px!important;
+    padding:7px 12px 9px!important;
+  }
+  #mobStripMsg {
+    flex:1!important;
     background:rgba(14,22,48,.8)!important;
     border:1px solid rgba(42,58,106,.65)!important;
     border-radius:10px!important;
-    padding:9px 12px!important;
+    padding:8px 12px!important;
     font-size:15px!important;
     color:#e2e8f0!important;
     resize:none!important;
-    min-height:40px!important;
-    max-height:100px!important;
+    min-height:36px!important;
+    max-height:90px!important;
     font-family:inherit!important;
     outline:none!important;
-    box-sizing:border-box!important;
+    line-height:1.4!important;
   }
-  #sheetInputSlot .pillRow{
-    margin-top:8px!important;
-    display:flex!important;
-    gap:8px!important;
-    flex-wrap:wrap!important;
+  #mobStripMsg::placeholder { color:rgba(100,116,139,.5)!important; }
+  #mobStripMsg:focus { border-color:rgba(124,58,237,.7)!important; }
+  #mobStripSend {
+    width:40px!important;height:40px!important;flex-shrink:0!important;
+    background:rgba(124,58,237,.9)!important;
+    border:1px solid rgba(124,58,237,.5)!important;
+    border-radius:10px!important;
+    color:#fff!important;font-size:18px!important;
+    display:flex!important;align-items:center!important;
+    justify-content:center!important;cursor:pointer!important;
   }
-  #sheetInputSlot #sendFollow{
-    flex:1!important;
-    min-height:44px!important;
-    justify-content:center!important;
+  #mobStripSend:active {
+    background:rgba(100,60,255,.95)!important;
+    transform:scale(.93)!important;
   }
+
+  /* html+body: scroll freely, no clipping */
+  html,body {
+    overflow-x:hidden!important;
+    height:auto!important;
+    min-height:100%!important;
+  }
+}
+
+@media(min-width:961px){
+  #mobStrip { display:none!important; }
 }
 </style>
 
@@ -31480,205 +31562,163 @@ document.addEventListener('click',e=>{
 'use strict';
 var isMob = function(){ return window.innerWidth <= 960; };
 function ge(id){ return document.getElementById(id); }
+var _name = null;
 
-/* ── DOM slots for moving real elements into sheet ── */
-var _threadHome  = null; /* original parent of #thread */
-var _threadNext  = null; /* original next sibling */
-var _inputHome   = null; /* original parent of input row */
-var _inputNext   = null; /* original next sibling */
-var _inputRow    = null; /* the actual input div */
-
-function findInputRow(){
-  /* The input row is the div wrapping followMsg + sendFollow */
-  var fm = ge('followMsg');
-  if(!fm) return null;
-  /* Walk up to find the container div (sibling of #thread) */
-  var p = fm.parentNode;
-  while(p && p.id !== 'thread' && p.parentNode && p.parentNode.id !== 'thread'){
-    if(p.previousElementSibling && p.previousElementSibling.id === 'thread') return p;
-    p = p.parentNode;
-  }
-  /* Fallback: parent of followMsg */
-  return fm.closest('[style*="border-top"]') || fm.parentNode.parentNode;
-}
-
-function storeHomes(){
-  if(_threadHome) return; /* already stored */
-  var thread = ge('thread');
-  var input  = findInputRow();
-  if(!thread || !input) return;
-  _threadHome = thread.parentNode;
-  _threadNext  = thread.nextSibling;
-  _inputRow   = input;
-  _inputHome  = input.parentNode;
-  _inputNext  = input.nextSibling;
-}
-
-/* ── Move thread + input INTO sheet ── */
-function moveToSheet(){
-  storeHomes();
-  var thread = ge('thread');
-  var slot   = ge('sheetThreadSlot');
-  var iSlot  = ge('sheetInputSlot');
-  if(thread && slot && thread.parentNode !== slot)  slot.appendChild(thread);
-  if(_inputRow && iSlot && _inputRow.parentNode !== iSlot) iSlot.appendChild(_inputRow);
-}
-
-/* ── Move thread + input BACK to desktop home ── */
-function moveToDesktop(){
-  var thread = ge('thread');
-  if(thread && _threadHome){
-    if(_threadNext) _threadHome.insertBefore(thread, _threadNext);
-    else _threadHome.appendChild(thread);
-  }
-  if(_inputRow && _inputHome){
-    if(_inputNext) _inputHome.insertBefore(_inputRow, _inputNext);
-    else _inputHome.appendChild(_inputRow);
+/* ── Place strip as first child of tableWrap so it scrolls with page
+      and sticks to top of viewport via position:sticky ── */
+function mountStrip(){
+  var strip = ge('mobStrip');
+  var tw    = ge('tableWrap');
+  if(!strip || !tw) return;
+  if(strip.parentNode !== tw || tw.firstElementChild !== strip){
+    tw.insertBefore(strip, tw.firstChild);
   }
 }
 
-/* ── Open sheet ── */
-window.sheetOpen = function(name){
-  if(!isMob()) return;
-  storeHomes();
+/* ── Update strip who-row ── */
+function setStrip(name){
+  var av = ge('mobStripAv');
+  var nm = ge('mobStripName');
+  var rl = ge('mobStripRole');
+  if(!av || !nm) return;
 
-  /* Set header */
-  var av = ge('sheetAv'), nm = ge('sheetName'), rl = ge('sheetRole');
+  if(!name){
+    av.textContent = '';
+    av.style.background = 'rgba(124,58,237,.45)';
+    nm.textContent = 'Tap a teammate below to chat';
+    if(rl) rl.textContent = '';
+    return;
+  }
+
   var color = 'rgba(124,58,237,.7)';
   document.querySelectorAll('.seat').forEach(function(s){
     var sn = s.querySelector('.seatName');
     if(sn && sn.textContent.trim() === name){
       var ae = s.querySelector('.seatAvatar');
       if(ae && ae.style && ae.style.background) color = ae.style.background;
-      s.classList.add('sel');
-    } else {
-      s.classList.remove('sel');
     }
   });
-  if(av){ av.textContent = (name[0]||'?').toUpperCase(); av.style.background = color; }
-  if(nm) nm.textContent = name;
+  av.textContent = (name[0]||'?').toUpperCase();
+  av.style.background = color;
+  nm.textContent = name;
   try{
-    var d = (window.state && window.state.installed||{})[name]||{};
+    var d = (window.state&&window.state.installed||{})[name]||{};
     if(rl) rl.textContent = d.job_title || d.role || '';
-  }catch(_){ if(rl) rl.textContent=''; }
+  }catch(_){ if(rl) rl.textContent = ''; }
+}
 
-  /* Select seat (loads thread) then move elements */
-  var doOpen = function(){
-    moveToSheet();
-    /* Show sheet */
-    var bd = ge('sheetBackdrop');
-    var sh = ge('mobileSheet');
-    if(bd){ bd.style.display='block'; }
-    if(sh){
-      sh.style.display='flex';
-      requestAnimationFrame(function(){
-        requestAnimationFrame(function(){
-          sh.style.transform='translateY(0)';
-        });
-      });
-    }
-    /* Scroll thread to bottom */
-    setTimeout(function(){
-      var t = ge('thread');
-      if(t) t.scrollTop = t.scrollHeight;
-      var fm = ge('followMsg');
-      if(fm) fm.focus();
-    }, 350);
-  };
+/* ── Send via real desktop followMsg → sendFollow ── */
+function doSend(){
+  var msg = ge('mobStripMsg');
+  if(!msg || !_name) return;
+  var txt = msg.value.trim();
+  if(!txt) return;
 
-  if(typeof window.selectSeat === 'function'){
-    var r = window.selectSeat(name);
-    if(r && typeof r.then === 'function'){
-      r.then(doOpen).catch(doOpen);
-    } else {
-      doOpen();
-    }
-  } else {
-    doOpen();
+  var fm = ge('followMsg');
+  var sf = ge('sendFollow');
+  if(fm && sf){
+    fm.value = txt;
+    sf.click();
+    msg.value = '';
+    msg.style.height = 'auto';
+    return;
   }
-};
+  /* Fallback */
+  if(typeof window.selectSeat === 'function'){
+    window.selectSeat(_name).then(function(){
+      var f = ge('followMsg'), s2 = ge('sendFollow');
+      if(f && s2){ f.value = txt; s2.click(); msg.value = ''; }
+    });
+  }
+}
 
-/* ── Close sheet ── */
-window.sheetClose = function(){
-  var sh = ge('mobileSheet');
-  var bd = ge('sheetBackdrop');
-  if(sh){ sh.style.transform = 'translateY(100%)'; }
-  if(bd){ bd.style.display = 'none'; }
-  setTimeout(function(){
-    if(sh) sh.style.display = 'none';
-    if(isMob()) moveToDesktop();
-    /* Clear seat selection highlight */
-    document.querySelectorAll('.seat.sel').forEach(function(s){ s.classList.remove('sel'); });
-  }, 320);
-};
+var sb = ge('mobStripSend');
+if(sb) sb.addEventListener('click', doSend);
 
-/* ── Hook seat card taps on mobile ── */
+var ma = ge('mobStripMsg');
+if(ma){
+  ma.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); doSend(); }
+  });
+  ma.addEventListener('input', function(){
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 90) + 'px';
+  });
+}
+
+/* ── Hook seat taps ── */
 function hookSeats(){
   document.querySelectorAll('.seat').forEach(function(seat){
-    if(seat._sheetHooked) return;
-    seat._sheetHooked = true;
-    seat.addEventListener('click', function(e){
+    if(seat._v8) return;
+    seat._v8 = true;
+    seat.addEventListener('click', function(){
       if(!isMob()) return;
-      var sn = seat.querySelector('.seatName');
+      var sn   = seat.querySelector('.seatName');
       var name = sn ? sn.textContent.trim() : seat.getAttribute('data-name');
-      if(name) window.sheetOpen(name);
+      if(!name) return;
+
+      _name = name;
+      setStrip(name);
+
+      /* Highlight selected card */
+      document.querySelectorAll('.seat').forEach(function(s){
+        var ssn = s.querySelector('.seatName');
+        s.classList.toggle('sel', ssn && ssn.textContent.trim() === name);
+      });
+
+      /* Load thread in background */
+      if(typeof window.selectSeat === 'function'){
+        window.selectSeat(name).catch(function(){});
+      }
+
+      /* Focus the input — keyboard opens, strip stays visible at top */
+      setTimeout(function(){
+        var msg = ge('mobStripMsg');
+        if(msg) msg.focus();
+      }, 150);
+
     }, true);
   });
 }
 
-/* ── Handle resize: move elements back if going to desktop ── */
-var _lastMob = isMob();
-window.addEventListener('resize', function(){
-  var nowMob = isMob();
-  if(_lastMob && !nowMob){
-    window.sheetClose();
-    setTimeout(moveToDesktop, 400);
-  }
-  _lastMob = nowMob;
-});
-
-/* ── Swipe down to dismiss ── */
-var _dragY = 0, _dragging = false;
-var sh = ge('mobileSheet');
-if(sh){
-  sh.addEventListener('touchstart', function(e){
-    if(e.target.closest('#sheetThreadSlot,#sheetInputSlot')) return;
-    _dragging = true; _dragY = e.touches[0].clientY;
-    sh.style.transition = 'none';
-  }, {passive:true});
-  document.addEventListener('touchmove', function(e){
-    if(!_dragging) return;
-    var dy = e.touches[0].clientY - _dragY;
-    if(dy > 0) sh.style.transform = 'translateY('+dy+'px)';
-  }, {passive:true});
-  document.addEventListener('touchend', function(){
-    if(!_dragging) return;
-    _dragging = false;
-    sh.style.transition = '';
-    var cur = sh.style.transform;
-    var match = cur.match(/translateY\((\d+)/);
-    var dist = match ? parseInt(match[1]) : 0;
-    if(dist > 80) window.sheetClose();
-    else sh.style.transform = 'translateY(0)';
-  });
+/* ── Patch selectSeat so strip updates from any caller ── */
+function patchSS(){
+  var o = window.selectSeat;
+  if(!o || o._v8) return;
+  var p = function(name){
+    var r = o.apply(this, arguments);
+    if(isMob()){ _name = name; setStrip(name); }
+    return r;
+  };
+  p._v8 = true;
+  window.selectSeat = p;
 }
 
 /* ── Init ── */
-if(window.MutationObserver){
-  new MutationObserver(hookSeats)
-    .observe(document.documentElement, {childList:true, subtree:true});
+function init(){
+  mountStrip();
+  if(typeof window.selectSeat === 'function'){
+    patchSS();
+    hookSeats();
+  } else {
+    setTimeout(init, 400);
+    return;
+  }
 }
-setTimeout(hookSeats, 600);
-setTimeout(hookSeats, 1500);
 
-/* ── Also inject operator pre-paint hide ── */
-if(/Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)){
-  var s2 = document.createElement('style');
-  s2.textContent = '.operator,#operator{display:none!important}';
-  document.head.appendChild(s2);
+/* Re-mount and re-hook after dynamic seat renders */
+if(window.MutationObserver){
+  new MutationObserver(function(){
+    mountStrip();
+    hookSeats();
+  }).observe(document.documentElement, {childList:true, subtree:true});
 }
+
+setTimeout(init, 600);
+setTimeout(hookSeats, 1400);
 })();
 </script>
+<!-- ===== END MOBILE LAYOUT v8 ===== -->
 
 </body>
 </html>
