@@ -13302,12 +13302,6 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     bottom: 8px !important;
   }
 
-  /* Always show Edit/Stack buttons on mobile — no hover state on touch */
-  #tableWrap > .seat .seatTools{
-    opacity: 1 !important;
-    pointer-events: auto !important;
-  }
-
   #tableWrap > .operator .opText{
     min-height: 124px !important;
   }
@@ -31377,6 +31371,25 @@ document.addEventListener('click',e=>{
         if(!isMobile()) return; /* desktop: normal behaviour */
         /* If the click landed on a seatTools button (Edit, Stack), let it through */
         if(e.target && (e.target.closest ? e.target.closest('.seatTools') : false)) return;
+        /* First tap: reveal the Edit/Stack toolbar (mimics desktop hover).
+           Second tap (or tap elsewhere): open chat as normal. */
+        var tools = seat.querySelector('.seatTools');
+        if(tools && !seat._toolsRevealed){
+          e.stopPropagation();
+          seat._toolsRevealed = true;
+          tools.style.opacity = '1';
+          tools.style.pointerEvents = 'auto';
+          /* Auto-hide after 3 s if no button is pressed */
+          clearTimeout(seat._toolsTimer);
+          seat._toolsTimer = setTimeout(function(){
+            seat._toolsRevealed = false;
+            tools.style.opacity = '';
+            tools.style.pointerEvents = '';
+          }, 3000);
+          return;
+        }
+        /* Tools already revealed or no tools — open chat */
+        if(tools){ tools.style.opacity=''; tools.style.pointerEvents=''; seat._toolsRevealed=false; clearTimeout(seat._toolsTimer); }
         e.stopPropagation();
         var name = seat.getAttribute('data-name');
         if(!name) return;
