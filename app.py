@@ -13302,6 +13302,12 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
     bottom: 8px !important;
   }
 
+  /* Always show Edit/Stack buttons on mobile — no hover state on touch */
+  #tableWrap > .seat .seatTools{
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
   #tableWrap > .operator .opText{
     min-height: 124px !important;
   }
@@ -13642,6 +13648,7 @@ label         { font-size: 14px !important; }
           <div class="saDrop" id="saTeamDrop">
             <button class="saDropItem" id="frameworkBtn">Core framework</button>
             <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
+            <button class="saDropItem" id="editTeammatesBtn">✏️ Edit teammates</button>
             <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
             <button class="saDropItem" id="createTeamBtn">Create teammate</button>
             <button class="saDropItem" id="installFullBtn">Install full team</button>
@@ -13861,6 +13868,7 @@ label         { font-size: 14px !important; }
           <div class="mdGroupBody">
             <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
+            <button class="btn" data-click="editTeammatesBtn" onclick="closeMobileDrawer()">✏️ Edit Teammates</button>
             <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
             <button class="btn" data-click="createTeamBtn" onclick="closeMobileDrawer()">🛠 Create Teammate</button>
             <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
@@ -19569,6 +19577,60 @@ Body: ${body ? "[present]" : "[empty]"}
       await loadState();
       renderManageList();
       showManageModal();
+    };
+
+    // ── Edit Teammates picker ──
+    // Shows a list of all installed teammates; clicking one opens their edit modal.
+    function showEditTeammatesModal(){
+      $("modalTitle").innerText = "Edit Teammates";
+      hideAllModalForms();
+      $("modalBody").style.display = "block";
+      $("modalBody").innerText = "";
+      $("overlay").classList.add("show");
+      applyModalPos();
+      const modalMinimizedEl = $("modalWin");
+      if(modalMinimizedEl) modalMinimizedEl.classList.remove("minimized");
+      if($("minModal")) $("minModal").style.display = "inline-block";
+      if($("restoreModal")) $("restoreModal").style.display = "none";
+
+      const installedMap = (state && state.installed) ? state.installed : {};
+      let order = (state && Array.isArray(state.installed_order) && state.installed_order.length)
+        ? state.installed_order.slice()
+        : Object.keys(installedMap);
+      if(!order.length){
+        $("modalBody").innerText = "No teammates installed yet.";
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+      order.forEach(function(name){
+        const defn = installedMap[name] || {};
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid rgba(42,58,106,.6);border-radius:14px;background:rgba(14,22,48,.45);";
+        const info = document.createElement("div");
+        info.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+        const nm = document.createElement("div");
+        nm.style.cssText = "font-weight:800;font-size:14px;";
+        nm.innerText = name;
+        const role = document.createElement("div");
+        role.className = "tiny";
+        role.innerText = defn.job_title || "";
+        info.appendChild(nm);
+        info.appendChild(role);
+        const btn = document.createElement("button");
+        btn.className = "btn btnMini btnPrimary";
+        btn.innerText = "✏️ Edit";
+        btn.onclick = function(){ openEditForTeammate(name); };
+        row.appendChild(info);
+        row.appendChild(btn);
+        wrap.appendChild(row);
+      });
+      $("modalBody").appendChild(wrap);
+    }
+
+    if($("editTeammatesBtn")) $("editTeammatesBtn").onclick = async () => {
+      await loadState();
+      showEditTeammatesModal();
     };
 
     $("cancelManage").onclick = () => hideModal();
@@ -31313,6 +31375,8 @@ document.addEventListener('click',e=>{
       seat._saSheetHooked = true;
       seat.addEventListener('click', function(e){
         if(!isMobile()) return; /* desktop: normal behaviour */
+        /* If the click landed on a seatTools button (Edit, Stack), let it through */
+        if(e.target && (e.target.closest ? e.target.closest('.seatTools') : false)) return;
         e.stopPropagation();
         var name = seat.getAttribute('data-name');
         if(!name) return;
