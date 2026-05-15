@@ -13822,7 +13822,6 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="socialStudioBtn" onclick="closeMobileDrawer()">📣 Social Studio</button>
             <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
-            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
           </div>
         </div>
@@ -13835,7 +13834,6 @@ label         { font-size: 14px !important; }
           <div class="mdGroupBody">
             <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🔬 Find Leads</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showSiteAnalyzerModal,200);">🌐 Site Analyzer</button>
-            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
           </div>
         </div>
 
@@ -13845,6 +13843,9 @@ label         { font-size: 14px !important; }
             <span>📊 Manage</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
+            <button class="btn" data-click="teamBtn" onclick="closeMobileDrawer()">👥 My Team</button>
+            <button class="btn" data-click="operatorProfileBtn" onclick="closeMobileDrawer()">🧑‍💼 Operator Profile</button>
+            <button class="btn" data-click="sessionObjectiveBtn" onclick="closeMobileDrawer()">🎯 Session Objective</button>
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👥 Contacts</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
@@ -13858,10 +13859,11 @@ label         { font-size: 14px !important; }
             <span>🤖 Teammates</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
+            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
+            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
             <button class="btn" data-click="createTeamBtn" onclick="closeMobileDrawer()">🛠 Create Teammate</button>
             <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
-            <button class="btn" id="teamNavBtn" onclick="closeMobileDrawer();setTimeout(showTeamModal,200);">👥 My Team</button>
           </div>
         </div>
 
