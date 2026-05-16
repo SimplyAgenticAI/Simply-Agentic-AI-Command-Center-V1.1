@@ -15190,7 +15190,6 @@ label         { font-size: 14px !important; }
     <div id="leadLabFilterBar" style="display:none;padding:10px 16px;border-top:0.5px solid rgba(255,255,255,.08);display:none;align-items:center;gap:10px;flex-wrap:wrap;">
       <span style="font-size:12px;color:#94a3b8;font-weight:500;">Sort by:</span>
       <select id="leadLabSort" style="font-size:12px;padding:4px 8px;background:#1e293b;border:0.5px solid rgba(255,255,255,.12);border-radius:6px;color:#e2e8f0;">
-        <option value="score">Best match</option>
         <option value="email">Has email first</option>
         <option value="phone">Has phone first</option>
         <option value="linkedin">Has LinkedIn first</option>
@@ -16371,15 +16370,11 @@ if (typeof window.showToast !== "function") {
 
     
     function ensureModalMinSize(minW, minH){
+      /* Modal is always fullscreen — this is a no-op kept for API compatibility */
       const win = $("modalWin");
       if(!win) return;
-      const curW = parseInt((win.style.width || "0").replace("px","")) || win.getBoundingClientRect().width || 0;
-      const curH = parseInt((win.style.height || "0").replace("px","")) || win.getBoundingClientRect().height || 0;
-      const w = Math.max(curW, minW || 0);
-      const h = Math.max(curH, minH || 0);
-      win.style.width = w + "px";
-      win.style.height = h + "px";
-      try{ saveModalSize(w, h); }catch(e){}
+      // Re-apply fullscreen to ensure nothing overrides it
+      try{ applyModalPos(); }catch(e){}
     }
 
 function applyModalPos(){
@@ -17343,7 +17338,7 @@ function makeSeat(defn, idx, totalSeats){
 
       seats.forEach((name, i) => {
         const defn = installed[name];
-        const seat = makeSeat(defn, i + 1, totalSeats); // +1: Operator holds position 0
+        const seat = makeSeat(defn, i, totalSeats); // Operator holds position 0; teammates start at 1
         wrap.appendChild(seat);
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
@@ -21226,10 +21221,7 @@ async function crmFetchTasks(){
               </div>
               ${_llSocialIcons(item)}
             </div>
-            <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;min-width:90px;">
-              <div style="font-size:22px;font-weight:500;color:${(item.score||0)>=70?'#86efac':(item.score||0)>=50?'#fcd34d':'#94a3b8'};">${item.score||'—'}</div>
-              <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.05em;">score</div>
-            </div>
+
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;border-top:0.5px solid rgba(255,255,255,.06);padding-top:10px;">
             ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
@@ -21283,7 +21275,7 @@ async function crmFetchTasks(){
 
     function _llApplySortFilter(){
       if(!_leadLabItems.length) return;
-      const sort = ($("leadLabSort")?.value)||'score';
+      const sort = ($("leadLabSort")?.value)||'email';
       const show = ($("leadLabShowFilter")?.value)||'all';
       let items = [..._leadLabItems];
       // Filter
@@ -31372,6 +31364,8 @@ document.addEventListener('click',e=>{
   function installSeatIntercept(){
     document.querySelectorAll('.seat[data-name]').forEach(function(seat){
       if(seat._saSheetHooked) return;
+      // Operator seat should open profile modal only, not the teammate chat sheet
+      if(seat.dataset.name==='Operator'||seat.classList.contains('seatOperator')) return;
       seat._saSheetHooked = true;
       seat.addEventListener('click', function(e){
         if(!isMobile()) return; /* desktop: normal behaviour */
@@ -31476,6 +31470,10 @@ document.addEventListener('click',e=>{
       <div id="mobStripName">Tap a teammate to chat</div>
       <div id="mobStripRole"></div>
     </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-left:auto;flex-shrink:0;">
+      <button id="mobStripExpand" title="Expand chat" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;border-radius:8px;padding:4px 8px;font-size:13px;cursor:pointer;line-height:1;">⤢</button>
+      <button id="mobStripMinimize" title="Minimize chat" style="background:rgba(42,58,106,.4);border:1px solid rgba(42,58,106,.7);color:#64748b;border-radius:8px;padding:4px 8px;font-size:13px;cursor:pointer;line-height:1;">—</button>
+    </div>
   </div>
   <div id="mobStripRow">
     <textarea id="mobStripMsg"
@@ -31483,6 +31481,23 @@ document.addEventListener('click',e=>{
       rows="1" autocomplete="off" autocorrect="off"
       autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
+  </div>
+</div>
+
+<!-- Full chat overlay for mobile -->
+<div id="mobFullChat" style="display:none;position:fixed;inset:0;z-index:9900;background:rgba(8,12,28,.99);flex-direction:column;">
+  <div id="mobFullChatHeader" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid rgba(124,58,237,.35);background:rgba(12,18,40,.99);flex-shrink:0;">
+    <div id="mobFullChatAv" style="width:32px;height:32px;min-width:32px;border-radius:9px;background:rgba(124,58,237,.5);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:#fff;"></div>
+    <div style="flex:1;min-width:0;">
+      <div id="mobFullChatName" style="font-size:15px;font-weight:700;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+      <div id="mobFullChatRole" style="font-size:11px;color:#64748b;margin-top:1px;"></div>
+    </div>
+    <button id="mobFullChatClose" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;">✕ Close</button>
+  </div>
+  <div id="mobFullChatThread" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
+  <div id="mobFullChatInputRow" style="display:flex;align-items:flex-end;gap:8px;padding:10px 12px;border-top:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.99);flex-shrink:0;padding-bottom:calc(10px + env(safe-area-inset-bottom));">
+    <textarea id="mobFullChatMsg" placeholder="Message teammate…" rows="1" style="flex:1;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.7);border-radius:10px;padding:10px 14px;font-size:15px;color:#e2e8f0;resize:none;min-height:40px;max-height:120px;font-family:inherit;outline:none;line-height:1.4;"></textarea>
+    <button id="mobFullChatSend" style="width:44px;height:44px;flex-shrink:0;background:rgba(124,58,237,.9);border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;">&#x21B5;</button>
   </div>
 </div>
 
@@ -31684,11 +31699,13 @@ if(ma){
 function hookSeats(){
   document.querySelectorAll('.seat').forEach(function(seat){
     if(seat._v10)return; seat._v10=true;
+    // Operator seat opens profile modal, not chat strip
+    if(seat.dataset.name==='Operator'||seat.classList.contains('seatOperator'))return;
     seat.addEventListener('click',function(){
       if(!MOB())return;
       var sn=seat.querySelector('.seatName');
       var name=sn?sn.textContent.trim():seat.getAttribute('data-name');
-      if(!name)return;
+      if(!name||name==='Operator')return;
       _nm=name; setWho(name);
       document.querySelectorAll('.seat').forEach(function(s){
         var ssn=s.querySelector('.seatName');
@@ -31726,7 +31743,115 @@ pin();
 setTimeout(init,600);
 setTimeout(hookSeats,1400);
 
-/* Prevent iOS swipe-back from navigating to /logout */
+/* ── Expand / Minimize / Reopen strip ── */
+var _stripMinimized = false;
+
+function _syncFullChat(name){
+  var fav=ge('mobFullChatAv'),fnm=ge('mobFullChatName'),frl=ge('mobFullChatRole');
+  if(!fav||!fnm) return;
+  var color='rgba(124,58,237,.75)';
+  document.querySelectorAll('.seat').forEach(function(s){
+    var sn=s.querySelector('.seatName');
+    if(sn&&sn.textContent.trim()===name){
+      var ae=s.querySelector('.seatAvatar')||s.querySelector('.avatar');
+      if(ae&&ae.style&&ae.style.background)color=ae.style.background;
+    }
+  });
+  fav.textContent=(name[0]||'?').toUpperCase(); fav.style.background=color;
+  fnm.textContent=name||'';
+  try{
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    frl.textContent=d.job_title||d.role||'';
+  }catch(_){ frl.textContent=''; }
+  /* Mirror thread from desktop */
+  var dt=ge('thread'), ft=ge('mobFullChatThread');
+  if(dt&&ft){ ft.innerHTML=dt.innerHTML; ft.scrollTop=ft.scrollHeight; }
+}
+
+function openFullChat(){
+  var fc=ge('mobFullChat'); if(!fc) return;
+  _syncFullChat(_nm||'');
+  fc.style.display='flex';
+  document.body.style.overflow='hidden';
+  setTimeout(function(){ var m=ge('mobFullChatMsg'); if(m) m.focus(); },200);
+  /* Observe desktop thread for updates */
+  var dt=ge('thread'), ft=ge('mobFullChatThread');
+  if(dt&&ft&&window.MutationObserver){
+    if(window._mobFullChatObs) window._mobFullChatObs.disconnect();
+    window._mobFullChatObs=new MutationObserver(function(){
+      ft.innerHTML=dt.innerHTML; ft.scrollTop=ft.scrollHeight;
+    });
+    window._mobFullChatObs.observe(dt,{childList:true,subtree:true,characterData:true});
+  }
+}
+
+function closeFullChat(){
+  var fc=ge('mobFullChat'); if(!fc) return;
+  fc.style.display='none';
+  document.body.style.overflow='';
+  if(window._mobFullChatObs){ window._mobFullChatObs.disconnect(); window._mobFullChatObs=null; }
+}
+
+function minimizeStrip(){
+  _stripMinimized=true;
+  var s=ge('mobStrip'); if(!s) return;
+  s.style.transform='translateY(calc(100% - 44px))';
+  s.style.transition='transform .25s ease';
+  var exp=ge('mobStripExpand'); if(exp){ exp.textContent='▲'; exp.title='Reopen chat'; }
+  var mn=ge('mobStripMinimize'); if(mn) mn.style.display='none';
+}
+
+function reopenStrip(){
+  _stripMinimized=false;
+  var s=ge('mobStrip'); if(!s) return;
+  s.style.transform='';
+  s.style.transition='transform .25s ease';
+  var exp=ge('mobStripExpand'); if(exp){ exp.textContent='⤢'; exp.title='Expand chat'; }
+  var mn=ge('mobStripMinimize'); if(mn) mn.style.display='';
+}
+
+var expandBtn=ge('mobStripExpand');
+if(expandBtn) expandBtn.addEventListener('click',function(){
+  if(_stripMinimized){ reopenStrip(); }
+  else { openFullChat(); }
+});
+
+var minBtn=ge('mobStripMinimize');
+if(minBtn) minBtn.addEventListener('click',function(){ minimizeStrip(); });
+
+var fcClose=ge('mobFullChatClose');
+if(fcClose) fcClose.addEventListener('click',closeFullChat);
+
+/* Full chat send */
+function doFullChatSend(){
+  var msg=ge('mobFullChatMsg'); if(!msg||!_nm) return;
+  var txt=msg.value.trim(); if(!txt) return;
+  var fm=ge('followMsg'),sf=ge('sendFollow');
+  if(fm&&sf){ fm.value=txt; sf.click(); msg.value=''; msg.style.height='auto'; return; }
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(_nm).then(function(){
+      var f=ge('followMsg'),s2=ge('sendFollow');
+      if(f&&s2){f.value=txt;s2.click();msg.value='';}
+    });
+  }
+}
+var fcSend=ge('mobFullChatSend');
+if(fcSend) fcSend.addEventListener('click',doFullChatSend);
+var fcMsg=ge('mobFullChatMsg');
+if(fcMsg){
+  fcMsg.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doFullChatSend();}
+  });
+  fcMsg.addEventListener('input',function(){
+    this.style.height='auto';
+    this.style.height=Math.min(this.scrollHeight,120)+'px';
+  });
+}
+
+/* Keyboard: Escape closes full chat */
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){ var fc=ge('mobFullChat'); if(fc&&fc.style.display!=='none') closeFullChat(); }
+});
 (function(){
   if(window.innerWidth>960)return;
   try{ history.pushState({sa:1},'',location.pathname); }catch(_){}
