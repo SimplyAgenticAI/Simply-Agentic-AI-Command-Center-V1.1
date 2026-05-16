@@ -4692,6 +4692,85 @@ _IMAGE_TRIGGERS = [
     "image of", "picture of",
 ]
 
+def is_visual_request(prompt: str) -> bool:
+    """Detect when the user wants a live animated/interactive visual rendered in the chat."""
+    p = (prompt or "").strip().lower()
+    if not p:
+        return False
+    _VISUAL_TRIGGERS = [
+        "create an animation", "make an animation", "build an animation",
+        "create a slideshow", "make a slideshow", "build a slideshow",
+        "create a carousel", "make a carousel", "build a carousel",
+        "create a presentation", "make a presentation", "build a presentation",
+        "create an animated", "make an animated", "build an animated",
+        "create a visual", "make a visual", "generate a visual",
+        "create an interactive", "make an interactive", "build an interactive",
+        "animate ", "visualize ", "visualise ",
+        "show me an animation", "show me a slideshow", "show me a carousel",
+        "render a", "generate an animation", "generate a slideshow",
+        "create a countdown", "make a countdown",
+        "create a demo", "make a demo", "build a demo",
+        "show me a preview", "create a preview",
+        "make it animated", "with animations", "with animation",
+        "create an infographic", "make an infographic",
+        "landing page animation", "animated landing",
+    ]
+    for t in _VISUAL_TRIGGERS:
+        if t in p:
+            return True
+    return False
+
+
+def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
+    """Generate a self-contained HTML animation/visual using Claude."""
+    claude_key = ""
+    try:
+        u = load_users().get("users", {}).get(username, {})
+        settings = u.get("settings") or {}
+        claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
+    except Exception:
+        pass
+
+    if not claude_key or _anthropic_sdk is None:
+        return ""
+
+    system = (
+        "You are an elite creative developer. Output ONLY a complete self-contained HTML file. "
+        "No explanation, no markdown, no code fences. Start with <!DOCTYPE html>. "
+        "Rules: all CSS/JS inline; only Google Fonts as external resource; "
+        "real animations with @keyframes; fully interactive; mobile responsive; "
+        "dark background (#07091a or #060c1e), rich purple/blue accents (#7c3aed, #a78bfa); "
+        "beautiful typography; smooth cubic-bezier transitions; production quality. "
+        "Output ONLY the HTML starting with <!DOCTYPE html>."
+    )
+    user_msg = (
+        f"Create this visual: {prompt} "
+        f"Make it genuinely beautiful and impressive. "
+        f"Output only the complete HTML file."
+    )
+    try:
+        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
+        resp = cl.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=8000,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            temperature=1.0,
+        )
+        html = (resp.content[0].text or "").strip()
+        if html.startswith("```"):
+            lines = html.split("\n")
+            html = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
+        for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
+            idx = html.find(marker)
+            if idx != -1:
+                html = html[idx:]
+                break
+        return html if len(html) > 200 else ""
+    except Exception:
+        return ""
+
+
 def is_image_request(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
     if not p:
@@ -6789,6 +6868,27 @@ def _api_followup_impl(data):
         rag_context = ""
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
+
+    # Visual request: generate live animated HTML and return it
+    if is_visual_request(msg2):
+        try:
+            uname_vis = uname
+        except Exception:
+            uname_vis = ""
+        html_out = _generate_visual_html(msg2, name, uname_vis)
+        if html_out:
+            # Store in thread as a special visual message
+            thread_entry_user = {"role": "user", "content": msg}
+            thread_entry_asst = {"role": "assistant", "content": "__VISUAL__" + html_out}
+            thread.append(thread_entry_user)
+            thread.append(thread_entry_asst)
+            save_thread(name, uname_vis, thread)
+            return jsonify({
+                "ok": True,
+                "response": "__VISUAL__" + html_out,
+                "thread": thread,
+            })
+        # If no Anthropic key, fall through to regular text response
 
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
@@ -17978,6 +18078,68 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           actions.appendChild(shareBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
+        }else if(raw.startsWith('__VISUAL__')){
+          // Live visual/animation — render in sandboxed iframe
+          const htmlSrc = raw.slice('__VISUAL__'.length);
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;';
+
+          const frame = document.createElement('iframe');
+          frame.sandbox = 'allow-scripts allow-same-origin';
+          frame.srcdoc = htmlSrc;
+          frame.style.cssText = 'width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;';
+          frame.title = 'Generated visual';
+          wrap.appendChild(frame);
+
+          // Action bar
+          const bar = document.createElement('div');
+          bar.style.cssText = 'display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;';
+
+          const dlBtn = document.createElement('button');
+          dlBtn.className = 'btn btnMini';
+          dlBtn.innerText = '⬇ Download';
+          dlBtn.onclick = function(){
+            const a = document.createElement('a');
+            a.href = 'data:text/html;charset=utf-8,' + encodeURIComponent(htmlSrc);
+            a.download = 'visual-' + Date.now() + '.html';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          };
+
+          const cpBtn = document.createElement('button');
+          cpBtn.className = 'btn btnMini';
+          cpBtn.innerText = '📋 Copy code';
+          cpBtn.onclick = function(){
+            navigator.clipboard.writeText(htmlSrc).then(function(){
+              cpBtn.innerText = '✓ Copied!';
+              setTimeout(function(){ cpBtn.innerText = '📋 Copy code'; }, 2000);
+            });
+          };
+
+          const fullBtn = document.createElement('button');
+          fullBtn.className = 'btn btnMini';
+          fullBtn.innerText = '⛶ Full screen';
+          fullBtn.onclick = function(){
+            const blob = new Blob([htmlSrc], {type:'text/html'});
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+          };
+
+          const resizeBtn = document.createElement('button');
+          resizeBtn.className = 'btn btnMini';
+          resizeBtn.innerText = '↕ Resize';
+          let expanded = false;
+          resizeBtn.onclick = function(){
+            expanded = !expanded;
+            frame.style.height = expanded ? '700px' : '420px';
+            resizeBtn.innerText = expanded ? '↕ Shrink' : '↕ Resize';
+          };
+
+          bar.appendChild(dlBtn);
+          bar.appendChild(cpBtn);
+          bar.appendChild(fullBtn);
+          bar.appendChild(resizeBtn);
+          wrap.appendChild(bar);
+          content.appendChild(wrap);
         }else{
           content.innerText = raw;
           // Feature 2: CRM name detection — if response mentions a known contact, show quick-open button
