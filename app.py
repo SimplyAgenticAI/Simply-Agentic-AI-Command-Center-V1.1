@@ -12666,7 +12666,8 @@ HTML = r"""
     margin: 0 auto !important;
   }
 
-  .container{ padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
+  /* Container bottom space is handled by --mob-strip-h CSS var set dynamically */
+  .container{ padding-bottom: 0 !important; }
 }
 
 @media (max-width: 640px){
@@ -12853,8 +12854,7 @@ HTML = r"""
   /* Give the prompt textarea breathing room */
   .opText{ min-height: 72px; }
 
-  /* Avoid the bottom mobile bar covering content */
-  .container{ padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important; }
+  /* Container bottom padding handled by --mob-strip-h via tableWrap */
 
   /* ── MOBILE CHAT PANEL FIX ──────────────────────────────────────────
      The .sideCard has an inline style height:calc(100svh - 80px) which
@@ -31470,7 +31470,9 @@ document.addEventListener('click',e=>{
       <div id="mobStripName">Tap a teammate to chat</div>
       <div id="mobStripRole"></div>
     </div>
+    <button id="mobStripExpand" title="Open full chat">⤢</button>
   </div>
+  <div id="mobStripThread"></div>
   <div id="mobStripRow">
     <textarea id="mobStripMsg"
       placeholder="Message teammate…"
@@ -31486,7 +31488,7 @@ document.addEventListener('click',e=>{
 
 @media(max-width:960px){
 
-  /* ── 1. Strip: fixed at top, immune to everything ── */
+  /* ── 1. Strip: fixed at bottom, immune to everything ── */
   #mobStrip{
     display:flex!important; flex-direction:column!important;
     position:fixed!important; bottom:0!important; top:auto!important;
@@ -31498,6 +31500,7 @@ document.addEventListener('click',e=>{
     box-shadow:0 -3px 18px rgba(0,0,0,.6)!important;
     filter:none!important; transform:none!important; will-change:auto!important;
     padding-bottom:env(safe-area-inset-bottom)!important;
+    max-height:60dvh!important;
   }
   #mobStripWho{
     display:flex!important; align-items:center!important; gap:10px!important;
@@ -31517,6 +31520,34 @@ document.addEventListener('click',e=>{
     overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
   }
   #mobStripRole{ font-size:10px!important; color:#64748b!important; margin-top:1px!important; }
+  #mobStripExpand{
+    margin-left:auto!important; flex-shrink:0!important;
+    background:rgba(255,255,255,.06)!important;
+    border:1px solid rgba(255,255,255,.12)!important;
+    border-radius:7px!important; color:#94a3b8!important;
+    font-size:13px!important; width:28px!important; height:28px!important;
+    display:flex!important; align-items:center!important; justify-content:center!important;
+    cursor:pointer!important; padding:0!important;
+  }
+  /* Thread panel — hidden until a teammate is selected */
+  #mobStripThread{
+    display:none!important;
+    flex:1!important; overflow-y:auto!important;
+    padding:8px 14px!important;
+    -webkit-overflow-scrolling:touch!important;
+    min-height:0!important;
+    max-height:38dvh!important;
+    border-bottom:1px solid rgba(42,58,106,.35)!important;
+  }
+  #mobStrip.mob-active #mobStripThread{
+    display:block!important;
+  }
+  /* Messages inside the thread */
+  #mobStripThread .msg,
+  #mobStripThread [class*="msg"]{
+    font-size:13px!important; line-height:1.55!important;
+    margin-bottom:8px!important;
+  }
   #mobStripRow{
     display:flex!important; align-items:flex-end!important;
     gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
@@ -31563,7 +31594,7 @@ document.addEventListener('click',e=>{
     align-items:stretch!important; width:100%!important; max-width:100%!important;
     height:auto!important; min-height:0!important; overflow:visible!important;
     padding-left:12px!important; padding-right:12px!important;
-    padding-bottom:calc(100px + env(safe-area-inset-bottom))!important;
+    padding-bottom:calc(var(--mob-strip-h, 110px) + env(safe-area-inset-bottom) + 8px)!important;
     gap:10px!important; box-sizing:border-box!important; transform:none!important;
   }
   #tableWrap .table,.tableWrap .table{ display:none!important; }
@@ -31625,10 +31656,13 @@ function pin(){
 /* Update who-row */
 function setWho(name){
   var av=ge('mobStripAv'),nm=ge('mobStripName'),rl=ge('mobStripRole');
+  var strip=ge('mobStrip');
   if(!av||!nm)return;
   if(!name){
     av.textContent='';av.style.background='rgba(124,58,237,.5)';
-    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';return;
+    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';
+    if(strip)strip.classList.remove('mob-active');
+    return;
   }
   var color='rgba(124,58,237,.75)';
   document.querySelectorAll('.seat').forEach(function(s){
@@ -31644,6 +31678,10 @@ function setWho(name){
     var d=(window.state&&window.state.installed||{})[name]||{};
     if(rl)rl.textContent=d.job_title||d.role||'';
   }catch(_){if(rl)rl.textContent='';}
+  // Activate thread panel
+  if(strip)strip.classList.add('mob-active');
+  // Sync thread content immediately and watch for new replies
+  setTimeout(function(){ syncThread(); watchDesktopThread(); updateStripHeight(); }, 300);
 }
 
 /* Send via real pipeline */
@@ -31652,11 +31690,21 @@ function doSend(){
   if(!msg||!_nm)return;
   var txt=msg.value.trim();if(!txt)return;
   var fm=ge('followMsg'),sf=ge('sendFollow');
-  if(fm&&sf){fm.value=txt;sf.click();msg.value='';msg.style.height='auto';return;}
+  if(fm&&sf){
+    fm.value=txt;sf.click();msg.value='';msg.style.height='auto';
+    // Sync thread after short delay so message renders
+    setTimeout(syncThread,200);
+    setTimeout(syncThread,1200);
+    setTimeout(syncThread,3000);
+    return;
+  }
   if(typeof window.selectSeat==='function'){
     window.selectSeat(_nm).then(function(){
       var f=ge('followMsg'),s2=ge('sendFollow');
       if(f&&s2){f.value=txt;s2.click();msg.value='';}
+      setTimeout(syncThread,200);
+      setTimeout(syncThread,1200);
+      setTimeout(syncThread,3000);
     });
   }
 }
@@ -31671,6 +31719,51 @@ if(ma){
   ma.addEventListener('input',function(){
     this.style.height='auto';
     this.style.height=Math.min(this.scrollHeight,88)+'px';
+    updateStripHeight();
+  });
+}
+
+/* ── Thread sync & scroll ── */
+function syncThread(){
+  var dt=ge('thread'); // desktop hidden thread
+  var st=ge('mobStripThread');
+  if(!st)return;
+  if(dt&&dt.innerHTML.trim()){
+    st.innerHTML=dt.innerHTML;
+  }
+  // Scroll to bottom so latest reply is always visible
+  st.scrollTop=st.scrollHeight;
+}
+
+/* Watch desktop thread for AI replies */
+var _dtObs=null;
+function watchDesktopThread(){
+  var dt=ge('thread');
+  if(!dt||_dtObs)return;
+  _dtObs=new MutationObserver(function(){
+    if(_nm) syncThread();
+  });
+  _dtObs.observe(dt,{childList:true,subtree:true,characterData:true});
+}
+
+/* ── Dynamic padding: measure strip and set CSS var ── */
+function updateStripHeight(){
+  var strip=ge('mobStrip');
+  if(!strip||!MOB())return;
+  var h=strip.offsetHeight||0;
+  document.documentElement.style.setProperty('--mob-strip-h', h+'px');
+}
+var _stripRO=window.ResizeObserver?new ResizeObserver(updateStripHeight):null;
+var _stripEl=ge('mobStrip');
+if(_stripRO&&_stripEl)_stripRO.observe(_stripEl);
+
+/* ── Expand button: opens saBottomSheet full-screen ── */
+var expBtn=ge('mobStripExpand');
+if(expBtn){
+  expBtn.addEventListener('click',function(){
+    if(_nm&&typeof window.saOpenSheet==='function'){
+      window.saOpenSheet(_nm);
+    }
   });
 }
 
@@ -31719,6 +31812,7 @@ function init(){
 pin();
 setTimeout(init,600);
 setTimeout(hookSeats,1400);
+setTimeout(function(){ updateStripHeight(); watchDesktopThread(); },1800);
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
