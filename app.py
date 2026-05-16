@@ -21182,118 +21182,169 @@ async function crmFetchTasks(){
 
     function crmRenderRichBlocks(text){
       const raw = (text||'').trim();
-      if(!raw) return '<div class="tiny" style="opacity:.8;">Nothing generated yet.</div>';
+      if(!raw) return '<div style="opacity:.5;font-size:13px;padding:12px 0;">Nothing generated yet.</div>';
 
-      // ── helpers ──────────────────────────────────────────────────────────
-      function stripMd(t){
-        return t
+      // ── Utility: strip all markdown for clipboard ──────────────────────────
+      function toPlain(t){
+        return (t||'')
           .replace(/\*\*(.+?)\*\*/g,'$1')
           .replace(/\*(.+?)\*/g,'$1')
-          .replace(/^#{1,3}\s+/gm,'')
-          .replace(/^[\-\*•]\s*/gm,'')
+          .replace(/^#{1,4}\s+/gm,'')
+          .replace(/^[-*•]\s+/gm,'')
+          .replace(/\n{3,}/g,'\n\n')
           .trim();
       }
-      function renderInline(t){
-        // bold stays bold, asterisk-only bullets stripped
+
+      // ── Utility: render inline markdown to HTML ────────────────────────────
+      function inlineHtml(t){
         return escapeHtml(t)
           .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
           .replace(/\*(.+?)\*/g,'<em>$1</em>');
       }
-      function copyBtn(textToCopy, label){
-        const id = 'cb_' + Math.random().toString(36).slice(2);
-        // Encode for inline onclick
-        const enc = encodeURIComponent(textToCopy);
-        return `<button id="${id}" onclick="(function(){var t=decodeURIComponent('${enc}');navigator.clipboard.writeText(t).catch(function(){var x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();document.execCommand('copy');document.body.removeChild(x);});document.getElementById('${id}').innerText='✓ Copied!';setTimeout(function(){var el=document.getElementById('${id}');if(el)el.innerText='${label}';},2000);})()" style="font-size:11px;font-weight:600;padding:4px 10px;border-radius:7px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;margin-top:8px;flex-shrink:0;">${label}</button>`;
+
+      // ── Utility: attach a copy button to a container ──────────────────────
+      function attachCopy(btn, textFn){
+        btn.addEventListener('click', function(){
+          const txt = textFn();
+          navigator.clipboard.writeText(txt).catch(function(){
+            const ta = document.createElement('textarea');
+            ta.value = txt; ta.style.cssText='position:fixed;opacity:0;';
+            document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+          });
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied!';
+          btn.style.background = 'rgba(16,185,129,.25)';
+          btn.style.borderColor = 'rgba(16,185,129,.5)';
+          btn.style.color = '#6ee7b7';
+          setTimeout(function(){ btn.textContent=orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }, 2000);
+        });
       }
 
-      // ── Parse into named sections ─────────────────────────────────────────
-      // A section header is: numbered like "1. **Title**" or "**Title**" alone or "### Title"
+      // ── Parse raw text into blocks ─────────────────────────────────────────
+      // A "header" line: **Title** alone, or ### Title, or "1. **Title**"
+      // A header with NO body lines = just a title/label, skip it (don't render a card)
+      // A header WITH body = a real copyable block
       const lines = raw.split(/\r?\n/);
-      const sections = [];
+      const blocks = [];  // [{label, lines[]}]
       let cur = null;
 
-      for(let line of lines){
-        const t = line.trim();
-        // Match: "1. **Title**" or "**Title**:" or "**Title**" or "### Title"
-        const hdr = t.match(/^(?:\d+\.\s*)?\*\*(.+?)\*\*:?\s*$/) ||
-                    t.match(/^#{1,3}\s+(.+)$/);
+      for(let i=0; i<lines.length; i++){
+        const t = lines[i].trim();
+        const hdr = t.match(/^(?:\d+[.)]\s*)?\*\*(.+?)\*\*:?\s*$/) ||
+                    t.match(/^#{1,4}\s+(.+)$/);
         if(hdr){
-          if(cur) sections.push(cur);
-          cur = { label: hdr[1].replace(/:$/,'').trim(), lines: [], num: sections.length+1 };
+          if(cur) blocks.push(cur);
+          cur = { label: hdr[1].replace(/:$/,'').trim(), lines: [] };
         } else if(cur){
-          cur.lines.push(line);
+          cur.lines.push(lines[i]);
         } else {
-          if(!sections.length) sections.push({ label:'', lines:[], num:0 });
-          sections[sections.length-1].lines.push(line);
+          // Pre-header prose
+          if(!blocks.length || blocks[blocks.length-1].label !== ''){
+            blocks.push({ label:'', lines:[] });
+          }
+          blocks[blocks.length-1].lines.push(lines[i]);
         }
       }
-      if(cur) sections.push(cur);
+      if(cur) blocks.push(cur);
 
-      // ── If no sections detected, render as clean flowing text ──────────────
-      if(!sections.length || (sections.length===1 && !sections[0].label)){
-        const plain = raw
-          .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
-          .replace(/\*(.+?)\*/g,'<em>$1</em>')
-          .replace(/^[\-\*]\s+/gm,'')
-          .replace(/\n/g,'<br>');
-        return `<div style="font-size:14px;line-height:1.75;color:#e2e8f0;">${plain}</div>`;
+      // ── Decide which blocks are "real" (have actual content) ──────────────
+      // A block is real if its lines contain at least one non-empty line
+      const realBlocks = blocks.filter(b => b.lines.some(l => l.trim()));
+
+      // If nothing parsed, render as plain flowing text
+      if(!realBlocks.length){
+        const div = document.createElement('div');
+        div.style.cssText = 'font-size:14px;line-height:1.8;color:#e2e8f0;';
+        div.innerHTML = inlineHtml(raw).replace(/\n/g,'<br>');
+        const wrap = document.createElement('div');
+        wrap.appendChild(div);
+        return wrap.innerHTML;
       }
 
-      // ── Render each section as its own copyable card ──────────────────────
-      let html = '';
-      sections.forEach((sec, si) => {
-        const bodyText = sec.lines.join('\n').trim();
-        if(!bodyText && !sec.label) return;
+      // ── Build DOM ──────────────────────────────────────────────────────────
+      const container = document.createElement('div');
 
-        // Build the plain-text version of this section for clipboard
-        const plainSection = (sec.label ? sec.label + '\n\n' : '') +
-          sec.lines.map(l => l.trim())
-            .filter(l => l)
-            .map(l => stripMd(l))
-            .join('\n');
+      // "Copy all" bar at top
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:14px;';
+      const copyAllBtn = document.createElement('button');
+      copyAllBtn.textContent = '📋 Copy all';
+      copyAllBtn.style.cssText = 'font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;';
+      attachCopy(copyAllBtn, function(){ return toPlain(raw); });
+      topBar.appendChild(copyAllBtn);
+      container.appendChild(topBar);
 
-        html += `<div style="background:rgba(14,22,48,.65);border:1px solid rgba(42,58,106,.55);border-radius:12px;padding:16px 18px;margin-bottom:12px;">`;
+      realBlocks.forEach(function(block, bi){
+        const bodyLines = block.lines;
+        const bodyText  = bodyLines.map(l=>l.trim()).filter(l=>l).join('\n');
 
-        // Section header row
-        if(sec.label){
-          html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;">`;
-          html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;">${escapeHtml(sec.label)}</div>`;
-          html += copyBtn(plainSection, '📋 Copy');
-          html += `</div>`;
+        // ── Card wrapper ───────────────────────────────────────────────────
+        const card = document.createElement('div');
+        card.style.cssText = [
+          'background:rgba(14,22,48,.6)',
+          'border:1px solid rgba(42,58,106,.5)',
+          'border-radius:12px',
+          'padding:16px 18px',
+          'margin-bottom:10px',
+        ].join(';');
+
+        // ── Header row (label + copy btn) ──────────────────────────────────
+        if(block.label){
+          const hRow = document.createElement('div');
+          hRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;';
+
+          const lbl = document.createElement('div');
+          lbl.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;';
+          lbl.textContent = block.label;
+
+          const cpBtn = document.createElement('button');
+          cpBtn.textContent = '📋 Copy';
+          cpBtn.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;flex-shrink:0;';
+          attachCopy(cpBtn, function(){ return toPlain(bodyText); });
+
+          hRow.appendChild(lbl);
+          hRow.appendChild(cpBtn);
+          card.appendChild(hRow);
         }
 
+        // ── Body ───────────────────────────────────────────────────────────
         if(bodyText){
-          // Process lines: detect real bullets (feature lists) vs message prose
-          const bodyLines = sec.lines.map(l=>l.trim()).filter(l=>l);
+          // Detect if this is a true bullet list:
+          // ALL non-empty lines start with -, *, •, or digit. AND there are 3+ of them.
+          const nonEmpty = bodyLines.map(l=>l.trim()).filter(l=>l);
+          const bulletLines = nonEmpty.filter(l=>/^[-*•]\s+\S/.test(l));
+          const isTrueBulletList = bulletLines.length >= 3 && bulletLines.length === nonEmpty.length;
 
-          // A line is a "real bullet" only if it starts with - or * AND the section has 3+ such lines
-          // (avoids treating every message line that starts with "-" as a bullet)
-          const bulletLines = bodyLines.filter(l => /^[-*•]\s+\S/.test(l));
-          const isBulletList = bulletLines.length >= 3 && bulletLines.length === bodyLines.filter(l=>l.trim()).length;
-
-          if(isBulletList){
-            html += `<ul style="margin:0 0 0 16px;padding:0;list-style:disc;">`;
-            bodyLines.forEach(l => {
-              const clean = renderInline(l.replace(/^[-*•]\s*/,''));
-              html += `<li style="margin:5px 0;font-size:14px;line-height:1.65;color:#e2e8f0;">${clean}</li>`;
+          if(isTrueBulletList){
+            const ul = document.createElement('ul');
+            ul.style.cssText = 'margin:0 0 0 18px;padding:0;list-style:disc;';
+            nonEmpty.forEach(function(l){
+              const li = document.createElement('li');
+              li.style.cssText = 'margin:6px 0;font-size:14px;line-height:1.65;color:#e2e8f0;';
+              li.innerHTML = inlineHtml(l.replace(/^[-*•]\s*/,''));
+              ul.appendChild(li);
             });
-            html += `</ul>`;
+            card.appendChild(ul);
           } else {
-            // Render as flowing paragraphs — preserve blank lines as paragraph breaks
+            // Flowing prose — split on blank lines into paragraphs
             const paras = bodyText.split(/\n{2,}/);
-            paras.forEach(para => {
+            paras.forEach(function(para){
               const pLines = para.split('\n').map(l=>l.trim()).filter(l=>l);
               if(!pLines.length) return;
-              const rendered = pLines.map(l => renderInline(l)).join('<br>');
-              html += `<p style="margin:0 0 10px 0;font-size:14px;line-height:1.7;color:#e2e8f0;">${rendered}</p>`;
+              const p = document.createElement('p');
+              p.style.cssText = 'margin:0 0 10px 0;font-size:14px;line-height:1.75;color:#e2e8f0;';
+              p.innerHTML = pLines.map(function(l){ return inlineHtml(l); }).join('<br>');
+              card.appendChild(p);
             });
           }
         }
 
-        html += `</div>`;
+        container.appendChild(card);
       });
 
-      return html;
+      // Return the HTML string
+      return container.innerHTML;
     }
 
     function crmGuessEmails(name, domain){
@@ -21579,48 +21630,14 @@ async function crmFetchTasks(){
         if(!data.ok) throw new Error(data.error || 'Generation failed');
         const output = data.output || '';
         if(box){
-          box.innerHTML = '';
-
-          // Rendered sections (each has its own Copy button)
-          const wrap = document.createElement('div');
-          wrap.innerHTML = crmRenderRichBlocks(output);
-          box.appendChild(wrap);
-
+          box.innerHTML = crmRenderRichBlocks(output);
           if(output.trim()){
-            // Global action bar
-            const bar = document.createElement('div');
-            bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;';
-
-            function cleanForCopy(t){
-              return t
-                .replace(/\*\*(.+?)\*\*/g,'$1')
-                .replace(/\*(.+?)\*/g,'$1')
-                .replace(/^#{1,3}\s+/gm,'')
-                .replace(/^[-*]\s+/gm,'')
-                .trim();
-            }
-
-            // Copy All
-            const copyAll = document.createElement('button');
-            copyAll.className = 'btn';
-            copyAll.style.cssText = 'flex:1;font-size:13px;font-weight:600;padding:9px 14px;border-radius:10px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;cursor:pointer;';
-            copyAll.innerText = '📋 Copy all';
-            copyAll.onclick = function(){
-              navigator.clipboard.writeText(cleanForCopy(output)).catch(()=>{});
-              copyAll.innerText = '✓ Copied!';
-              setTimeout(()=>{ copyAll.innerText='📋 Copy all'; }, 2000);
-            };
-            bar.appendChild(copyAll);
-
-            // Save to Playbooks
             const saveBtn = document.createElement('button');
             saveBtn.className = 'btn';
-            saveBtn.style.cssText = 'font-size:13px;padding:9px 14px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;';
+            saveBtn.style.cssText = 'margin-top:6px;width:100%;font-size:13px;padding:8px 14px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;';
             saveBtn.innerText = '💾 Save to Playbooks';
             saveBtn.onclick = function(){ wcalSaveToPlaybooks(output, payload.goal || 'Playbook'); };
-            bar.appendChild(saveBtn);
-
-            box.appendChild(bar);
+            box.appendChild(saveBtn);
           }
         }
         if(st) st.innerText = 'Ready';
