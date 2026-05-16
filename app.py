@@ -31469,117 +31469,192 @@ document.addEventListener('click',e=>{
      Cards: full scroll to last card — no void.
 ══════════════════════════════════════════════════════════ -->
 
-<!-- ===== MOBILE TWO-VIEW LAYOUT v12 ===== -->
+<!-- ===== MOBILE SHELL v13 ===== -->
 <style>
-/* ─────────────────────────────────────────────────────────────
-   MOBILE TWO-VIEW SYSTEM
-   View 1 (default): Team list   — body.mob-team  (or neither)
-   View 2 (chat):    Chat panel  — body.mob-chat
-   Only active on screens ≤ 960px.
-───────────────────────────────────────────────────────────────*/
+/* ─────────────────────────────────────────────────
+   MOBILE SHELL v13  (≤960px only)
+   Two full-screen views, zero CSS fights.
+   body.mob-chat  → chat view active
+   body (default) → team list active
+───────────────────────────────────────────────── */
 @media(max-width:960px){
 
-  /* ── Reset everything that fights us ── */
-  html,body{
-    overflow-x:hidden!important;
-    height:auto!important;
-  }
+  /* Silence every old mobile rule that might fight us */
+  #mobStrip{ display:none!important; }
 
-  /* ── Hide desktop chrome that has no mobile equivalent ── */
-  .side, .sideCard, .stage>.side,
-  .groupCard, .underTable, #sharedMemoryCard, #groupReplies, #groupPassRow,
-  .operator, #operator, #opPrompt, #sendGroup, .opRow, .opText, #opStatus,
-  #mobileSheet, #sheetBackdrop, #mobChatBar, #saMobPanel,
-  #threadActionsRow, #micStatusDm,
-  /* old mobStrip if it exists */
-  #mobStrip{
+  /* Kill desktop layout chrome */
+  .side,.sideCard,.stage>.side,
+  .groupCard,.underTable,#sharedMemoryCard,#groupReplies,#groupPassRow,
+  .operator,#operator,#opPrompt,#sendGroup,.opRow,.opText,#opStatus,
+  #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel,
+  #threadActionsRow,#micStatusDm,#saBottomSheet,#saSheetBackdrop{
     display:none!important;
     height:0!important; min-height:0!important; max-height:0!important;
     overflow:hidden!important; pointer-events:none!important;
+    position:static!important;
   }
 
-  /* ── Keep pipeline elements alive but off-screen for JS routing ── */
-  #followMsg, #sendFollow, #dmFiles, #dmAttachBtn, #dmAttachWrap,
-  #dmAttachDrop, #dmAttachList, #followRow, .followBox,
-  #seatPassRow, .passBtn, #branchSnapshotBtn, #exportThreadBtn,
-  #deepDiveBtn, #streamToggleBtn, #talkDmBtn, #alwaysListenDmBtn,
-  #screenDmBtn, #pickDmFiles{
+  /* Keep pipeline elements alive but off-screen for JS routing */
+  #followMsg,#sendFollow,#dmFiles,#dmAttachBtn,#dmAttachWrap,
+  #dmAttachDrop,#dmAttachList,#followRow,.followBox,
+  #seatPassRow,.passBtn,#branchSnapshotBtn,#exportThreadBtn,
+  #deepDiveBtn,#streamToggleBtn,#talkDmBtn,#alwaysListenDmBtn,
+  #screenDmBtn,#pickDmFiles,#thread{
     position:fixed!important; left:-9999px!important; top:-9999px!important;
     width:1px!important; height:1px!important; overflow:hidden!important;
     pointer-events:none!important; opacity:0!important; z-index:-1!important;
   }
 
-  /* ── Stage/arena: neutral container ── */
-  .stage{
-    display:block!important;
-    width:100%!important; max-width:100%!important;
-    min-height:0!important; height:auto!important;
-    padding:0!important; margin:0!important;
-    overflow:visible!important;
-  }
-  .arena{ min-height:0!important; height:auto!important; overflow:visible!important; }
+  /* Stage/arena neutral */
+  .stage{ display:block!important; min-height:0!important;
+    height:0!important; overflow:hidden!important; }
+  .arena{ display:none!important; }
 
-  /* ════════════════════════════════════
-     MOB TEAM VIEW  (#mobTeamView)
-     Full-screen scrollable card list
-  ════════════════════════════════════ */
-  #mobTeamView{
-    display:flex; flex-direction:column;
-    position:fixed; inset:0;
-    z-index:100;
-    background:var(--bg,#090d1e);
-    overflow:hidden;
+  /* ══════════════════════════════════════
+     SHARED: both views use these tokens
+  ══════════════════════════════════════ */
+  :root{
+    --mob-top:calc(env(safe-area-inset-top,0px) + 52px);
+    --mob-bot:env(safe-area-inset-bottom,0px);
   }
 
-  /* Top bar */
-  #mobTeamBar{
-    display:flex; align-items:center; gap:8px;
-    padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+  /* ══════════════════════════════════════
+     TOP BAR  (shared between both views)
+  ══════════════════════════════════════ */
+  #m13TopBar{
+    position:fixed; top:0; left:0; right:0; z-index:900;
+    height:calc(env(safe-area-inset-top,0px) + 52px);
+    padding-top:env(safe-area-inset-top,0px);
+    background:rgba(8,12,28,.98);
+    border-bottom:1px solid rgba(42,58,106,.55);
+    box-shadow:0 2px 16px rgba(0,0,0,.5);
+    display:flex; align-items:center; gap:0;
+  }
+  /* Back button — only visible in chat view */
+  #m13Back{
+    display:none; align-items:center; justify-content:center;
+    width:44px; height:52px; flex-shrink:0;
+    background:transparent; border:none;
+    color:#e2e8f0; font-size:20px; cursor:pointer;
+  }
+  body.mob-chat #m13Back{ display:flex; }
+  /* Brand — hidden in chat view, shown in team view */
+  #m13Brand{
+    flex-shrink:0; padding:0 14px;
+    font-size:15px; font-weight:800; color:#e2e8f0;
+    letter-spacing:-.01em;
+  }
+  body.mob-chat #m13Brand{ display:none; }
+  /* Chat header meta — only in chat view */
+  #m13ChatMeta{
+    display:none; flex:1; min-width:0; align-items:center; gap:10px;
+  }
+  body.mob-chat #m13ChatMeta{ display:flex; }
+  #m13Av{
+    width:32px; height:32px; border-radius:9px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:900; color:#fff;
+    background:rgba(124,58,237,.6);
+  }
+  #m13ChatName{
+    font-size:14px; font-weight:800; color:#e2e8f0;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #m13ChatRole{ font-size:11px; color:#64748b; }
+  /* Right side of top bar */
+  #m13TopRight{
+    margin-left:auto; display:flex; align-items:center;
+    gap:4px; padding-right:10px; flex-shrink:0;
+  }
+  .m13IconBtn{
+    width:38px; height:38px;
+    display:flex; align-items:center; justify-content:center;
+    background:transparent; border:none;
+    color:#94a3b8; font-size:18px; cursor:pointer;
+    border-radius:9px;
+  }
+  .m13IconBtn:active{ background:rgba(255,255,255,.08); }
+  #m13RefreshBtn{ display:none; font-size:13px; color:#64748b;
+    padding:0 8px; white-space:nowrap; }
+  body.mob-chat #m13RefreshBtn{ display:flex; }
+  body.mob-chat #m13CommunityBtn{ display:none; }
+
+  /* ══════════════════════════════════════
+     NAV PILL ROW  (team view only)
+  ══════════════════════════════════════ */
+  #m13NavRow{
+    position:fixed;
+    top:calc(env(safe-area-inset-top,0px) + 52px);
+    left:0; right:0; z-index:899;
     background:rgba(8,12,28,.97);
-    border-bottom:1px solid rgba(42,58,106,.5);
-    flex-shrink:0; z-index:10;
+    border-bottom:1px solid rgba(42,58,106,.4);
+    display:flex; gap:6px; overflow-x:auto;
+    padding:7px 12px;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
-  #mobMenuBtn{
+  #m13NavRow::-webkit-scrollbar{ display:none; }
+  body.mob-chat #m13NavRow{ display:none; }
+  .m13NavPill{
     flex-shrink:0;
-    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
-    border-radius:9px; color:#e2e8f0; font-size:13px; font-weight:600;
-    padding:7px 13px; cursor:pointer;
+    background:rgba(255,255,255,.06);
+    border:1px solid rgba(42,58,106,.5);
+    border-radius:20px; color:#c4b5fd;
+    font-size:12px; font-weight:700;
+    padding:5px 13px; white-space:nowrap; cursor:pointer;
   }
-  #mobCommunityBtn{
-    flex:1; text-align:center;
-    background:rgba(124,58,237,.2); border:1px solid rgba(124,58,237,.45);
-    border-radius:9px; color:#c4b5fd; font-size:13px; font-weight:700;
-    padding:7px 13px; cursor:pointer;
+  .m13NavPill:active{ background:rgba(124,58,237,.25); }
+  .m13NavPill.accent{
+    background:rgba(124,58,237,.18);
+    border-color:rgba(124,58,237,.45); color:#c4b5fd;
   }
 
-  /* Scrollable card list */
-  #mobCardList{
-    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-    padding:10px 12px calc(env(safe-area-inset-bottom) + 20px);
+  /* ══════════════════════════════════════
+     TEAM VIEW  — scrollable card list
+  ══════════════════════════════════════ */
+  #m13TeamView{
+    position:fixed;
+    top:calc(env(safe-area-inset-top,0px) + 52px + 44px);
+    bottom:0; left:0; right:0; z-index:800;
+    overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:10px 12px calc(var(--mob-bot) + 20px);
     display:flex; flex-direction:column; gap:8px;
+    background:var(--bg,#090d1e);
   }
+  body.mob-chat #m13TeamView{ display:none; }
 
-  /* Seat cards inside mobCardList */
-  #mobCardList .seat{
+  /* Seat cards */
+  #m13TeamView .seat{
     position:relative!important; left:auto!important; top:auto!important;
     right:auto!important; bottom:auto!important; transform:none!important;
     width:100%!important; max-width:100%!important;
     height:auto!important; min-height:76px!important;
     margin:0!important; overflow:hidden!important;
     isolation:isolate!important; z-index:1!important;
-    box-sizing:border-box!important; flex-shrink:0!important;
-    cursor:pointer!important;
+    box-sizing:border-box!important; flex-shrink:0!important; cursor:pointer!important;
   }
-  #mobCardList .seat.sel{
+  #m13TeamView .seat.sel{
     border-color:rgba(124,58,237,.9)!important;
     background:rgba(22,18,70,.97)!important;
-    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset, 0 0 22px rgba(124,58,237,.35)!important;
+    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,0 0 22px rgba(124,58,237,.35)!important;
+  }
+  /* tableWrap/rtStage flat inside team view */
+  #m13TeamView #tableWrap,#m13TeamView .tableWrap{
+    display:flex!important; flex-direction:column!important;
+    align-items:stretch!important; width:100%!important;
+    height:auto!important; min-height:0!important; overflow:visible!important;
+    padding:0!important; gap:8px!important;
+    box-sizing:border-box!important; transform:none!important; position:static!important;
+  }
+  #m13TeamView #tableWrap .table,#m13TeamView .tableWrap .table{ display:none!important; }
+  #m13TeamView #rtStage{
+    position:static!important; display:flex!important; flex-direction:column!important;
+    gap:8px!important; width:100%!important; height:auto!important;
+    min-height:0!important; max-height:none!important; transform:none!important; overflow:visible!important;
   }
 
-  /* seatTools on mobile: hidden by default via opacity only, JS reveals on long-press */
-  #mobCardList .seatTools{
-    opacity:0!important;
-    pointer-events:none!important;
+  /* seatTools: hidden, long-press reveals */
+  #m13TeamView .seatTools{
+    opacity:0!important; pointer-events:none!important;
     position:absolute!important; bottom:0!important; left:0!important; right:0!important;
     display:flex!important; gap:0!important;
     background:rgba(8,12,28,.96)!important;
@@ -31587,204 +31662,168 @@ document.addEventListener('click',e=>{
     border-radius:0 0 14px 14px!important;
     z-index:40!important; transition:opacity .2s!important;
   }
-  #mobCardList .seatToolBtn{
+  #m13TeamView .seatToolBtn{
     flex:1!important; border:none!important;
     border-right:1px solid rgba(42,58,106,.5)!important;
     background:transparent!important; color:#c4b5fd!important;
     padding:11px 6px!important; font-size:13px!important; font-weight:700!important;
-    cursor:pointer!important; letter-spacing:.01em!important;
+    cursor:pointer!important;
   }
-  #mobCardList .seatToolBtn:last-child{ border-right:none!important; border-radius:0 0 14px 0!important; }
-  #mobCardList .seatToolBtn:first-child{ border-radius:0 0 0 14px!important; }
-  #mobCardList .seatToolBtn:only-child{ border-radius:0 0 14px 14px!important; }
-  #mobCardList .seatToolBtn:active{ background:rgba(124,58,237,.25)!important; color:#fff!important; }
-  #mobCardList .seatStackBtn{ color:#a78bfa!important; background:rgba(124,58,237,.07)!important; }
+  #m13TeamView .seatToolBtn:last-child{ border-right:none!important; border-radius:0 0 14px 0!important; }
+  #m13TeamView .seatToolBtn:first-child{ border-radius:0 0 0 14px!important; }
+  #m13TeamView .seatToolBtn:only-child{ border-radius:0 0 14px 14px!important; }
+  #m13TeamView .seatToolBtn:active{ background:rgba(124,58,237,.25)!important; color:#fff!important; }
+  #m13TeamView .seatStackBtn{ color:#a78bfa!important; background:rgba(124,58,237,.07)!important; }
 
-  /* tableWrap inside mobCardList — flat, no absolute positioning */
-  #mobCardList #tableWrap,
-  #mobCardList .tableWrap{
-    display:flex!important; flex-direction:column!important;
-    align-items:stretch!important; width:100%!important;
-    height:auto!important; min-height:0!important; overflow:visible!important;
-    padding:0!important; gap:8px!important;
-    box-sizing:border-box!important; transform:none!important;
-    position:static!important;
-  }
-  #mobCardList #tableWrap .table,
-  #mobCardList .tableWrap .table{ display:none!important; }
-  #mobCardList #rtStage{
-    position:static!important; display:flex!important; flex-direction:column!important;
-    gap:8px!important; width:100%!important; height:auto!important;
-    min-height:0!important; max-height:none!important;
-    transform:none!important; overflow:visible!important;
-  }
-
-  /* Hide the tableWrap in main doc (we move it into mobCardList) */
-  body:not(.mob-chat) #tableWrap,
-  body:not(.mob-chat) .tableWrap{
-    /* hidden — shown inside #mobCardList via JS move */
-  }
-
-  /* ════════════════════════════════════
-     MOB CHAT VIEW  (#mobChatView)
-     Full-screen thread + input
-  ════════════════════════════════════ */
-  #mobChatView{
+  /* ══════════════════════════════════════
+     CHAT VIEW  — full-screen flex column
+  ══════════════════════════════════════ */
+  #m13ChatView{
+    position:fixed;
+    top:calc(env(safe-area-inset-top,0px) + 52px);
+    bottom:0; left:0; right:0; z-index:800;
     display:none; flex-direction:column;
-    position:fixed; inset:0;
-    z-index:100;
     background:var(--bg,#090d1e);
     overflow:hidden;
   }
-  body.mob-chat #mobChatView{ display:flex; }
-  body.mob-chat #mobTeamView{ display:none; }
+  body.mob-chat #m13ChatView{ display:flex; }
 
-  /* Chat top bar */
-  #mobChatBar{
-    display:flex!important; align-items:center; gap:10px;
-    padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;
-    background:rgba(8,12,28,.97);
-    border-bottom:1px solid rgba(42,58,106,.5);
-    flex-shrink:0;
-  }
-  #mobBackBtn{
-    flex-shrink:0;
-    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
-    border-radius:9px; color:#e2e8f0; font-size:16px;
-    width:36px; height:36px; cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-  }
-  #mobChatAv{
-    width:32px; height:32px; border-radius:9px; flex-shrink:0;
-    display:flex; align-items:center; justify-content:center;
-    font-size:13px; font-weight:900; color:#fff;
-    background:rgba(124,58,237,.6);
-  }
-  #mobChatMeta{ flex:1; min-width:0; }
-  #mobChatName{
-    font-size:14px; font-weight:800; color:#e2e8f0;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  }
-  #mobChatRole{ font-size:11px; color:#64748b; }
-  #mobChatRefresh{
-    flex-shrink:0;
-    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
-    border-radius:8px; color:#94a3b8; font-size:12px; font-weight:600;
-    padding:5px 10px; cursor:pointer;
-  }
-
-  /* Thread area — fills all available space */
-  #mobChatThread{
+  /* Thread fills remaining space */
+  #m13Thread{
     flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-    padding:10px 14px;
-    min-height:0;
+    padding:12px 14px; min-height:0;
   }
-
-  /* Pass pills row */
-  /* mobPassRow removed */
-
-  /* Attach list */
-  #mobChatAttachList{
-    padding:2px 12px; font-size:11px; color:#94a3b8; flex-shrink:0;
-  }
+  /* Message styling inside thread */
+  #m13Thread .msg{ font-size:14px!important; line-height:1.6!important; }
+  #m13Thread .who{ font-size:12px!important; }
 
   /* Attach dropdown */
-  #mobChatAttachDrop{
+  #m13AttachDrop{
     display:none; flex-direction:column; gap:2px;
     position:absolute; bottom:100%; left:10px;
-    width:190px;
-    background:rgba(10,14,30,.98);
+    width:200px;
+    background:rgba(10,14,30,.99);
     border:1px solid rgba(80,110,200,.4); border-radius:14px;
-    box-shadow:0 -8px 32px rgba(0,0,0,.6);
+    box-shadow:0 -8px 32px rgba(0,0,0,.65);
     padding:6px; z-index:200;
   }
-  #mobChatAttachDrop.open{ display:flex; }
-  .mobAttachItem{
+  #m13AttachDrop.open{ display:flex; }
+  .m13Di{
     width:100%; text-align:left; background:transparent; border:none;
-    color:#e2e8f0; font-size:13px; padding:9px 12px;
+    color:#e2e8f0; font-size:14px; padding:10px 13px;
     border-radius:9px; cursor:pointer; font-family:inherit;
+    display:flex; align-items:center; gap:8px;
   }
-  .mobAttachItem:active{ background:rgba(124,58,237,.2); }
-  .mobAttachDiv{ height:1px; background:rgba(255,255,255,.07); margin:3px 4px; }
+  .m13Di:active{ background:rgba(124,58,237,.2); }
+  .m13Dv{ height:1px; background:rgba(255,255,255,.07); margin:3px 4px; }
 
-  /* Input bar — always pinned above keyboard */
-  #mobInputBar{
+  /* Input bar */
+  #m13InputBar{
     flex-shrink:0; position:relative;
     border-top:1.5px solid rgba(42,58,106,.5);
-    padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);
+    padding:8px 10px calc(var(--mob-bot) + 8px);
     background:rgba(8,12,28,.99);
     display:flex; align-items:flex-end; gap:8px;
   }
-  #mobChatAttachBtn{
-    width:38px; height:38px; flex-shrink:0;
+  #m13AttachBtn{
+    width:40px; height:40px; flex-shrink:0;
     background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.6);
-    border-radius:9px; color:#94a3b8; font-size:22px; font-weight:300; line-height:1;
+    border-radius:10px; color:#94a3b8; font-size:22px; line-height:1;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
-  #mobChatAttachBtn.open{ background:rgba(124,58,237,.2); color:#c4b5fd; }
-  #mobChatMsg{
-    flex:1;
-    background:rgba(14,22,48,.85); border:1px solid rgba(42,58,106,.7);
-    border-radius:10px; padding:9px 12px;
-    font-size:15px; color:#e2e8f0; resize:none;
-    min-height:38px; max-height:120px;
+  #m13AttachBtn.open{ background:rgba(124,58,237,.2); color:#c4b5fd; border-color:rgba(124,58,237,.5); }
+  #m13Msg{
+    flex:1; background:rgba(14,22,48,.85);
+    border:1px solid rgba(42,58,106,.7); border-radius:12px;
+    padding:9px 13px; font-size:16px; color:#e2e8f0; resize:none;
+    min-height:40px; max-height:120px;
     font-family:inherit; outline:none; line-height:1.4;
   }
-  #mobChatMsg::placeholder{ color:rgba(100,116,139,.5); }
-  #mobChatMsg:focus{ border-color:rgba(124,58,237,.7); }
-  #mobChatSendBtn{
-    width:40px; height:40px; flex-shrink:0;
+  #m13Msg::placeholder{ color:rgba(100,116,139,.5); }
+  #m13Msg:focus{ border-color:rgba(124,58,237,.7); }
+  #m13SendBtn{
+    width:42px; height:42px; flex-shrink:0;
     background:rgba(124,58,237,.9); border:1px solid rgba(124,58,237,.5);
-    border-radius:10px; color:#fff; font-size:18px;
+    border-radius:11px; color:#fff; font-size:19px;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
   }
-  #mobChatSendBtn:active{ background:rgba(99,60,255,.95); transform:scale(.93); }
+  #m13SendBtn:active{ background:rgba(99,60,255,.95); transform:scale(.93); }
 
+  /* Attach list (queued files) */
+  #m13AttachList{
+    padding:2px 12px; font-size:11px; color:#94a3b8; flex-shrink:0;
+  }
+
+  /* Modal/overlay sizing on mobile */
+  #modalWin{
+    width:100%!important; height:100%!important;
+    max-width:none!important; max-height:none!important;
+    inset:0!important; border-radius:0!important; transform:none!important;
+  }
+  #modalScroll{ height:calc(100vh - 64px)!important; max-height:none!important; }
+  #modalWin input,#modalWin textarea,#modalWin select{
+    font-size:16px!important; padding:12px 14px!important; min-height:44px!important;
+  }
+  #modalWin label{ font-size:14px!important; margin-bottom:6px!important; display:block!important; }
+  #modalWin .btn{ min-height:44px!important; font-size:15px!important; }
 }
 @media(min-width:961px){
-  #mobTeamView,#mobChatView{ display:none!important; }
+  #m13TopBar,#m13NavRow,#m13TeamView,#m13ChatView{ display:none!important; }
 }
 </style>
 
-<!-- ── TEAM VIEW ── -->
-<div id="mobTeamView">
-  <div id="mobTeamBar">
-    <button id="mobMenuBtn">☰ Menu</button>
-    <button id="mobCommunityBtn">🏆 Community</button>
+<!-- ══ TOP BAR ══ -->
+<div id="m13TopBar">
+  <button id="m13Back">&#x2190;</button>
+  <div id="m13Brand">Simply Agentic</div>
+  <div id="m13ChatMeta">
+    <div id="m13Av">?</div>
+    <div>
+      <div id="m13ChatName">Teammate</div>
+      <div id="m13ChatRole"></div>
+    </div>
   </div>
-  <div id="mobCardList">
-    <!-- tableWrap moved here by JS -->
+  <div id="m13TopRight">
+    <button class="m13IconBtn" id="m13RefreshBtn" title="Refresh">↺</button>
+    <button class="m13IconBtn" id="m13CommunityBtn" title="Community">🏆</button>
+    <button class="m13IconBtn" id="m13NotifBtn" title="Notifications">🔔</button>
   </div>
 </div>
 
-<!-- ── CHAT VIEW ── -->
-<div id="mobChatView">
-  <div id="mobChatBar" style="display:flex!important; height:auto!important; min-height:0!important; max-height:none!important; pointer-events:auto!important; position:relative!important; overflow:visible!important;">
-    <button id="mobBackBtn">&#x2190;</button>
-    <div id="mobChatAv">?</div>
-    <div id="mobChatMeta">
-      <div id="mobChatName">Teammate</div>
-      <div id="mobChatRole"></div>
+<!-- ══ NAV PILL ROW ══ -->
+<div id="m13NavRow">
+  <button class="m13NavPill" id="m13pTeam">🤖 Team</button>
+  <button class="m13NavPill" id="m13pCreate">✍️ Create</button>
+  <button class="m13NavPill" id="m13pResearch">🔍 Research</button>
+  <button class="m13NavPill" id="m13pManage">📊 Manage</button>
+  <button class="m13NavPill" id="m13pSettings">⚙️ Settings</button>
+  <button class="m13NavPill accent" id="m13pDash">📊 Dashboard</button>
+</div>
+
+<!-- ══ TEAM VIEW ══ -->
+<div id="m13TeamView">
+  <!-- tableWrap injected here by JS -->
+</div>
+
+<!-- ══ CHAT VIEW ══ -->
+<div id="m13ChatView">
+  <div id="m13Thread"></div>
+  <div id="m13AttachList"></div>
+  <div id="m13InputBar">
+    <div id="m13AttachDrop">
+      <button class="m13Di" id="m13dFiles">📎 Attach Files</button>
+      <button class="m13Di" id="m13dScreen">🖥 Share Screen</button>
+      <div class="m13Dv"></div>
+      <button class="m13Di" id="m13dTalk">🔊 Speak Once</button>
+      <button class="m13Di" id="m13dVoice">🎙 Voice Mode</button>
+      <div class="m13Dv"></div>
+      <button class="m13Di" id="m13dPrompts">📚 Prompt Library</button>
+      <button class="m13Di" id="m13dStream">⚡ Stream Mode</button>
     </div>
-    <button id="mobChatRefresh">Refresh</button>
-  </div>
-  <div id="mobChatThread"></div>
-  <div id="mobChatAttachList"></div>
-  <div id="mobInputBar">
-    <div id="mobChatAttachDrop">
-      <button class="mobAttachItem" id="maFiles">📎 Attach Files</button>
-      <button class="mobAttachItem" id="maScreen">🖥 Share Screen</button>
-      <div class="mobAttachDiv"></div>
-      <button class="mobAttachItem" id="maTalk">🔊 Speak Once</button>
-      <button class="mobAttachItem" id="maVoice">🎙 Voice Mode</button>
-      <div class="mobAttachDiv"></div>
-      <button class="mobAttachItem" id="maPrompts">📚 Prompt Library</button>
-      <button class="mobAttachItem" id="maStream">⚡ Stream Mode</button>
-    </div>
-    <button id="mobChatAttachBtn">+</button>
-    <textarea id="mobChatMsg" placeholder="Message teammate…" rows="1"
+    <button id="m13AttachBtn">+</button>
+    <textarea id="m13Msg" placeholder="Message teammate…" rows="1"
       autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
-    <button id="mobChatSendBtn">&#x21B5;</button>
+    <button id="m13SendBtn">&#x21B5;</button>
   </div>
 </div>
 
@@ -31793,87 +31832,40 @@ document.addEventListener('click',e=>{
 'use strict';
 if(window.innerWidth>960)return;
 
-var _nm=null, _dropOpen=false;
-function ge(id){return document.getElementById(id);}
-
-/* ── Move tableWrap into mobCardList ── */
-function moveCards(){
-  var tw=ge('tableWrap')||document.querySelector('.tableWrap');
-  var cl=ge('mobCardList');
-  if(!tw||!cl)return;
-  if(tw.parentNode===cl)return;
-  cl.appendChild(tw);
-  /* Flatten tableWrap inline so cards flow naturally */
-  tw.style.cssText='display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important;height:auto!important;min-height:0!important;overflow:visible!important;padding:0!important;gap:8px!important;box-sizing:border-box!important;transform:none!important;position:static!important;';
-  var table=tw.querySelector('.table,#tableCore');
-  if(table)table.style.display='none';
+/* ── helpers ── */
+function ge(id){ return document.getElementById(id); }
+function clickReal(id){
+  var el=ge(id); if(!el)return;
+  var was=el.style.cssText;
+  el.style.cssText='position:fixed!important;bottom:60px!important;left:0!important;pointer-events:auto!important;opacity:0!important;z-index:1!important;width:auto!important;height:auto!important;overflow:visible!important;';
+  el.click();
+  setTimeout(function(){ el.style.cssText=was||'position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;'; },300);
 }
 
-/* ── Sync thread into chat view (last 8 message elements) ── */
+var _nm=null, _dropOpen=false;
+
+/* ── Move tableWrap into team view ── */
+function moveCards(){
+  var tw=ge('tableWrap')||document.querySelector('.tableWrap');
+  var tv=ge('m13TeamView');
+  if(!tw||!tv||tw.parentNode===tv)return;
+  tv.appendChild(tw);
+  tw.style.cssText='display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important;height:auto!important;min-height:0!important;overflow:visible!important;padding:0!important;gap:8px!important;box-sizing:border-box!important;transform:none!important;position:static!important;';
+  var tbl=tw.querySelector('.table,#tableCore');
+  if(tbl)tbl.style.display='none';
+}
+
+/* ── Sync thread (last 10 messages) ── */
 function syncThread(){
-  var src=ge('thread'), dst=ge('mobChatThread');
+  var src=ge('thread'), dst=ge('m13Thread');
   if(!src||!dst)return;
-  var kids=Array.from(src.children).slice(-8);
+  var kids=Array.from(src.children).slice(-10);
   dst.innerHTML='';
   kids.forEach(function(n){ dst.appendChild(n.cloneNode(true)); });
   dst.scrollTop=dst.scrollHeight;
 }
 
-/* ── Open chat view for a teammate ── */
-function openChat(name){
-  _nm=name;
-  /* Update header */
-  var color='rgba(124,58,237,.7)';
-  document.querySelectorAll('.seat').forEach(function(s){
-    if(s.getAttribute('data-name')===name){
-      var av=s.querySelector('.seatAvatar,.avatar,.av');
-      if(av&&av.style.background) color=av.style.background;
-    }
-  });
-  ge('mobChatAv').textContent=(name[0]||'?').toUpperCase();
-  ge('mobChatAv').style.background=color;
-  ge('mobChatName').textContent=name;
-  try{
-    var d=(window.state&&window.state.installed||{})[name]||{};
-    ge('mobChatRole').textContent=d.job_title||d.role||'';
-  }catch(_){ ge('mobChatRole').textContent=''; }
-  /* Highlight card */
-  document.querySelectorAll('.seat').forEach(function(s){
-    s.classList.toggle('sel', s.getAttribute('data-name')===name);
-  });
-  /* Push history state so swipe-back / browser-back returns to team view, not logout */
-  try{ history.pushState({mobChat:name},'',location.pathname+'#chat'); }catch(_){}
-  /* Switch view */
-  document.body.classList.add('mob-chat');
-  /* Load backend + sync thread */
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(name).then(function(){
-      syncThread(); watchThread();
-    }).catch(function(){ syncThread(); watchThread(); });
-  } else { syncThread(); watchThread(); }
-  /* Focus input */
-  setTimeout(function(){ var m=ge('mobChatMsg'); if(m)m.focus(); },300);
-}
-
-/* ── Back to team view ── */
-function goBack(){
-  document.body.classList.remove('mob-chat');
-  closeAttach();
-  if(document.activeElement) document.activeElement.blur();
-  /* Clean up the history entry we pushed */
-  try{ if(location.hash==='#chat') history.replaceState(null,'',location.pathname); }catch(_){}
-}
-
-/* Intercept browser back/swipe-back so it closes chat, not navigates away */
-window.addEventListener('popstate',function(e){
-  if(document.body.classList.contains('mob-chat')){
-    goBack();
-    /* Re-push so another swipe doesn't leave the page */
-    try{ history.pushState({mobChat:_nm},'',location.pathname+'#chat'); }catch(_){}
-  }
-});
-
-/* ── Watch desktop thread for new messages ── */
+/* ── Watch desktop thread for new AI replies ── */
 var _tObs=null;
 function watchThread(){
   var src=ge('thread'); if(!src||_tObs)return;
@@ -31881,166 +31873,192 @@ function watchThread(){
   _tObs.observe(src,{childList:true,subtree:true,characterData:true});
 }
 
-/* ── Send message ── */
+/* ── Open chat ── */
+function openChat(name){
+  _nm=name;
+  /* avatar colour from card */
+  var color='rgba(124,58,237,.7)';
+  document.querySelectorAll('.seat').forEach(function(s){
+    if(s.getAttribute('data-name')===name){
+      var av=s.querySelector('.seatAvatar,.avatar,.av');
+      if(av&&av.style.background) color=av.style.background;
+    }
+  });
+  ge('m13Av').textContent=(name[0]||'?').toUpperCase();
+  ge('m13Av').style.background=color;
+  ge('m13ChatName').textContent=name;
+  try{
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    ge('m13ChatRole').textContent=d.job_title||d.role||'';
+  }catch(_){ ge('m13ChatRole').textContent=''; }
+  /* highlight card */
+  document.querySelectorAll('.seat').forEach(function(s){
+    s.classList.toggle('sel',s.getAttribute('data-name')===name);
+  });
+  /* push history so swipe-back closes chat not logs out */
+  try{ history.pushState({m13chat:name},'',location.pathname+'#chat'); }catch(_){}
+  document.body.classList.add('mob-chat');
+  /* load + sync */
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(name).then(function(){ syncThread(); watchThread(); })
+      .catch(function(){ syncThread(); watchThread(); });
+  } else { syncThread(); watchThread(); }
+  setTimeout(function(){ var m=ge('m13Msg'); if(m)m.focus(); },350);
+}
+
+/* ── Back to team ── */
+function goBack(){
+  closeAttach();
+  if(document.activeElement) document.activeElement.blur();
+  document.body.classList.remove('mob-chat');
+  try{ if(location.hash==='#chat') history.replaceState(null,'',location.pathname); }catch(_){}
+}
+window.addEventListener('popstate',function(){
+  if(document.body.classList.contains('mob-chat')){
+    document.body.classList.remove('mob-chat');
+    closeAttach();
+    try{ history.pushState({m13chat:_nm},'',location.pathname+'#chat'); }catch(_){}
+  }
+});
+
+/* ── Send ── */
 function doSend(){
-  var msg=ge('mobChatMsg'); if(!msg||!_nm)return;
+  var msg=ge('m13Msg'); if(!msg||!_nm)return;
   var txt=msg.value.trim(); if(!txt)return;
   msg.value=''; msg.style.height='auto';
-  var fm=ge('followMsg'), sf=ge('sendFollow');
-  function afterSend(){
-    setTimeout(syncThread,400);
-    setTimeout(syncThread,2000);
-    setTimeout(syncThread,5000);
-  }
-  if(fm&&sf){ fm.value=txt; sf.click(); afterSend(); return; }
+  var fm=ge('followMsg'),sf=ge('sendFollow');
+  function after(){ setTimeout(syncThread,400); setTimeout(syncThread,2000); setTimeout(syncThread,5000); }
+  if(fm&&sf){ fm.value=txt; sf.click(); after(); return; }
   if(typeof window.selectSeat==='function'){
     window.selectSeat(_nm).then(function(){
       var f=ge('followMsg'),s=ge('sendFollow');
       if(f&&s){ f.value=txt; s.click(); }
-      afterSend();
+      after();
     });
   }
+}
+ge('m13SendBtn').addEventListener('click',doSend);
+var m13msg=ge('m13Msg');
+if(m13msg){
+  m13msg.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); }
+  });
+  m13msg.addEventListener('input',function(){
+    this.style.height='auto';
+    this.style.height=Math.min(this.scrollHeight,120)+'px';
+  });
 }
 
 /* ── Attach dropdown ── */
 function closeAttach(){
   _dropOpen=false;
-  var d=ge('mobChatAttachDrop'),b=ge('mobChatAttachBtn');
+  var d=ge('m13AttachDrop'),b=ge('m13AttachBtn');
   if(d)d.classList.remove('open'); if(b)b.classList.remove('open');
 }
 function openAttach(){
   _dropOpen=true;
-  var d=ge('mobChatAttachDrop'),b=ge('mobChatAttachBtn');
+  var d=ge('m13AttachDrop'),b=ge('m13AttachBtn');
   if(d)d.classList.add('open'); if(b)b.classList.add('open');
 }
-ge('mobChatAttachBtn').addEventListener('click',function(e){
+ge('m13AttachBtn').addEventListener('click',function(e){
   e.stopPropagation(); _dropOpen?closeAttach():openAttach();
 });
 document.addEventListener('click',function(e){
   if(!_dropOpen)return;
-  var d=ge('mobChatAttachDrop');
-  if(d&&!d.contains(e.target)&&e.target!==ge('mobChatAttachBtn')) closeAttach();
+  var d=ge('m13AttachDrop');
+  if(d&&!d.contains(e.target)&&e.target!==ge('m13AttachBtn')) closeAttach();
 });
+ge('m13dFiles').addEventListener('click',function(){ closeAttach(); clickReal('pickDmFiles'); });
+ge('m13dScreen').addEventListener('click',function(){ closeAttach(); clickReal('screenDmBtn'); });
+ge('m13dTalk').addEventListener('click',function(){ closeAttach(); clickReal('talkDmBtn'); });
+ge('m13dVoice').addEventListener('click',function(){ closeAttach(); clickReal('alwaysListenDmBtn'); });
+ge('m13dStream').addEventListener('click',function(){ closeAttach(); clickReal('streamToggleBtn'); });
+ge('m13dPrompts').addEventListener('click',function(){ closeAttach(); var b=ge('promptLibraryBtn'); if(b)b.click(); });
 
-/* Proxy each attach item to its real desktop button */
-function proxy(mobId,deskId){
-  var m=ge(mobId),d=ge(deskId); if(!m||!d)return;
-  m.addEventListener('click',function(){
-    closeAttach();
-    d.style.cssText='position:fixed!important;bottom:0!important;left:0!important;pointer-events:auto!important;opacity:0!important;z-index:1!important;';
-    d.click();
-    setTimeout(function(){
-      d.style.cssText='position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;';
-    },300);
-  });
-}
-proxy('maFiles','pickDmFiles');
-proxy('maScreen','screenDmBtn');
-proxy('maTalk','talkDmBtn');
-proxy('maVoice','alwaysListenDmBtn');
-proxy('maStream','streamToggleBtn');
-/* Prompts — click the real promptLibraryBtn */
-var maP=ge('maPrompts');
-if(maP) maP.addEventListener('click',function(){ closeAttach(); var b=ge('promptLibraryBtn'); if(b)b.click(); });
-
-/* Mirror attach list */
+/* Mirror desktop attach list */
 var _alObs=null;
 function watchAttachList(){
-  var src=ge('dmAttachList'),dst=ge('mobChatAttachList');
+  var src=ge('dmAttachList'),dst=ge('m13AttachList');
   if(!src||!dst||_alObs)return;
   _alObs=new MutationObserver(function(){ dst.innerHTML=src.innerHTML; });
   _alObs.observe(src,{childList:true,subtree:true});
 }
 setTimeout(watchAttachList,1500);
 
-/* ── Pass pills ── */
-function passAction(text,send){
-  closeAttach();
-  var ma=ge('mobChatMsg'), fm=ge('followMsg'), sf=ge('sendFollow');
-  if(send){
-    if(fm&&sf){ fm.value=text; sf.click(); }
-    setTimeout(syncThread,600); setTimeout(syncThread,2500);
-  } else {
-    if(ma){ ma.value=text; ma.focus(); ma.setSelectionRange(text.length,text.length); }
-    if(fm) fm.value=text;
-  }
-}
-/* pass actions removed per user request */
-
-/* ── Refresh ── */
-ge('mobChatRefresh').addEventListener('click',function(){
-  if(!_nm)return;
-  if(typeof window.selectSeat==='function'){
-    window.selectSeat(_nm).then(syncThread);
-  } else syncThread();
-});
-
-/* ── Textarea: grow + Enter to send ── */
-var ma=ge('mobChatMsg');
-if(ma){
-  ma.addEventListener('keydown',function(e){
-    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); }
-  });
-  ma.addEventListener('input',function(){
-    this.style.height='auto';
-    this.style.height=Math.min(this.scrollHeight,120)+'px';
-  });
-}
-ge('mobChatSendBtn').addEventListener('click',doSend);
-
-/* ── Nav buttons ── */
-ge('mobBackBtn').addEventListener('click',goBack);
-ge('mobMenuBtn').addEventListener('click',function(){
-  var b=ge('mobileMenuBtn'); if(b)b.click();
-});
-ge('mobCommunityBtn').addEventListener('click',function(){
+/* ── Top-bar buttons ── */
+ge('m13Back').addEventListener('click',goBack);
+ge('m13CommunityBtn').addEventListener('click',function(){
   if(typeof openCommunityPanel==='function') openCommunityPanel();
 });
+ge('m13NotifBtn').addEventListener('click',function(){
+  if(typeof toggleNotifPanel==='function') toggleNotifPanel();
+  else { var b=ge('notifBellBtn'); if(b)b.click(); }
+});
+ge('m13RefreshBtn').addEventListener('click',function(){
+  if(!_nm)return;
+  if(typeof window.selectSeat==='function') window.selectSeat(_nm).then(syncThread);
+  else syncThread();
+});
 
-/* ── visualViewport: keep input above keyboard on iOS ── */
-function adjustForKeyboard(){
-  var cv=ge('mobChatView'); if(!cv)return;
-  if(window.visualViewport){
-    var vv=window.visualViewport;
-    var kb=window.innerHeight-(vv.offsetTop+vv.height);
-    cv.style.height=(vv.height)+'px';
-    cv.style.top=(vv.offsetTop)+'px';
-    cv.style.bottom='auto';
-  }
+/* ── Nav pills ── */
+function navClick(dropId){
+  /* Open the real desktop dropdown then immediately click its first item
+     so the modal opens — same as clicking the dropdown button on desktop */
+  var drop=ge(dropId);
+  if(!drop)return;
+  if(typeof window.saToggleDrop==='function') window.saToggleDrop(dropId);
+}
+ge('m13pTeam').addEventListener('click',function(){ navClick('saTeamDrop'); });
+ge('m13pCreate').addEventListener('click',function(){ navClick('saCreateDrop'); });
+ge('m13pResearch').addEventListener('click',function(){ navClick('saResearchDrop'); });
+ge('m13pManage').addEventListener('click',function(){ navClick('saManageDrop'); });
+ge('m13pSettings').addEventListener('click',function(){ navClick('saSettingsDrop'); });
+ge('m13pDash').addEventListener('click',function(){
+  if(typeof saOpenDashboard==='function') saOpenDashboard();
+});
+
+/* ── keyboard / viewport adjustment ── */
+function adjustViewport(){
+  if(!window.visualViewport)return;
+  var vv=window.visualViewport;
+  var cv=ge('m13ChatView'); if(!cv)return;
+  var kb=window.innerHeight-(vv.offsetTop+vv.height);
+  cv.style.bottom=Math.max(0,kb)+'px';
 }
 if(window.visualViewport){
-  window.visualViewport.addEventListener('resize',adjustForKeyboard,{passive:true});
-  window.visualViewport.addEventListener('scroll',adjustForKeyboard,{passive:true});
+  window.visualViewport.addEventListener('resize',adjustViewport,{passive:true});
+  window.visualViewport.addEventListener('scroll',adjustViewport,{passive:true});
 }
 
-/* ── Hook seat taps — long-press reveals Edit/Stack, tap opens chat or profile ── */
+/* ── Hook seat taps ── */
 function hookSeats(){
   document.querySelectorAll('.seat[data-name]').forEach(function(seat){
-    if(seat._v12)return; seat._v12=true;
-    var _pt=null, _lp=false;
+    if(seat._v13)return; seat._v13=true;
+    var _pt=null,_lp=false;
+
+    /* long-press: reveal Edit/Stack */
     seat.addEventListener('touchstart',function(){
       _lp=false;
       _pt=setTimeout(function(){
         _lp=true;
         var tools=seat.querySelector('.seatTools');
         if(tools){
-          tools.style.opacity='1';
-          tools.style.pointerEvents='auto';
+          tools.style.opacity='1'; tools.style.pointerEvents='auto';
           clearTimeout(seat._tt);
           seat._tt=setTimeout(function(){
-            tools.style.opacity='0';
-            tools.style.pointerEvents='none';
+            tools.style.opacity='0'; tools.style.pointerEvents='none';
           },3500);
         }
       },480);
     },{passive:true});
     seat.addEventListener('touchend',function(){ clearTimeout(_pt); },{passive:true});
     seat.addEventListener('touchmove',function(){ clearTimeout(_pt); },{passive:true});
+
+    /* tap: open chat or profile */
     seat.addEventListener('click',function(e){
       if(_lp)return;
       if(e.target&&e.target.closest&&e.target.closest('.seatTools'))return;
       var name=seat.getAttribute('data-name'); if(!name)return;
-      /* Operator card → open profile modal, not chat */
       if(seat.classList.contains('seatOperator')||name==='Operator'){
         if(typeof openOperatorProfileModal==='function') openOperatorProfileModal();
         return;
@@ -32050,36 +32068,32 @@ function hookSeats(){
   });
 }
 
-/* ── patchSS: intercept programmatic selectSeat calls ── */
+/* ── patchSS ── */
 function patchSS(){
-  var o=window.selectSeat; if(!o||o._v12)return;
-  var p=function(n){
-    var r=o.apply(this,arguments);
-    if(window.innerWidth<=960){ _nm=n; }
-    return r;
-  };
-  p._v12=true; window.selectSeat=p;
+  var o=window.selectSeat; if(!o||o._v13)return;
+  var p=function(n){ var r=o.apply(this,arguments); if(window.innerWidth<=960)_nm=n; return r; };
+  p._v13=true; window.selectSeat=p;
 }
 
-/* ── MutationObserver: re-hook seats added dynamically ── */
+/* ── MutationObserver: re-hook new seats ── */
 if(window.MutationObserver){
-  new MutationObserver(function(){ hookSeats(); })
+  new MutationObserver(function(){ hookSeats(); moveCards(); })
     .observe(document.body,{childList:true,subtree:true});
 }
 
-/* ── Init ── */
 function init(){
   moveCards();
-  if(typeof window.selectSeat==='function'){ patchSS(); }
+  if(typeof window.selectSeat==='function') patchSS();
   hookSeats();
 }
 setTimeout(init,400);
 setTimeout(hookSeats,1200);
-setTimeout(hookSeats,2500);
+setTimeout(hookSeats,2800);
 
 })();
 </script>
-<!-- ===== END MOBILE LAYOUT v12 ===== -->
+<!-- ===== END MOBILE LAYOUT v13 ===== -->
+
 
 
 </body>
