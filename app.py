@@ -21184,169 +21184,193 @@ async function crmFetchTasks(){
       const raw = (text||'').trim();
       if(!raw) return '<div style="opacity:.5;font-size:13px;padding:12px 0;">Nothing generated yet.</div>';
 
-      // ── Utility: strip all markdown for clipboard ──────────────────────────
+      // ── Strip markdown for clipboard ───────────────────────────────────────
       function toPlain(t){
         return (t||'')
           .replace(/\*\*(.+?)\*\*/g,'$1')
           .replace(/\*(.+?)\*/g,'$1')
           .replace(/^#{1,4}\s+/gm,'')
           .replace(/^[-*•]\s+/gm,'')
+          .replace(/^---+\s*$/gm,'')
           .replace(/\n{3,}/g,'\n\n')
           .trim();
       }
 
-      // ── Utility: render inline markdown to HTML ────────────────────────────
+      // ── Render inline markdown to HTML ─────────────────────────────────────
       function inlineHtml(t){
         return escapeHtml(t)
           .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
           .replace(/\*(.+?)\*/g,'<em>$1</em>');
       }
 
-      // ── Utility: attach a copy button to a container ──────────────────────
-      function attachCopy(btn, textFn){
+      // ── Copy button factory ────────────────────────────────────────────────
+      function mkCopyBtn(textFn, label){
+        const btn = document.createElement('button');
+        btn.textContent = label || '📋 Copy';
+        btn.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;flex-shrink:0;white-space:nowrap;';
         btn.addEventListener('click', function(){
           const txt = textFn();
           navigator.clipboard.writeText(txt).catch(function(){
-            const ta = document.createElement('textarea');
-            ta.value = txt; ta.style.cssText='position:fixed;opacity:0;';
-            document.body.appendChild(ta); ta.select();
-            document.execCommand('copy'); document.body.removeChild(ta);
+            const ta=document.createElement('textarea'); ta.value=txt;
+            ta.style.cssText='position:fixed;opacity:0;'; document.body.appendChild(ta);
+            ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
           });
           const orig = btn.textContent;
           btn.textContent = '✓ Copied!';
-          btn.style.background = 'rgba(16,185,129,.25)';
-          btn.style.borderColor = 'rgba(16,185,129,.5)';
-          btn.style.color = '#6ee7b7';
-          setTimeout(function(){ btn.textContent=orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; }, 2000);
+          btn.style.background='rgba(16,185,129,.22)'; btn.style.borderColor='rgba(16,185,129,.45)'; btn.style.color='#6ee7b7';
+          setTimeout(function(){ btn.textContent=orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; },2000);
         });
+        return btn;
       }
 
-      // ── Parse raw text into blocks ─────────────────────────────────────────
-      // A "header" line: **Title** alone, or ### Title, or "1. **Title**"
-      // A header with NO body lines = just a title/label, skip it (don't render a card)
-      // A header WITH body = a real copyable block
+      // ── Parse lines into a flat token list ────────────────────────────────
+      // Token types: H1 (top-level ###/numbered), H2 (sub-header **...**), HR, TEXT
       const lines = raw.split(/\r?\n/);
-      const blocks = [];  // [{label, lines[]}]
-      let cur = null;
+      const tokens = lines.map(function(line){
+        const t = line.trim();
+        if(!t || /^---+$/.test(t)) return {type:'HR', text:''};
+        // Top-level: "1. **Title**" or "## Title" or "### Title"
+        const top = t.match(/^(?:\d+[.)]\s+)\*\*(.+?)\*\*:?\s*$/) ||
+                    t.match(/^#{2,4}\s+(.+)$/);
+        if(top) return {type:'H1', text: top[1].replace(/:$/,'').trim()};
+        // Sub-header: "**Label:**" or "**Label**" alone on a line
+        const sub = t.match(/^\*\*(.+?)\*\*:?\s*$/);
+        if(sub) return {type:'H2', text: sub[1].replace(/:$/,'').trim()};
+        return {type:'TEXT', text: line};
+      });
 
-      for(let i=0; i<lines.length; i++){
-        const t = lines[i].trim();
-        const hdr = t.match(/^(?:\d+[.)]\s*)?\*\*(.+?)\*\*:?\s*$/) ||
-                    t.match(/^#{1,4}\s+(.+)$/);
-        if(hdr){
-          if(cur) blocks.push(cur);
-          cur = { label: hdr[1].replace(/:$/,'').trim(), lines: [] };
-        } else if(cur){
-          cur.lines.push(lines[i]);
+      // ── Group tokens into logical post-groups ──────────────────────────────
+      // A "group" = one H1 (or first chunk of content before any H1) + all
+      // H2 sub-sections and text until the next H1.
+      // Within a group, H2 sub-sections collapse together into the same card.
+      const groups = [];
+      let grp = null;
+
+      for(let i=0; i<tokens.length; i++){
+        const tok = tokens[i];
+        if(tok.type==='HR') continue;  // skip dividers entirely
+
+        if(tok.type==='H1'){
+          if(grp) groups.push(grp);
+          grp = { title: tok.text, sections: [] };
+        } else if(tok.type==='H2'){
+          if(!grp) grp = { title:'', sections:[] };
+          grp.sections.push({ label: tok.text, lines:[] });
         } else {
-          // Pre-header prose
-          if(!blocks.length || blocks[blocks.length-1].label !== ''){
-            blocks.push({ label:'', lines:[] });
-          }
-          blocks[blocks.length-1].lines.push(lines[i]);
+          // TEXT
+          if(!grp) grp = { title:'', sections:[] };
+          if(!grp.sections.length) grp.sections.push({ label:'', lines:[] });
+          grp.sections[grp.sections.length-1].lines.push(tok.text);
         }
       }
-      if(cur) blocks.push(cur);
+      if(grp) groups.push(grp);
 
-      // ── Decide which blocks are "real" (have actual content) ──────────────
-      // A block is real if its lines contain at least one non-empty line
-      const realBlocks = blocks.filter(b => b.lines.some(l => l.trim()));
+      // ── Decide what to render ──────────────────────────────────────────────
+      // A section has "real content" if it has at least one non-empty TEXT line.
+      // A group has "copyable content" if any of its sections has real content.
+      // Groups that are ONLY a title with no real content underneath are skipped
+      // (e.g. "Overview" header with just one sentence gets kept; pure-title with
+      //  zero body lines is dropped).
 
-      // If nothing parsed, render as plain flowing text
-      if(!realBlocks.length){
-        const div = document.createElement('div');
-        div.style.cssText = 'font-size:14px;line-height:1.8;color:#e2e8f0;';
-        div.innerHTML = inlineHtml(raw).replace(/\n/g,'<br>');
-        const wrap = document.createElement('div');
-        wrap.appendChild(div);
-        return wrap.innerHTML;
+      function sectionHasContent(sec){
+        return sec.lines.some(function(l){ return l.trim(); });
+      }
+      function groupHasContent(g){
+        return g.sections.some(sectionHasContent);
       }
 
-      // ── Build DOM ──────────────────────────────────────────────────────────
+      // Plain text of an entire group (for its copy button)
+      function groupPlain(g){
+        const parts = [];
+        if(g.title) parts.push(g.title);
+        g.sections.forEach(function(sec){
+          // Only include sub-label if it's meaningful (not "Post Copy" boilerplate etc.)
+          const skipLabels = /^(post copy|copy|content|text|message text)$/i;
+          if(sec.label && !skipLabels.test(sec.label)) parts.push(sec.label);
+          sec.lines.forEach(function(l){ const t=l.trim(); if(t) parts.push(t); });
+        });
+        return toPlain(parts.join('\n'));
+      }
+
+      // ── Build the DOM ──────────────────────────────────────────────────────
       const container = document.createElement('div');
 
-      // "Copy all" bar at top
+      // Copy-all button (top right)
       const topBar = document.createElement('div');
-      topBar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:14px;';
-      const copyAllBtn = document.createElement('button');
-      copyAllBtn.textContent = '📋 Copy all';
-      copyAllBtn.style.cssText = 'font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;';
-      attachCopy(copyAllBtn, function(){ return toPlain(raw); });
-      topBar.appendChild(copyAllBtn);
+      topBar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px;';
+      topBar.appendChild(mkCopyBtn(function(){ return toPlain(raw); }, '📋 Copy all'));
       container.appendChild(topBar);
 
-      realBlocks.forEach(function(block, bi){
-        const bodyLines = block.lines;
-        const bodyText  = bodyLines.map(l=>l.trim()).filter(l=>l).join('\n');
+      groups.forEach(function(g){
+        if(!groupHasContent(g)) return;  // skip title-only groups
 
-        // ── Card wrapper ───────────────────────────────────────────────────
         const card = document.createElement('div');
-        card.style.cssText = [
-          'background:rgba(14,22,48,.6)',
-          'border:1px solid rgba(42,58,106,.5)',
-          'border-radius:12px',
-          'padding:16px 18px',
-          'margin-bottom:10px',
-        ].join(';');
+        card.style.cssText = 'background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:16px 18px;margin-bottom:10px;';
 
-        // ── Header row (label + copy btn) ──────────────────────────────────
-        if(block.label){
-          const hRow = document.createElement('div');
-          hRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;';
+        // Card header row: group title + copy button
+        const hRow = document.createElement('div');
+        hRow.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:' + (g.title ? '12px' : '0') + ';';
 
+        if(g.title){
           const lbl = document.createElement('div');
-          lbl.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;';
-          lbl.textContent = block.label;
-
-          const cpBtn = document.createElement('button');
-          cpBtn.textContent = '📋 Copy';
-          cpBtn.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;flex-shrink:0;';
-          attachCopy(cpBtn, function(){ return toPlain(bodyText); });
-
+          lbl.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;line-height:1.4;';
+          lbl.textContent = g.title;
           hRow.appendChild(lbl);
-          hRow.appendChild(cpBtn);
-          card.appendChild(hRow);
         }
 
-        // ── Body ───────────────────────────────────────────────────────────
-        if(bodyText){
-          // Detect if this is a true bullet list:
-          // ALL non-empty lines start with -, *, •, or digit. AND there are 3+ of them.
-          const nonEmpty = bodyLines.map(l=>l.trim()).filter(l=>l);
-          const bulletLines = nonEmpty.filter(l=>/^[-*•]\s+\S/.test(l));
-          const isTrueBulletList = bulletLines.length >= 3 && bulletLines.length === nonEmpty.length;
+        // Only add copy button if group has real content
+        const cp = mkCopyBtn(function(){ return groupPlain(g); });
+        hRow.appendChild(cp);
+        if(g.title || groupHasContent(g)) card.appendChild(hRow);
 
-          if(isTrueBulletList){
+        // Render each section's content
+        g.sections.forEach(function(sec){
+          if(!sectionHasContent(sec)) return;
+
+          // Sub-label: only show if meaningful (skip "Post Copy", "Copy" etc.)
+          const skipLabels = /^(post copy|copy|content|text|message text)$/i;
+          if(sec.label && !skipLabels.test(sec.label)){
+            const sl = document.createElement('div');
+            sl.style.cssText = 'font-size:12px;font-weight:600;color:#94a3b8;margin:10px 0 5px;text-transform:capitalize;';
+            sl.textContent = sec.label;
+            card.appendChild(sl);
+          }
+
+          const contentLines = sec.lines.map(function(l){ return l.trim(); }).filter(function(l){ return l; });
+
+          // True bullet list: all lines start with -, *, •, and 3+ lines
+          const bulletLines = contentLines.filter(function(l){ return /^[-*•]\s+\S/.test(l); });
+          const isBulletList = bulletLines.length >= 3 && bulletLines.length === contentLines.length;
+
+          if(isBulletList){
             const ul = document.createElement('ul');
-            ul.style.cssText = 'margin:0 0 0 18px;padding:0;list-style:disc;';
-            nonEmpty.forEach(function(l){
+            ul.style.cssText = 'margin:0 0 8px 18px;padding:0;list-style:disc;';
+            contentLines.forEach(function(l){
               const li = document.createElement('li');
-              li.style.cssText = 'margin:6px 0;font-size:14px;line-height:1.65;color:#e2e8f0;';
+              li.style.cssText = 'margin:5px 0;font-size:14px;line-height:1.65;color:#e2e8f0;';
               li.innerHTML = inlineHtml(l.replace(/^[-*•]\s*/,''));
               ul.appendChild(li);
             });
             card.appendChild(ul);
           } else {
-            // Flowing prose — split on blank lines into paragraphs
-            const paras = bodyText.split(/\n{2,}/);
+            // Flowing prose, split on blank lines for paragraphs
+            const paras = sec.lines.join('\n').split(/\n{2,}/);
             paras.forEach(function(para){
-              const pLines = para.split('\n').map(l=>l.trim()).filter(l=>l);
+              const pLines = para.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l; });
               if(!pLines.length) return;
               const p = document.createElement('p');
-              p.style.cssText = 'margin:0 0 10px 0;font-size:14px;line-height:1.75;color:#e2e8f0;';
+              p.style.cssText = 'margin:0 0 8px 0;font-size:14px;line-height:1.75;color:#e2e8f0;';
               p.innerHTML = pLines.map(function(l){ return inlineHtml(l); }).join('<br>');
               card.appendChild(p);
             });
           }
-        }
+        });
 
         container.appendChild(card);
       });
 
-      // Return the HTML string
       return container.innerHTML;
     }
-
     function crmGuessEmails(name, domain){
       const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
       const nm = (name||'').trim().toLowerCase();
