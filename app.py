@@ -13676,7 +13676,6 @@ label         { font-size: 14px !important; }
           <div class="saDrop" id="saResearchDrop">
             <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
             <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
-            <button class="saDropItem" id="frameworkResearchBtn" onclick="document.getElementById('frameworkBtn')&&document.getElementById('frameworkBtn').click()">🧠 Core Framework</button>
           </div>
         </div>
 
@@ -31589,8 +31588,8 @@ document.addEventListener('click',e=>{
     left:0; right:0; z-index:9099;
     background:rgba(8,12,28,.97);
     border-bottom:1px solid rgba(42,58,106,.4);
-    display:flex; gap:6px; overflow-x:auto;
-    padding:7px 12px;
+    display:flex; gap:6px; overflow-x:auto; overflow-y:hidden;
+    padding:7px 12px 7px; flex-wrap:nowrap;
     -webkit-overflow-scrolling:touch; scrollbar-width:none;
   }
   #m13NavRow::-webkit-scrollbar{ display:none; }
@@ -31653,7 +31652,7 @@ document.addEventListener('click',e=>{
     min-height:0!important; max-height:none!important; transform:none!important; overflow:visible!important;
   }
 
-  /* seatTools: hidden, long-press reveals */
+  /* seatTools on mobile: hidden by default, long-press reveals */
   #m13TeamView .seatTools{
     opacity:0!important; pointer-events:none!important;
     position:absolute!important; bottom:0!important; left:0!important; right:0!important;
@@ -32001,19 +32000,94 @@ ge('m13RefreshBtn').addEventListener('click',function(){
   else syncThread();
 });
 
-/* ── Nav pills ── */
-function navClick(dropId){
-  /* Open the real desktop dropdown then immediately click its first item
-     so the modal opens — same as clicking the dropdown button on desktop */
-  var drop=ge(dropId);
-  if(!drop)return;
-  if(typeof window.saToggleDrop==='function') window.saToggleDrop(dropId);
+/* ── Nav pills — open a full-screen mobile menu sheet instead of desktop dropdown ── */
+var _menuSheet=null;
+function closeMobMenu(){
+  if(_menuSheet&&_menuSheet.parentNode) _menuSheet.parentNode.removeChild(_menuSheet);
+  _menuSheet=null;
 }
-ge('m13pTeam').addEventListener('click',function(){ navClick('saTeamDrop'); });
-ge('m13pCreate').addEventListener('click',function(){ navClick('saCreateDrop'); });
-ge('m13pResearch').addEventListener('click',function(){ navClick('saResearchDrop'); });
-ge('m13pManage').addEventListener('click',function(){ navClick('saManageDrop'); });
-ge('m13pSettings').addEventListener('click',function(){ navClick('saSettingsDrop'); });
+function openMobMenu(title, items){
+  closeMobMenu();
+  var sheet=document.createElement('div');
+  sheet.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(2,6,16,.75);backdrop-filter:blur(6px);display:flex;align-items:flex-end;';
+  var inner=document.createElement('div');
+  inner.style.cssText='width:100%;background:rgba(9,13,30,.99);border-top:1.5px solid rgba(124,58,237,.45);border-radius:20px 20px 0 0;padding:16px 14px calc(env(safe-area-inset-bottom,0px)+16px);max-height:80vh;overflow-y:auto;';
+  var hdr=document.createElement('div');
+  hdr.style.cssText='font-size:13px;font-weight:800;color:#a78bfa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;';
+  hdr.innerHTML=title+'<button style="background:rgba(255,255,255,.06);border:1px solid rgba(42,58,106,.5);border-radius:7px;color:#64748b;font-size:13px;padding:4px 10px;cursor:pointer;">✕</button>';
+  hdr.querySelector('button').onclick=closeMobMenu;
+  inner.appendChild(hdr);
+  items.forEach(function(item){
+    if(item.divider){
+      var d=document.createElement('div');
+      d.style.cssText='height:1px;background:rgba(255,255,255,.07);margin:6px 0;';
+      inner.appendChild(d); return;
+    }
+    var btn=document.createElement('button');
+    btn.style.cssText='width:100%;text-align:left;background:transparent;border:none;color:#e2e8f0;font-size:15px;padding:13px 4px;border-bottom:1px solid rgba(42,58,106,.2);cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:10px;';
+    btn.textContent=item.label;
+    btn.addEventListener('click',function(){
+      closeMobMenu();
+      setTimeout(function(){ item.action(); },80);
+    });
+    inner.appendChild(btn);
+  });
+  sheet.appendChild(inner);
+  sheet.addEventListener('click',function(e){ if(e.target===sheet) closeMobMenu(); });
+  document.body.appendChild(sheet);
+  _menuSheet=sheet;
+}
+
+function clickBtn(id){ var b=ge(id); if(b) b.click(); }
+function openModal(id){ var b=ge(id); if(b) b.click(); }
+
+ge('m13pTeam').addEventListener('click',function(){
+  openMobMenu('🤖 Team',[
+    {label:'🧠 Core Framework', action:function(){ clickBtn('frameworkBtn'); }},
+    {label:'📚 Prompt Library', action:function(){ clickBtn('promptLibraryBtn'); }},
+    {label:'✏️ Edit Teammates', action:function(){ clickBtn('editTeammatesBtn'); }},
+    {label:'➕ Add / Dismiss Teammates', action:function(){ clickBtn('manageTeamBtn'); }},
+    {label:'🛠 Create Teammate', action:function(){ clickBtn('createTeamBtn'); }},
+    {label:'⚡ Install Full Team', action:function(){ clickBtn('installFullBtn'); }},
+  ]);
+});
+ge('m13pCreate').addEventListener('click',function(){
+  openMobMenu('✍️ Create',[
+    {label:'📣 Social Studio', action:function(){ clickBtn('socialStudioBtn'); }},
+    {label:'🎯 Offer Builder', action:function(){ clickBtn('offerBuilderBtn'); }},
+    {label:'📋 Growth Playbook', action:function(){ clickBtn('growthPlaybookBtn'); }},
+    {label:'📝 Notepad', action:function(){ if(typeof showNotepadModal==='function') showNotepadModal(); }},
+    {label:'🖼 Image Library', action:function(){ clickBtn('imageLibBtn'); }},
+  ]);
+});
+ge('m13pResearch').addEventListener('click',function(){
+  openMobMenu('🔍 Research',[
+    {label:'🔬 Find Leads', action:function(){ clickBtn('leadLabBtn'); }},
+    {label:'🌐 Site Analyzer', action:function(){ if(typeof showSiteAnalyzerModal==='function') showSiteAnalyzerModal(); }},
+  ]);
+});
+ge('m13pManage').addEventListener('click',function(){
+  openMobMenu('📊 Manage',[
+    {label:'👥 My Team', action:function(){ clickBtn('teamBtn'); }},
+    {label:'🧑‍💼 Operator Profile', action:function(){ if(typeof openOperatorProfileModal==='function') openOperatorProfileModal(); }},
+    {label:'🎯 Session Objective', action:function(){ clickBtn('sessionObjectiveBtn'); }},
+    {divider:true},
+    {label:'👥 Contacts', action:function(){ clickBtn('crmBtn'); }},
+    {label:'📅 Calendar', action:function(){ clickBtn('calendarBtn'); }},
+    {label:'📧 Email Console', action:function(){ clickBtn('emailConsoleBtn'); }},
+  ]);
+});
+ge('m13pSettings').addEventListener('click',function(){
+  openMobMenu('⚙️ Settings',[
+    {label:'📚 Getting Started Guide', action:function(){ window.location.href='/getting-started'; }},
+    {label:'✨ Next Step', action:function(){ clickBtn('onboardingBtn'); }},
+    {label:'👤 User Settings', action:function(){ clickBtn('settingsBtn'); }},
+    {label:'🎨 Customize', action:function(){ clickBtn('customizeBtn'); }},
+    {label:'🔑 Get OpenAI Key', action:function(){ clickBtn('openApiKeyHelpBtn'); }},
+    {divider:true},
+    {label:'🚪 Logout', action:function(){ if(confirm('Are you sure you want to log out?')) window.location.href='/logout'; }},
+  ]);
+});
 ge('m13pDash').addEventListener('click',function(){
   if(typeof saOpenDashboard==='function') saOpenDashboard();
 });
