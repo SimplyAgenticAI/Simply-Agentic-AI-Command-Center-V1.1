@@ -21184,183 +21184,136 @@ async function crmFetchTasks(){
       const raw = (text||'').trim();
       if(!raw) return '<div style="opacity:.5;font-size:13px;padding:12px 0;">Nothing generated yet.</div>';
 
-      // ── Strip markdown for clipboard ───────────────────────────────────────
       function toPlain(t){
         return (t||'')
-          .replace(/\*\*(.+?)\*\*/g,'$1')
-          .replace(/\*(.+?)\*/g,'$1')
-          .replace(/^#{1,4}\s+/gm,'')
-          .replace(/^[-*•]\s+/gm,'')
-          .replace(/^---+\s*$/gm,'')
-          .replace(/\n{3,}/g,'\n\n')
-          .trim();
+          .replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1')
+          .replace(/^#{1,4}\s+/gm,'').replace(/^[-*•]\s+/gm,'')
+          .replace(/^---+\s*$/gm,'').replace(/\n{3,}/g,'\n\n').trim();
       }
-
-      // ── Render inline markdown to HTML ─────────────────────────────────────
       function inlineHtml(t){
         return escapeHtml(t)
           .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
           .replace(/\*(.+?)\*/g,'<em>$1</em>');
       }
-
-      // ── Copy button factory ────────────────────────────────────────────────
-      function mkCopyBtn(textFn, label){
-        const btn = document.createElement('button');
-        btn.textContent = label || '📋 Copy';
-        btn.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;flex-shrink:0;white-space:nowrap;';
-        btn.addEventListener('click', function(){
-          const txt = textFn();
+      function mkCopyBtn(textFn,label){
+        const btn=document.createElement('button');
+        btn.textContent=label||'📋 Copy';
+        btn.style.cssText='font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.38);color:#c4b5fd;cursor:pointer;flex-shrink:0;white-space:nowrap;';
+        btn.addEventListener('click',function(){
+          const txt=textFn();
           navigator.clipboard.writeText(txt).catch(function(){
-            const ta=document.createElement('textarea'); ta.value=txt;
-            ta.style.cssText='position:fixed;opacity:0;'; document.body.appendChild(ta);
-            ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+            const ta=document.createElement('textarea');ta.value=txt;
+            ta.style.cssText='position:fixed;opacity:0;';document.body.appendChild(ta);
+            ta.select();document.execCommand('copy');document.body.removeChild(ta);
           });
-          const orig = btn.textContent;
-          btn.textContent = '✓ Copied!';
-          btn.style.background='rgba(16,185,129,.22)'; btn.style.borderColor='rgba(16,185,129,.45)'; btn.style.color='#6ee7b7';
-          setTimeout(function(){ btn.textContent=orig; btn.style.background=''; btn.style.borderColor=''; btn.style.color=''; },2000);
+          const orig=btn.textContent;
+          btn.textContent='✓ Copied!';
+          btn.style.background='rgba(16,185,129,.22)';btn.style.borderColor='rgba(16,185,129,.45)';btn.style.color='#6ee7b7';
+          setTimeout(function(){btn.textContent=orig;btn.style.background='';btn.style.borderColor='';btn.style.color='';},2000);
         });
         return btn;
       }
 
-      // ── Parse lines into a flat token list ────────────────────────────────
-      // Token types: H1 (top-level ###/numbered), H2 (sub-header **...**), HR, TEXT
-      const lines = raw.split(/\r?\n/);
-      const tokens = lines.map(function(line){
-        const t = line.trim();
-        if(!t || /^---+$/.test(t)) return {type:'HR', text:''};
-        // Top-level: "1. **Title**" or "## Title" or "### Title"
-        const top = t.match(/^(?:\d+[.)]\s+)\*\*(.+?)\*\*:?\s*$/) ||
-                    t.match(/^#{2,4}\s+(.+)$/);
-        if(top) return {type:'H1', text: top[1].replace(/:$/,'').trim()};
-        // Sub-header: "**Label:**" or "**Label**" alone on a line
-        const sub = t.match(/^\*\*(.+?)\*\*:?\s*$/);
-        if(sub) return {type:'H2', text: sub[1].replace(/:$/,'').trim()};
-        return {type:'TEXT', text: line};
+      // Parse tokens
+      const lines=raw.split(/\r?\n/);
+      const tokens=lines.map(function(line){
+        const t=line.trim();
+        if(!t||/^---+$/.test(t)) return {type:'HR',text:''};
+        const top=t.match(/^(?:\d+[.)]\s+)\*\*(.+?)\*\*:?\s*$/)||t.match(/^#{2,4}\s+(.+)$/);
+        if(top) return {type:'H1',text:top[1].replace(/:$/,'').trim()};
+        const sub=t.match(/^\*\*(.+?)\*\*:?\s*$/);
+        if(sub) return {type:'H2',text:sub[1].replace(/:$/,'').trim()};
+        return {type:'TEXT',text:line};
       });
 
-      // ── Group tokens into logical post-groups ──────────────────────────────
-      // A "group" = one H1 (or first chunk of content before any H1) + all
-      // H2 sub-sections and text until the next H1.
-      // Within a group, H2 sub-sections collapse together into the same card.
-      const groups = [];
-      let grp = null;
-
-      for(let i=0; i<tokens.length; i++){
-        const tok = tokens[i];
-        if(tok.type==='HR') continue;  // skip dividers entirely
-
+      // Group into logical blocks
+      const groups=[];
+      let grp=null;
+      for(let i=0;i<tokens.length;i++){
+        const tok=tokens[i];
+        if(tok.type==='HR') continue;
         if(tok.type==='H1'){
           if(grp) groups.push(grp);
-          grp = { title: tok.text, sections: [] };
+          grp={title:tok.text,sections:[]};
         } else if(tok.type==='H2'){
-          if(!grp) grp = { title:'', sections:[] };
-          grp.sections.push({ label: tok.text, lines:[] });
+          if(!grp) grp={title:'',sections:[]};
+          grp.sections.push({label:tok.text,lines:[]});
         } else {
-          // TEXT
-          if(!grp) grp = { title:'', sections:[] };
-          if(!grp.sections.length) grp.sections.push({ label:'', lines:[] });
+          if(!grp) grp={title:'',sections:[]};
+          if(!grp.sections.length) grp.sections.push({label:'',lines:[]});
           grp.sections[grp.sections.length-1].lines.push(tok.text);
         }
       }
       if(grp) groups.push(grp);
 
-      // ── Decide what to render ──────────────────────────────────────────────
-      // A section has "real content" if it has at least one non-empty TEXT line.
-      // A group has "copyable content" if any of its sections has real content.
-      // Groups that are ONLY a title with no real content underneath are skipped
-      // (e.g. "Overview" header with just one sentence gets kept; pure-title with
-      //  zero body lines is dropped).
-
-      function sectionHasContent(sec){
-        return sec.lines.some(function(l){ return l.trim(); });
-      }
-      function groupHasContent(g){
-        return g.sections.some(sectionHasContent);
-      }
-
-      // Plain text of an entire group (for its copy button)
+      function sectionHasContent(sec){ return sec.lines.some(function(l){return l.trim();}); }
+      function groupHasContent(g){ return g.sections.some(sectionHasContent); }
       function groupPlain(g){
-        const parts = [];
+        const parts=[];
         if(g.title) parts.push(g.title);
+        const skipLabels=/^(post copy|copy|content|text|message text)$/i;
         g.sections.forEach(function(sec){
-          // Only include sub-label if it's meaningful (not "Post Copy" boilerplate etc.)
-          const skipLabels = /^(post copy|copy|content|text|message text)$/i;
-          if(sec.label && !skipLabels.test(sec.label)) parts.push(sec.label);
-          sec.lines.forEach(function(l){ const t=l.trim(); if(t) parts.push(t); });
+          if(sec.label&&!skipLabels.test(sec.label)) parts.push(sec.label);
+          sec.lines.forEach(function(l){const t=l.trim();if(t)parts.push(t);});
         });
         return toPlain(parts.join('\n'));
       }
 
-      // ── Build the DOM ──────────────────────────────────────────────────────
-      const container = document.createElement('div');
-
-      // Copy-all button (top right)
-      const topBar = document.createElement('div');
-      topBar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:12px;';
-      topBar.appendChild(mkCopyBtn(function(){ return toPlain(raw); }, '📋 Copy all'));
-      container.appendChild(topBar);
+      const container=document.createElement('div');
 
       groups.forEach(function(g){
-        if(!groupHasContent(g)) return;  // skip title-only groups
+        if(!groupHasContent(g)) return;
 
-        const card = document.createElement('div');
-        card.style.cssText = 'background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:16px 18px;margin-bottom:10px;';
+        const card=document.createElement('div');
+        card.style.cssText='background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:16px 18px;margin-bottom:10px;';
 
-        // Card header row: group title + copy button
-        const hRow = document.createElement('div');
-        hRow.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:' + (g.title ? '12px' : '0') + ';';
+        // Header row — only render if there IS a title; copy always right-aligned
+        const hRow=document.createElement('div');
+        hRow.style.cssText='display:flex;align-items:flex-start;justify-content:'+(g.title?'space-between':'flex-end')+';gap:12px;margin-bottom:12px;';
 
         if(g.title){
-          const lbl = document.createElement('div');
-          lbl.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;line-height:1.4;';
-          lbl.textContent = g.title;
+          const lbl=document.createElement('div');
+          lbl.style.cssText='font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#7c3aed;line-height:1.4;';
+          lbl.textContent=g.title;
           hRow.appendChild(lbl);
         }
 
-        // Only add copy button if group has real content
-        const cp = mkCopyBtn(function(){ return groupPlain(g); });
+        const cp=mkCopyBtn(function(){return groupPlain(g);});
         hRow.appendChild(cp);
-        if(g.title || groupHasContent(g)) card.appendChild(hRow);
+        card.appendChild(hRow);
 
-        // Render each section's content
+        // Body sections
+        const skipLabels=/^(post copy|copy|content|text|message text)$/i;
         g.sections.forEach(function(sec){
           if(!sectionHasContent(sec)) return;
-
-          // Sub-label: only show if meaningful (skip "Post Copy", "Copy" etc.)
-          const skipLabels = /^(post copy|copy|content|text|message text)$/i;
-          if(sec.label && !skipLabels.test(sec.label)){
-            const sl = document.createElement('div');
-            sl.style.cssText = 'font-size:12px;font-weight:600;color:#94a3b8;margin:10px 0 5px;text-transform:capitalize;';
-            sl.textContent = sec.label;
+          if(sec.label&&!skipLabels.test(sec.label)){
+            const sl=document.createElement('div');
+            sl.style.cssText='font-size:11px;font-weight:600;color:#64748b;margin:10px 0 5px;';
+            sl.textContent=sec.label;
             card.appendChild(sl);
           }
-
-          const contentLines = sec.lines.map(function(l){ return l.trim(); }).filter(function(l){ return l; });
-
-          // True bullet list: all lines start with -, *, •, and 3+ lines
-          const bulletLines = contentLines.filter(function(l){ return /^[-*•]\s+\S/.test(l); });
-          const isBulletList = bulletLines.length >= 3 && bulletLines.length === contentLines.length;
+          const contentLines=sec.lines.map(function(l){return l.trim();}).filter(function(l){return l;});
+          const bulletLines=contentLines.filter(function(l){return /^[-*•]\s+\S/.test(l);});
+          const isBulletList=bulletLines.length>=3&&bulletLines.length===contentLines.length;
 
           if(isBulletList){
-            const ul = document.createElement('ul');
-            ul.style.cssText = 'margin:0 0 8px 18px;padding:0;list-style:disc;';
+            const ul=document.createElement('ul');
+            ul.style.cssText='margin:0 0 8px 18px;padding:0;list-style:disc;';
             contentLines.forEach(function(l){
-              const li = document.createElement('li');
-              li.style.cssText = 'margin:5px 0;font-size:14px;line-height:1.65;color:#e2e8f0;';
-              li.innerHTML = inlineHtml(l.replace(/^[-*•]\s*/,''));
+              const li=document.createElement('li');
+              li.style.cssText='margin:5px 0;font-size:14px;line-height:1.65;color:#e2e8f0;';
+              li.innerHTML=inlineHtml(l.replace(/^[-*•]\s*/,''));
               ul.appendChild(li);
             });
             card.appendChild(ul);
           } else {
-            // Flowing prose, split on blank lines for paragraphs
-            const paras = sec.lines.join('\n').split(/\n{2,}/);
+            const paras=sec.lines.join('\n').split(/\n{2,}/);
             paras.forEach(function(para){
-              const pLines = para.split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l; });
+              const pLines=para.split('\n').map(function(l){return l.trim();}).filter(function(l){return l;});
               if(!pLines.length) return;
-              const p = document.createElement('p');
-              p.style.cssText = 'margin:0 0 8px 0;font-size:14px;line-height:1.75;color:#e2e8f0;';
-              p.innerHTML = pLines.map(function(l){ return inlineHtml(l); }).join('<br>');
+              const p=document.createElement('p');
+              p.style.cssText='margin:0 0 8px 0;font-size:14px;line-height:1.75;color:#e2e8f0;';
+              p.innerHTML=pLines.map(function(l){return inlineHtml(l);}).join('<br>');
               card.appendChild(p);
             });
           }
@@ -21368,6 +21321,12 @@ async function crmFetchTasks(){
 
         container.appendChild(card);
       });
+
+      // Copy All at BOTTOM
+      const bottomBar=document.createElement('div');
+      bottomBar.style.cssText='display:flex;justify-content:flex-end;margin-top:4px;';
+      bottomBar.appendChild(mkCopyBtn(function(){return toPlain(raw);},'📋 Copy all'));
+      container.appendChild(bottomBar);
 
       return container.innerHTML;
     }
@@ -35039,8 +34998,27 @@ def api_crm_social_studio():
     if not offer:
         return jsonify({"ok": False, "error": "Add your offer or angle"}), 400
 
-    system = "You create practical, high-performing social media assets for entrepreneurs. Use clean formatting with headings and bullets."
-    prompt = f"Platform: {platform}\nAsset type: {asset_type}\nAudience: {audience}\nOffer/angle: {offer}\n\nGenerate a useful asset pack."
+    system = (
+        "You are an expert social media copywriter. You write REAL, ready-to-post content — not briefs, "
+        "not suggestions, not templates with [placeholder] text. Every post must be fully written, "
+        "complete, and ready to copy-paste directly into Facebook, Instagram, or a DM right now. "
+        "No visual suggestions, no size specs, no 'consider doing X'. Just the actual words. "
+        "Use numbered sections (1. **Section Name**) for each piece of content. "
+        "Never describe what the content should say — write the content itself."
+    )
+    prompt = (
+        f"Platform: {platform}\n"
+        f"Audience: {audience}\n"
+        f"Offer/angle: {offer}\n\n"
+        f"Write a complete, ready-to-post {asset_type.replace('_',' ')} with these sections:\n"
+        f"1. **Hook Post** — an attention-grabbing opening post (3-5 sentences, includes hashtags)\n"
+        f"2. **Value Post** — a post that teaches or shares insight related to the offer (4-6 sentences)\n"
+        f"3. **Story Post** — a short relatable story or before/after that leads into the offer\n"
+        f"4. **Engagement Post** — a question or conversation-starter that gets comments\n"
+        f"5. **DM Opener** — a short direct message to send to a cold or warm prospect (2-3 sentences max)\n"
+        f"6. **Call to Action Post** — a direct post asking people to take the next step\n\n"
+        f"Write every single word. Do not use placeholders. Do not add visual directions or size specs."
+    )
     fallback = (
         f"Content pack for {platform}\n"
         f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
@@ -35078,8 +35056,25 @@ def api_crm_offer_builder():
     if not audience or not result or not method:
         return jsonify({"ok": False, "error": "Audience, result, and method are required"}), 400
 
-    system = "You are an offer strategist. Build clear, practical offers with concise sections."
-    prompt = f"Audience: {audience}\nResult: {result}\nMethod: {method}\n\nBuild an offer statement, promise, bullets, CTA, and short DM pitch."
+    system = (
+        "You are an expert copywriter and offer strategist. Write REAL, ready-to-use copy — "
+        "not briefs, not suggestions, not [placeholder] templates. Every word must be fully written "
+        "and ready to paste directly into a post, DM, or sales page right now. "
+        "Use clear numbered/named sections. Never describe what to write — write it."
+    )
+    prompt = (
+        f"Audience: {audience}\n"
+        f"Result they want: {result}\n"
+        f"Method/approach: {method}\n\n"
+        f"Write a complete, ready-to-use offer package with these sections:\n"
+        f"1. **Offer Statement** — one powerful sentence that states exactly what you do and for whom\n"
+        f"2. **Promise** — 2-3 sentences on the transformation or outcome the client gets\n"
+        f"3. **Bullet Points** — 4-6 punchy benefit bullets (ready to paste into a post or sales page)\n"
+        f"4. **Call to Action** — a direct, compelling CTA sentence or two\n"
+        f"5. **DM Pitch** — a short 2-3 sentence message to send cold or warm in a DM, conversational tone\n"
+        f"6. **Facebook Post** — a complete ready-to-post Facebook post combining the above\n\n"
+        f"Write every single word. No placeholders. No suggestions. Fully written and ready to use."
+    )
     fallback = (
         f"Offer statement\n"
         f"We help {audience} {result} using a simple, guided system built around {method}.\n\n"
