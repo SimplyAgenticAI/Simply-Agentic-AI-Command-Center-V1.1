@@ -20496,9 +20496,11 @@ Challenge weak assumptions. Surface risks.`;
     ];
 
     function showVisualCreatorModal(){
-      document.body.classList.add('modal-open');
       var m = document.getElementById('visualCreatorModal');
-      if(m){ m.style.display='flex'; }
+      if(!m) return;
+      // Move to body so it escapes any stacking context and covers everything
+      if(m.parentNode !== document.body) document.body.appendChild(m);
+      m.style.display='flex';
       // Render presets
       var presetsEl = document.getElementById('vcPresets');
       if(presetsEl && !presetsEl.children.length){
@@ -20518,7 +20520,6 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function closeVisualCreatorModal(){
-      document.body.classList.remove('modal-open');
       var m = document.getElementById('visualCreatorModal');
       if(m) m.style.display='none';
     }
