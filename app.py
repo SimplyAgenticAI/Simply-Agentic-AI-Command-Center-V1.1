@@ -13325,6 +13325,13 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
   resize:none !important;
 }
 #modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
+/* Bigger form fields in modals on mobile */
+#modalWin input, #modalWin textarea, #modalWin select{
+  font-size:16px !important; padding:12px 14px !important;
+  min-height:44px !important;
+}
+#modalWin label{ font-size:14px !important; margin-bottom:6px !important; display:block !important; }
+#modalWin .btn{ min-height:44px !important; font-size:15px !important; }
 
 /* ─────────────────────────────────────────────────────────────
    FONT SIZE OVERRIDES — bumped for readability
@@ -31569,6 +31576,30 @@ document.addEventListener('click',e=>{
     box-shadow:0 0 0 1px rgba(124,58,237,.22) inset, 0 0 22px rgba(124,58,237,.35)!important;
   }
 
+  /* seatTools on mobile: hidden by default, JS reveals on long-press */
+  #mobCardList .seatTools{
+    opacity:0!important; visibility:hidden!important;
+    pointer-events:none!important;
+    position:absolute!important; bottom:0!important; left:0!important; right:0!important;
+    display:flex!important; gap:0!important;
+    background:rgba(8,12,28,.96)!important;
+    border-top:1.5px solid rgba(124,58,237,.5)!important;
+    border-radius:0 0 14px 14px!important;
+    z-index:40!important; transition:opacity .15s!important;
+  }
+  #mobCardList .seatToolBtn{
+    flex:1!important; border:none!important;
+    border-right:1px solid rgba(42,58,106,.5)!important;
+    background:transparent!important; color:#c4b5fd!important;
+    padding:11px 6px!important; font-size:13px!important; font-weight:700!important;
+    cursor:pointer!important; letter-spacing:.01em!important;
+  }
+  #mobCardList .seatToolBtn:last-child{ border-right:none!important; border-radius:0 0 14px 0!important; }
+  #mobCardList .seatToolBtn:first-child{ border-radius:0 0 0 14px!important; }
+  #mobCardList .seatToolBtn:only-child{ border-radius:0 0 14px 14px!important; }
+  #mobCardList .seatToolBtn:active{ background:rgba(124,58,237,.25)!important; color:#fff!important; }
+  #mobCardList .seatStackBtn{ color:#a78bfa!important; background:rgba(124,58,237,.07)!important; }
+
   /* tableWrap inside mobCardList — flat, no absolute positioning */
   #mobCardList #tableWrap,
   #mobCardList .tableWrap{
@@ -31754,11 +31785,6 @@ document.addEventListener('click',e=>{
   </div>
   <div id="mobChatThread"></div>
   <div id="mobPassRow">
-    <button class="mobPill" id="mpWeb">🔍 Web</button>
-    <button class="mobPill" id="mpSumm">📋 Summarize</button>
-    <button class="mobPill" id="mpPrompts">📚 Prompts</button>
-    <button class="mobPill" id="mpDeep">🔬 Deep Dive</button>
-    <button class="mobPill" id="mpSnap">🌿 Snapshot</button>
     <button class="mobPill" id="mpExport">📄 Export</button>
     <button class="mobPill" id="mpShare">🔗 Share</button>
   </div>
@@ -31771,6 +31797,7 @@ document.addEventListener('click',e=>{
       <button class="mobAttachItem" id="maTalk">🔊 Speak Once</button>
       <button class="mobAttachItem" id="maVoice">🎙 Voice Mode</button>
       <div class="mobAttachDiv"></div>
+      <button class="mobAttachItem" id="maPrompts">📚 Prompt Library</button>
       <button class="mobAttachItem" id="maStream">⚡ Stream Mode</button>
     </div>
     <button id="mobChatAttachBtn">+</button>
@@ -31818,7 +31845,7 @@ function openChat(name){
   var color='rgba(124,58,237,.7)';
   document.querySelectorAll('.seat').forEach(function(s){
     if(s.getAttribute('data-name')===name){
-      var av=s.querySelector('.seatAvatar');
+      var av=s.querySelector('.seatAvatar,.avatar,.av');
       if(av&&av.style.background) color=av.style.background;
     }
   });
@@ -31833,17 +31860,16 @@ function openChat(name){
   document.querySelectorAll('.seat').forEach(function(s){
     s.classList.toggle('sel', s.getAttribute('data-name')===name);
   });
+  /* Push history state so swipe-back / browser-back returns to team view, not logout */
+  try{ history.pushState({mobChat:name},'',location.pathname+'#chat'); }catch(_){}
   /* Switch view */
   document.body.classList.add('mob-chat');
   /* Load backend + sync thread */
   if(typeof window.selectSeat==='function'){
     window.selectSeat(name).then(function(){
-      syncThread();
-      watchThread();
+      syncThread(); watchThread();
     }).catch(function(){ syncThread(); watchThread(); });
-  } else {
-    syncThread(); watchThread();
-  }
+  } else { syncThread(); watchThread(); }
   /* Focus input */
   setTimeout(function(){ var m=ge('mobChatMsg'); if(m)m.focus(); },300);
 }
@@ -31852,9 +31878,19 @@ function openChat(name){
 function goBack(){
   document.body.classList.remove('mob-chat');
   closeAttach();
-  /* Unfocus input so keyboard hides */
   if(document.activeElement) document.activeElement.blur();
+  /* Clean up the history entry we pushed */
+  try{ if(location.hash==='#chat') history.replaceState(null,'',location.pathname); }catch(_){}
 }
+
+/* Intercept browser back/swipe-back so it closes chat, not navigates away */
+window.addEventListener('popstate',function(e){
+  if(document.body.classList.contains('mob-chat')){
+    goBack();
+    /* Re-push so another swipe doesn't leave the page */
+    try{ history.pushState({mobChat:_nm},'',location.pathname+'#chat'); }catch(_){}
+  }
+});
 
 /* ── Watch desktop thread for new messages ── */
 var _tObs=null;
@@ -31922,6 +31958,9 @@ proxy('maScreen','screenDmBtn');
 proxy('maTalk','talkDmBtn');
 proxy('maVoice','alwaysListenDmBtn');
 proxy('maStream','streamToggleBtn');
+/* Prompts — click the real promptLibraryBtn */
+var maP=ge('maPrompts');
+if(maP) maP.addEventListener('click',function(){ closeAttach(); var b=ge('promptLibraryBtn'); if(b)b.click(); });
 
 /* Mirror attach list */
 var _alObs=null;
@@ -31945,13 +31984,8 @@ function passAction(text,send){
     if(fm) fm.value=text;
   }
 }
-ge('mpWeb').addEventListener('click',function(){ passAction('Search the web for: ',false); });
-ge('mpSumm').addEventListener('click',function(){ passAction('Summarize our conversation so far in clear bullet points.',true); });
-ge('mpPrompts').addEventListener('click',function(){ var b=ge('promptLibraryBtn');if(b)b.click(); });
-ge('mpDeep').addEventListener('click',function(){ if(typeof _saOpenDeepDive==='function')_saOpenDeepDive();else{var b=ge('deepDiveBtn');if(b)b.click();} });
-ge('mpSnap').addEventListener('click',function(){ var b=ge('branchSnapshotBtn');if(b)b.click(); });
-ge('mpExport').addEventListener('click',function(){ var b=ge('exportThreadBtn');if(b)b.click(); });
-ge('mpShare').addEventListener('click',function(){ var b=ge('shareThreadBtn');if(b)b.click(); });
+ge('mpExport').addEventListener('click',function(){ closeAttach(); var b=ge('exportThreadBtn'); if(b)b.click(); });
+ge('mpShare').addEventListener('click',function(){ closeAttach(); var b=ge('shareThreadBtn'); if(b)b.click(); });
 
 /* ── Refresh ── */
 ge('mobChatRefresh').addEventListener('click',function(){
@@ -31999,7 +32033,7 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('scroll',adjustForKeyboard,{passive:true});
 }
 
-/* ── Hook seat taps — long-press reveals Edit/Stack, tap opens chat ── */
+/* ── Hook seat taps — long-press reveals Edit/Stack, tap opens chat or profile ── */
 function hookSeats(){
   document.querySelectorAll('.seat[data-name]').forEach(function(seat){
     if(seat._v12)return; seat._v12=true;
@@ -32010,10 +32044,14 @@ function hookSeats(){
         _lp=true;
         var tools=seat.querySelector('.seatTools');
         if(tools){
-          tools.style.opacity='1'; tools.style.pointerEvents='auto';
+          tools.style.opacity='1';
+          tools.style.visibility='visible';
+          tools.style.pointerEvents='auto';
           clearTimeout(seat._tt);
           seat._tt=setTimeout(function(){
-            tools.style.opacity=''; tools.style.pointerEvents='';
+            tools.style.opacity='';
+            tools.style.visibility='';
+            tools.style.pointerEvents='';
           },3500);
         }
       },480);
@@ -32024,6 +32062,11 @@ function hookSeats(){
       if(_lp)return;
       if(e.target&&e.target.closest&&e.target.closest('.seatTools'))return;
       var name=seat.getAttribute('data-name'); if(!name)return;
+      /* Operator card → open profile modal, not chat */
+      if(seat.classList.contains('seatOperator')||name==='Operator'){
+        if(typeof openOperatorProfileModal==='function') openOperatorProfileModal();
+        return;
+      }
       openChat(name);
     },true);
   });
