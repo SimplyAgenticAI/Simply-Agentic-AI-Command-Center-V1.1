@@ -11461,7 +11461,7 @@ HTML = r"""
       '  width:100%!important;max-width:100%!important;',
       '  height:auto!important;min-height:0!important;',
       '  overflow:visible!important;touch-action:auto!important;',
-      '  padding:8px 12px 8px!important;gap:10px!important;', /* normal padding - strip is at bottom */
+      '  padding:8px 12px 130px!important;gap:10px!important;', /* bottom corrected by JS ResizeObserver */
       '  margin:0!important;transform:none!important;',
       '}',
       /* Flatten #rtStage if pan-zoom created it — double-ID wins on specificity */
@@ -26868,9 +26868,9 @@ if(typeof maybeAutoShowOnboarding === "function"){
     row-gap: 6px !important;
   }
 
-  /* Extra bottom padding on the page so scrolling past last element works */
+  /* Bottom padding handled by mobStrip JS inline style on tableWrap */
   .container {
-    padding-bottom: calc(120px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: 0 !important;
   }
 
   /* Also fix .side height which also uses 100vh */
@@ -31464,15 +31464,16 @@ document.addEventListener('click',e=>{
 
 <!-- Chat strip: rendered early as body child -->
 <div id="mobStrip">
+  <!-- Collapsed bar: always visible -->
   <div id="mobStripWho">
     <div id="mobStripAv"></div>
     <div id="mobStripMeta">
       <div id="mobStripName">Tap a teammate to chat</div>
       <div id="mobStripRole"></div>
     </div>
-    <button id="mobStripExpand" title="Open full chat">⤢</button>
+    <button id="mobStripToggle" title="Expand chat">&#x25B2;</button>
   </div>
-  <div id="mobStripThread"></div>
+  <!-- Input row: always visible -->
   <div id="mobStripRow">
     <textarea id="mobStripMsg"
       placeholder="Message teammate…"
@@ -31480,6 +31481,8 @@ document.addEventListener('click',e=>{
       autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
   </div>
+  <!-- Thread panel: hidden until expanded -->
+  <div id="mobStripThread"></div>
 </div>
 
 <style>
@@ -31488,75 +31491,60 @@ document.addEventListener('click',e=>{
 
 @media(max-width:960px){
 
-  /* ── 1. Strip: fixed at bottom, immune to everything ── */
+  /* ── 1. Strip: fixed at bottom, always compact, expands upward ── */
   #mobStrip{
-    display:flex!important; flex-direction:column!important;
+    display:flex!important; flex-direction:column-reverse!important;
     position:fixed!important; bottom:0!important; top:auto!important;
     left:0!important; right:0!important;
     z-index:8500!important;
     background:rgba(8,12,28,.99)!important;
     border-top:1.5px solid rgba(124,58,237,.5)!important;
-    border-bottom:none!important;
     box-shadow:0 -3px 18px rgba(0,0,0,.6)!important;
-    filter:none!important; transform:none!important; will-change:auto!important;
+    transform:none!important; will-change:auto!important;
     padding-bottom:env(safe-area-inset-bottom)!important;
-    max-height:60dvh!important;
+    transition: none!important;
   }
+  /* Who-row */
   #mobStripWho{
     display:flex!important; align-items:center!important; gap:10px!important;
-    padding:8px 14px 6px!important;
-    border-bottom:1px solid rgba(42,58,106,.45)!important;
-    flex-shrink:0!important;
+    padding:7px 14px 6px!important;
+    border-top:1px solid rgba(42,58,106,.45)!important;
+    flex-shrink:0!important; order:2!important;
   }
   #mobStripAv{
-    width:28px!important; height:28px!important; min-width:28px!important;
-    border-radius:8px!important; background:rgba(124,58,237,.5)!important;
+    width:26px!important; height:26px!important; min-width:26px!important;
+    border-radius:7px!important; background:rgba(124,58,237,.5)!important;
     display:flex!important; align-items:center!important; justify-content:center!important;
-    font-size:12px!important; font-weight:900!important; color:#fff!important;
+    font-size:11px!important; font-weight:900!important; color:#fff!important;
     flex-shrink:0!important; transition:background .2s!important;
   }
+  #mobStripMeta{ flex:1!important; min-width:0!important; }
   #mobStripName{
     font-size:13px!important; font-weight:700!important; color:#e2e8f0!important;
     overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
   }
-  #mobStripRole{ font-size:10px!important; color:#64748b!important; margin-top:1px!important; }
-  #mobStripExpand{
+  #mobStripRole{ font-size:10px!important; color:#64748b!important; }
+  /* Toggle button: ▲ collapsed, ▼ expanded */
+  #mobStripToggle{
     margin-left:auto!important; flex-shrink:0!important;
-    background:rgba(255,255,255,.06)!important;
-    border:1px solid rgba(255,255,255,.12)!important;
-    border-radius:7px!important; color:#94a3b8!important;
-    font-size:13px!important; width:28px!important; height:28px!important;
+    background:rgba(124,58,237,.15)!important;
+    border:1px solid rgba(124,58,237,.35)!important;
+    border-radius:7px!important; color:#a78bfa!important;
+    font-size:10px!important; width:28px!important; height:28px!important;
     display:flex!important; align-items:center!important; justify-content:center!important;
     cursor:pointer!important; padding:0!important;
   }
-  /* Thread panel — hidden until a teammate is selected */
-  #mobStripThread{
-    display:none!important;
-    flex:1!important; overflow-y:auto!important;
-    padding:8px 14px!important;
-    -webkit-overflow-scrolling:touch!important;
-    min-height:0!important;
-    max-height:38dvh!important;
-    border-bottom:1px solid rgba(42,58,106,.35)!important;
-  }
-  #mobStrip.mob-active #mobStripThread{
-    display:block!important;
-  }
-  /* Messages inside the thread */
-  #mobStripThread .msg,
-  #mobStripThread [class*="msg"]{
-    font-size:13px!important; line-height:1.55!important;
-    margin-bottom:8px!important;
-  }
+  /* Input row */
   #mobStripRow{
     display:flex!important; align-items:flex-end!important;
-    gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
+    gap:8px!important; padding:6px 10px 7px!important;
+    flex-shrink:0!important; order:3!important;
   }
   #mobStripMsg{
     flex:1!important; background:rgba(14,22,48,.85)!important;
     border:1px solid rgba(42,58,106,.7)!important; border-radius:10px!important;
     padding:8px 12px!important; font-size:15px!important; color:#e2e8f0!important;
-    resize:none!important; min-height:36px!important; max-height:88px!important;
+    resize:none!important; min-height:36px!important; max-height:80px!important;
     font-family:inherit!important; outline:none!important; line-height:1.4!important;
   }
   #mobStripMsg::placeholder{ color:rgba(100,116,139,.5)!important; }
@@ -31569,6 +31557,24 @@ document.addEventListener('click',e=>{
     cursor:pointer!important;
   }
   #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
+  /* Thread panel: hidden by default, shown when expanded */
+  #mobStripThread{
+    display:none!important; order:1!important;
+    overflow-y:auto!important;
+    padding:10px 14px!important;
+    -webkit-overflow-scrolling:touch!important;
+    min-height:0!important;
+    max-height:40dvh!important;
+    border-top:1px solid rgba(42,58,106,.35)!important;
+    font-size:13px!important; line-height:1.55!important;
+  }
+  /* Expanded state */
+  #mobStrip.mob-expanded #mobStripThread{
+    display:block!important;
+  }
+  #mobStrip.mob-expanded #mobStripToggle{
+    content:'▼'!important;
+  }
 
   /* ── 2. Kill ghost panels ── */
   .side,.sideCard,.stage>.side,
@@ -31594,7 +31600,7 @@ document.addEventListener('click',e=>{
     align-items:stretch!important; width:100%!important; max-width:100%!important;
     height:auto!important; min-height:0!important; overflow:visible!important;
     padding-left:12px!important; padding-right:12px!important;
-    padding-bottom:calc(var(--mob-strip-h, 110px) + env(safe-area-inset-bottom) + 8px)!important;
+    padding-bottom:120px!important; /* fallback; JS overrides via inline style */
     gap:10px!important; box-sizing:border-box!important; transform:none!important;
   }
   #tableWrap .table,.tableWrap .table{ display:none!important; }
@@ -31661,7 +31667,6 @@ function setWho(name){
   if(!name){
     av.textContent='';av.style.background='rgba(124,58,237,.5)';
     nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';
-    if(strip)strip.classList.remove('mob-active');
     return;
   }
   var color='rgba(124,58,237,.75)';
@@ -31678,10 +31683,8 @@ function setWho(name){
     var d=(window.state&&window.state.installed||{})[name]||{};
     if(rl)rl.textContent=d.job_title||d.role||'';
   }catch(_){if(rl)rl.textContent='';}
-  // Activate thread panel
-  if(strip)strip.classList.add('mob-active');
-  // Sync thread content immediately and watch for new replies
-  setTimeout(function(){ syncThread(); watchDesktopThread(); updateStripHeight(); }, 300);
+  // Watch for replies and start desktop thread observer
+  setTimeout(function(){ watchDesktopThread(); updateStripHeight(); },300);
 }
 
 /* Send via real pipeline */
@@ -31735,35 +31738,71 @@ function syncThread(){
   st.scrollTop=st.scrollHeight;
 }
 
-/* Watch desktop thread for AI replies */
+/* Watch desktop thread for AI replies — auto-expand when reply arrives */
 var _dtObs=null;
 function watchDesktopThread(){
   var dt=ge('thread');
   if(!dt||_dtObs)return;
   _dtObs=new MutationObserver(function(){
-    if(_nm) syncThread();
+    if(!_nm) return;
+    if(!_expanded){
+      _expanded=true;
+      var strip=ge('mobStrip');
+      if(strip) strip.classList.add('mob-expanded');
+      setToggleLabel();
+      updateStripHeight();
+      setTimeout(updateStripHeight,320);
+    }
+    syncThread();
   });
   _dtObs.observe(dt,{childList:true,subtree:true,characterData:true});
 }
 
-/* ── Dynamic padding: measure strip and set CSS var ── */
+/* ── Authoritative bottom padding: set directly as inline style so no CSS rule can override ── */
 function updateStripHeight(){
   var strip=ge('mobStrip');
   if(!strip||!MOB())return;
   var h=strip.offsetHeight||0;
-  document.documentElement.style.setProperty('--mob-strip-h', h+'px');
+  if(h<40)return; // not yet rendered
+  var safeArea=0;
+  try{
+    var sv=getComputedStyle(document.documentElement).getPropertyValue('--sab')||'0px';
+    safeArea=parseInt(sv)||0;
+  }catch(_){}
+  var pb=(h+safeArea+8)+'px';
+  // Set on every possible tableWrap so cascade fights are irrelevant
+  var targets=['tableWrap','rtStage'];
+  targets.forEach(function(id){
+    var el=ge(id);
+    if(el)el.style.setProperty('padding-bottom',pb,'important');
+  });
+  document.querySelectorAll('.tableWrap,#tableWrap').forEach(function(el){
+    el.style.setProperty('padding-bottom',pb,'important');
+  });
 }
-var _stripRO=window.ResizeObserver?new ResizeObserver(updateStripHeight):null;
+var _stripRO=window.ResizeObserver?new ResizeObserver(function(){
+  updateStripHeight();
+}):null;
 var _stripEl=ge('mobStrip');
 if(_stripRO&&_stripEl)_stripRO.observe(_stripEl);
 
-/* ── Expand button: opens saBottomSheet full-screen ── */
-var expBtn=ge('mobStripExpand');
-if(expBtn){
-  expBtn.addEventListener('click',function(){
-    if(_nm&&typeof window.saOpenSheet==='function'){
-      window.saOpenSheet(_nm);
-    }
+/* ── Expand/collapse toggle ── */
+var _expanded = false;
+function setToggleLabel(){
+  var btn=ge('mobStripToggle');
+  if(btn) btn.textContent = _expanded ? '▼' : '▲';
+}
+var togBtn=ge('mobStripToggle');
+if(togBtn){
+  togBtn.addEventListener('click',function(){
+    var strip=ge('mobStrip');
+    if(!strip||!_nm)return; // no teammate selected yet
+    _expanded=!_expanded;
+    strip.classList.toggle('mob-expanded',_expanded);
+    setToggleLabel();
+    if(_expanded){ syncThread(); }
+    updateStripHeight();
+    setTimeout(updateStripHeight,320);
   });
 }
 
@@ -31777,6 +31816,14 @@ function hookSeats(){
       var name=sn?sn.textContent.trim():seat.getAttribute('data-name');
       if(!name)return;
       _nm=name; setWho(name);
+      // Collapse thread when switching teammates
+      if(_expanded){
+        _expanded=false;
+        var strip2=ge('mobStrip');
+        if(strip2) strip2.classList.remove('mob-expanded');
+        setToggleLabel();
+        updateStripHeight();
+      }
       document.querySelectorAll('.seat').forEach(function(s){
         var ssn=s.querySelector('.seatName');
         s.classList.toggle('sel',ssn&&ssn.textContent.trim()===name);
@@ -31813,6 +31860,11 @@ pin();
 setTimeout(init,600);
 setTimeout(hookSeats,1400);
 setTimeout(function(){ updateStripHeight(); watchDesktopThread(); },1800);
+// Re-measure whenever viewport changes (keyboard open/close, orientation change)
+window.addEventListener('resize', updateStripHeight);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', updateStripHeight);
+}
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
