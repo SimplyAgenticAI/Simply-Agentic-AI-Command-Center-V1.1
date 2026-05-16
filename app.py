@@ -31555,7 +31555,7 @@ document.addEventListener('click',e=>{
   /* Scrollable card list */
   #mobCardList{
     flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-    padding:10px 12px calc(env(safe-area-inset-bottom) + 12px);
+    padding:10px 12px calc(env(safe-area-inset-bottom) + 20px);
     display:flex; flex-direction:column; gap:8px;
   }
 
@@ -31576,16 +31576,16 @@ document.addEventListener('click',e=>{
     box-shadow:0 0 0 1px rgba(124,58,237,.22) inset, 0 0 22px rgba(124,58,237,.35)!important;
   }
 
-  /* seatTools on mobile: hidden by default, JS reveals on long-press */
+  /* seatTools on mobile: hidden by default via opacity only, JS reveals on long-press */
   #mobCardList .seatTools{
-    opacity:0!important; visibility:hidden!important;
+    opacity:0!important;
     pointer-events:none!important;
     position:absolute!important; bottom:0!important; left:0!important; right:0!important;
     display:flex!important; gap:0!important;
     background:rgba(8,12,28,.96)!important;
     border-top:1.5px solid rgba(124,58,237,.5)!important;
     border-radius:0 0 14px 14px!important;
-    z-index:40!important; transition:opacity .15s!important;
+    z-index:40!important; transition:opacity .2s!important;
   }
   #mobCardList .seatToolBtn{
     flex:1!important; border:none!important;
@@ -31681,22 +31681,7 @@ document.addEventListener('click',e=>{
   }
 
   /* Pass pills row */
-  #mobPassRow{
-    display:flex; flex-direction:row; flex-wrap:nowrap;
-    overflow-x:auto; gap:6px;
-    padding:6px 12px; flex-shrink:0;
-    -webkit-overflow-scrolling:touch; scrollbar-width:none;
-    border-top:1px solid rgba(42,58,106,.3);
-  }
-  #mobPassRow::-webkit-scrollbar{ display:none; }
-  .mobPill{
-    flex-shrink:0;
-    background:rgba(124,58,237,.1); border:1px solid rgba(124,58,237,.28);
-    border-radius:20px; color:#c4b5fd;
-    font-size:11px; font-weight:700;
-    padding:5px 12px; white-space:nowrap; cursor:pointer;
-  }
-  .mobPill:active{ background:rgba(124,58,237,.3); }
+  /* mobPassRow removed */
 
   /* Attach list */
   #mobChatAttachList{
@@ -31784,10 +31769,6 @@ document.addEventListener('click',e=>{
     <button id="mobChatRefresh">Refresh</button>
   </div>
   <div id="mobChatThread"></div>
-  <div id="mobPassRow">
-    <button class="mobPill" id="mpExport">📄 Export</button>
-    <button class="mobPill" id="mpShare">🔗 Share</button>
-  </div>
   <div id="mobChatAttachList"></div>
   <div id="mobInputBar">
     <div id="mobChatAttachDrop">
@@ -31984,8 +31965,7 @@ function passAction(text,send){
     if(fm) fm.value=text;
   }
 }
-ge('mpExport').addEventListener('click',function(){ closeAttach(); var b=ge('exportThreadBtn'); if(b)b.click(); });
-ge('mpShare').addEventListener('click',function(){ closeAttach(); var b=ge('shareThreadBtn'); if(b)b.click(); });
+/* pass actions removed per user request */
 
 /* ── Refresh ── */
 ge('mobChatRefresh').addEventListener('click',function(){
@@ -32045,13 +32025,11 @@ function hookSeats(){
         var tools=seat.querySelector('.seatTools');
         if(tools){
           tools.style.opacity='1';
-          tools.style.visibility='visible';
           tools.style.pointerEvents='auto';
           clearTimeout(seat._tt);
           seat._tt=setTimeout(function(){
-            tools.style.opacity='';
-            tools.style.visibility='';
-            tools.style.pointerEvents='';
+            tools.style.opacity='0';
+            tools.style.pointerEvents='none';
           },3500);
         }
       },480);
