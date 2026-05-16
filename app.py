@@ -31464,7 +31464,7 @@ document.addEventListener('click',e=>{
 
 <!-- Chat strip: rendered early as body child -->
 <div id="mobStrip">
-  <!-- Collapsed bar: always visible -->
+  <!-- Who row: teammate name + toggle -->
   <div id="mobStripWho">
     <div id="mobStripAv"></div>
     <div id="mobStripMeta">
@@ -31473,16 +31473,26 @@ document.addEventListener('click',e=>{
     </div>
     <button id="mobStripToggle" title="Expand chat">&#x25B2;</button>
   </div>
+  <!-- Thread: shown when expanded -->
+  <div id="mobStripThread"></div>
+  <!-- Pass buttons: shown when expanded -->
+  <div id="mobStripPass" style="display:none;">
+    <button class="mobPassBtn" onclick="var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Search the web for: ';fm.focus();}document.getElementById('mobStripMsg').value='Search the web for: ';document.getElementById('mobStripMsg').focus();">🔍 Web</button>
+    <button class="mobPassBtn" onclick="var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
+    <button class="mobPassBtn" onclick="var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompts</button>
+    <button class="mobPassBtn" onclick="if(typeof _saOpenDeepDive==='function')_saOpenDeepDive();else{var b=document.getElementById('deepDiveBtn');if(b)b.click();}">🔬 Deep Dive</button>
+  </div>
+  <!-- Attach list (files queued) -->
+  <div id="mobStripAttachList"></div>
   <!-- Input row: always visible -->
   <div id="mobStripRow">
+    <button id="mobStripAttach" title="Attach files, voice &amp; more">+</button>
     <textarea id="mobStripMsg"
       placeholder="Message teammate…"
       rows="1" autocomplete="off" autocorrect="off"
       autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
   </div>
-  <!-- Thread panel: hidden until expanded -->
-  <div id="mobStripThread"></div>
 </div>
 
 <style>
@@ -31557,6 +31567,41 @@ document.addEventListener('click',e=>{
     cursor:pointer!important;
   }
   #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
+  /* Attach button */
+  #mobStripAttach{
+    width:36px!important; height:36px!important; flex-shrink:0!important;
+    background:rgba(255,255,255,.07)!important; border:1px solid rgba(42,58,106,.6)!important;
+    border-radius:9px!important; color:#94a3b8!important; font-size:20px!important;
+    font-weight:400!important;
+    display:flex!important; align-items:center!important; justify-content:center!important;
+    cursor:pointer!important; line-height:1!important;
+  }
+  #mobStripAttach:active{ background:rgba(124,58,237,.2)!important; }
+  /* Pass buttons row */
+  #mobStripPass{
+    display:none!important;
+    flex-direction:row!important; flex-wrap:nowrap!important;
+    overflow-x:auto!important; gap:6px!important;
+    padding:6px 12px!important; flex-shrink:0!important;
+    -webkit-overflow-scrolling:touch!important; scrollbar-width:none!important;
+    border-top:1px solid rgba(42,58,106,.3)!important;
+  }
+  #mobStripPass::-webkit-scrollbar{ display:none!important; }
+  #mobStrip.mob-expanded #mobStripPass{ display:flex!important; }
+  .mobPassBtn{
+    flex-shrink:0!important;
+    background:rgba(124,58,237,.12)!important;
+    border:1px solid rgba(124,58,237,.3)!important;
+    border-radius:20px!important; color:#c4b5fd!important;
+    font-size:11px!important; font-weight:700!important;
+    padding:5px 11px!important; white-space:nowrap!important;
+    cursor:pointer!important;
+  }
+  .mobPassBtn:active{ background:rgba(124,58,237,.3)!important; }
+  /* Attach list */
+  #mobStripAttachList{
+    padding:0 12px!important; font-size:11px!important; color:#94a3b8!important;
+  }
   /* Thread panel: hidden by default, shown when expanded */
   #mobStripThread{
     display:none!important; order:1!important;
@@ -31576,15 +31621,23 @@ document.addEventListener('click',e=>{
     content:'▼'!important;
   }
 
-  /* ── 2. Kill ghost panels ── */
+  /* ── 2. Hide desktop chrome that doesn't work on mobile — keep functional elements ── */
   .side,.sideCard,.stage>.side,
-  #threadActionsRow,#followRow,.followBox,#followMsg,#sendFollow,
-  #dmAttachBtn,#dmAttachDrop,#dmAttachWrap,#dmFiles,#dmAttachList,#micStatusDm,
   .groupCard,.underTable,#sharedMemoryCard,#groupReplies,#groupPassRow,
   .operator,#operator,#opPrompt,#sendGroup,.opRow,.opText,#opStatus,
-  #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel{
+  #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel,
+  #threadActionsRow,#micStatusDm{
     display:none!important; height:0!important; min-height:0!important;
     max-height:0!important; overflow:hidden!important; position:static!important;
+  }
+  /* Keep the actual send pipeline elements accessible for JS routing */
+  #followMsg,#sendFollow,#dmFiles,#dmAttachBtn,#dmAttachWrap,
+  #dmAttachDrop,#dmAttachList,#followRow,.followBox,
+  #seatPassRow,.passBtn{
+    /* visible but detached from layout — JS targets them directly */
+    position:absolute!important; left:-9999px!important; top:-9999px!important;
+    width:1px!important; height:1px!important; overflow:hidden!important;
+    pointer-events:none!important; opacity:0!important;
   }
 
   /* ── 3. Stage/arena: no void ── */
@@ -31714,6 +31767,31 @@ function doSend(){
 
 var sb=ge('mobStripSend');
 if(sb)sb.addEventListener('click',doSend);
+
+/* ── Attach button: trigger real desktop attach dropdown ── */
+var attachBtn=ge('mobStripAttach');
+if(attachBtn){
+  attachBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    var realBtn=ge('dmAttachBtn');
+    if(realBtn){
+      realBtn.style.cssText='position:fixed!important;bottom:80px!important;left:12px!important;opacity:0!important;pointer-events:auto!important;z-index:9998!important;width:1px!important;height:1px!important;';
+      realBtn.click();
+      setTimeout(function(){ realBtn.style.cssText='position:absolute!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;overflow:hidden!important;pointer-events:none!important;opacity:0!important;'; },200);
+    }
+  });
+}
+
+/* ── Mirror desktop attach list ── */
+var _alObs=null;
+function watchAttachList(){
+  var src=ge('dmAttachList'), dst=ge('mobStripAttachList');
+  if(!src||!dst||_alObs)return;
+  _alObs=new MutationObserver(function(){ dst.innerHTML=src.innerHTML; });
+  _alObs.observe(src,{childList:true,subtree:true});
+}
+setTimeout(watchAttachList,1500);
+
 var ma=ge('mobStripMsg');
 if(ma){
   ma.addEventListener('keydown',function(e){
@@ -31721,7 +31799,7 @@ if(ma){
   });
   ma.addEventListener('input',function(){
     this.style.height='auto';
-    this.style.height=Math.min(this.scrollHeight,88)+'px';
+    this.style.height=Math.min(this.scrollHeight,80)+'px';
     updateStripHeight();
   });
 }
