@@ -13678,6 +13678,7 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
+            <button class="saDropItem" id="visualCreatorBtn">✨ Visual Creator</button>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
@@ -13843,6 +13844,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="mdGroupBody">
             <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showVisualCreatorModal,200);">✨ Visual Creator</button>
             <button class="btn" data-click="socialStudioBtn" onclick="closeMobileDrawer()">📣 Social Studio</button>
             <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
@@ -15226,6 +15228,96 @@ label         { font-size: 14px !important; }
   </div>
 
   <!-- Social Studio -->
+  <!-- ===== VISUAL CREATOR ===== -->
+  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="font-size:20px;">✨</div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Visual Creator</div>
+          <div style="font-size:11px;color:#64748b;">Generate live animations, slideshows, carousels &amp; presentations</div>
+        </div>
+      </div>
+      <button onclick="closeVisualCreatorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
+    </div>
+
+    <!-- Body: two panes side by side on desktop, stacked on mobile -->
+    <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+
+      <!-- Left: prompt panel -->
+      <div id="vcPromptPanel" style="width:340px;min-width:280px;max-width:380px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
+        <div style="padding:18px 18px 0;">
+          <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">What do you want to create?</div>
+          <textarea id="vcPrompt" placeholder="e.g. An animated slideshow of 3 services with fade transitions and purple theme..." style="width:100%;height:110px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
+
+          <!-- Style presets -->
+          <div style="font-size:11px;font-weight:600;color:#64748b;margin:14px 0 8px;text-transform:uppercase;letter-spacing:.06em;">Quick starts</div>
+          <div id="vcPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;"></div>
+
+          <!-- Options -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Theme</div>
+              <select id="vcTheme" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
+                <option value="dark purple">Dark purple</option>
+                <option value="dark blue">Dark blue</option>
+                <option value="light clean">Light clean</option>
+                <option value="dark minimal">Dark minimal</option>
+                <option value="vibrant gradient">Vibrant gradient</option>
+              </select>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Type</div>
+              <select id="vcType" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
+                <option value="slideshow">Slideshow</option>
+                <option value="carousel">Carousel</option>
+                <option value="presentation">Presentation</option>
+                <option value="animation">Animation</option>
+                <option value="infographic">Infographic</option>
+                <option value="landing section">Landing section</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Brand name (optional)</div>
+            <input id="vcBrand" type="text" placeholder="e.g. Simply Agentic AI" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
+          </div>
+
+          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;">✨ Generate</button>
+
+          <div id="vcStatus" style="text-align:center;font-size:12px;color:#64748b;min-height:18px;"></div>
+        </div>
+
+        <!-- History -->
+        <div id="vcHistory" style="padding:14px 18px;border-top:1px solid rgba(42,58,106,.3);margin-top:12px;"></div>
+      </div>
+
+      <!-- Right: live preview iframe -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#060c1e;">
+        <div id="vcEmptyState" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#334155;">
+          <div style="font-size:56px;opacity:.3;">✨</div>
+          <div style="font-size:16px;font-weight:600;">Describe what you want to create</div>
+          <div style="font-size:13px;opacity:.7;text-align:center;max-width:320px;line-height:1.6;">Slideshows, carousels, animated infographics, presentations — the AI writes the code and it runs live right here.</div>
+        </div>
+        <div id="vcLoadingState" style="flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#7c3aed;">
+          <div id="vcSpinner" style="width:48px;height:48px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:vcSpin 0.9s linear infinite;"></div>
+          <div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:500;">Generating your visual...</div>
+        </div>
+        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts allow-same-origin"></iframe>
+
+        <!-- Action bar below iframe -->
+        <div id="vcActionBar" style="display:none;padding:10px 16px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,16,36,.98);display:none;align-items:center;gap:10px;flex-shrink:0;">
+          <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">↻ Regenerate</button>
+          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ Download HTML</button>
+          <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;">📋 Copy code</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <style>@keyframes vcSpin{to{transform:rotate(360deg)}}</style>
+
   <div id="crmViewSocialStudio" style="display:none;">
     <div class="modalInner">
       <div class="toolHint">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
@@ -20387,6 +20479,150 @@ Challenge weak assumptions. Surface risks.`;
     function showOfferBuilderModal(){
       showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
     }
+
+    // ===== VISUAL CREATOR =====
+    var _vcCurrentHtml = '';
+    var _vcHistory = [];
+
+    var _vcPresets = [
+      {label:'3-slide intro', prompt:'A 3-slide animated presentation introducing my business with fade transitions. Each slide has a title and 2-3 bullet points.'},
+      {label:'Services carousel', prompt:'An interactive carousel showing 4 services. Each card has an icon, title, and short description. Click arrows to navigate.'},
+      {label:'Testimonials', prompt:'An animated testimonial slideshow cycling through 3 client quotes with auto-play and dot navigation.'},
+      {label:'Countdown timer', prompt:'A stylish animated countdown timer counting down 7 days with days, hours, minutes, seconds. Pulsing glow effect.'},
+      {label:'Pricing cards', prompt:'Three pricing tier cards (Starter, Growth, Pro) with feature lists and a highlighted recommended option. Hover animations.'},
+      {label:'Stats showcase', prompt:'Four animated number counters that count up from 0 to their values: 500+ clients, 98% satisfaction, 10x ROI, 24/7 support.'},
+      {label:'Process steps', prompt:'An animated step-by-step process showing 4 steps with icons, connected by a flowing animated line.'},
+      {label:'Video-style intro', prompt:'A cinematic full-screen animated intro with text reveal animations, like a movie trailer title card for my business.'},
+    ];
+
+    function showVisualCreatorModal(){
+      document.body.classList.add('modal-open');
+      var m = document.getElementById('visualCreatorModal');
+      if(m){ m.style.display='flex'; }
+      // Render presets
+      var presetsEl = document.getElementById('vcPresets');
+      if(presetsEl && !presetsEl.children.length){
+        _vcPresets.forEach(function(p){
+          var btn = document.createElement('button');
+          btn.textContent = p.label;
+          btn.style.cssText = 'font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);color:#a78bfa;cursor:pointer;white-space:nowrap;';
+          btn.onmouseover = function(){ btn.style.background='rgba(124,58,237,.25)'; };
+          btn.onmouseout  = function(){ btn.style.background='rgba(124,58,237,.12)'; };
+          btn.onclick = function(){
+            var ta = document.getElementById('vcPrompt');
+            if(ta){ ta.value = p.prompt; ta.focus(); }
+          };
+          presetsEl.appendChild(btn);
+        });
+      }
+    }
+
+    function closeVisualCreatorModal(){
+      document.body.classList.remove('modal-open');
+      var m = document.getElementById('visualCreatorModal');
+      if(m) m.style.display='none';
+    }
+
+    function vcSetState(state){
+      var empty  = document.getElementById('vcEmptyState');
+      var loading= document.getElementById('vcLoadingState');
+      var frame  = document.getElementById('vcFrame');
+      var actBar = document.getElementById('vcActionBar');
+      if(empty)  empty.style.display   = state==='empty'   ? 'flex' : 'none';
+      if(loading)loading.style.display  = state==='loading' ? 'flex' : 'none';
+      if(frame)  frame.style.display    = state==='done'    ? 'flex' : 'none';
+      if(actBar) actBar.style.display   = state==='done'    ? 'flex' : 'none';
+    }
+
+    async function vcGenerate(){
+      var prompt = (document.getElementById('vcPrompt')||{}).value||'';
+      var theme  = (document.getElementById('vcTheme')||{}).value||'dark purple';
+      var type   = (document.getElementById('vcType')||{}).value||'slideshow';
+      var brand  = (document.getElementById('vcBrand')||{}).value||'';
+      if(!prompt.trim()){ showToast('Describe what you want to create first'); return; }
+
+      var btn = document.getElementById('vcGenBtn');
+      var status = document.getElementById('vcStatus');
+      if(btn){ btn.disabled=true; btn.textContent='Generating...'; }
+      if(status) status.textContent='';
+      vcSetState('loading');
+
+      var msgs = ['Writing HTML...','Building animations...','Adding interactions...','Rendering your visual...','Almost done...'];
+      var mi=0, ticker=setInterval(function(){
+        var el=document.getElementById('vcLoadingTxt');
+        if(el) el.textContent=msgs[mi%msgs.length]; mi++;
+      },1400);
+
+      try{
+        var res = await fetch('/api/visual_creator', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({prompt:prompt, theme:theme, type:type, brand:brand})
+        });
+        var data = await res.json();
+        clearInterval(ticker);
+        if(!data.ok) throw new Error(data.error||'Generation failed');
+        _vcCurrentHtml = data.html || '';
+        vcRenderFrame(_vcCurrentHtml);
+        // Add to history
+        _vcHistory.unshift({prompt:prompt.slice(0,60)+(prompt.length>60?'…':''), html:_vcCurrentHtml, ts:Date.now()});
+        if(_vcHistory.length>10) _vcHistory.pop();
+        vcRenderHistory();
+        if(status) status.textContent='';
+      }catch(e){
+        clearInterval(ticker);
+        vcSetState('empty');
+        if(status) status.textContent = e.message||'Generation failed';
+        showToast('Visual Creator: '+(e.message||'failed'));
+      }finally{
+        if(btn){ btn.disabled=false; btn.textContent='✨ Generate'; }
+      }
+    }
+
+    function vcRenderFrame(html){
+      var frame = document.getElementById('vcFrame');
+      if(!frame) return;
+      frame.srcdoc = html;
+      vcSetState('done');
+    }
+
+    function vcRegenerate(){ vcGenerate(); }
+
+    function vcDownload(){
+      if(!_vcCurrentHtml) return;
+      var a = document.createElement('a');
+      a.href = 'data:text/html;charset=utf-8,'+encodeURIComponent(_vcCurrentHtml);
+      a.download = 'visual-'+ Date.now()+'.html';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      showToast('Downloaded!');
+    }
+
+    function vcCopyCode(){
+      if(!_vcCurrentHtml) return;
+      navigator.clipboard.writeText(_vcCurrentHtml).then(function(){
+        showToast('HTML code copied to clipboard');
+      });
+    }
+
+    function vcRenderHistory(){
+      var el = document.getElementById('vcHistory');
+      if(!el||!_vcHistory.length) return;
+      el.innerHTML = '<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Recent</div>';
+      _vcHistory.forEach(function(h,i){
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);';
+        row.onmouseover=function(){row.style.background='rgba(124,58,237,.1)';};
+        row.onmouseout =function(){row.style.background='rgba(255,255,255,.03)';};
+        row.innerHTML = '<div style="font-size:11px;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(h.prompt)+'</div><div style="font-size:10px;color:#475569;flex-shrink:0;">view</div>';
+        row.onclick=function(){ _vcCurrentHtml=h.html; vcRenderFrame(h.html); };
+        el.appendChild(row);
+      });
+    }
+
+    if(document.getElementById('visualCreatorBtn')){
+      document.getElementById('visualCreatorBtn').onclick = showVisualCreatorModal;
+    }
+    // End Visual Creator
 
     // =========================
     // CRM UI (Client Command Center)
@@ -35099,6 +35335,74 @@ def api_crm_offer_builder():
     except Exception:
         pass
     return jsonify({"ok": True, "output": output})
+
+@app.post("/api/visual_creator")
+def api_visual_creator():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    prompt  = (payload.get("prompt") or "").strip()
+    theme   = (payload.get("theme")  or "dark purple").strip()
+    vtype   = (payload.get("type")   or "slideshow").strip()
+    brand   = (payload.get("brand")  or "").strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "Prompt is required"}), 400
+
+    system = (
+        "You are an expert HTML/CSS/JavaScript developer who creates stunning, self-contained "
+        "interactive web animations. You ONLY output a complete, valid HTML file — nothing else. "
+        "No explanation, no markdown, no code fences. Just the raw HTML starting with <!DOCTYPE html>. "
+        "Requirements:
+"
+        "- Fully self-contained: all CSS and JS inline, no external dependencies except Google Fonts
+"
+        "- Works perfectly inside an iframe with no interaction with the parent page
+"
+        "- Smooth, professional animations using CSS transitions and keyframes
+"
+        "- Mobile responsive
+"
+        "- Beautiful typography and spacing
+"
+        "- Interactive where appropriate (clickable navigation, hover effects)
+"
+        "- The output must be a REAL working visual, not a placeholder"
+    )
+
+    brand_note = f" Brand name: {brand}." if brand else ""
+    user_prompt = (
+        f"Create a {vtype} with a {theme} color theme.{brand_note}
+"
+        f"Description: {prompt}
+
+"
+        f"Output ONLY the complete HTML file. No explanation. Start with <!DOCTYPE html>."
+    )
+
+    try:
+        html = _crm_llm_or_fallback(system, user_prompt, "")
+        # Strip any accidental markdown fences
+        html = html.strip()
+        if html.startswith("```"):
+            lines = html.split("
+")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            html = "
+".join(lines).strip()
+        if not html.startswith("<!"):
+            # Try to find the doctype
+            idx = html.find("<!DOCTYPE")
+            if idx == -1:
+                idx = html.find("<html")
+            if idx != -1:
+                html = html[idx:]
+        if not html:
+            return jsonify({"ok": False, "error": "Generation produced no output"}), 500
+        return jsonify({"ok": True, "html": html})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
