@@ -17251,7 +17251,7 @@ function makeSeat(defn, idx, totalSeats){
       // ── Seat number badge (ties to hotkey 1-7) ──
       const numBadge = document.createElement("div");
       numBadge.className = "seatNum";
-      numBadge.textContent = String(idx + 1).padStart(2, "0");
+      numBadge.textContent = String(idx).padStart(2, "0");
       seat.appendChild(numBadge);
 
       // ── Avatar (centered) ──
@@ -17391,7 +17391,7 @@ function makeSeat(defn, idx, totalSeats){
 
       seats.forEach((name, i) => {
         const defn = installed[name];
-        const seat = makeSeat(defn, i, totalSeats); // Operator holds position 0; teammates start at 1
+        const seat = makeSeat(defn, i + 1, totalSeats); // +1: Operator holds position 0
         wrap.appendChild(seat);
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
