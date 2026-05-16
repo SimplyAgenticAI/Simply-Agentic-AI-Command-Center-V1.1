@@ -26868,7 +26868,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     row-gap: 6px !important;
   }
 
-  /* Bottom padding handled by mobStrip JS inline style on tableWrap */
+  /* Bottom padding handled by two-view mobile layout v12 */
   .container {
     padding-bottom: 0 !important;
   }
@@ -31462,445 +31462,604 @@ document.addEventListener('click',e=>{
      Cards: full scroll to last card — no void.
 ══════════════════════════════════════════════════════════ -->
 
-<!-- Chat strip: rendered early as body child -->
-<div id="mobStrip">
-  <div id="mobStripWho">
-    <div id="mobStripAv"></div>
-    <div id="mobStripMeta">
-      <div id="mobStripName">Tap a teammate to chat</div>
-      <div id="mobStripRole"></div>
-    </div>
-    <button id="mobStripToggle" title="Expand chat">&#x25B2;</button>
-  </div>
-  <div id="mobStripThread"></div>
-  <div id="mobStripPass">
-    <button class="mobPassBtn" id="mpWeb">🔍 Web</button>
-    <button class="mobPassBtn" id="mpSumm">📋 Summarize</button>
-    <button class="mobPassBtn" id="mpPrompts">📚 Prompts</button>
-    <button class="mobPassBtn" id="mpDeep">🔬 Deep Dive</button>
-    <button class="mobPassBtn" id="mpSnap">🌿 Snapshot</button>
-    <button class="mobPassBtn" id="mpExport">📄 Export</button>
-  </div>
-  <div id="mobStripAttachList"></div>
-  <div id="mobAttachDrop">
-    <button class="mobAttachItem" id="maDmFiles">📎 Attach Files</button>
-    <button class="mobAttachItem" id="maScreen">🖥 Share Screen</button>
-    <div class="mobAttachDivider"></div>
-    <button class="mobAttachItem" id="maTalk">🔊 Speak Once</button>
-    <button class="mobAttachItem" id="maVoice">🎙 Voice Mode</button>
-    <div class="mobAttachDivider"></div>
-    <button class="mobAttachItem" id="maStream">⚡ Stream Mode</button>
-  </div>
-  <div id="mobStripRow">
-    <button id="mobStripAttach" title="Attach / voice / more">+</button>
-    <textarea id="mobStripMsg" placeholder="Message teammate…" rows="1" autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
-    <button id="mobStripSend">&#x21B5;</button>
-  </div>
-</div>
-
+<!-- ===== MOBILE TWO-VIEW LAYOUT v12 ===== -->
 <style>
-#mobStrip{ display:none; }
-
+/* ─────────────────────────────────────────────────────────────
+   MOBILE TWO-VIEW SYSTEM
+   View 1 (default): Team list   — body.mob-team  (or neither)
+   View 2 (chat):    Chat panel  — body.mob-chat
+   Only active on screens ≤ 960px.
+───────────────────────────────────────────────────────────────*/
 @media(max-width:960px){
 
+  /* ── Reset everything that fights us ── */
+  html,body{
+    overflow-x:hidden!important;
+    height:auto!important;
+  }
+
+  /* ── Hide desktop chrome that has no mobile equivalent ── */
+  .side, .sideCard, .stage>.side,
+  .groupCard, .underTable, #sharedMemoryCard, #groupReplies, #groupPassRow,
+  .operator, #operator, #opPrompt, #sendGroup, .opRow, .opText, #opStatus,
+  #mobileSheet, #sheetBackdrop, #mobChatBar, #saMobPanel,
+  #threadActionsRow, #micStatusDm,
+  /* old mobStrip if it exists */
   #mobStrip{
-    display:flex!important; flex-direction:column!important;
-    position:fixed!important; bottom:0!important; left:0!important; right:0!important;
-    z-index:8500!important;
-    background:rgba(8,12,28,.99)!important;
-    border-top:1.5px solid rgba(124,58,237,.5)!important;
-    box-shadow:0 -4px 24px rgba(0,0,0,.65)!important;
-    padding-bottom:env(safe-area-inset-bottom)!important;
-  }
-
-  #mobStripWho{
-    display:flex!important; align-items:center!important; gap:10px!important;
-    padding:7px 12px 6px!important; flex-shrink:0!important;
-    border-bottom:1px solid rgba(42,58,106,.4)!important;
-  }
-  #mobStripAv{
-    width:26px!important; height:26px!important; min-width:26px!important;
-    border-radius:7px!important; background:rgba(124,58,237,.5)!important;
-    display:flex!important; align-items:center!important; justify-content:center!important;
-    font-size:11px!important; font-weight:900!important; color:#fff!important;
-    flex-shrink:0!important; transition:background .2s!important;
-  }
-  #mobStripMeta{ flex:1!important; min-width:0!important; }
-  #mobStripName{
-    font-size:13px!important; font-weight:700!important; color:#e2e8f0!important;
-    overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
-  }
-  #mobStripRole{ font-size:10px!important; color:#64748b!important; }
-  #mobStripToggle{
-    flex-shrink:0!important; margin-left:4px!important;
-    background:rgba(124,58,237,.15)!important;
-    border:1px solid rgba(124,58,237,.35)!important;
-    border-radius:7px!important; color:#a78bfa!important;
-    font-size:10px!important; width:28px!important; height:28px!important;
-    display:flex!important; align-items:center!important; justify-content:center!important;
-    cursor:pointer!important; padding:0!important;
-  }
-
-  #mobStripThread{
-    display:none!important; overflow-y:auto!important;
-    padding:10px 14px 6px!important;
-    -webkit-overflow-scrolling:touch!important;
-    max-height:32dvh!important; min-height:0!important;
-    border-bottom:1px solid rgba(42,58,106,.3)!important;
-    font-size:13px!important; line-height:1.55!important;
-  }
-  #mobStrip.mob-expanded #mobStripThread{ display:block!important; }
-
-  #mobStripPass{
     display:none!important;
-    flex-direction:row!important; flex-wrap:nowrap!important;
-    overflow-x:auto!important; gap:6px!important;
-    padding:6px 12px!important; flex-shrink:0!important;
-    -webkit-overflow-scrolling:touch!important; scrollbar-width:none!important;
-    border-bottom:1px solid rgba(42,58,106,.3)!important;
-  }
-  #mobStripPass::-webkit-scrollbar{ display:none!important; }
-  #mobStrip.mob-active #mobStripPass{ display:flex!important; }
-  .mobPassBtn{
-    flex-shrink:0!important;
-    background:rgba(124,58,237,.1)!important;
-    border:1px solid rgba(124,58,237,.28)!important;
-    border-radius:20px!important; color:#c4b5fd!important;
-    font-size:11px!important; font-weight:700!important;
-    padding:5px 12px!important; white-space:nowrap!important; cursor:pointer!important;
-  }
-  .mobPassBtn:active{ background:rgba(124,58,237,.3)!important; }
-
-  #mobStripAttachList{
-    padding:2px 12px!important; font-size:11px!important; color:#94a3b8!important; flex-shrink:0!important;
+    height:0!important; min-height:0!important; max-height:0!important;
+    overflow:hidden!important; pointer-events:none!important;
   }
 
-  #mobAttachDrop{
-    display:none!important; position:absolute!important; bottom:100%!important; left:10px!important;
-    width:190px!important; background:rgba(10,14,30,.98)!important;
-    border:1px solid rgba(80,110,200,.4)!important; border-radius:14px!important;
-    box-shadow:0 -8px 32px rgba(0,0,0,.6)!important;
-    padding:6px!important; z-index:9600!important;
-    flex-direction:column!important; gap:2px!important;
-  }
-  #mobAttachDrop.open{ display:flex!important; }
-  .mobAttachItem{
-    width:100%!important; text-align:left!important; background:transparent!important;
-    border:none!important; color:#e2e8f0!important; font-size:13px!important;
-    padding:9px 12px!important; border-radius:9px!important; cursor:pointer!important; font-family:inherit!important;
-  }
-  .mobAttachItem:active{ background:rgba(124,58,237,.2)!important; }
-  .mobAttachDivider{ height:1px!important; background:rgba(255,255,255,.07)!important; margin:3px 4px!important; }
-
-  #mobStripRow{
-    display:flex!important; align-items:flex-end!important;
-    gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
-  }
-  #mobStripMsg{
-    flex:1!important; background:rgba(14,22,48,.85)!important;
-    border:1px solid rgba(42,58,106,.7)!important; border-radius:10px!important;
-    padding:8px 12px!important; font-size:15px!important; color:#e2e8f0!important;
-    resize:none!important; min-height:36px!important; max-height:80px!important;
-    font-family:inherit!important; outline:none!important; line-height:1.4!important;
-  }
-  #mobStripMsg::placeholder{ color:rgba(100,116,139,.5)!important; }
-  #mobStripMsg:focus{ border-color:rgba(124,58,237,.7)!important; }
-  #mobStripAttach{
-    width:38px!important; height:38px!important; flex-shrink:0!important;
-    background:rgba(255,255,255,.06)!important; border:1px solid rgba(42,58,106,.6)!important;
-    border-radius:9px!important; color:#94a3b8!important; font-size:22px!important;
-    font-weight:300!important; line-height:1!important;
-    display:flex!important; align-items:center!important; justify-content:center!important; cursor:pointer!important;
-  }
-  #mobStripAttach.open{ background:rgba(124,58,237,.2)!important; color:#c4b5fd!important; }
-  #mobStripSend{
-    width:40px!important; height:40px!important; flex-shrink:0!important;
-    background:rgba(124,58,237,.9)!important; border:1px solid rgba(124,58,237,.5)!important;
-    border-radius:10px!important; color:#fff!important; font-size:18px!important;
-    display:flex!important; align-items:center!important; justify-content:center!important; cursor:pointer!important;
-  }
-  #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
-
-  .side,.sideCard,.stage>.side,
-  .groupCard,.underTable,#sharedMemoryCard,#groupReplies,#groupPassRow,
-  .operator,#operator,#opPrompt,#sendGroup,.opRow,.opText,#opStatus,
-  #mobileSheet,#sheetBackdrop,#mobChatBar,#saMobPanel,
-  #threadActionsRow,#micStatusDm{
-    display:none!important; height:0!important; min-height:0!important;
-    max-height:0!important; overflow:hidden!important; position:static!important;
-  }
-  #followMsg,#sendFollow,#dmFiles,#dmAttachBtn,#dmAttachWrap,
-  #dmAttachDrop,#dmAttachList,#followRow,.followBox,
-  #seatPassRow,.passBtn,#branchSnapshotBtn,#exportThreadBtn,
-  #deepDiveBtn,#streamToggleBtn,#talkDmBtn,#alwaysListenDmBtn,
-  #screenDmBtn,#pickDmFiles{
+  /* ── Keep pipeline elements alive but off-screen for JS routing ── */
+  #followMsg, #sendFollow, #dmFiles, #dmAttachBtn, #dmAttachWrap,
+  #dmAttachDrop, #dmAttachList, #followRow, .followBox,
+  #seatPassRow, .passBtn, #branchSnapshotBtn, #exportThreadBtn,
+  #deepDiveBtn, #streamToggleBtn, #talkDmBtn, #alwaysListenDmBtn,
+  #screenDmBtn, #pickDmFiles{
     position:fixed!important; left:-9999px!important; top:-9999px!important;
     width:1px!important; height:1px!important; overflow:hidden!important;
     pointer-events:none!important; opacity:0!important; z-index:-1!important;
   }
 
-  .stage{ display:grid!important; grid-template-columns:1fr!important; min-height:0!important; height:auto!important; overflow:visible!important; }
+  /* ── Stage/arena: neutral container ── */
+  .stage{
+    display:block!important;
+    width:100%!important; max-width:100%!important;
+    min-height:0!important; height:auto!important;
+    padding:0!important; margin:0!important;
+    overflow:visible!important;
+  }
   .arena{ min-height:0!important; height:auto!important; overflow:visible!important; }
-  #tableWrap,.tableWrap{
-    display:flex!important; flex-direction:column!important;
-    align-items:stretch!important; width:100%!important; max-width:100%!important;
-    height:auto!important; min-height:0!important; overflow:visible!important;
-    padding-left:12px!important; padding-right:12px!important;
-    padding-bottom:130px!important;
-    gap:10px!important; box-sizing:border-box!important; transform:none!important;
+
+  /* ════════════════════════════════════
+     MOB TEAM VIEW  (#mobTeamView)
+     Full-screen scrollable card list
+  ════════════════════════════════════ */
+  #mobTeamView{
+    display:flex; flex-direction:column;
+    position:fixed; inset:0;
+    z-index:100;
+    background:var(--bg,#090d1e);
+    overflow:hidden;
   }
-  #tableWrap .table,.tableWrap .table{ display:none!important; }
-  #tableWrap #rtStage,#rtStage{
-    position:static!important; display:flex!important; flex-direction:column!important;
-    gap:10px!important; width:100%!important; height:auto!important; min-height:0!important;
-    max-height:none!important; transform:none!important; overflow:visible!important;
+
+  /* Top bar */
+  #mobTeamBar{
+    display:flex; align-items:center; gap:8px;
+    padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+    background:rgba(8,12,28,.97);
+    border-bottom:1px solid rgba(42,58,106,.5);
+    flex-shrink:0; z-index:10;
   }
-  #tableWrap .seat,.tableWrap .seat,#rtStage .seat{
+  #mobMenuBtn{
+    flex-shrink:0;
+    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
+    border-radius:9px; color:#e2e8f0; font-size:13px; font-weight:600;
+    padding:7px 13px; cursor:pointer;
+  }
+  #mobCommunityBtn{
+    flex:1; text-align:center;
+    background:rgba(124,58,237,.2); border:1px solid rgba(124,58,237,.45);
+    border-radius:9px; color:#c4b5fd; font-size:13px; font-weight:700;
+    padding:7px 13px; cursor:pointer;
+  }
+
+  /* Scrollable card list */
+  #mobCardList{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:10px 12px calc(env(safe-area-inset-bottom) + 12px);
+    display:flex; flex-direction:column; gap:8px;
+  }
+
+  /* Seat cards inside mobCardList */
+  #mobCardList .seat{
     position:relative!important; left:auto!important; top:auto!important;
     right:auto!important; bottom:auto!important; transform:none!important;
-    width:100%!important; max-width:100%!important; height:auto!important; min-height:76px!important;
-    margin:0!important; overflow:hidden!important; isolation:isolate!important;
-    z-index:1!important; box-sizing:border-box!important; flex-shrink:0!important; cursor:pointer!important;
+    width:100%!important; max-width:100%!important;
+    height:auto!important; min-height:76px!important;
+    margin:0!important; overflow:hidden!important;
+    isolation:isolate!important; z-index:1!important;
+    box-sizing:border-box!important; flex-shrink:0!important;
+    cursor:pointer!important;
   }
-  #rtStage .seat.sel,.tableWrap .seat.sel,#tableWrap .seat.sel{
-    border-color:rgba(124,58,237,.9)!important; background:rgba(22,18,70,.97)!important;
-    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset,0 0 22px rgba(124,58,237,.4)!important;
+  #mobCardList .seat.sel{
+    border-color:rgba(124,58,237,.9)!important;
+    background:rgba(22,18,70,.97)!important;
+    box-shadow:0 0 0 1px rgba(124,58,237,.22) inset, 0 0 22px rgba(124,58,237,.35)!important;
   }
-  html,body{ overflow-x:hidden!important; height:auto!important; }
+
+  /* tableWrap inside mobCardList — flat, no absolute positioning */
+  #mobCardList #tableWrap,
+  #mobCardList .tableWrap{
+    display:flex!important; flex-direction:column!important;
+    align-items:stretch!important; width:100%!important;
+    height:auto!important; min-height:0!important; overflow:visible!important;
+    padding:0!important; gap:8px!important;
+    box-sizing:border-box!important; transform:none!important;
+    position:static!important;
+  }
+  #mobCardList #tableWrap .table,
+  #mobCardList .tableWrap .table{ display:none!important; }
+  #mobCardList #rtStage{
+    position:static!important; display:flex!important; flex-direction:column!important;
+    gap:8px!important; width:100%!important; height:auto!important;
+    min-height:0!important; max-height:none!important;
+    transform:none!important; overflow:visible!important;
+  }
+
+  /* Hide the tableWrap in main doc (we move it into mobCardList) */
+  body:not(.mob-chat) #tableWrap,
+  body:not(.mob-chat) .tableWrap{
+    /* hidden — shown inside #mobCardList via JS move */
+  }
+
+  /* ════════════════════════════════════
+     MOB CHAT VIEW  (#mobChatView)
+     Full-screen thread + input
+  ════════════════════════════════════ */
+  #mobChatView{
+    display:none; flex-direction:column;
+    position:fixed; inset:0;
+    z-index:100;
+    background:var(--bg,#090d1e);
+    overflow:hidden;
+  }
+  body.mob-chat #mobChatView{ display:flex; }
+  body.mob-chat #mobTeamView{ display:none; }
+
+  /* Chat top bar */
+  #mobChatBar{
+    display:flex!important; align-items:center; gap:10px;
+    padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;
+    background:rgba(8,12,28,.97);
+    border-bottom:1px solid rgba(42,58,106,.5);
+    flex-shrink:0;
+  }
+  #mobBackBtn{
+    flex-shrink:0;
+    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
+    border-radius:9px; color:#e2e8f0; font-size:16px;
+    width:36px; height:36px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  #mobChatAv{
+    width:32px; height:32px; border-radius:9px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:900; color:#fff;
+    background:rgba(124,58,237,.6);
+  }
+  #mobChatMeta{ flex:1; min-width:0; }
+  #mobChatName{
+    font-size:14px; font-weight:800; color:#e2e8f0;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #mobChatRole{ font-size:11px; color:#64748b; }
+  #mobChatRefresh{
+    flex-shrink:0;
+    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.5);
+    border-radius:8px; color:#94a3b8; font-size:12px; font-weight:600;
+    padding:5px 10px; cursor:pointer;
+  }
+
+  /* Thread area — fills all available space */
+  #mobChatThread{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:10px 14px;
+    min-height:0;
+  }
+
+  /* Pass pills row */
+  #mobPassRow{
+    display:flex; flex-direction:row; flex-wrap:nowrap;
+    overflow-x:auto; gap:6px;
+    padding:6px 12px; flex-shrink:0;
+    -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    border-top:1px solid rgba(42,58,106,.3);
+  }
+  #mobPassRow::-webkit-scrollbar{ display:none; }
+  .mobPill{
+    flex-shrink:0;
+    background:rgba(124,58,237,.1); border:1px solid rgba(124,58,237,.28);
+    border-radius:20px; color:#c4b5fd;
+    font-size:11px; font-weight:700;
+    padding:5px 12px; white-space:nowrap; cursor:pointer;
+  }
+  .mobPill:active{ background:rgba(124,58,237,.3); }
+
+  /* Attach list */
+  #mobChatAttachList{
+    padding:2px 12px; font-size:11px; color:#94a3b8; flex-shrink:0;
+  }
+
+  /* Attach dropdown */
+  #mobChatAttachDrop{
+    display:none; flex-direction:column; gap:2px;
+    position:absolute; bottom:100%; left:10px;
+    width:190px;
+    background:rgba(10,14,30,.98);
+    border:1px solid rgba(80,110,200,.4); border-radius:14px;
+    box-shadow:0 -8px 32px rgba(0,0,0,.6);
+    padding:6px; z-index:200;
+  }
+  #mobChatAttachDrop.open{ display:flex; }
+  .mobAttachItem{
+    width:100%; text-align:left; background:transparent; border:none;
+    color:#e2e8f0; font-size:13px; padding:9px 12px;
+    border-radius:9px; cursor:pointer; font-family:inherit;
+  }
+  .mobAttachItem:active{ background:rgba(124,58,237,.2); }
+  .mobAttachDiv{ height:1px; background:rgba(255,255,255,.07); margin:3px 4px; }
+
+  /* Input bar — always pinned above keyboard */
+  #mobInputBar{
+    flex-shrink:0; position:relative;
+    border-top:1.5px solid rgba(42,58,106,.5);
+    padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);
+    background:rgba(8,12,28,.99);
+    display:flex; align-items:flex-end; gap:8px;
+  }
+  #mobChatAttachBtn{
+    width:38px; height:38px; flex-shrink:0;
+    background:rgba(255,255,255,.06); border:1px solid rgba(42,58,106,.6);
+    border-radius:9px; color:#94a3b8; font-size:22px; font-weight:300; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  #mobChatAttachBtn.open{ background:rgba(124,58,237,.2); color:#c4b5fd; }
+  #mobChatMsg{
+    flex:1;
+    background:rgba(14,22,48,.85); border:1px solid rgba(42,58,106,.7);
+    border-radius:10px; padding:9px 12px;
+    font-size:15px; color:#e2e8f0; resize:none;
+    min-height:38px; max-height:120px;
+    font-family:inherit; outline:none; line-height:1.4;
+  }
+  #mobChatMsg::placeholder{ color:rgba(100,116,139,.5); }
+  #mobChatMsg:focus{ border-color:rgba(124,58,237,.7); }
+  #mobChatSendBtn{
+    width:40px; height:40px; flex-shrink:0;
+    background:rgba(124,58,237,.9); border:1px solid rgba(124,58,237,.5);
+    border-radius:10px; color:#fff; font-size:18px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  #mobChatSendBtn:active{ background:rgba(99,60,255,.95); transform:scale(.93); }
+
 }
-@media(min-width:961px){ #mobStrip{ display:none!important; } }
+@media(min-width:961px){
+  #mobTeamView,#mobChatView{ display:none!important; }
+}
 </style>
+
+<!-- ── TEAM VIEW ── -->
+<div id="mobTeamView">
+  <div id="mobTeamBar">
+    <button id="mobMenuBtn">☰ Menu</button>
+    <button id="mobCommunityBtn">🏆 Community</button>
+  </div>
+  <div id="mobCardList">
+    <!-- tableWrap moved here by JS -->
+  </div>
+</div>
+
+<!-- ── CHAT VIEW ── -->
+<div id="mobChatView">
+  <div id="mobChatBar" style="display:flex!important; height:auto!important; min-height:0!important; max-height:none!important; pointer-events:auto!important; position:relative!important; overflow:visible!important;">
+    <button id="mobBackBtn">&#x2190;</button>
+    <div id="mobChatAv">?</div>
+    <div id="mobChatMeta">
+      <div id="mobChatName">Teammate</div>
+      <div id="mobChatRole"></div>
+    </div>
+    <button id="mobChatRefresh">Refresh</button>
+  </div>
+  <div id="mobChatThread"></div>
+  <div id="mobPassRow">
+    <button class="mobPill" id="mpWeb">🔍 Web</button>
+    <button class="mobPill" id="mpSumm">📋 Summarize</button>
+    <button class="mobPill" id="mpPrompts">📚 Prompts</button>
+    <button class="mobPill" id="mpDeep">🔬 Deep Dive</button>
+    <button class="mobPill" id="mpSnap">🌿 Snapshot</button>
+    <button class="mobPill" id="mpExport">📄 Export</button>
+    <button class="mobPill" id="mpShare">🔗 Share</button>
+  </div>
+  <div id="mobChatAttachList"></div>
+  <div id="mobInputBar">
+    <div id="mobChatAttachDrop">
+      <button class="mobAttachItem" id="maFiles">📎 Attach Files</button>
+      <button class="mobAttachItem" id="maScreen">🖥 Share Screen</button>
+      <div class="mobAttachDiv"></div>
+      <button class="mobAttachItem" id="maTalk">🔊 Speak Once</button>
+      <button class="mobAttachItem" id="maVoice">🎙 Voice Mode</button>
+      <div class="mobAttachDiv"></div>
+      <button class="mobAttachItem" id="maStream">⚡ Stream Mode</button>
+    </div>
+    <button id="mobChatAttachBtn">+</button>
+    <textarea id="mobChatMsg" placeholder="Message teammate…" rows="1"
+      autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"></textarea>
+    <button id="mobChatSendBtn">&#x21B5;</button>
+  </div>
+</div>
 
 <script>
 (function(){
 'use strict';
-var MOB=function(){return window.innerWidth<=960;};
+if(window.innerWidth>960)return;
+
+var _nm=null, _dropOpen=false;
 function ge(id){return document.getElementById(id);}
-var _nm=null,_expanded=false,_attachOpen=false;
 
-function pin(){
-  var s=ge('mobStrip');
-  if(s&&s.parentNode!==document.body) document.body.appendChild(s);
+/* ── Move tableWrap into mobCardList ── */
+function moveCards(){
+  var tw=ge('tableWrap')||document.querySelector('.tableWrap');
+  var cl=ge('mobCardList');
+  if(!tw||!cl)return;
+  if(tw.parentNode===cl)return;
+  cl.appendChild(tw);
+  /* Flatten tableWrap inline so cards flow naturally */
+  tw.style.cssText='display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important;height:auto!important;min-height:0!important;overflow:visible!important;padding:0!important;gap:8px!important;box-sizing:border-box!important;transform:none!important;position:static!important;';
+  var table=tw.querySelector('.table,#tableCore');
+  if(table)table.style.display='none';
 }
 
+/* ── Sync thread into chat view (last 8 message elements) ── */
 function syncThread(){
-  var dt=ge('thread'),st=ge('mobStripThread');
-  if(!st||!dt)return;
-  var kids=Array.from(dt.children),last=kids.slice(-6);
-  st.innerHTML='';
-  last.forEach(function(n){ st.appendChild(n.cloneNode(true)); });
-  st.scrollTop=st.scrollHeight;
+  var src=ge('thread'), dst=ge('mobChatThread');
+  if(!src||!dst)return;
+  var kids=Array.from(src.children).slice(-8);
+  dst.innerHTML='';
+  kids.forEach(function(n){ dst.appendChild(n.cloneNode(true)); });
+  dst.scrollTop=dst.scrollHeight;
 }
 
-function updateStripHeight(){
-  if(!MOB())return;
-  var strip=ge('mobStrip'); if(!strip)return;
-  var h=strip.getBoundingClientRect().height||0; if(h<30)return;
-  var pb=(h+8)+'px';
-  document.querySelectorAll('#tableWrap,.tableWrap,#rtStage').forEach(function(el){
-    el.style.setProperty('padding-bottom',pb,'important');
-  });
-}
-
-function handleViewport(){
-  if(!MOB())return;
-  var strip=ge('mobStrip'); if(!strip)return;
-  if(window.visualViewport){
-    var vv=window.visualViewport;
-    var offset=window.innerHeight-(vv.offsetTop+vv.height);
-    strip.style.bottom=Math.max(0,offset)+'px';
-    updateStripHeight();
-  }
-}
-if(window.visualViewport){
-  window.visualViewport.addEventListener('resize',handleViewport,{passive:true});
-  window.visualViewport.addEventListener('scroll',handleViewport,{passive:true});
-}
-window.addEventListener('resize',function(){ handleViewport(); updateStripHeight(); },{passive:true});
-window.addEventListener('orientationchange',function(){ setTimeout(updateStripHeight,400); },{passive:true});
-if(window.ResizeObserver){
-  new ResizeObserver(function(){ updateStripHeight(); }).observe(ge('mobStrip'));
-}
-
-function setWho(name){
-  var av=ge('mobStripAv'),nm=ge('mobStripName'),rl=ge('mobStripRole'),strip=ge('mobStrip');
-  if(!av||!nm)return;
-  if(!name){
-    av.textContent=''; av.style.background='rgba(124,58,237,.5)';
-    nm.textContent='Tap a teammate to chat'; if(rl)rl.textContent='';
-    if(strip) strip.classList.remove('mob-active'); return;
-  }
-  var color='rgba(124,58,237,.75)';
+/* ── Open chat view for a teammate ── */
+function openChat(name){
+  _nm=name;
+  /* Update header */
+  var color='rgba(124,58,237,.7)';
   document.querySelectorAll('.seat').forEach(function(s){
     if(s.getAttribute('data-name')===name){
-      var ae=s.querySelector('.seatAvatar');
-      if(ae&&ae.style.background) color=ae.style.background;
+      var av=s.querySelector('.seatAvatar');
+      if(av&&av.style.background) color=av.style.background;
     }
   });
-  av.textContent=(name[0]||'?').toUpperCase(); av.style.background=color;
-  nm.textContent=name;
-  try{ var d=(window.state&&window.state.installed||{})[name]||{}; if(rl)rl.textContent=d.job_title||d.role||''; }catch(_){ if(rl)rl.textContent=''; }
-  if(strip) strip.classList.add('mob-active');
-  setTimeout(function(){ watchDesktopThread(); updateStripHeight(); },300);
+  ge('mobChatAv').textContent=(name[0]||'?').toUpperCase();
+  ge('mobChatAv').style.background=color;
+  ge('mobChatName').textContent=name;
+  try{
+    var d=(window.state&&window.state.installed||{})[name]||{};
+    ge('mobChatRole').textContent=d.job_title||d.role||'';
+  }catch(_){ ge('mobChatRole').textContent=''; }
+  /* Highlight card */
+  document.querySelectorAll('.seat').forEach(function(s){
+    s.classList.toggle('sel', s.getAttribute('data-name')===name);
+  });
+  /* Switch view */
+  document.body.classList.add('mob-chat');
+  /* Load backend + sync thread */
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(name).then(function(){
+      syncThread();
+      watchThread();
+    }).catch(function(){ syncThread(); watchThread(); });
+  } else {
+    syncThread(); watchThread();
+  }
+  /* Focus input */
+  setTimeout(function(){ var m=ge('mobChatMsg'); if(m)m.focus(); },300);
 }
 
+/* ── Back to team view ── */
+function goBack(){
+  document.body.classList.remove('mob-chat');
+  closeAttach();
+  /* Unfocus input so keyboard hides */
+  if(document.activeElement) document.activeElement.blur();
+}
+
+/* ── Watch desktop thread for new messages ── */
+var _tObs=null;
+function watchThread(){
+  var src=ge('thread'); if(!src||_tObs)return;
+  _tObs=new MutationObserver(function(){ if(_nm) syncThread(); });
+  _tObs.observe(src,{childList:true,subtree:true,characterData:true});
+}
+
+/* ── Send message ── */
 function doSend(){
-  var msg=ge('mobStripMsg'); if(!msg||!_nm)return;
+  var msg=ge('mobChatMsg'); if(!msg||!_nm)return;
   var txt=msg.value.trim(); if(!txt)return;
   msg.value=''; msg.style.height='auto';
-  var fm=ge('followMsg'),sf=ge('sendFollow');
-  function afterSend(){ setTimeout(syncThread,400); setTimeout(syncThread,1800); setTimeout(syncThread,4000); }
+  var fm=ge('followMsg'), sf=ge('sendFollow');
+  function afterSend(){
+    setTimeout(syncThread,400);
+    setTimeout(syncThread,2000);
+    setTimeout(syncThread,5000);
+  }
   if(fm&&sf){ fm.value=txt; sf.click(); afterSend(); return; }
   if(typeof window.selectSeat==='function'){
     window.selectSeat(_nm).then(function(){
-      var f=ge('followMsg'),s2=ge('sendFollow');
-      if(f&&s2){ f.value=txt; s2.click(); }
+      var f=ge('followMsg'),s=ge('sendFollow');
+      if(f&&s){ f.value=txt; s.click(); }
       afterSend();
     });
   }
 }
 
-ge('mobStripSend').addEventListener('click',doSend);
-var ma=ge('mobStripMsg');
-if(ma){
-  ma.addEventListener('keydown',function(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); } });
-  ma.addEventListener('input',function(){ this.style.height='auto'; this.style.height=Math.min(this.scrollHeight,80)+'px'; updateStripHeight(); });
-}
-
+/* ── Attach dropdown ── */
 function closeAttach(){
-  _attachOpen=false;
-  var d=ge('mobAttachDrop'),b=ge('mobStripAttach');
+  _dropOpen=false;
+  var d=ge('mobChatAttachDrop'),b=ge('mobChatAttachBtn');
   if(d)d.classList.remove('open'); if(b)b.classList.remove('open');
-  updateStripHeight();
 }
 function openAttach(){
-  _attachOpen=true;
-  var d=ge('mobAttachDrop'),b=ge('mobStripAttach');
+  _dropOpen=true;
+  var d=ge('mobChatAttachDrop'),b=ge('mobChatAttachBtn');
   if(d)d.classList.add('open'); if(b)b.classList.add('open');
-  updateStripHeight(); setTimeout(updateStripHeight,50);
 }
-ge('mobStripAttach').addEventListener('click',function(e){ e.stopPropagation(); _attachOpen?closeAttach():openAttach(); });
+ge('mobChatAttachBtn').addEventListener('click',function(e){
+  e.stopPropagation(); _dropOpen?closeAttach():openAttach();
+});
 document.addEventListener('click',function(e){
-  if(_attachOpen&&!ge('mobAttachDrop').contains(e.target)&&e.target!==ge('mobStripAttach')) closeAttach();
+  if(!_dropOpen)return;
+  var d=ge('mobChatAttachDrop');
+  if(d&&!d.contains(e.target)&&e.target!==ge('mobChatAttachBtn')) closeAttach();
 });
 
-function proxyClick(mobId,deskId){
+/* Proxy each attach item to its real desktop button */
+function proxy(mobId,deskId){
   var m=ge(mobId),d=ge(deskId); if(!m||!d)return;
   m.addEventListener('click',function(){
     closeAttach();
-    d.style.cssText='position:fixed!important;bottom:80px!important;left:0!important;pointer-events:auto!important;opacity:0!important;z-index:1!important;';
+    d.style.cssText='position:fixed!important;bottom:0!important;left:0!important;pointer-events:auto!important;opacity:0!important;z-index:1!important;';
     d.click();
-    setTimeout(function(){ d.style.cssText='position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;'; },300);
+    setTimeout(function(){
+      d.style.cssText='position:fixed!important;left:-9999px!important;top:-9999px!important;width:1px!important;height:1px!important;pointer-events:none!important;opacity:0!important;z-index:-1!important;';
+    },300);
   });
 }
-proxyClick('maDmFiles','pickDmFiles');
-proxyClick('maScreen','screenDmBtn');
-proxyClick('maTalk','talkDmBtn');
-proxyClick('maVoice','alwaysListenDmBtn');
-proxyClick('maStream','streamToggleBtn');
+proxy('maFiles','pickDmFiles');
+proxy('maScreen','screenDmBtn');
+proxy('maTalk','talkDmBtn');
+proxy('maVoice','alwaysListenDmBtn');
+proxy('maStream','streamToggleBtn');
 
-function passAction(text,send){
-  closeAttach();
-  var ma2=ge('mobStripMsg');
-  if(send){
-    var fm=ge('followMsg'),sf=ge('sendFollow');
-    if(fm&&sf){ fm.value=text; sf.click(); }
-    setTimeout(syncThread,600); setTimeout(syncThread,2500);
-  } else {
-    if(ma2){ ma2.value=text; ma2.focus(); ma2.setSelectionRange(text.length,text.length); }
-    var fm2=ge('followMsg'); if(fm2) fm2.value=text;
-  }
-}
-ge('mpWeb').addEventListener('click',function(){ passAction('Search the web for: ',false); });
-ge('mpSumm').addEventListener('click',function(){ passAction('Summarize our conversation so far in clear bullet points.',true); });
-ge('mpPrompts').addEventListener('click',function(){ var b=ge('promptLibraryBtn'); if(b)b.click(); });
-ge('mpDeep').addEventListener('click',function(){ if(typeof _saOpenDeepDive==='function')_saOpenDeepDive(); else{var b=ge('deepDiveBtn');if(b)b.click();} });
-ge('mpSnap').addEventListener('click',function(){ var b=ge('branchSnapshotBtn'); if(b)b.click(); });
-ge('mpExport').addEventListener('click',function(){ var b=ge('exportThreadBtn'); if(b)b.click(); });
-
-function setToggleLabel(){ var btn=ge('mobStripToggle'); if(btn) btn.textContent=_expanded?'\u25bc':'\u25b2'; }
-ge('mobStripToggle').addEventListener('click',function(){
-  if(!_nm)return;
-  _expanded=!_expanded;
-  ge('mobStrip').classList.toggle('mob-expanded',_expanded);
-  setToggleLabel();
-  if(_expanded) syncThread();
-  closeAttach(); updateStripHeight(); setTimeout(updateStripHeight,320);
-});
-
-var _dtObs=null;
-function watchDesktopThread(){
-  var dt=ge('thread'); if(!dt||_dtObs)return;
-  _dtObs=new MutationObserver(function(){
-    if(!_nm)return;
-    if(!_expanded){ _expanded=true; ge('mobStrip').classList.add('mob-expanded'); setToggleLabel(); updateStripHeight(); setTimeout(updateStripHeight,320); }
-    syncThread();
-  });
-  _dtObs.observe(dt,{childList:true,subtree:true,characterData:true});
-}
-
+/* Mirror attach list */
 var _alObs=null;
 function watchAttachList(){
-  var src=ge('dmAttachList'),dst=ge('mobStripAttachList');
+  var src=ge('dmAttachList'),dst=ge('mobChatAttachList');
   if(!src||!dst||_alObs)return;
-  _alObs=new MutationObserver(function(){ dst.innerHTML=src.innerHTML; updateStripHeight(); });
+  _alObs=new MutationObserver(function(){ dst.innerHTML=src.innerHTML; });
   _alObs.observe(src,{childList:true,subtree:true});
 }
 setTimeout(watchAttachList,1500);
 
+/* ── Pass pills ── */
+function passAction(text,send){
+  closeAttach();
+  var ma=ge('mobChatMsg'), fm=ge('followMsg'), sf=ge('sendFollow');
+  if(send){
+    if(fm&&sf){ fm.value=text; sf.click(); }
+    setTimeout(syncThread,600); setTimeout(syncThread,2500);
+  } else {
+    if(ma){ ma.value=text; ma.focus(); ma.setSelectionRange(text.length,text.length); }
+    if(fm) fm.value=text;
+  }
+}
+ge('mpWeb').addEventListener('click',function(){ passAction('Search the web for: ',false); });
+ge('mpSumm').addEventListener('click',function(){ passAction('Summarize our conversation so far in clear bullet points.',true); });
+ge('mpPrompts').addEventListener('click',function(){ var b=ge('promptLibraryBtn');if(b)b.click(); });
+ge('mpDeep').addEventListener('click',function(){ if(typeof _saOpenDeepDive==='function')_saOpenDeepDive();else{var b=ge('deepDiveBtn');if(b)b.click();} });
+ge('mpSnap').addEventListener('click',function(){ var b=ge('branchSnapshotBtn');if(b)b.click(); });
+ge('mpExport').addEventListener('click',function(){ var b=ge('exportThreadBtn');if(b)b.click(); });
+ge('mpShare').addEventListener('click',function(){ var b=ge('shareThreadBtn');if(b)b.click(); });
+
+/* ── Refresh ── */
+ge('mobChatRefresh').addEventListener('click',function(){
+  if(!_nm)return;
+  if(typeof window.selectSeat==='function'){
+    window.selectSeat(_nm).then(syncThread);
+  } else syncThread();
+});
+
+/* ── Textarea: grow + Enter to send ── */
+var ma=ge('mobChatMsg');
+if(ma){
+  ma.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); doSend(); }
+  });
+  ma.addEventListener('input',function(){
+    this.style.height='auto';
+    this.style.height=Math.min(this.scrollHeight,120)+'px';
+  });
+}
+ge('mobChatSendBtn').addEventListener('click',doSend);
+
+/* ── Nav buttons ── */
+ge('mobBackBtn').addEventListener('click',goBack);
+ge('mobMenuBtn').addEventListener('click',function(){
+  var b=ge('mobileMenuBtn'); if(b)b.click();
+});
+ge('mobCommunityBtn').addEventListener('click',function(){
+  if(typeof openCommunityPanel==='function') openCommunityPanel();
+});
+
+/* ── visualViewport: keep input above keyboard on iOS ── */
+function adjustForKeyboard(){
+  var cv=ge('mobChatView'); if(!cv)return;
+  if(window.visualViewport){
+    var vv=window.visualViewport;
+    var kb=window.innerHeight-(vv.offsetTop+vv.height);
+    cv.style.height=(vv.height)+'px';
+    cv.style.top=(vv.offsetTop)+'px';
+    cv.style.bottom='auto';
+  }
+}
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize',adjustForKeyboard,{passive:true});
+  window.visualViewport.addEventListener('scroll',adjustForKeyboard,{passive:true});
+}
+
+/* ── Hook seat taps — long-press reveals Edit/Stack, tap opens chat ── */
 function hookSeats(){
   document.querySelectorAll('.seat[data-name]').forEach(function(seat){
-    if(seat._v11)return; seat._v11=true;
-    var _pt=null,_lp=false;
+    if(seat._v12)return; seat._v12=true;
+    var _pt=null, _lp=false;
     seat.addEventListener('touchstart',function(){
       _lp=false;
       _pt=setTimeout(function(){
         _lp=true;
         var tools=seat.querySelector('.seatTools');
-        if(tools){ tools.style.opacity='1'; tools.style.pointerEvents='auto'; seat._toolsRevealed=true;
-          clearTimeout(seat._toolsTimer);
-          seat._toolsTimer=setTimeout(function(){ tools.style.opacity=''; tools.style.pointerEvents=''; seat._toolsRevealed=false; },3500);
+        if(tools){
+          tools.style.opacity='1'; tools.style.pointerEvents='auto';
+          clearTimeout(seat._tt);
+          seat._tt=setTimeout(function(){
+            tools.style.opacity=''; tools.style.pointerEvents='';
+          },3500);
         }
       },480);
     },{passive:true});
     seat.addEventListener('touchend',function(){ clearTimeout(_pt); },{passive:true});
     seat.addEventListener('touchmove',function(){ clearTimeout(_pt); },{passive:true});
     seat.addEventListener('click',function(e){
-      if(!MOB())return;
       if(_lp)return;
       if(e.target&&e.target.closest&&e.target.closest('.seatTools'))return;
       var name=seat.getAttribute('data-name'); if(!name)return;
-      if(_nm&&_nm!==name&&_expanded){ _expanded=false; ge('mobStrip').classList.remove('mob-expanded'); setToggleLabel(); }
-      _nm=name; setWho(name);
-      document.querySelectorAll('.seat').forEach(function(s){ s.classList.toggle('sel',s.getAttribute('data-name')===name); });
-      closeAttach();
-      if(typeof window.selectSeat==='function') window.selectSeat(name).catch(function(){});
-      setTimeout(function(){ var m=ge('mobStripMsg'); if(m)m.focus(); },200);
-      updateStripHeight();
+      openChat(name);
     },true);
   });
 }
 
+/* ── patchSS: intercept programmatic selectSeat calls ── */
 function patchSS(){
-  var o=window.selectSeat; if(!o||o._v11)return;
-  var p=function(n){ var r=o.apply(this,arguments); if(MOB()){_nm=n;setWho(n);} return r; };
-  p._v11=true; window.selectSeat=p;
+  var o=window.selectSeat; if(!o||o._v12)return;
+  var p=function(n){
+    var r=o.apply(this,arguments);
+    if(window.innerWidth<=960){ _nm=n; }
+    return r;
+  };
+  p._v12=true; window.selectSeat=p;
 }
 
+/* ── MutationObserver: re-hook seats added dynamically ── */
 if(window.MutationObserver){
-  new MutationObserver(function(){ pin(); hookSeats(); }).observe(document.documentElement,{childList:true,subtree:true});
+  new MutationObserver(function(){ hookSeats(); })
+    .observe(document.body,{childList:true,subtree:true});
 }
 
+/* ── Init ── */
 function init(){
-  pin();
-  if(typeof window.selectSeat==='function'){ patchSS(); hookSeats(); }
-  else{ setTimeout(init,400); }
+  moveCards();
+  if(typeof window.selectSeat==='function'){ patchSS(); }
+  hookSeats();
 }
-pin(); setTimeout(init,600); setTimeout(hookSeats,1400);
-setTimeout(function(){ handleViewport(); updateStripHeight(); watchDesktopThread(); },1800);
+setTimeout(init,400);
+setTimeout(hookSeats,1200);
+setTimeout(hookSeats,2500);
+
 })();
 </script>
-<!-- ===== END MOBILE LAYOUT v11 ===== -->
+<!-- ===== END MOBILE LAYOUT v12 ===== -->
+
 
 </body>
 </html>
