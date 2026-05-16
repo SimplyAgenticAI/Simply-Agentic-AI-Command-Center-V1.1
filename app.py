@@ -7981,8 +7981,8 @@ AUTH_BASE_CSS = r"""
   .seatToolBtn{ font-size: 13px; }
   .actions{ flex-wrap: wrap; }
   .grid{ grid-template-columns: 1fr !important; gap: 10px; }
-  #modalWin{ width: calc(100vw - 16px) !important; left: 8px !important; right: 8px !important; top: 8px !important; height: calc(100vh - 16px) !important; max-height: calc(100vh - 16px) !important; }
-  #modalScroll{ max-height: calc(100vh - 120px) !important; }
+  #modalWin{ width:100vw !important; left:0 !important; right:0 !important; top:0 !important; bottom:0 !important; height:100vh !important; max-height:100vh !important; transform:none !important; border-radius:0 !important; z-index:999201 !important; }
+  #modalScroll{ max-height:calc(100vh - 52px) !important; }
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
@@ -12206,35 +12206,35 @@ HTML = r"""
 
     .overlay{
       position:fixed; inset:0; display:none;
-      align-items:flex-start; justify-content:center;
-      padding-top: 68px;
-      background: rgba(20,30,60,.65);
-      backdrop-filter: blur(8px);
-      z-index: 9200;
+      align-items:stretch; justify-content:stretch;
+      padding:0;
+      background: rgba(4,8,24,.88);
+      backdrop-filter: blur(6px);
+      z-index: 999200;
     }
     .overlay.show{ display:flex; }
 
     .modal{
       position: fixed;
-      left: 50%;
-      top: 64px;
-      transform: translateX(-50%);
-      width: min(1140px, calc(100vw - 32px));
-      max-width: calc(100vw - 22px);
-      height: min(840px, calc(100vh - 90px));
-      max-height: calc(100vh - 90px);
-      background: rgba(14,22,48,.92);
-      border: 1px solid rgba(42,58,106,.9);
-      border-radius: 18px;
-      padding: 12px;
-      box-shadow: 0 0 60px rgba(0,0,0,.45);
+      inset: 0;
+      left: 0; top: 0; right: 0; bottom: 0;
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      background: rgba(10,16,38,.99);
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      box-shadow: none;
       display: flex;
       flex-direction: column;
-      resize: both;
+      resize: none;
       overflow: hidden;
-      min-width: 620px;
-      min-height: 480px;
-      z-index: 9201;
+      min-width: 0;
+      min-height: 0;
+      z-index: 999201;
+      transform: none;
     }
 
     .modalBar{
@@ -12242,12 +12242,14 @@ HTML = r"""
       align-items:center;
       justify-content:space-between;
       gap:10px;
-      padding: 8px 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(42,58,106,.7);
-      background: rgba(18,28,56,.5);
-      cursor: move;
+      padding: 10px 18px;
+      border-radius: 0;
+      border: none;
+      border-bottom: 1px solid rgba(42,58,106,.55);
+      background: rgba(10,16,36,.98);
+      cursor: default;
       user-select:none;
+      flex-shrink:0;
     }
 
     .modalBarTitle{
@@ -12511,7 +12513,7 @@ HTML = r"""
 
 
 /* Mobile: make modal truly full-screen so it never covers seats awkwardly */
-.overlay{ align-items: flex-start; padding-top: 10px; background: rgba(2,6,16,.72); backdrop-filter: blur(6px); }
+.overlay{ align-items: stretch !important; padding:0 !important; background: rgba(4,8,24,.88); backdrop-filter: blur(6px); z-index:999200 !important; }
 #modalWin{
   position: fixed !important;
   left: 10px !important;
@@ -13154,7 +13156,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 @media (max-width: 640px){
   .card{ width:100% !important; max-width:100% !important; }
   .side{ width:100% !important; max-width:100% !important; }
-  #modalWin{ max-width: calc(100% - 16px) !important; }
+  #modalWin{ max-width:100vw !important; width:100vw !important; }
 }
 
 /* Restore + enhance gold trim on console buttons (login gate already has it) */
@@ -13309,22 +13311,27 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
 
 /* ===== Full-workspace app windows ===== */
-#overlay{ align-items:stretch !important; justify-content:stretch !important; padding:0 !important; }
+#overlay{
+  position:fixed !important; inset:0 !important;
+  z-index:999200 !important;
+  align-items:stretch !important; justify-content:stretch !important; padding:0 !important;
+}
 #modalWin{
-  width:100% !important;
-  height:100% !important;
-  max-width:none !important;
-  max-height:none !important;
+  position:fixed !important;
+  width:100vw !important;
+  height:100vh !important;
+  max-width:100vw !important;
+  max-height:100vh !important;
   inset:0 !important;
-  left:0 !important;
-  top:0 !important;
-  right:0 !important;
-  bottom:0 !important;
+  left:0 !important; top:0 !important; right:0 !important; bottom:0 !important;
   transform:none !important;
   border-radius:0 !important;
   resize:none !important;
+  z-index:999201 !important;
+  min-width:0 !important; min-height:0 !important;
+  border:none !important;
 }
-#modalScroll{ height:calc(100vh - 64px) !important; max-height:none !important; }
+#modalScroll{ height:calc(100vh - 52px) !important; max-height:none !important; overflow-y:auto !important; flex:1 !important; }
 /* Bigger form fields in modals on mobile */
 #modalWin input, #modalWin textarea, #modalWin select{
   font-size:16px !important; padding:12px 14px !important;
@@ -16379,12 +16386,17 @@ if (typeof window.showToast !== "function") {
 
 function applyModalPos(){
       const win = $("modalWin"); if(!win) return;
-      win.style.cssText = ["position:fixed","top:0","left:0","right:0","bottom:0",
+      win.style.cssText = [
+        "position:fixed","top:0","left:0","right:0","bottom:0",
         "width:100vw","height:100vh","max-width:100vw","max-height:100vh",
-        "border-radius:0","transform:none","resize:none","margin:0","padding:0"
+        "border-radius:0","transform:none","resize:none","margin:0","padding:0",
+        "z-index:999201","border:none","min-width:0","min-height:0"
       ].join("!important;")+"!important";
+      // Also boost the overlay itself
+      const ov = $("overlay");
+      if(ov){ ov.style.cssText = "position:fixed!important;inset:0!important;z-index:999200!important;display:flex!important;align-items:stretch!important;justify-content:stretch!important;padding:0!important;background:rgba(4,8,24,.88);backdrop-filter:blur(6px);"; }
       const sc=$("modalScroll");
-      if(sc){sc.style.height="calc(100vh - 52px)";sc.style.maxHeight="none";sc.style.overflowY="auto";}
+      if(sc){sc.style.cssText="height:calc(100vh - 52px)!important;max-height:none!important;overflow-y:auto!important;"}
     }
 
 
@@ -16555,7 +16567,8 @@ window.showModal = function showModal(title, body, imgUrl){
     function hideModal(){
       try{ document.body.style.overflow = ""; }catch(_){ }
 
-      $("overlay").classList.remove("show");
+      const _ov = $("overlay");
+      if(_ov){ _ov.classList.remove("show"); _ov.style.cssText = ""; }
       if(assemblyPulseActive){
         assemblyPulseActive = false;
         updateTablePulseFromStatuses();
