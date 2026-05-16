@@ -4263,6 +4263,15 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Simply acknowledge the request enthusiastically and describe what you will create.\n"
     )
 
+    visual_rules = (
+        "ANIMATION AND VISUAL CREATOR CAPABILITY: "
+        "You CAN create live animations, slideshows, carousels, presentations, and interactive visuals. "
+        "The system detects these requests and renders them live in the chat as a working interactive preview. "
+        "NEVER say you cannot create animations. NEVER suggest After Effects, Canva, or external tools. "
+        "NEVER say animation requires specialized software. "
+        "You have full animation capability built into Simply Agentic AI.\n"
+    )
+
     _op_name_for_email = (_load_operator_profile(
         (lambda: _get_session_username())() if callable(_get_session_username) else "anon"
     ) or {}).get("display_name") or "Operator"
@@ -4392,6 +4401,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "No em dashes.\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
+        f"{visual_rules}\n"
         f"{email_rules}\n"
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
