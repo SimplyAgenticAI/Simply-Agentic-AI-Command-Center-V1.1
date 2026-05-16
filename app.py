@@ -12768,8 +12768,8 @@ HTML = r"""
     display:flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 6px !important;
-    padding: 6px 10px !important;
+    gap: 10px !important;
+    padding: 8px 12px !important;
     /* CRITICAL: kill the desktop fixed height so seats don't overflow into underTable */
     height: auto !important;
     min-height: 0 !important;
@@ -12811,37 +12811,37 @@ HTML = r"""
     width: 100% !important;
     max-width: 100% !important;
     height: auto !important;
-    min-height: 56px !important;
+    min-height: 76px !important;
     margin: 0 !important;
     overflow: hidden !important;
     isolation: isolate !important;
     background: rgba(14,22,48,.98) !important;
     box-sizing: border-box !important;
-    border-radius: 12px !important;
-    padding: 9px 14px !important;
+    border-radius: 14px !important;
+    padding: 14px 16px !important;
     cursor: pointer !important;
   }
-  /* Seat avatar — slightly smaller to save vertical space */
+  /* Seat avatar bigger on mobile for easier tapping */
   .seat .seatAvatar{
-    width: 38px !important;
-    height: 38px !important;
-    font-size: 16px !important;
-    border-radius: 10px !important;
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 20px !important;
+    border-radius: 12px !important;
     flex-shrink: 0 !important;
   }
-  /* Seat name — trim just slightly, still very readable */
+  /* Seat name bigger on mobile */
   .seat .seatName{
-    font-size: 15px !important;
+    font-size: 17px !important;
     font-weight: 800 !important;
   }
-  /* Seat role/subtitle */
+  /* Seat role/subtitle readable size */
   .seat .seatRole{
-    font-size: 12px !important;
-    margin-top: 1px !important;
+    font-size: 13px !important;
+    margin-top: 2px !important;
   }
   .seat .seatStatus{
-    font-size: 11px !important;
-    margin-top: 2px !important;
+    font-size: 13px !important;
+    margin-top: 4px !important;
   }
   /* Active seat highlight — must be visible on mobile */
   .seat.active{
@@ -12854,7 +12854,7 @@ HTML = r"""
   .opText{ min-height: 72px; }
 
   /* Avoid the bottom mobile bar covering content */
-  .container{ padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important; }
+  .container{ padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important; }
 
   /* ── MOBILE CHAT PANEL FIX ──────────────────────────────────────────
      The .sideCard has an inline style height:calc(100svh - 80px) which
