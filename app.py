@@ -35353,56 +35353,41 @@ def api_visual_creator():
         "You are an expert HTML/CSS/JavaScript developer who creates stunning, self-contained "
         "interactive web animations. You ONLY output a complete, valid HTML file — nothing else. "
         "No explanation, no markdown, no code fences. Just the raw HTML starting with <!DOCTYPE html>. "
-        "Requirements:
-"
-        "- Fully self-contained: all CSS and JS inline, no external dependencies except Google Fonts
-"
-        "- Works perfectly inside an iframe with no interaction with the parent page
-"
-        "- Smooth, professional animations using CSS transitions and keyframes
-"
-        "- Mobile responsive
-"
-        "- Beautiful typography and spacing
-"
-        "- Interactive where appropriate (clickable navigation, hover effects)
-"
-        "- The output must be a REAL working visual, not a placeholder"
+        "Requirements: "
+        "1) Fully self-contained: all CSS and JS inline, no external dependencies except Google Fonts. "
+        "2) Works perfectly inside an iframe with no interaction with the parent page. "
+        "3) Smooth, professional animations using CSS transitions and keyframes. "
+        "4) Mobile responsive. "
+        "5) Beautiful typography and spacing. "
+        "6) Interactive where appropriate (clickable navigation, hover effects). "
+        "7) The output must be a REAL working visual, not a placeholder."
     )
 
     brand_note = f" Brand name: {brand}." if brand else ""
     user_prompt = (
-        f"Create a {vtype} with a {theme} color theme.{brand_note}
-"
-        f"Description: {prompt}
-
-"
+        f"Create a {vtype} with a {theme} color theme.{brand_note} "
+        f"Description: {prompt} "
         f"Output ONLY the complete HTML file. No explanation. Start with <!DOCTYPE html>."
     )
 
     try:
         html = _crm_llm_or_fallback(system, user_prompt, "")
-        # Strip any accidental markdown fences
         html = html.strip()
         if html.startswith("```"):
-            lines = html.split("
-")
+            lines = html.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
-            html = "
-".join(lines).strip()
+            html = "\n".join(lines).strip()
         if not html.startswith("<!"):
-            # Try to find the doctype
-            idx = html.find("<!DOCTYPE")
-            if idx == -1:
-                idx = html.find("<html")
-            if idx != -1:
-                html = html[idx:]
+            idx2 = html.find("<!DOCTYPE")
+            if idx2 == -1:
+                idx2 = html.find("<html")
+            if idx2 != -1:
+                html = html[idx2:]
         if not html:
             return jsonify({"ok": False, "error": "Generation produced no output"}), 500
         return jsonify({"ok": True, "html": html})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
-
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
