@@ -13311,9 +13311,19 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 
 
 /* ===== Full-workspace app windows ===== */
+/* When any modal is open, hide the side panel and mobile strip so nothing bleeds through */
+body.modal-open .side,
+body.modal-open #mobStrip,
+body.modal-open #mobFullChat {
+  display:none !important;
+  visibility:hidden !important;
+  pointer-events:none !important;
+}
+body.modal-open { overflow:hidden !important; }
+
 #overlay{
   position:fixed !important; inset:0 !important;
-  z-index:999200 !important;
+  z-index:999900 !important;
   align-items:stretch !important; justify-content:stretch !important; padding:0 !important;
 }
 #modalWin{
@@ -16385,18 +16395,26 @@ if (typeof window.showToast !== "function") {
     }
 
 function applyModalPos(){
+      const ov = $("overlay"); if(!ov) return;
+      // Move overlay to direct body child so it escapes all stacking contexts
+      if(ov.parentNode !== document.body) document.body.appendChild(ov);
+      ov.style.cssText = [
+        "position:fixed","inset:0","top:0","left:0","right:0","bottom:0",
+        "width:100vw","height:100dvh","display:flex","align-items:stretch",
+        "justify-content:stretch","padding:0","z-index:999900",
+        "background:rgba(4,8,24,.96)","backdrop-filter:blur(4px)"
+      ].join("!important;")+"!important";
       const win = $("modalWin"); if(!win) return;
       win.style.cssText = [
-        "position:fixed","top:0","left:0","right:0","bottom:0",
-        "width:100vw","height:100vh","max-width:100vw","max-height:100vh",
+        "position:relative","top:auto","left:auto","right:auto","bottom:auto",
+        "width:100%","height:100%","max-width:100%","max-height:100%",
         "border-radius:0","transform:none","resize:none","margin:0","padding:0",
-        "z-index:999201","border:none","min-width:0","min-height:0"
+        "z-index:1","border:none","min-width:0","min-height:0",
+        "display:flex","flex-direction:column","background:rgba(10,16,38,.99)"
       ].join("!important;")+"!important";
-      // Also boost the overlay itself
-      const ov = $("overlay");
-      if(ov){ ov.style.cssText = "position:fixed!important;inset:0!important;z-index:999200!important;display:flex!important;align-items:stretch!important;justify-content:stretch!important;padding:0!important;background:rgba(4,8,24,.88);backdrop-filter:blur(6px);"; }
       const sc=$("modalScroll");
-      if(sc){sc.style.cssText="height:calc(100vh - 52px)!important;max-height:none!important;overflow-y:auto!important;"}
+      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;"}
+      document.body.classList.add('modal-open');
     }
 
 
@@ -16468,6 +16486,8 @@ window.showModal = function showModal(title, body, imgUrl){
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
+      document.body.classList.add('modal-open');
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
 
@@ -16487,6 +16507,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
 
@@ -16507,6 +16528,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
 
@@ -16536,6 +16558,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("minModal").style.display = "inline-block";
       $("restoreModal").style.display = "none";
 
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
 
@@ -16566,9 +16589,15 @@ window.showModal = function showModal(title, body, imgUrl){
 
     function hideModal(){
       try{ document.body.style.overflow = ""; }catch(_){ }
+      document.body.classList.remove('modal-open');
 
       const _ov = $("overlay");
-      if(_ov){ _ov.classList.remove("show"); _ov.style.cssText = ""; }
+      if(_ov){
+        _ov.classList.remove("show");
+        _ov.style.cssText = "";
+        // Move overlay back to its original location if needed
+        // (just hiding it is enough — body.appendChild already set)
+      }
       if(assemblyPulseActive){
         assemblyPulseActive = false;
         updateTablePulseFromStatuses();
@@ -19594,6 +19623,7 @@ Body: ${body ? "[present]" : "[empty]"}
       hideAllModalForms();
       $("modalBody").style.display = "block";
       $("modalBody").innerText = "";
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
       const modalMinimizedEl = $("modalWin");
@@ -19750,6 +19780,7 @@ Challenge weak assumptions. Surface risks.`;
       const plForm = $("promptLibraryForm");
       plForm.style.display = "block";
       plForm.style.height   = "100%";
+      document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
       const sc = $("modalScroll");
@@ -25235,7 +25266,7 @@ function openClientsPanel(){
   if($("modalTitle")) $("modalTitle").innerText = "Client Memory Profiles";
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("clientsForm")) $("clientsForm").style.display = "block";
-  if($("overlay")) $("overlay").classList.add("show");
+  document.body.classList.add('modal-open'); if($("overlay")) $("overlay").classList.add("show"); applyModalPos();
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
   loadClients();
 }
@@ -25345,7 +25376,7 @@ function openApiKeyHelp(){
   if($("modalTitle")) $("modalTitle").innerText = "How to get and set your OpenAI API key";
   if($("modalBody")) $("modalBody").style.display = "none";
   if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "block";
-  if($("overlay")) $("overlay").classList.add("show");
+  document.body.classList.add('modal-open'); if($("overlay")) $("overlay").classList.add("show"); applyModalPos();
   if(typeof applyModalPos === "function") applyModalPos();
   const sc = $("modalScroll"); if(sc) sc.scrollTop = 0;
 }
