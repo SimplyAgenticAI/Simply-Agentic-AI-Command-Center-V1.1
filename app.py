@@ -17326,14 +17326,25 @@ function makeSeat(defn, idx, totalSeats){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else {
+        seat.style.position = "absolute";
         const cardW = 118, cardH = 150;
-        const cx = wrapRect.width / 2;
-        const cy = wrapRect.height / 2;
-        const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.35;
-        const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
-        seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
-        seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
+        function _posSeat(){
+          const r = wrap.getBoundingClientRect();
+          const w = r.width || wrap.offsetWidth || 600;
+          const h = r.height || wrap.offsetHeight || 520;
+          const cx = w / 2;
+          const cy = h / 2;
+          const rx = w * 0.43;
+          const ry = h * 0.35;
+          const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
+          seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
+          seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
+        }
+        if(wrap.offsetWidth > 0){
+          _posSeat();
+        } else {
+          requestAnimationFrame(function(){ requestAnimationFrame(_posSeat); });
+        }
       }
 
       // ── Click to select (no drag) ──
@@ -17520,14 +17531,28 @@ function makeSeat(defn, idx, totalSeats){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else {
+        // Must be position:absolute for left/top to work on the ellipse
+        seat.style.position = "absolute";
         const cardW = 118, cardH = 150;
-        const cx = wrapRect.width / 2;
-        const cy = wrapRect.height / 2;
-        const rx = wrapRect.width  * 0.43;
-        const ry = wrapRect.height * 0.35;
-        const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
-        seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
-        seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
+        // If wrap hasn't been laid out yet (width=0), defer positioning
+        function _positionOpSeat(){
+          const r = wrap.getBoundingClientRect();
+          const w = r.width || wrap.offsetWidth || 600;
+          const h = r.height || wrap.offsetHeight || 520;
+          const cx = w / 2;
+          const cy = h / 2;
+          const rx = w * 0.43;
+          const ry = h * 0.35;
+          const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
+          seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
+          seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
+        }
+        if(wrap.offsetWidth > 0){
+          _positionOpSeat();
+        } else {
+          // Layout not ready — position after paint
+          requestAnimationFrame(function(){ requestAnimationFrame(_positionOpSeat); });
+        }
       }
 
       // Click → open profile modal
