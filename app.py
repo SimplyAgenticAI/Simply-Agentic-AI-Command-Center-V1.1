@@ -16279,7 +16279,10 @@ if (typeof window.showToast !== "function") {
     // rx = half the horizontal radius, ry = half the vertical radius
     // Operator at i=0 (12 o'clock), teammates at i=1..n going clockwise.
     function computeEllipsePos(i, n, cx, cy, rx, ry){
-      const deg = -90 + (360 / n) * i;
+      // Always use a fixed 12-slot grid so positions never shift when teammates are added.
+      // Slot 0 = Operator (12 o'clock). Teammates fill slots 1-11 in fixed order.
+      const FIXED_SLOTS = 12;
+      const deg = -90 + (360 / FIXED_SLOTS) * i;
       const rad = deg * Math.PI / 180;
       return {
         cx: cx + rx * Math.cos(rad),
@@ -17336,7 +17339,7 @@ function makeSeat(defn, idx, totalSeats){
           const cy = h / 2;
           const rx = w * 0.43;
           const ry = h * 0.35;
-          const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
+          const pos = computeEllipsePos(idx, 12, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
         }
@@ -17543,7 +17546,7 @@ function makeSeat(defn, idx, totalSeats){
           const cy = h / 2;
           const rx = w * 0.43;
           const ry = h * 0.35;
-          const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
+          const pos = computeEllipsePos(0, 12, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
         }
