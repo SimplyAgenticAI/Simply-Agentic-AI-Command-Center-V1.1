@@ -17390,7 +17390,8 @@ function makeSeat(defn, idx, totalSeats){
       //   1. Inline style override on the container + stage + each seat
       //   2. MutationObserver that re-fires on every future DOM change
       //   3. Periodic RAF loop for the first 3 s after render (catches async JS)
-      if(window.innerWidth <= 960){
+      // Mobile-only flatten: only run on true mobile screens (≤640px)
+      if(window.innerWidth <= 640){
         function _phoneFlatten(root){
           if(!root) return;
           // container
@@ -17408,8 +17409,9 @@ function makeSeat(defn, idx, totalSeats){
               "width:100%","height:auto"
             ].join("!important;") + "!important;";
           }
-          // seats
+          // seats — but NEVER touch the operator seat; its positioning is always set by makeOperatorSeat
           Array.from(root.querySelectorAll(".seat")).forEach(function(s){
+            if(s.classList.contains("seatOperator")) return; // operator manages its own positioning
             s.style.cssText = [
               "position:relative","left:auto","top:auto","right:auto","bottom:auto",
               "transform:none","width:100%","max-width:100%",
