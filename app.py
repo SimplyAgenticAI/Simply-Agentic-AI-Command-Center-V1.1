@@ -15285,7 +15285,12 @@ label         { font-size: 14px !important; }
             <input id="vcBrand" type="text" placeholder="e.g. Simply Agentic AI" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
           </div>
 
-          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;">✨ Generate</button>
+          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">✨ Generate</button>
+
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:10px;">
+            <div style="font-size:14px;flex-shrink:0;">🔑</div>
+            <div style="font-size:11px;color:#94a3b8;line-height:1.4;">Requires your <strong style="color:#c4b5fd;">Anthropic API key</strong> — add it in <span onclick="closeVisualCreatorModal();setTimeout(function(){var b=document.getElementById('settingsBtn');if(b)b.click();},300);" style="color:#7c3aed;cursor:pointer;text-decoration:underline;">Settings → API Keys</span></div>
+          </div>
 
           <div id="vcStatus" style="text-align:center;font-size:12px;color:#64748b;min-height:18px;"></div>
         </div>
@@ -35350,45 +35355,82 @@ def api_visual_creator():
     if not prompt:
         return jsonify({"ok": False, "error": "Prompt is required"}), 400
 
+    # Visual Creator requires the user's own Anthropic API key
+    claude_key = ""
+    try:
+        settings = (u.get("settings") or {})
+        claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
+    except Exception:
+        pass
+
+    if not claude_key or not _anthropic_sdk:
+        return jsonify({
+            "ok": False,
+            "error": "Visual Creator requires an Anthropic API key. Go to Settings → API Keys and add your Anthropic key (sk-ant-...) to use this feature."
+        }), 400
+
+    brand_note = f" Brand/business name: {brand}." if brand else ""
+
     system = (
-        "You are an expert HTML/CSS/JavaScript developer who creates stunning, self-contained "
-        "interactive web animations. You ONLY output a complete, valid HTML file — nothing else. "
-        "No explanation, no markdown, no code fences. Just the raw HTML starting with <!DOCTYPE html>. "
-        "Requirements: "
-        "1) Fully self-contained: all CSS and JS inline, no external dependencies except Google Fonts. "
-        "2) Works perfectly inside an iframe with no interaction with the parent page. "
-        "3) Smooth, professional animations using CSS transitions and keyframes. "
-        "4) Mobile responsive. "
-        "5) Beautiful typography and spacing. "
-        "6) Interactive where appropriate (clickable navigation, hover effects). "
-        "7) The output must be a REAL working visual, not a placeholder."
+        "You are an elite creative developer who builds stunning, self-contained interactive HTML experiences. "
+        "Your output is ALWAYS a single complete HTML file — no explanation, no markdown fences, no commentary. "
+        "Start directly with <!DOCTYPE html>. "
+        "Your work is visually exceptional: beautiful typography, smooth animations, perfect spacing, rich color. "
+        "Every pixel matters. You write real CSS animations with @keyframes, real JS interactivity, real polish. "
+        "Rules: "
+        "(1) Self-contained — all CSS/JS inline, only Google Fonts allowed as external resource. "
+        "(2) No placeholders — write every word of copy, every color, every animation fully. "
+        "(3) Interactive — buttons work, slides advance, carousels scroll, counters count. "
+        "(4) Responsive — looks great at any width. "
+        "(5) Production quality — this could ship to real users right now. "
+        "Dark themes use deep navy/purple backgrounds (#07091a, #0e1238, #1a0a3e) with vibrant accents. "
+        "Light themes use clean white/gray with bold typography. "
+        "Animations are smooth (ease, cubic-bezier), not janky. "
+        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
     )
 
-    brand_note = f" Brand name: {brand}." if brand else ""
-    user_prompt = (
-        f"Create a {vtype} with a {theme} color theme.{brand_note} "
-        f"Description: {prompt} "
-        f"Output ONLY the complete HTML file. No explanation. Start with <!DOCTYPE html>."
+    user_msg = (
+        f"Create a {vtype}.{brand_note} "
+        f"Theme: {theme}. "
+        f"Request: {prompt} "
+        f"Make it genuinely beautiful and impressive. Real copy, real animations, fully interactive. "
+        f"Output only the HTML file starting with <!DOCTYPE html>."
     )
 
     try:
-        html = _crm_llm_or_fallback(system, user_prompt, "")
-        html = html.strip()
+        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
+        resp = cl.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=8000,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            temperature=1.0,
+        )
+        html = (resp.content[0].text or "").strip()
+
+        # Strip accidental markdown fences
         if html.startswith("```"):
             lines = html.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             html = "\n".join(lines).strip()
-        if not html.startswith("<!"):
-            idx2 = html.find("<!DOCTYPE")
-            if idx2 == -1:
-                idx2 = html.find("<html")
-            if idx2 != -1:
-                html = html[idx2:]
-        if not html:
+
+        # Find doctype start
+        if not html.lower().startswith("<!doctype") and not html.startswith("<html"):
+            for marker in ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]:
+                idx2 = html.find(marker)
+                if idx2 != -1:
+                    html = html[idx2:]
+                    break
+
+        if len(html) < 100:
             return jsonify({"ok": False, "error": "Generation produced no output"}), 500
+
         return jsonify({"ok": True, "html": html})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        err = str(e)
+        if "401" in err or "auth" in err.lower() or "api_key" in err.lower():
+            err = "Invalid Anthropic API key. Check your key in Settings → API Keys."
+        return jsonify({"ok": False, "error": err}), 500
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
