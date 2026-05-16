@@ -12210,7 +12210,7 @@ HTML = r"""
       padding-top: 68px;
       background: rgba(20,30,60,.65);
       backdrop-filter: blur(8px);
-      z-index: 80;
+      z-index: 9200;
     }
     .overlay.show{ display:flex; }
 
@@ -12234,7 +12234,7 @@ HTML = r"""
       overflow: hidden;
       min-width: 620px;
       min-height: 480px;
-      z-index: 90;
+      z-index: 9201;
     }
 
     .modalBar{
@@ -31480,7 +31480,8 @@ document.addEventListener('click',e=>{
 @media(max-width:960px){
 
   /* Silence every old mobile rule that might fight us */
-  #mobStrip{ display:none!important; }
+  #mobStrip,#mobileBar,.mobileBar,#mobileDrawerOverlay,
+  #saBottomSheet,#saSheetBackdrop,.saNavBar,.topbar{ display:none!important; }
 
   /* Kill desktop layout chrome */
   .side,.sideCard,.stage>.side,
@@ -31522,7 +31523,7 @@ document.addEventListener('click',e=>{
      TOP BAR  (shared between both views)
   ══════════════════════════════════════ */
   #m13TopBar{
-    position:fixed; top:0; left:0; right:0; z-index:900;
+    position:fixed; top:0; left:0; right:0; z-index:9100;
     height:calc(env(safe-area-inset-top,0px) + 52px);
     padding-top:env(safe-area-inset-top,0px);
     background:rgba(8,12,28,.98);
@@ -31585,7 +31586,7 @@ document.addEventListener('click',e=>{
   #m13NavRow{
     position:fixed;
     top:calc(env(safe-area-inset-top,0px) + 52px);
-    left:0; right:0; z-index:899;
+    left:0; right:0; z-index:9099;
     background:rgba(8,12,28,.97);
     border-bottom:1px solid rgba(42,58,106,.4);
     display:flex; gap:6px; overflow-x:auto;
@@ -31614,7 +31615,7 @@ document.addEventListener('click',e=>{
   #m13TeamView{
     position:fixed;
     top:calc(env(safe-area-inset-top,0px) + 52px + 44px);
-    bottom:0; left:0; right:0; z-index:800;
+    bottom:0; left:0; right:0; z-index:9098;
     overflow-y:auto; -webkit-overflow-scrolling:touch;
     padding:10px 12px calc(var(--mob-bot) + 20px);
     display:flex; flex-direction:column; gap:8px;
@@ -31681,7 +31682,7 @@ document.addEventListener('click',e=>{
   #m13ChatView{
     position:fixed;
     top:calc(env(safe-area-inset-top,0px) + 52px);
-    bottom:0; left:0; right:0; z-index:800;
+    bottom:0; left:0; right:0; z-index:9098;
     display:none; flex-direction:column;
     background:var(--bg,#090d1e);
     overflow:hidden;
