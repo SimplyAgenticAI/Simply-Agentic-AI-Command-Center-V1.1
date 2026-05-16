@@ -21183,18 +21183,72 @@ async function crmFetchTasks(){
     function crmRenderRichBlocks(text){
       const raw = (text||'').trim();
       if(!raw) return '<div class="tiny" style="opacity:.8;">Nothing generated yet.</div>';
-      const parts = raw.split(/\n{2,}/).map(x=>x.trim()).filter(Boolean);
-      return parts.map(part=>{
-        const lines = part.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-        const title = lines[0] || '';
-        const body = lines.slice(1);
-        const isBullet = body.every(x=>/^[\-\*\d]/.test(x));
-        return `<div class="diagCard" style="padding:10px; margin-bottom:10px;">
-          <div style="font-weight:800; margin-bottom:6px;">${escapeHtml(title)}</div>
-          ${isBullet ? `<ul style="margin:0 0 0 18px; padding:0;">${body.map(x=>`<li style="margin:6px 0;">${escapeHtml(x.replace(/^[\-\*\d\.\s]+/,''))}</li>`).join('')}</ul>` :
-          `<div style="white-space:pre-wrap; line-height:1.45;">${escapeHtml(body.join('\n'))}</div>`}
-        </div>`;
-      }).join('');
+
+      // Parse sections: headers are lines matching **Label:** or ### Label
+      const lines = raw.split(/\r?\n/);
+      const sections = [];
+      let cur = null;
+
+      for(let line of lines){
+        const trimmed = line.trim();
+        // Detect section header: **Label:** or **Label** alone or ### Label
+        const hdrMatch = trimmed.match(/^\*\*(.+?)\*\*:?\s*$/) || trimmed.match(/^#{1,3}\s+(.+)$/);
+        if(hdrMatch){
+          if(cur) sections.push(cur);
+          cur = { label: hdrMatch[1].replace(/:$/, '').trim(), lines: [] };
+        } else if(cur){
+          cur.lines.push(line);
+        } else {
+          // Content before any header — put in an unlabelled section
+          if(!sections.length) sections.push({ label: '', lines: [] });
+          sections[sections.length-1].lines.push(line);
+        }
+      }
+      if(cur) sections.push(cur);
+
+      // If no sections parsed (plain text), just show as one block
+      if(!sections.length || (sections.length === 1 && !sections[0].label)){
+        const plain = raw
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\n/g, '<br>');
+        return `<div class="saGenOutput" style="white-space:pre-wrap;line-height:1.7;font-size:14px;color:#e2e8f0;padding:0;">${plain}</div>`;
+      }
+
+      // Build a single unified card — no separate cards per section
+      let html = '<div class="saGenOutput">';
+
+      sections.forEach((sec, i) => {
+        const bodyText = sec.lines.join('\n').trim();
+        if(!bodyText && !sec.label) return;
+
+        if(sec.label){
+          // Section label as inline header with divider (except first)
+          if(i > 0) html += '<div style="height:1px;background:rgba(255,255,255,.07);margin:16px 0;"></div>';
+          html += `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#7c3aed;margin-bottom:8px;">${escapeHtml(sec.label)}</div>`;
+        }
+
+        if(bodyText){
+          // Render bullets as actual list items, otherwise as flowing text
+          const bodyLines = bodyText.split('\n').filter(l => l.trim());
+          const allBullets = bodyLines.length > 1 && bodyLines.every(l => /^[\-\*•]/.test(l.trim()));
+          if(allBullets){
+            html += `<ul style="margin:0 0 0 16px;padding:0;list-style:disc;">`;
+            bodyLines.forEach(l => {
+              const clean = l.trim().replace(/^[\-\*•]\s*/, '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+              html += `<li style="margin:5px 0;font-size:14px;line-height:1.6;color:#e2e8f0;">${clean}</li>`;
+            });
+            html += `</ul>`;
+          } else {
+            const rendered = bodyText
+              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+              .replace(/\n/g, '<br>');
+            html += `<div style="font-size:14px;line-height:1.7;color:#e2e8f0;">${rendered}</div>`;
+          }
+        }
+      });
+
+      html += '</div>';
+      return html;
     }
 
     function crmGuessEmails(name, domain){
@@ -21480,12 +21534,113 @@ async function crmFetchTasks(){
         if(!data.ok) throw new Error(data.error || 'Generation failed');
         const output = data.output || '';
         if(box){
-          box.innerHTML = crmRenderRichBlocks(output);
+          // Determine which tool is generating so we can show the right copy buttons
+          const isOfferBuilder = (endpoint||'').includes('offer_builder');
+          const isSocialStudio = (endpoint||'').includes('social_studio');
+
+          // Extract the short DM pitch (last section that contains "DM" or "pitch" or "message")
+          function extractSection(text, keywords){
+            const lines = text.split('\n');
+            let inSection = false, out = [];
+            for(let line of lines){
+              const t = line.trim();
+              const isHeader = /^\*\*(.+?)\*\*:?\s*$/.test(t) || /^#{1,3}\s/.test(t);
+              if(isHeader){
+                const hdr = t.toLowerCase();
+                inSection = keywords.some(k => hdr.includes(k));
+                continue;
+              }
+              if(inSection && t) out.push(t);
+            }
+            return out.join(' ').trim();
+          }
+
+          // Clean text for clipboard — strip markdown formatting
+          function cleanForCopy(text){
+            return text
+              .replace(/\*\*(.+?)\*\*/g, '$1')
+              .replace(/^#{1,3}\s+/gm, '')
+              .replace(/^[\-\*]\s+/gm, '• ')
+              .trim();
+          }
+
+          box.innerHTML = '';
+
+          // Output card
+          const card = document.createElement('div');
+          card.style.cssText = 'background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.6);border-radius:14px;padding:20px 22px;margin-bottom:14px;';
+          card.innerHTML = crmRenderRichBlocks(output);
+          box.appendChild(card);
+
           if(output.trim()){
+            // Action bar
+            const bar = document.createElement('div');
+            bar.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;';
+
+            function mkBtn(label, color, onClick){
+              const b = document.createElement('button');
+              b.className = 'btn';
+              b.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:600;padding:9px 14px;border-radius:10px;cursor:pointer;' + color;
+              b.innerText = label;
+              b.onclick = onClick;
+              return b;
+            }
+
+            function copyText(text, label){
+              navigator.clipboard.writeText(text).then(()=>{
+                showToast('✓ ' + label + ' copied to clipboard');
+              }).catch(()=>{
+                // fallback
+                const ta = document.createElement('textarea');
+                ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+                document.body.appendChild(ta); ta.select();
+                document.execCommand('copy'); document.body.removeChild(ta);
+                showToast('✓ ' + label + ' copied');
+              });
+            }
+
+            // Copy All button — always shown
+            bar.appendChild(mkBtn('📋 Copy all', 'background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;', ()=>{
+              copyText(cleanForCopy(output), 'Full content');
+            }));
+
+            if(isOfferBuilder){
+              // Copy Post version (full offer without DM pitch)
+              const dmText = extractSection(output, ['dm','pitch','message','direct']);
+              const postText = cleanForCopy(output.replace(/\.*(dm|pitch|direct message).*/i, '').trim());
+              bar.appendChild(mkBtn('📣 Copy for post', 'background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);color:#93c5fd;', ()=>{
+                copyText(postText || cleanForCopy(output), 'Post copy');
+              }));
+              if(dmText){
+                bar.appendChild(mkBtn('💬 Copy DM pitch', 'background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;', ()=>{
+                  copyText(cleanForCopy(dmText), 'DM pitch');
+                }));
+              }
+            }
+
+            if(isSocialStudio){
+              // Extract individual post types for social studio
+              const captionText = extractSection(output, ['caption','post','facebook','instagram']);
+              const hashText = extractSection(output, ['hashtag','tag']);
+              if(captionText){
+                bar.appendChild(mkBtn('📣 Copy caption', 'background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);color:#93c5fd;', ()=>{
+                  copyText(cleanForCopy(captionText), 'Caption');
+                }));
+              }
+              if(hashText){
+                bar.appendChild(mkBtn('# Copy hashtags', 'background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;', ()=>{
+                  copyText(cleanForCopy(hashText), 'Hashtags');
+                }));
+              }
+            }
+
+            box.appendChild(bar);
+
+            // Save to playbooks
             const saveBtn = document.createElement('button');
-            saveBtn.className = 'btn btnPrimary';
-            saveBtn.style.cssText = 'margin-top:14px;width:100%;font-size:13px;padding:8px 14px;';
-            saveBtn.innerText = 'Save to Playbooks';
+            saveBtn.className = 'btn';
+            saveBtn.style.cssText = 'width:100%;font-size:13px;padding:8px 14px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;';
+            saveBtn.innerText = '💾 Save to Playbooks';
             saveBtn.onclick = function(){ wcalSaveToPlaybooks(output, payload.goal || 'Playbook'); };
             box.appendChild(saveBtn);
           }
