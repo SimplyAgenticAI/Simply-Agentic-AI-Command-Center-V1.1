@@ -25334,17 +25334,6 @@ async function showImageLibraryModal(startTab){
       return;
     }
     const imgs = data.images || [];
-    const data = await res.json();
-    if(!data.ok){
-      showModal("Image Library", data.error || "Failed to load images");
-      return;
-    }
-    const imgs = data.images || [];
-    showModal("Image Library", "");
-    if($("calendarForm")) $("calendarForm").style.display = "none";
-    if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-    const body = $("modalBody");
-    if(!body) return;
 
     if(imgs.length === 0){
       pane.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:0.4;">🖼️</div><div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div><div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style=\'color:#c4b5fd;\'>\"Create a logo for my business\"</em> and the image will appear here.</div></div>';
