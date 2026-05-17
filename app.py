@@ -4272,6 +4272,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "and generates the visual before your response even runs — so just say you're on it.\n"
     )
 
+    web_search_rules = (
+        "WEB SEARCH CAPABILITY: When a user asks you to search the web, find current information, "
+        "or look something up, you MUST perform an actual web search using your built-in capability. "
+        "Never say you cannot browse the internet — you can and should search when asked. "
+        "Search thoroughly, then present your findings clearly with source names and key facts.\n"
+    )
+
     _op_name_for_email = (_load_operator_profile(
         (lambda: _get_session_username())() if callable(_get_session_username) else "anon"
     ) or {}).get("display_name") or "Operator"
@@ -4402,6 +4409,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{url_rules}\n"
         f"{image_rules}\n"
         f"{visual_rules}\n"
+        f"{web_search_rules}\n"
         f"{email_rules}\n"
         f"{lighting_block}"
         f"CORE FRAMEWORK:\n{framework}\n"
@@ -6902,6 +6910,10 @@ def _api_followup_impl(data):
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
+    # Auto-enable lighting_mode for explicit web search requests
+    _msg_lower = (msg or "").strip().lower()
+    if _msg_lower.startswith("search the web") or _msg_lower.startswith("search the internet"):
+        lighting_mode = True
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
@@ -12217,8 +12229,9 @@ HTML = r"""
     /* ===== END NAV BAR CSS ===== */
 
     .thread{
-      height: 40vh;
-      overflow:auto;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
       background: rgba(20,30,60,.65);
       border:1px solid rgba(42,58,106,.6);
       border-radius: 14px;
@@ -15424,184 +15437,100 @@ label         { font-size: 14px !important; }
 
   <!-- Social Studio -->
   <!-- ===== VISUAL CREATOR ===== -->
-  <!-- ===== VISUAL CREATOR v2 ===== -->
-  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.97);flex-direction:column;font-family:system-ui,sans-serif;">
+  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;">
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(8,12,32,.99);flex-shrink:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
       <div style="display:flex;align-items:center;gap:12px;">
-        <div style="font-size:18px;">✨</div>
+        <div style="font-size:20px;">✨</div>
         <div>
           <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Visual Creator</div>
-          <div style="font-size:11px;color:#475569;">Animations · Slideshows · Carousels · Presentations</div>
+          <div style="font-size:11px;color:#64748b;">Generate live animations, slideshows, carousels &amp; presentations</div>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;">
-        <div style="font-size:11px;color:#475569;padding:4px 10px;border-radius:20px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.2);">🔑 Requires Anthropic API key · <span onclick="closeVisualCreatorModal();setTimeout(function(){var b=document.getElementById('settingsBtn');if(b)b.click();},300);" style="color:#7c3aed;cursor:pointer;text-decoration:underline;">Add in Settings</span></div>
-        <button onclick="closeVisualCreatorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
-      </div>
+      <button onclick="closeVisualCreatorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
     </div>
 
-    <!-- Main layout -->
+    <!-- Body: two panes side by side on desktop, stacked on mobile -->
     <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
 
-      <!-- LEFT PANEL: Create & Controls -->
-      <div id="vcPromptPanel" style="width:320px;min-width:260px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.4);background:rgba(8,12,32,.99);overflow-y:auto;">
+      <!-- Left: prompt panel -->
+      <div id="vcPromptPanel" style="width:340px;min-width:280px;max-width:380px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
+        <div style="padding:18px 18px 0;">
+          <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">What do you want to create?</div>
+          <textarea id="vcPrompt" placeholder="e.g. An animated slideshow of 3 services with fade transitions and purple theme..." style="width:100%;height:110px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
 
-        <!-- Tabs: Create / Library -->
-        <div style="display:flex;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
-          <button id="vcTabCreate" onclick="vcSwitchTab('create')" style="flex:1;padding:11px;font-size:12px;font-weight:600;color:#c4b5fd;background:rgba(124,58,237,.12);border:none;border-bottom:2px solid #7c3aed;cursor:pointer;">✨ Create</button>
-          <button id="vcTabLibrary" onclick="vcSwitchTab('library')" style="flex:1;padding:11px;font-size:12px;font-weight:600;color:#475569;background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;">📚 Library</button>
-        </div>
+          <!-- Style presets -->
+          <div style="font-size:11px;font-weight:600;color:#64748b;margin:14px 0 8px;text-transform:uppercase;letter-spacing:.06em;">Quick starts</div>
+          <div id="vcPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;"></div>
 
-        <!-- CREATE TAB -->
-        <div id="vcPaneCreate" style="padding:16px;display:flex;flex-direction:column;gap:12px;">
-          <textarea id="vcPrompt" placeholder="Describe what you want to create... e.g. Animated slideshow of my 3 services with fade transitions" style="width:100%;height:90px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:none;font-family:inherit;outline:none;box-sizing:border-box;line-height:1.5;"></textarea>
-
-          <!-- Quick starts -->
-          <div>
-            <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Quick starts</div>
-            <div id="vcPresets" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
-          </div>
-
-          <!-- Options grid -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <!-- Options -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
             <div>
-              <div style="font-size:10px;color:#475569;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Theme</div>
-              <select id="vcTheme" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;cursor:pointer;">
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Theme</div>
+              <select id="vcTheme" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
                 <option value="dark purple">Dark purple</option>
                 <option value="dark blue">Dark blue</option>
                 <option value="light clean">Light clean</option>
                 <option value="dark minimal">Dark minimal</option>
                 <option value="vibrant gradient">Vibrant gradient</option>
-                <option value="neon cyberpunk">Neon cyberpunk</option>
-                <option value="elegant gold">Elegant gold</option>
               </select>
             </div>
             <div>
-              <div style="font-size:10px;color:#475569;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Format</div>
-              <select id="vcType" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-                <option value="animation">Animation</option>
+              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Type</div>
+              <select id="vcType" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
                 <option value="slideshow">Slideshow</option>
                 <option value="carousel">Carousel</option>
                 <option value="presentation">Presentation</option>
+                <option value="animation">Animation</option>
                 <option value="infographic">Infographic</option>
                 <option value="landing section">Landing section</option>
-                <option value="countdown timer">Countdown timer</option>
-                <option value="video intro">Video intro</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:10px;color:#475569;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Aspect ratio</div>
-              <select id="vcRatio" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-                <option value="16:9">16:9 — YouTube/Web</option>
-                <option value="9:16">9:16 — Stories/Reels</option>
-                <option value="1:1">1:1 — Instagram/FB</option>
-                <option value="4:5">4:5 — Feed post</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:10px;color:#475569;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Duration</div>
-              <select id="vcDuration" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-                <option value="8">8 seconds</option>
-                <option value="15">15 seconds</option>
-                <option value="30">30 seconds</option>
-                <option value="60">60 seconds</option>
               </select>
             </div>
           </div>
 
-          <div>
-            <div style="font-size:10px;color:#475569;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Brand name (optional)</div>
-            <input id="vcBrand" type="text" placeholder="e.g. Simply Agentic AI" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;outline:none;"/>
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Brand name (optional)</div>
+            <input id="vcBrand" type="text" placeholder="e.g. Simply Agentic AI" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
           </div>
 
-          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.85),rgba(91,33,182,.85));border:1px solid rgba(124,58,237,.5);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">✨ Generate</button>
-          <div id="vcStatus" style="text-align:center;font-size:12px;color:#ef4444;min-height:16px;"></div>
+          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">✨ Generate</button>
+
+          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:10px;">
+            <div style="font-size:14px;flex-shrink:0;">🔑</div>
+            <div style="font-size:11px;color:#94a3b8;line-height:1.4;">Requires your <strong style="color:#c4b5fd;">Anthropic API key</strong> — add it in <span onclick="closeVisualCreatorModal();setTimeout(function(){var b=document.getElementById('settingsBtn');if(b)b.click();},300);" style="color:#7c3aed;cursor:pointer;text-decoration:underline;">Settings → API Keys</span></div>
+          </div>
+
+          <div id="vcStatus" style="text-align:center;font-size:12px;color:#64748b;min-height:18px;"></div>
         </div>
 
-        <!-- LIBRARY TAB -->
-        <div id="vcPaneLibrary" style="padding:16px;display:none;flex-direction:column;gap:8px;">
-          <div style="font-size:11px;color:#475569;margin-bottom:4px;">Your saved visuals appear here.</div>
-          <div id="vcLibraryList"></div>
-        </div>
+        <!-- History -->
+        <div id="vcHistory" style="padding:14px 18px;border-top:1px solid rgba(42,58,106,.3);margin-top:12px;"></div>
       </div>
 
-      <!-- RIGHT PANEL: Preview + Edit -->
-      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#060c1e;position:relative;">
-
-        <!-- Empty state -->
+      <!-- Right: live preview iframe -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#060c1e;">
         <div id="vcEmptyState" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#334155;">
-          <div style="font-size:52px;opacity:.25;">✨</div>
-          <div style="font-size:16px;font-weight:600;color:#475569;">Describe what you want</div>
-          <div style="font-size:12px;color:#334155;text-align:center;max-width:300px;line-height:1.6;">Animations, slideshows, carousels, presentations — Claude generates it and it runs live right here.</div>
+          <div style="font-size:56px;opacity:.3;">✨</div>
+          <div style="font-size:16px;font-weight:600;">Describe what you want to create</div>
+          <div style="font-size:13px;opacity:.7;text-align:center;max-width:320px;line-height:1.6;">Slideshows, carousels, animated infographics, presentations — the AI writes the code and it runs live right here.</div>
         </div>
-
-        <!-- Loading state -->
-        <div id="vcLoadingState" style="flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
-          <div style="position:relative;width:64px;height:64px;">
-            <div style="position:absolute;inset:0;border-radius:50%;border:3px solid rgba(124,58,237,.15);border-top-color:#7c3aed;animation:vcSpin 0.8s linear infinite;"></div>
-            <div style="position:absolute;inset:8px;border-radius:50%;border:2px solid rgba(124,58,237,.1);border-top-color:#a78bfa;animation:vcSpin 1.2s linear infinite reverse;"></div>
-          </div>
-          <div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:500;letter-spacing:.02em;">Writing code...</div>
-          <div style="font-size:11px;color:#334155;">Hang tight — this may take a moment</div>
+        <div id="vcLoadingState" style="flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#7c3aed;">
+          <div id="vcSpinner" style="width:48px;height:48px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:vcSpin 0.9s linear infinite;"></div>
+          <div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:500;">Generating your visual...</div>
         </div>
+        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts allow-same-origin"></iframe>
 
-        <!-- Preview iframe -->
-        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts allow-same-origin" allow="autoplay"></iframe>
-
-        <!-- Edit overlay panel (slides in from bottom) -->
-        <div id="vcEditPanel" style="display:none;position:absolute;bottom:0;left:0;right:0;background:rgba(8,12,32,.97);border-top:1px solid rgba(124,58,237,.4);padding:14px 16px;z-index:10;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-            <div style="font-size:12px;font-weight:700;color:#c4b5fd;flex:1;">✏️ Edit / Remix</div>
-            <button onclick="vcHideEdit()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:16px;padding:0 4px;">✕</button>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <textarea id="vcEditPrompt" placeholder="Describe what to change... e.g. Make the text larger, change to blue theme, add a logo" style="flex:1;height:60px;background:rgba(14,22,48,.9);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;resize:none;font-family:inherit;outline:none;"></textarea>
-            <button onclick="vcApplyEdit()" id="vcEditBtn" style="padding:0 16px;border-radius:8px;background:rgba(124,58,237,.8);border:1px solid rgba(124,58,237,.5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">Apply</button>
-          </div>
-          <!-- Style quick-change buttons -->
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
-            <div style="font-size:10px;color:#475569;width:100%;margin-bottom:2px;text-transform:uppercase;font-weight:600;letter-spacing:.04em;">Quick changes</div>
-            <button onclick="vcQuickEdit('Change to dark purple theme')" class="vcQBtn">🟣 Dark purple</button>
-            <button onclick="vcQuickEdit('Change to vibrant gradient theme with bright colors')" class="vcQBtn">🌈 Vibrant</button>
-            <button onclick="vcQuickEdit('Change to clean white light theme')" class="vcQBtn">⬜ Light</button>
-            <button onclick="vcQuickEdit('Make all text larger and more readable')" class="vcQBtn">🔠 Bigger text</button>
-            <button onclick="vcQuickEdit('Speed up all animations to be twice as fast')" class="vcQBtn">⚡ Faster</button>
-            <button onclick="vcQuickEdit('Slow down all animations to be half as fast')" class="vcQBtn">🐢 Slower</button>
-            <button onclick="vcQuickEdit('Add smooth particle effects in the background')" class="vcQBtn">✨ Particles</button>
-            <button onclick="vcQuickEdit('Make it loop infinitely with seamless transitions')" class="vcQBtn">🔄 Loop</button>
-          </div>
-        </div>
-
-        <!-- Action bar -->
-        <div id="vcActionBar" style="display:none;padding:10px 14px;border-top:1px solid rgba(42,58,106,.4);background:rgba(8,12,32,.99);align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;">
-          <!-- Left: version nav -->
-          <div style="display:flex;align-items:center;gap:6px;margin-right:4px;">
-            <button onclick="vcVersionBack()" id="vcVerBack" title="Previous version" style="width:28px;height:28px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">‹</button>
-            <div id="vcVerLabel" style="font-size:10px;color:#475569;min-width:36px;text-align:center;">v1</div>
-            <button onclick="vcVersionFwd()" id="vcVerFwd" title="Next version" style="width:28px;height:28px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">›</button>
-          </div>
-          <!-- Action buttons -->
-          <button onclick="vcShowEdit()" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">✏️ Edit</button>
-          <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.5);color:#94a3b8;cursor:pointer;">↻ Redo</button>
-          <button onclick="vcSaveToLibrary()" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;cursor:pointer;">💾 Save</button>
-          <div style="flex:1;"></div>
-          <!-- Export group -->
-          <div style="display:flex;gap:6px;align-items:center;">
-            <div style="font-size:10px;color:#334155;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Export:</div>
-            <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;cursor:pointer;">⬇ HTML</button>
-            <button onclick="vcExportVideo()" id="vcVidBtn" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;cursor:pointer;">🎬 Video</button>
-            <button onclick="vcFullscreen()" style="font-size:12px;font-weight:600;padding:6px 12px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#64748b;cursor:pointer;">⛶</button>
-          </div>
+        <!-- Action bar below iframe -->
+        <div id="vcActionBar" style="display:none;padding:10px 16px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,16,36,.98);display:none;align-items:center;gap:10px;flex-shrink:0;">
+          <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">↻ Regenerate</button>
+          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ HTML</button>
+          <button onclick="vcDownloadVideo()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;cursor:pointer;">🎬 Video</button>
+          <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;">📋 Copy code</button>
         </div>
       </div>
     </div>
   </div>
-  <style>
-    @keyframes vcSpin{to{transform:rotate(360deg)}}
-    .vcQBtn{font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;white-space:nowrap;}
-    .vcQBtn:hover{background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.4);color:#c4b5fd;}
-  </style>
+  <style>@keyframes vcSpin{to{transform:rotate(360deg)}}</style>
 
   <div id="crmViewSocialStudio" style="display:none;">
     <div class="modalInner">
@@ -15957,11 +15886,11 @@ input[type="range"]::-moz-range-progress {
 .wcal-upcoming { font-size:11px; }
 .wcal-upcoming-item { padding:4px 0; border-bottom:1px solid rgba(42,58,106,.25); cursor:pointer; }
 .wcal-upcoming-item:hover { color:#c4b5fd; }
-.wcal-upcoming-item.overdue .wcal-upcoming-title { color:#fca5a5; }
-.wcal-upcoming-item.overdue .wcal-upcoming-time { color:rgba(252,165,165,.7); }
+.wcal-upcoming-item.overdue .wcal-upcoming-title { color:#e2e8f0; }
+.wcal-upcoming-item.overdue .wcal-upcoming-time { color:rgba(226,232,240,.7); }
 .wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
 .wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#f87171; line-height:1; pointer-events:none; }
+.wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#94a3b8; line-height:1; pointer-events:none; }
 .wcal-event[data-etype="task"].task-overdue:not(.is-done) { border-left-color:#f87171 !important; }
 /* Detail Panel (Motion-style right sidebar) */
 .wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
@@ -16474,14 +16403,7 @@ input[type="range"]::-moz-range-progress {
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
         </div>
-        <!-- Quick-action row -->
-        <div class="passRow" id="seatPassRow" style="margin:6px 0;flex-shrink:0;">
-          <button class="btn btnMini passBtn" id="passSeatPrompts" title="Open Prompt Library for this teammate" onclick="var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompts</button>
-          <button class="btn btnMini passBtn" id="passSeatWeb" title="Ask this teammate to search the web" onclick="var fm=document.getElementById('followMsg');if(fm){fm.value='Search the web for: ';fm.focus();fm.setSelectionRange(fm.value.length,fm.value.length);}">🔍 Web Search</button>
-          <button class="btn btnMini passBtn" id="passSeatSumm" title="Summarize conversation" onclick="var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
-          <button class="btn btnMini passBtn" id="passSeatDeep" title="Deep Dive — 3 rounds of self-critique" onclick="if(typeof _saOpenDeepDive==='function')_saOpenDeepDive();else{var b=document.getElementById('deepDiveBtn');if(b)b.click();}">🔬 Deep Dive</button>
-        </div>
-        <!-- Thread actions toolbar -->
+        <!-- Thread actions toolbar (hidden) -->
         <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
           <button class="btn btnMini" id="branchSnapshotBtn" title="Save a named snapshot of this conversation">🌿 Snapshot</button>
           <select id="branchSelector" title="Restore a saved snapshot" style="background:rgba(11,16,36,.9);color:var(--text);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:4px 7px;font-size:11px;max-width:130px;">
@@ -16491,31 +16413,34 @@ input[type="range"]::-moz-range-progress {
           <button class="btn btnMini" id="shareThreadBtn" title="Create read-only share link">🔗 Share</button>
           <span id="ragIndexStatus" class="sa-rag-pill" style="display:none;" title="Knowledge base active for this conversation">🔬 RAG</span>
         </div>
-        <!-- Thread scrolls -->
-        <div class="thread" id="thread" style="flex:1;height:auto;min-height:80px;overflow-y:auto;"></div>
-        <!-- Sticky input area -->
-        <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:10px;margin-top:8px;">
-          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:70px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
-          <div class="pillRow" style="margin-top:6px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <!-- Thread — flex:1 so it fills remaining space without external scroll -->
+        <div class="thread" id="thread" style="flex:1;min-height:0;overflow-y:auto;"></div>
+        <!-- Input always visible at bottom -->
+        <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
+          <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
+          <div class="pillRow" style="margin-top:5px;display:flex;align-items:center;gap:6px;">
             <input type="file" id="dmFiles" multiple style="display:none" />
-            <!-- + Attach overflow -->
             <div style="position:relative;display:inline-block;" id="dmAttachWrap">
-              <button class="btn btnMini" id="dmAttachBtn" onclick="saToggleDmAttach()" style="font-weight:700;font-size:13px;padding:4px 10px;" title="Attach files, screen, voice & more">+</button>
-              <div id="dmAttachDrop" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;width:185px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
-                <button id="pickDmFiles"      class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files</button>
-                <button id="screenDmBtn"      class="saMoreItem" style="color:#e2e8f0;">🖥 Share Screen</button>
+              <button class="btn btnMini" id="dmAttachBtn" onclick="saToggleDmAttach()" style="font-weight:700;font-size:15px;padding:3px 10px;line-height:1.4;" title="Actions">+</button>
+              <div id="dmAttachDrop" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;width:202px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
+                <button id="pickDmFiles"        class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files</button>
+                <button id="screenDmBtn"        class="saMoreItem" style="color:#e2e8f0;">🖥 Share Screen</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-                <button id="talkDmBtn"        class="saMoreItem" style="color:#93c5fd;">🔊 Speak once</button>
-                <button id="alwaysListenDmBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
+                <button id="talkDmBtn"          class="saMoreItem" style="color:#93c5fd;">🔊 Speak once</button>
+                <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-                <button id="deepDiveBtn"      class="saMoreItem" style="color:#fbbf24;display:none;" title="Deep Dive — 3 rounds of self-critique">🔬 Deep Dive</button>
-                <button id="streamToggleBtn"  class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
+                <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
+                <button id="passSeatWeb"        class="saMoreItem" style="color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
+                <button id="passSeatSumm"       class="saMoreItem" style="color:#86efac;" onclick="saToggleDmAttach();var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
+                <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+                <button id="deepDiveBtn"        class="saMoreItem" style="color:#fbbf24;display:none;">🔬 Deep Dive</button>
+                <button id="streamToggleBtn"    class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
               </div>
             </div>
             <button class="btn btnPrimary" id="sendFollow" style="flex:1;min-width:80px;justify-content:center;">Send ↵</button>
           </div>
-          <div id="dmAttachList" class="pillRow"></div>
-          <div class="tiny" id="micStatusDm" style="margin-top:4px;">Mic: idle</div>
+          <div id="dmAttachList" class="pillRow" style="margin-top:4px;"></div>
+          <div class="tiny" id="micStatusDm" style="margin-top:3px;">Mic: idle</div>
         </div>
       </div>
 
@@ -20769,76 +20694,48 @@ Challenge weak assumptions. Surface risks.`;
       showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
     }
 
-    // ===== VISUAL CREATOR v2 =====
+    // ===== VISUAL CREATOR =====
     var _vcCurrentHtml = '';
-    var _vcVersions = [];   // [{prompt, html, ts}] — version history for this session
-    var _vcVerIdx = -1;     // current position in _vcVersions
-    var _vcLibrary = [];    // saved visuals (persisted in localStorage)
-    var _vcOriginalPrompt = ''; // prompt that started the current visual
+    var _vcHistory = [];
 
     var _vcPresets = [
-      {label:'3-slide intro', prompt:'A 3-slide animated presentation introducing my business with smooth fade transitions. Each slide has a bold title and 2-3 bullet points.'},
-      {label:'Services carousel', prompt:'An interactive carousel showing 4 services with click arrows to navigate. Each card has an icon, title, and short description.'},
-      {label:'Testimonials', prompt:'An animated testimonial slideshow cycling through 3 glowing client quote cards with auto-play and dot navigation.'},
-      {label:'Countdown timer', prompt:'A stylish animated countdown timer counting down 7 days with days, hours, minutes, seconds. Pulsing neon glow effect.'},
-      {label:'Pricing cards', prompt:'Three pricing tier cards (Starter, Growth, Pro) with feature lists, a highlighted recommended tier, and hover animations.'},
-      {label:'Stats showcase', prompt:'Four animated number counters that count up from 0: 500+ clients, 98% satisfaction, 10x ROI, 24/7 support.'},
-      {label:'Process steps', prompt:'An animated 4-step process with icons connected by a flowing animated line and step-by-step reveal.'},
-      {label:'Cinematic intro', prompt:'A cinematic full-screen animated intro with dramatic text reveal animations and particle effects, like a movie trailer title card.'},
-      {label:'Round table', prompt:'An animated visualization of 7 AI teammates assembled around a glowing digital round table, with beams of light connecting them as they collaborate.'},
-      {label:'Social proof wall', prompt:'An animated wall of floating testimonial cards with avatars, star ratings, and review text that drift and fade in.'},
+      {label:'3-slide intro', prompt:'A 3-slide animated presentation introducing my business with fade transitions. Each slide has a title and 2-3 bullet points.'},
+      {label:'Services carousel', prompt:'An interactive carousel showing 4 services. Each card has an icon, title, and short description. Click arrows to navigate.'},
+      {label:'Testimonials', prompt:'An animated testimonial slideshow cycling through 3 client quotes with auto-play and dot navigation.'},
+      {label:'Countdown timer', prompt:'A stylish animated countdown timer counting down 7 days with days, hours, minutes, seconds. Pulsing glow effect.'},
+      {label:'Pricing cards', prompt:'Three pricing tier cards (Starter, Growth, Pro) with feature lists and a highlighted recommended option. Hover animations.'},
+      {label:'Stats showcase', prompt:'Four animated number counters that count up from 0 to their values: 500+ clients, 98% satisfaction, 10x ROI, 24/7 support.'},
+      {label:'Process steps', prompt:'An animated step-by-step process showing 4 steps with icons, connected by a flowing animated line.'},
+      {label:'Video-style intro', prompt:'A cinematic full-screen animated intro with text reveal animations, like a movie trailer title card for my business.'},
     ];
-
-    // ── Load library from localStorage ──────────────────────────────────────
-    try{
-      var _saved = localStorage.getItem('vc_library_v1');
-      if(_saved) _vcLibrary = JSON.parse(_saved);
-    }catch(_){}
-
-    function _vcSaveLibraryLS(){
-      try{ localStorage.setItem('vc_library_v1', JSON.stringify(_vcLibrary)); }catch(_){}
-    }
 
     function showVisualCreatorModal(){
       var m = document.getElementById('visualCreatorModal');
       if(!m) return;
+      // Move to body so it escapes any stacking context and covers everything
       if(m.parentNode !== document.body) document.body.appendChild(m);
       m.style.display='flex';
-      // Render presets if first open
+      // Render presets
       var presetsEl = document.getElementById('vcPresets');
       if(presetsEl && !presetsEl.children.length){
         _vcPresets.forEach(function(p){
           var btn = document.createElement('button');
           btn.textContent = p.label;
-          btn.style.cssText = 'font-size:10px;padding:4px 9px;border-radius:20px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.25);color:#a78bfa;cursor:pointer;white-space:nowrap;';
-          btn.onmouseover=function(){btn.style.background='rgba(124,58,237,.22)';};
-          btn.onmouseout =function(){btn.style.background='rgba(124,58,237,.1)';};
-          btn.onclick=function(){
-            var ta=document.getElementById('vcPrompt');
-            if(ta){ta.value=p.prompt;ta.focus();}
-            vcSwitchTab('create');
+          btn.style.cssText = 'font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);color:#a78bfa;cursor:pointer;white-space:nowrap;';
+          btn.onmouseover = function(){ btn.style.background='rgba(124,58,237,.25)'; };
+          btn.onmouseout  = function(){ btn.style.background='rgba(124,58,237,.12)'; };
+          btn.onclick = function(){
+            var ta = document.getElementById('vcPrompt');
+            if(ta){ ta.value = p.prompt; ta.focus(); }
           };
           presetsEl.appendChild(btn);
         });
       }
-      vcRenderLibrary();
     }
 
     function closeVisualCreatorModal(){
       var m = document.getElementById('visualCreatorModal');
       if(m) m.style.display='none';
-    }
-
-    function vcSwitchTab(tab){
-      var tc=document.getElementById('vcTabCreate'), tl=document.getElementById('vcTabLibrary');
-      var pc=document.getElementById('vcPaneCreate'), pl=document.getElementById('vcPaneLibrary');
-      if(!tc||!tl||!pc||!pl) return;
-      var isCreate = tab==='create';
-      tc.style.cssText = 'flex:1;padding:11px;font-size:12px;font-weight:600;cursor:pointer;border:none;border-bottom:2px solid '+(isCreate?'#7c3aed':'transparent')+';color:'+(isCreate?'#c4b5fd':'#475569')+';background:'+(isCreate?'rgba(124,58,237,.12)':'transparent')+';';
-      tl.style.cssText = 'flex:1;padding:11px;font-size:12px;font-weight:600;cursor:pointer;border:none;border-bottom:2px solid '+(!isCreate?'#7c3aed':'transparent')+';color:'+(!isCreate?'#c4b5fd':'#475569')+';background:'+(!isCreate?'rgba(124,58,237,.12)':'transparent')+';';
-      pc.style.display = isCreate?'flex':'none';
-      pl.style.display = !isCreate?'flex':'none';
-      if(!isCreate) vcRenderLibrary();
     }
 
     function vcSetState(state){
@@ -20852,19 +20749,12 @@ Challenge weak assumptions. Surface risks.`;
       if(actBar) actBar.style.display   = state==='done'    ? 'flex' : 'none';
     }
 
-    async function vcGenerate(editContext){
+    async function vcGenerate(){
       var prompt = (document.getElementById('vcPrompt')||{}).value||'';
       var theme  = (document.getElementById('vcTheme')||{}).value||'dark purple';
-      var type   = (document.getElementById('vcType')||{}).value||'animation';
+      var type   = (document.getElementById('vcType')||{}).value||'slideshow';
       var brand  = (document.getElementById('vcBrand')||{}).value||'';
-      var ratio  = (document.getElementById('vcRatio')||{}).value||'16:9';
-      var dur    = (document.getElementById('vcDuration')||{}).value||'8';
       if(!prompt.trim()){ showToast('Describe what you want to create first'); return; }
-
-      _vcOriginalPrompt = prompt;
-
-      var fullPrompt = prompt;
-      if(editContext) fullPrompt = 'EXISTING VISUAL TO EDIT: ' + editContext + ' CHANGE REQUEST: ' + prompt;
 
       var btn = document.getElementById('vcGenBtn');
       var status = document.getElementById('vcStatus');
@@ -20872,30 +20762,31 @@ Challenge weak assumptions. Surface risks.`;
       if(status) status.textContent='';
       vcSetState('loading');
 
-      var msgs = ['Writing HTML...','Building animations...','Adding interactions...','Polishing the details...','Almost there...'];
+      var msgs = ['Writing HTML...','Building animations...','Adding interactions...','Rendering your visual...','Almost done...'];
       var mi=0, ticker=setInterval(function(){
         var el=document.getElementById('vcLoadingTxt');
         if(el) el.textContent=msgs[mi%msgs.length]; mi++;
-      },1600);
+      },1400);
 
       try{
         var res = await fetch('/api/visual_creator', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({prompt:fullPrompt, theme:theme, type:type, brand:brand, ratio:ratio, duration:dur})
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({prompt:prompt, theme:theme, type:type, brand:brand})
         });
         var data = await res.json();
         clearInterval(ticker);
         if(!data.ok) throw new Error(data.error||'Generation failed');
         _vcCurrentHtml = data.html || '';
-        // Push to version stack
-        _vcVersions.push({prompt:prompt, html:_vcCurrentHtml, ts:Date.now()});
-        _vcVerIdx = _vcVersions.length - 1;
-        vcUpdateVerNav();
         vcRenderFrame(_vcCurrentHtml);
+        // Add to history
+        _vcHistory.unshift({prompt:prompt.slice(0,60)+(prompt.length>60?'…':''), html:_vcCurrentHtml, ts:Date.now()});
+        if(_vcHistory.length>10) _vcHistory.pop();
+        vcRenderHistory();
         if(status) status.textContent='';
       }catch(e){
         clearInterval(ticker);
-        vcSetState(_vcCurrentHtml ? 'done' : 'empty');
+        vcSetState('empty');
         if(status) status.textContent = e.message||'Generation failed';
         showToast('Visual Creator: '+(e.message||'failed'));
       }finally{
@@ -20912,194 +20803,114 @@ Challenge weak assumptions. Surface risks.`;
 
     function vcRegenerate(){ vcGenerate(); }
 
-    // ── Version navigation ───────────────────────────────────────────────────
-    function vcUpdateVerNav(){
-      var lbl = document.getElementById('vcVerLabel');
-      var back = document.getElementById('vcVerBack');
-      var fwd  = document.getElementById('vcVerFwd');
-      if(lbl) lbl.textContent = 'v'+(_vcVerIdx+1);
-      if(back) back.disabled = _vcVerIdx <= 0;
-      if(fwd)  fwd.disabled  = _vcVerIdx >= _vcVersions.length-1;
-      if(back) back.style.opacity = _vcVerIdx <= 0 ? '0.3' : '1';
-      if(fwd)  fwd.style.opacity  = _vcVerIdx >= _vcVersions.length-1 ? '0.3' : '1';
-    }
-
-    function vcVersionBack(){
-      if(_vcVerIdx <= 0) return;
-      _vcVerIdx--;
-      _vcCurrentHtml = _vcVersions[_vcVerIdx].html;
-      vcRenderFrame(_vcCurrentHtml);
-      vcUpdateVerNav();
-      showToast('Restored v'+(_vcVerIdx+1));
-    }
-
-    function vcVersionFwd(){
-      if(_vcVerIdx >= _vcVersions.length-1) return;
-      _vcVerIdx++;
-      _vcCurrentHtml = _vcVersions[_vcVerIdx].html;
-      vcRenderFrame(_vcCurrentHtml);
-      vcUpdateVerNav();
-      showToast('Version v'+(_vcVerIdx+1));
-    }
-
-    // ── Edit / Remix ─────────────────────────────────────────────────────────
-    function vcShowEdit(){
-      var ep = document.getElementById('vcEditPanel');
-      if(ep){ ep.style.display='block'; document.getElementById('vcEditPrompt').focus(); }
-    }
-
-    function vcHideEdit(){
-      var ep = document.getElementById('vcEditPanel');
-      if(ep) ep.style.display='none';
-    }
-
-    async function vcApplyEdit(){
-      var editTa = document.getElementById('vcEditPrompt');
-      var editPrompt = editTa ? editTa.value.trim() : '';
-      if(!editPrompt){ showToast('Describe what to change'); return; }
-      // Update main prompt field with the edit instruction
-      var mainTa = document.getElementById('vcPrompt');
-      if(mainTa) mainTa.value = editPrompt;
-      vcHideEdit();
-      // Generate with current HTML as context
-      await vcGenerate(_vcCurrentHtml);
-      if(editTa) editTa.value='';
-    }
-
-    function vcQuickEdit(instruction){
-      var editTa = document.getElementById('vcEditPrompt');
-      if(editTa) editTa.value = instruction;
-      vcApplyEdit();
-    }
-
-    // ── Library ──────────────────────────────────────────────────────────────
-    function vcSaveToLibrary(){
-      if(!_vcCurrentHtml){ showToast('Nothing to save yet'); return; }
-      var prompt = _vcOriginalPrompt || 'Untitled visual';
-      var entry = {id: Date.now(), prompt:prompt.slice(0,80), html:_vcCurrentHtml, ts:Date.now()};
-      _vcLibrary.unshift(entry);
-      if(_vcLibrary.length>20) _vcLibrary.pop();
-      _vcSaveLibraryLS();
-      vcRenderLibrary();
-      showToast('Saved to library!');
-    }
-
-    function vcRenderLibrary(){
-      var el = document.getElementById('vcLibraryList');
-      if(!el) return;
-      el.innerHTML='';
-      if(!_vcLibrary.length){
-        el.innerHTML='<div style="font-size:12px;color:#334155;text-align:center;padding:24px 0;">No saved visuals yet.<br>Generate one and click 💾 Save.</div>';
-        return;
-      }
-      _vcLibrary.forEach(function(item){
-        var row = document.createElement('div');
-        row.style.cssText='display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(42,58,106,.4);background:rgba(14,22,48,.5);margin-bottom:7px;cursor:pointer;';
-        row.onmouseover=function(){row.style.background='rgba(124,58,237,.1)';};
-        row.onmouseout =function(){row.style.background='rgba(14,22,48,.5)';};
-        var info=document.createElement('div');
-        info.style.cssText='flex:1;min-width:0;';
-        info.innerHTML='<div style="font-size:12px;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(item.prompt)+'</div>'
-          +'<div style="font-size:10px;color:#475569;margin-top:2px;">'+new Date(item.ts).toLocaleDateString()+'</div>';
-        var del=document.createElement('button');
-        del.textContent='✕';
-        del.style.cssText='background:none;border:none;color:#475569;cursor:pointer;font-size:13px;padding:2px 5px;flex-shrink:0;';
-        del.onclick=function(e){
-          e.stopPropagation();
-          _vcLibrary=_vcLibrary.filter(function(x){return x.id!==item.id;});
-          _vcSaveLibraryLS(); vcRenderLibrary();
-        };
-        row.onclick=function(){
-          _vcCurrentHtml=item.html; _vcOriginalPrompt=item.prompt;
-          vcRenderFrame(item.html);
-          vcSwitchTab('create');
-          var mainTa=document.getElementById('vcPrompt');
-          if(mainTa) mainTa.value=item.prompt;
-        };
-        row.appendChild(info); row.appendChild(del); el.appendChild(row);
-      });
-    }
-
-    // ── Export ───────────────────────────────────────────────────────────────
     function vcDownload(){
-      if(!_vcCurrentHtml){ showToast('Nothing to download'); return; }
+      if(!_vcCurrentHtml) return;
       var a = document.createElement('a');
       a.href = 'data:text/html;charset=utf-8,'+encodeURIComponent(_vcCurrentHtml);
-      a.download = 'visual-'+Date.now()+'.html';
+      a.download = 'visual-'+ Date.now()+'.html';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       showToast('HTML downloaded!');
     }
 
-    function vcFullscreen(){
-      if(!_vcCurrentHtml){ showToast('Nothing to preview'); return; }
-      if(typeof window._saOpenVisualFullscreen === 'function'){
-        window._saOpenVisualFullscreen(_vcCurrentHtml);
-      }
-    }
-
-    function vcExportVideo(){
+    function vcDownloadVideo(){
       var frame = document.getElementById('vcFrame');
-      if(!frame||!_vcCurrentHtml){ showToast('Generate a visual first'); return; }
-      var btn = document.getElementById('vcVidBtn');
-      var dur = parseInt((document.getElementById('vcDuration')||{}).value||'8');
-
+      if(!frame || !_vcCurrentHtml){ showToast('Generate a visual first'); return; }
+      var btn = document.querySelector('[onclick="vcDownloadVideo()"]');
+      var orig = btn ? btn.textContent : '🎬 Video';
       try{
-        // Build recording script — split tags so browser parser doesn't terminate the outer script
-        var openTag  = '<'+'script>';
-        var closeTag = '<'+'/script>';
-        var recScript = openTag + '(function(){'
-          + 'var dur='+dur+'000;'
-          + 'setTimeout(function(){'
-          +   'var cvs=document.createElement("canvas");'
-          +   'cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;'
-          +   'var ctx=cvs.getContext("2d");'
-          +   'var stream=cvs.captureStream(30);'
-          +   'var mimes=["video/webm;codecs=vp9","video/webm"];'
-          +   'var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";'
-          +   'var rec=new MediaRecorder(stream,{mimeType:mime});'
-          +   'var chunks=[];'
-          +   'rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
-          +   'rec.onstop=function(){'
-          +     'var blob=new Blob(chunks,{type:"video/webm"});'
-          +     'var url=URL.createObjectURL(blob);'
-          +     'var a=document.createElement("a");a.href=url;a.download="visual.webm";a.click();'
-          +     'setTimeout(function(){URL.revokeObjectURL(url);window.close();},1500);'
-          +   '};'
-          +   'var svgs=document.querySelectorAll("svg");'
-          +   'function draw(){'
-          +     'try{if(svgs.length){'
-          +       'var s=new XMLSerializer().serializeToString(svgs[0]);'
-          +       'var img=new Image();'
-          +       'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle="#060c1e";ctx.fillRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
-          +       'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
-          +     '}}catch(e){}'
-          +     'if(rec.state==="recording")requestAnimationFrame(draw);'
-          +   '}'
-          +   'rec.start(100);requestAnimationFrame(draw);'
-          +   'setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);'
-          + '},800);'
-          + '})()' + closeTag;
-
-        var b = new Blob([_vcCurrentHtml + recScript],{type:'text/html'});
-        var url = URL.createObjectURL(b);
-        window.open(url,'_blank','width=1280,height=720');
+        var ifrDoc = frame.contentDocument || frame.contentWindow.document;
+        var recordScript = ifrDoc.createElement('script');
+        recordScript.textContent = '(function(){'
+          + 'if(window._saRecording)return; window._saRecording=true;'
+          + 'var cvs=document.createElement("canvas");'
+          + 'cvs.width=Math.max(document.documentElement.scrollWidth,800);'
+          + 'cvs.height=Math.max(document.documentElement.scrollHeight,600);'
+          + 'var ctx=cvs.getContext("2d");'
+          + 'var stream=cvs.captureStream(30);'
+          + 'var mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";'
+          + 'var recorder=new MediaRecorder(stream,{mimeType:mime});'
+          + 'var chunks=[];'
+          + 'recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
+          + 'recorder.onstop=function(){'
+          +   'var blob=new Blob(chunks,{type:"video/webm"});'
+          +   'var url=URL.createObjectURL(blob);'
+          +   'var a=document.createElement("a");'
+          +   'a.href=url;a.download="visual-animation.webm";a.click();'
+          +   'setTimeout(function(){URL.revokeObjectURL(url);},3000);'
+          +   'window._saRecording=false;'
+          + '};'
+          + 'recorder.start();'
+          + 'var svgs=document.querySelectorAll("svg");'
+          + 'function drawFrame(){'
+          +   'if(!window._saRecording)return;'
+          +   'try{if(svgs.length){'
+          +     'var s=new XMLSerializer().serializeToString(svgs[0]);'
+          +     'var img=new Image();'
+          +     'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
+          +     'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
+          +   '}}catch(e){}'
+          +   'if(window._saRecording)requestAnimationFrame(drawFrame);'
+          + '}'
+          + 'if(svgs.length)requestAnimationFrame(drawFrame);'
+          + 'setTimeout(function(){if(recorder.state!=="inactive")recorder.stop();},8000);'
+          + '})();';
+        ifrDoc.head.appendChild(recordScript);
         if(btn){ btn.textContent='⏺ Recording…'; btn.disabled=true; }
-        showToast('Recording '+dur+'s — download starts automatically when done');
-        setTimeout(function(){
-          if(btn){ btn.textContent='🎬 Video'; btn.disabled=false; }
-          try{ URL.revokeObjectURL(url); }catch(_){}
-        }, dur*1000+6000);
-      }catch(e){
-        showToast('Video export requires Chrome or Edge: '+e.message);
-        if(btn){ btn.textContent='🎬 Video'; btn.disabled=false; }
+        showToast('Recording 8 seconds — download starts automatically');
+        setTimeout(function(){ if(btn){ btn.textContent=orig; btn.disabled=false; } }, 9500);
+      } catch(e){
+        showToast('Video recording requires Chrome or Edge');
+        if(btn){ btn.textContent=orig; btn.disabled=false; }
       }
     }
 
+    function vcCopyCode(){
+      if(!_vcCurrentHtml) return;
+      navigator.clipboard.writeText(_vcCurrentHtml).then(function(){
+        showToast('HTML code copied to clipboard');
+      });
+    }
+
+    function vcRenderHistory(){
+      var el = document.getElementById('vcHistory');
+      if(!el||!_vcHistory.length) return;
+      el.innerHTML = '<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Recent</div>';
+      _vcHistory.forEach(function(h,i){
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);';
+        row.onmouseover=function(){row.style.background='rgba(124,58,237,.1)';};
+        row.onmouseout =function(){row.style.background='rgba(255,255,255,.03)';};
+        row.innerHTML = '<div style="font-size:11px;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(h.prompt)+'</div><div style="font-size:10px;color:#475569;flex-shrink:0;">view</div>';
+        row.onclick=function(){ _vcCurrentHtml=h.html; vcRenderFrame(h.html); };
+        el.appendChild(row);
+      });
+    }
 
     if(document.getElementById('visualCreatorBtn')){
       document.getElementById('visualCreatorBtn').onclick = showVisualCreatorModal;
     }
-    // End Visual Creator v2
+    // End Visual Creator
+
+    // ── Real Web Search from chat ────────────────────────────────────────────
+    window._saWebSearchSend = function(){
+      var fm = document.getElementById('followMsg');
+      if(!fm) return;
+      var existing = fm.value.trim();
+      // If user already typed something, use it as the query; otherwise prompt
+      if(existing){
+        fm.value = 'Search the web for: ' + existing;
+      } else {
+        fm.value = 'Search the web and give me the latest information about: ';
+      }
+      fm.focus();
+      fm.setSelectionRange(fm.value.length, fm.value.length);
+      // Auto-send if user had already typed a query
+      if(existing){
+        // Enable lighting mode so teammate acts immediately
+        var sf = document.getElementById('sendFollow');
+        if(sf) sf.click();
+      }
+    };
 
     // =========================
     // CRM UI (Client Command Center)
@@ -29599,124 +29410,6 @@ window._streamTtsFired = false;
   // ── Shared visual output renderer ─────────────────────────────────────────
   // Builds an iframe + action bar (Download HTML, Download Video, Copy, Full screen, Resize)
   // and appends it to the given container element.
-  // ── Shared fullscreen overlay for visuals ───────────────────────────────────
-  (function(){
-    var _fsOverlay = null;
-    var _fsCurrentHtml = '';
-
-    function _ensureFsOverlay(){
-      if(_fsOverlay) return _fsOverlay;
-      _fsOverlay = document.createElement('div');
-      _fsOverlay.id = 'saVisualFsOverlay';
-      _fsOverlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:999990;background:#060c1e;flex-direction:column;font-family:system-ui,sans-serif;';
-      // Header bar
-      var hdr = document.createElement('div');
-      hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(8,12,32,.99);border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;gap:10px;';
-      var title = document.createElement('div');
-      title.style.cssText = 'font-size:13px;font-weight:600;color:#c4b5fd;';
-      title.textContent = '✨ Visual Preview';
-      hdr.appendChild(title);
-      // Action buttons in header
-      var btns = document.createElement('div');
-      btns.style.cssText = 'display:flex;gap:8px;align-items:center;';
-      // Download HTML
-      var dlHtml = document.createElement('button');
-      dlHtml.className='btn btnMini'; dlHtml.textContent='⬇ HTML';
-      dlHtml.onclick=function(){
-        if(!_fsCurrentHtml) return;
-        var a=document.createElement('a');
-        a.href='data:text/html;charset=utf-8,'+encodeURIComponent(_fsCurrentHtml);
-        a.download='visual-'+Date.now()+'.html';
-        document.body.appendChild(a);a.click();document.body.removeChild(a);
-      };
-      btns.appendChild(dlHtml);
-      // Download Video
-      var dlVid = document.createElement('button');
-      dlVid.className='btn btnMini';
-      dlVid.style.cssText='background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.45);color:#fca5a5;';
-      dlVid.textContent='🎬 Download Video';
-      dlVid.onclick=function(){
-        if(!_fsCurrentHtml){ if(typeof showToast==='function') showToast('No visual loaded'); return; }
-        var origText = dlVid.textContent;
-        dlVid.textContent='⏺ Recording…'; dlVid.disabled=true;
-        try{
-          var openTag='<'+'script>', closeTag='<'+'/script>';
-          var recSrc = openTag+'(function(){'
-            +'setTimeout(function(){'
-            +'var cvs=document.createElement("canvas");'
-            +'cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;'
-            +'var ctx=cvs.getContext("2d");'
-            +'var stream=cvs.captureStream(30);'
-            +'var mimes=["video/webm;codecs=vp9","video/webm"];'
-            +'var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";'
-            +'var rec=new MediaRecorder(stream,{mimeType:mime});'
-            +'var chunks=[];'
-            +'rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
-            +'rec.onstop=function(){'
-            +'var blob=new Blob(chunks,{type:"video/webm"});'
-            +'var url=URL.createObjectURL(blob);'
-            +'var a=document.createElement("a");a.href=url;a.download="visual.webm";a.click();'
-            +'setTimeout(function(){URL.revokeObjectURL(url);window.close();},2000);'
-            +'};'
-            +'var svgs=document.querySelectorAll("svg");'
-            +'function draw(){'
-            +'try{if(svgs.length){'
-            +'var s=new XMLSerializer().serializeToString(svgs[0]);'
-            +'var img=new Image();'
-            +'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle=document.body.style.background||"#060c1e";ctx.fillRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
-            +'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
-            +'}}catch(e){}'
-            +'if(rec.state==="recording")requestAnimationFrame(draw);'
-            +'}'
-            +'rec.start(100);requestAnimationFrame(draw);'
-            +'setTimeout(function(){if(rec.state!=="inactive")rec.stop();},8000);'
-            +'},600);'
-            +'})()'+closeTag;
-          var blob = new Blob([_fsCurrentHtml+recSrc],{type:'text/html'});
-          var recUrl = URL.createObjectURL(blob);
-          window.open(recUrl,'_blank','width=1280,height=720,menubar=no,toolbar=no');
-          if(typeof showToast==='function') showToast('Recording 8s in new window — download starts automatically');
-          setTimeout(function(){
-            dlVid.textContent=origText; dlVid.disabled=false;
-            try{URL.revokeObjectURL(recUrl);}catch(_){}
-          },10000);
-        }catch(e){
-          dlVid.textContent=origText; dlVid.disabled=false;
-          if(typeof showToast==='function') showToast('Video requires Chrome or Edge');
-        }
-      };
-      btns.appendChild(dlVid);
-      // Close
-      var closeBtn = document.createElement('button');
-      closeBtn.style.cssText='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;';
-      closeBtn.textContent='✕ Close';
-      closeBtn.onclick=function(){
-        _fsOverlay.style.display='none';
-        document.body.classList.remove('modal-open');
-      };
-      btns.appendChild(closeBtn);
-      hdr.appendChild(btns);
-      _fsOverlay.appendChild(hdr);
-      // iframe
-      var fsFrame = document.createElement('iframe');
-      fsFrame.id='saVisualFsFrame';
-      fsFrame.sandbox='allow-scripts allow-same-origin';
-      fsFrame.style.cssText='flex:1;width:100%;border:none;';
-      _fsOverlay.appendChild(fsFrame);
-      document.body.appendChild(_fsOverlay);
-      return _fsOverlay;
-    }
-
-    window._saOpenVisualFullscreen = function(htmlSrc){
-      _fsCurrentHtml = htmlSrc;
-      var ov = _ensureFsOverlay();
-      var fr = document.getElementById('saVisualFsFrame');
-      if(fr) fr.srcdoc = htmlSrc;
-      ov.style.display='flex';
-      document.body.classList.add('modal-open');
-    };
-  })();
-
   function _buildVisualOutput(container, htmlSrc){
     container.innerHTML = "";
     const wrap = document.createElement("div");
@@ -29726,19 +29419,20 @@ window._streamTtsFired = false;
     frame.sandbox = "allow-scripts allow-same-origin";
     frame.srcdoc = htmlSrc;
     frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+    frame.title = "Generated visual";
     wrap.appendChild(frame);
 
     const bar = document.createElement("div");
-    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;align-items:center;";
+    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
 
-    const mk = (lbl, fn, extraStyle) => {
+    const mk = (lbl, fn, style) => {
       const b = document.createElement("button");
       b.className = "btn btnMini"; b.innerText = lbl;
-      if(extraStyle) b.style.cssText += extraStyle;
+      if(style) b.style.cssText = style;
       b.onclick = fn; return b;
     };
 
-    // ⬇ Download HTML
+    // Download HTML
     bar.appendChild(mk("⬇ HTML", () => {
       const a = document.createElement("a");
       a.href = "data:text/html;charset=utf-8," + encodeURIComponent(htmlSrc);
@@ -29746,64 +29440,123 @@ window._streamTtsFired = false;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }));
 
-    // 🎬 Download Video — opens recording window
+    // Download as Video (records iframe canvas via MediaRecorder)
     const vidBtn = mk("🎬 Video", null, "background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;");
     vidBtn.onclick = function(){
-      const orig = vidBtn.innerText;
-      vidBtn.innerText="⏺ Recording…"; vidBtn.disabled=true;
+      vidBtn.innerText = "⏺ Recording…";
+      vidBtn.disabled = true;
       try{
-        const openTag='<'+'script>', closeTag='<'+'/script>';
-        const recSrc = openTag+'(function(){'
-          +'setTimeout(function(){'
-          +'var cvs=document.createElement("canvas");'
-          +'cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;'
-          +'var ctx=cvs.getContext("2d");'
-          +'var stream=cvs.captureStream(30);'
-          +'var mimes=["video/webm;codecs=vp9","video/webm"];'
-          +'var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";'
-          +'var rec=new MediaRecorder(stream,{mimeType:mime});'
-          +'var chunks=[];'
-          +'rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
-          +'rec.onstop=function(){'
-          +'var blob=new Blob(chunks,{type:"video/webm"});'
-          +'var url=URL.createObjectURL(blob);'
-          +'var a=document.createElement("a");a.href=url;a.download="visual.webm";a.click();'
-          +'setTimeout(function(){URL.revokeObjectURL(url);window.close();},2000);'
-          +'};'
-          +'var svgs=document.querySelectorAll("svg");'
-          +'function draw(){'
-          +'try{if(svgs.length){'
-          +'var s=new XMLSerializer().serializeToString(svgs[0]);'
-          +'var img=new Image();'
-          +'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle=document.body.style.background||"#060c1e";ctx.fillRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
-          +'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
-          +'}}catch(e){}'
-          +'if(rec.state==="recording")requestAnimationFrame(draw);'
-          +'}'
-          +'rec.start(100);requestAnimationFrame(draw);'
-          +'setTimeout(function(){if(rec.state!=="inactive")rec.stop();},8000);'
-          +'},600);'
-          +'})()'+closeTag;
-        const blob = new Blob([htmlSrc+recSrc],{type:"text/html"});
-        const recUrl = URL.createObjectURL(blob);
-        window.open(recUrl,"_blank","width=1280,height=720,menubar=no,toolbar=no");
-        showToast("Recording 8s — download starts automatically when done");
-        setTimeout(()=>{ vidBtn.innerText=orig; vidBtn.disabled=false; try{URL.revokeObjectURL(recUrl);}catch(_){} },10000);
-      }catch(e){
-        vidBtn.innerText=orig; vidBtn.disabled=false;
-        showToast("Video requires Chrome or Edge");
+        // Get the iframe's canvas/document — inject a recorder script
+        const ifrDoc = frame.contentDocument || frame.contentWindow.document;
+        const ifrWin = frame.contentWindow;
+        // Try captureStream from canvas inside iframe first
+        const canvases = ifrDoc.querySelectorAll("canvas");
+        let stream = null;
+        if(canvases.length){
+          stream = canvases[0].captureStream(30);
+        } else {
+          // Fallback: capture the iframe element itself using element.captureStream if available
+          // Use a OffscreenCanvas approach via the parent
+          stream = null;
+        }
+        if(!stream){
+          // Best cross-browser fallback: open in new window and let user record with OS tools
+          vidBtn.innerText = "🎬 Video";
+          vidBtn.disabled = false;
+          // Instead use html2canvas approach — inject script into iframe to draw to canvas then record
+          const recordScript = ifrDoc.createElement("script");
+          recordScript.textContent = `
+            (function(){
+              if(window._saRecording) return;
+              window._saRecording = true;
+              var duration = 8000;
+              var fps = 30;
+              // Create offscreen canvas matching viewport
+              var cvs = document.createElement('canvas');
+              cvs.width = document.documentElement.scrollWidth || 800;
+              cvs.height = document.documentElement.scrollHeight || 600;
+              var ctx = cvs.getContext('2d');
+              var stream = cvs.captureStream(fps);
+              var recorder = new MediaRecorder(stream, {mimeType: 'video/webm;codecs=vp9'});
+              var chunks = [];
+              recorder.ondataavailable = function(e){ if(e.data.size) chunks.push(e.data); };
+              recorder.onstop = function(){
+                var blob = new Blob(chunks, {type:'video/webm'});
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = 'visual-animation.webm'; a.click();
+                window._saRecording = false;
+              };
+              // Draw frames using html2canvas-like approach
+              var svgs = document.querySelectorAll('svg');
+              var animEls = document.querySelectorAll('[style*="animation"]');
+              recorder.start();
+              // For SVG-based animations, serialize and draw
+              function drawFrame(){
+                try{
+                  var svgEl = svgs[0];
+                  if(svgEl){
+                    var svgData = new XMLSerializer().serializeToString(svgEl);
+                    var img = new Image();
+                    img.onload = function(){ ctx.clearRect(0,0,cvs.width,cvs.height); ctx.drawImage(img,0,0); };
+                    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                  }
+                }catch(e){}
+              }
+              var frameInterval = setInterval(drawFrame, 1000/fps);
+              setTimeout(function(){
+                clearInterval(frameInterval);
+                recorder.stop();
+              }, duration);
+            })();
+          `;
+          ifrDoc.head.appendChild(recordScript);
+          vidBtn.innerText = "⏺ Rec 8s…";
+          vidBtn.disabled = true;
+          setTimeout(function(){ vidBtn.innerText="🎬 Video"; vidBtn.disabled=false; }, 9000);
+          return;
+        }
+        // Canvas stream path
+        const recorder = new MediaRecorder(stream, {mimeType:"video/webm;codecs=vp9"});
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, {type:"video/webm"});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href=url; a.download="visual-"+Date.now()+".webm";
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          vidBtn.innerText="🎬 Video"; vidBtn.disabled=false;
+        };
+        const recDuration = 8000;
+        recorder.start();
+        vidBtn.innerText = "⏺ Rec 8s…";
+        setTimeout(()=>recorder.stop(), recDuration);
+      } catch(e){
+        vidBtn.innerText = "🎬 Video"; vidBtn.disabled = false;
+        alert("Video recording not supported in this browser. Try Chrome or Edge.");
       }
     };
     bar.appendChild(vidBtn);
 
-    // ⛶ Fullscreen — opens inside Simply as overlay (not new window)
-    bar.appendChild(mk("⛶ Fullscreen", () => {
-      if(typeof window._saOpenVisualFullscreen === "function"){
-        window._saOpenVisualFullscreen(htmlSrc);
-      }
+    // Copy code
+    const cpBtn = mk("📋 Code", null);
+    cpBtn.onclick = function(){
+      navigator.clipboard.writeText(htmlSrc).then(()=>{
+        cpBtn.innerText="✓ Copied!";
+        setTimeout(()=>{ cpBtn.innerText="📋 Code"; }, 2000);
+      });
+    };
+    bar.appendChild(cpBtn);
+
+    // Full screen
+    bar.appendChild(mk("⛶ Full screen", () => {
+      const b = new Blob([htmlSrc], {type:"text/html"});
+      window.open(URL.createObjectURL(b), "_blank");
     }));
 
-    // ↕ Resize
+    // Resize
     let expanded = false;
     const rzBtn = mk("↕ Resize", null);
     rzBtn.onclick = function(){
@@ -29945,7 +29698,8 @@ window._streamTtsFired = false;
                 _b2.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
                 const _mk2 = (lbl,fn)=>{ const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b; };
                 _b2.appendChild(_mk2("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html2);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
-                _b2.appendChild(_mk2("⛶ Fullscreen",()=>{ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(_html2); }));
+                _b2.appendChild(_mk2("📋 Copy code",function(){navigator.clipboard.writeText(_html2).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
+                _b2.appendChild(_mk2("⛶ Full screen",()=>{const b=new Blob([_html2],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");}));
                 let _e2=false;_b2.appendChild(_mk2("↕ Resize",function(){_e2=!_e2;_f2.style.height=_e2?"700px":"420px";this.innerText=_e2?"↕ Shrink":"↕ Resize";}));
                 _w2.appendChild(_b2);aBody.appendChild(_w2);
               } else {
@@ -29980,7 +29734,8 @@ window._streamTtsFired = false;
           _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
           const _mkBtn = (label, fn) => { const b=document.createElement("button"); b.className="btn btnMini"; b.innerText=label; b.onclick=fn; return b; };
           _bar.appendChild(_mkBtn("⬇ Download", ()=>{ const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); }));
-          _bar.appendChild(_mkBtn("⛶ Fullscreen", ()=>{ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(_html); }));
+          _bar.appendChild(_mkBtn("📋 Copy code", function(){ navigator.clipboard.writeText(_html).then(()=>{ this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000); }); }));
+          _bar.appendChild(_mkBtn("⛶ Full screen", ()=>{ const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank"); }));
           let _exp=false; _bar.appendChild(_mkBtn("↕ Resize", function(){ _exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize"; }));
           _wrap.appendChild(_bar); aBody.appendChild(_wrap);
         } else {
@@ -36197,12 +35952,10 @@ def api_visual_creator():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     payload = request.get_json(silent=True) or {}
-    prompt   = (payload.get("prompt")   or "").strip()
-    theme    = (payload.get("theme")    or "dark purple").strip()
-    vtype    = (payload.get("type")     or "animation").strip()
-    brand    = (payload.get("brand")    or "").strip()
-    ratio    = (payload.get("ratio")    or "16:9").strip()
-    duration = (payload.get("duration") or "8").strip()
+    prompt  = (payload.get("prompt") or "").strip()
+    theme   = (payload.get("theme")  or "dark purple").strip()
+    vtype   = (payload.get("type")   or "slideshow").strip()
+    brand   = (payload.get("brand")  or "").strip()
     if not prompt:
         return jsonify({"ok": False, "error": "Prompt is required"}), 400
 
@@ -36217,44 +35970,36 @@ def api_visual_creator():
     if not claude_key or not _anthropic_sdk:
         return jsonify({
             "ok": False,
-            "error": "Visual Creator requires an Anthropic API key. Go to Settings \u2192 API Keys and add your Anthropic key (sk-ant-...) to use this feature."
+            "error": "Visual Creator requires an Anthropic API key. Go to Settings → API Keys and add your Anthropic key (sk-ant-...) to use this feature."
         }), 400
 
     brand_note = f" Brand/business name: {brand}." if brand else ""
-    is_edit = "EXISTING VISUAL TO EDIT:" in prompt
 
     system = (
-        "You are an elite creative HTML/CSS/JavaScript developer who builds world-class animated web experiences. "
-        "Output ONLY a single complete self-contained HTML file — no explanation, no markdown, no commentary. "
-        "Start with <!DOCTYPE html> and end with </html>. "
-        "REQUIREMENTS: "
-        "(1) All CSS and JS inline — only Google Fonts allowed as external resource. "
-        "(2) Real CSS @keyframes animations — smooth, cubic-bezier easing, professional timing. "
-        "(3) Fully interactive — buttons work, slides advance, carousels scroll, counters count. "
-        "(4) Responsive layout that fills the viewport beautifully. "
-        "(5) Beautiful typography — use Google Fonts (Inter, Poppins, or Playfair Display). "
-        "(6) Zero placeholders — write every word of real, compelling content. "
-        "(7) Looping animations where appropriate for the animation duration. "
-        "(8) Production quality — something you would actually ship to a client. "
+        "You are an elite creative developer who builds stunning, self-contained interactive HTML experiences. "
+        "Your output is ALWAYS a single complete HTML file — no explanation, no markdown fences, no commentary. "
+        "Start directly with <!DOCTYPE html>. "
+        "Your work is visually exceptional: beautiful typography, smooth animations, perfect spacing, rich color. "
+        "Every pixel matters. You write real CSS animations with @keyframes, real JS interactivity, real polish. "
+        "Rules: "
+        "(1) Self-contained — all CSS/JS inline, only Google Fonts allowed as external resource. "
+        "(2) No placeholders — write every word of copy, every color, every animation fully. "
+        "(3) Interactive — buttons work, slides advance, carousels scroll, counters count. "
+        "(4) Responsive — looks great at any width. "
+        "(5) Production quality — this could ship to real users right now. "
+        "Dark themes use deep navy/purple backgrounds (#07091a, #0e1238, #1a0a3e) with vibrant accents. "
+        "Light themes use clean white/gray with bold typography. "
+        "Animations are smooth (ease, cubic-bezier), not janky. "
         "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
     )
 
-    if is_edit:
-        user_msg = (
-            f"{prompt} "
-            f"Apply the requested changes carefully while preserving the rest of the visual. "
-            f"Aspect ratio target: {ratio}. "
-            f"Output only the complete updated HTML file starting with <!DOCTYPE html>."
-        )
-    else:
-        user_msg = (
-            f"Create a {vtype} with a {theme} color theme.{brand_note} "
-            f"Aspect ratio: {ratio}. Total animation duration: {duration} seconds. "
-            f"Request: {prompt} "
-            f"Make it genuinely beautiful, impressive, and polished. "
-            f"Every animation should be smooth. Every word of copy should be real and compelling. "
-            f"Output only the complete HTML file starting with <!DOCTYPE html>."
-        )
+    user_msg = (
+        f"Create a {vtype}.{brand_note} "
+        f"Theme: {theme}. "
+        f"Request: {prompt} "
+        f"Make it genuinely beautiful and impressive. Real copy, real animations, fully interactive. "
+        f"Output only the HTML file starting with <!DOCTYPE html>."
+    )
 
     try:
         cl = _anthropic_sdk.Anthropic(api_key=claude_key)
