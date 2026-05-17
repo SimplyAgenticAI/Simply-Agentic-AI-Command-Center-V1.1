@@ -29571,33 +29571,45 @@ window._streamTtsFired = false;
       threadEl.scrollTop=threadEl.scrollHeight;
       if(msgEl) msgEl.value="";
       try{
+        // Kick off generation (returns instantly with job_id — avoids 502 timeout)
         const vRes = await fetch("/api/visual_creator", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body: JSON.stringify({prompt:msg, theme:"dark purple", type:"animation", brand:""})
         });
-        // Guard against HTML error pages (login redirects etc.)
-        const vCt = vRes.headers.get("content-type") || "";
-        if(!vCt.includes("application/json")){
-          const vTxt = await vRes.text();
-          const isAuth = vRes.status===401||vRes.status===302||vTxt.includes("login")||vTxt.includes("Login");
-          throw new Error(isAuth
-            ? "Session expired — please refresh the page and log in again."
-            : "Server error ("+vRes.status+"). Try refreshing the page.");
-        }
+        const vCt = vRes.headers.get("content-type")||"";
+        if(!vCt.includes("application/json")) throw new Error("Server error ("+vRes.status+"). Try refreshing.");
         const vData = await vRes.json();
+        if(!vData.ok) throw new Error(vData.error||"Failed to start generation");
+        const jobId = vData.job_id;
+        if(!jobId) throw new Error(vData.error||"No job returned");
+
+        // Poll for result every 2s, up to 90s
+        let polls=0;
+        const pollResult = await new Promise(function(resolve,reject){
+          const iv=setInterval(async function(){
+            polls++;
+            try{
+              const sr=await fetch("/api/visual_creator/status/"+jobId);
+              const sc=sr.headers.get("content-type")||"";
+              if(!sc.includes("application/json")) return;
+              const sd=await sr.json();
+              if(sd.status==="done"||sd.status==="error"||!sd.ok){
+                clearInterval(iv); resolve(sd);
+              } else if(polls>=45){ clearInterval(iv); reject(new Error("Generation timed out — please try again.")); }
+            }catch(pe){ if(polls>=45){ clearInterval(iv); reject(pe); } }
+          },2000);
+        });
+
         aBody.innerHTML="";
-        if(vData.ok && vData.html && vData.html.length > 100){
-          _buildVisualOutput(aBody, vData.html);
-          // Persist to thread so it survives teammate switching
-          try{
-            fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({name:seat,save_visual:true,user_msg:msg,visual_html:"__VISUAL__"+vData.html})});
-          }catch(_){}
+        if(pollResult.ok && pollResult.status==="done" && pollResult.html && pollResult.html.length>100){
+          _buildVisualOutput(aBody, pollResult.html);
+          try{ fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:seat,save_visual:true,user_msg:msg,visual_html:"__VISUAL__"+pollResult.html})}); }catch(_){}
         } else {
-          aBody.style.color=""; aBody.innerText = vData.error || "Visual generation failed. Check your Anthropic API key in Settings → API Keys.";
+          aBody.style.color=""; aBody.innerText=pollResult.error||"Visual generation failed. Check your Anthropic API key in Settings → API Keys.";
         }
       } catch(e){
-        aBody.style.color=""; aBody.innerText = "Visual generation failed: " + (e.message||"unknown error");
+        aBody.style.color=""; aBody.innerText="Visual generation failed: "+(e.message||"unknown error");
       }
       if(typeof setSeatLive==="function") setSeatLive(seat,"done");
       if(typeof setOpStatus==="function") setOpStatus("Complete");
@@ -35925,6 +35937,44 @@ def api_crm_offer_builder():
         pass
     return jsonify({"ok": True, "output": output})
 
+# ── Visual Creator job store ────────────────────────────────────────────────
+import threading as _vc_threading
+_vc_jobs = {}  # job_id -> {"status": "pending"|"done"|"error", "html": ..., "error": ...}
+_vc_jobs_lock = _vc_threading.Lock()
+
+def _vc_run_job(job_id: str, claude_key: str, system: str, user_msg: str) -> None:
+    """Run Claude generation in background thread."""
+    try:
+        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
+        resp = cl.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=8000,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}],
+            temperature=1.0,
+        )
+        html = (resp.content[0].text or "").strip()
+        if "```" in html:
+            lines = html.split("\n")
+            html = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
+        for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
+            idx2 = html.find(marker)
+            if idx2 != -1:
+                html = html[idx2:]
+                break
+        if len(html) < 100:
+            with _vc_jobs_lock:
+                _vc_jobs[job_id] = {"status": "error", "error": "Generation produced no output — please try again."}
+        else:
+            with _vc_jobs_lock:
+                _vc_jobs[job_id] = {"status": "done", "html": html}
+    except Exception as e:
+        err = str(e)
+        if "401" in err or "api_key" in err.lower() or "invalid_api_key" in err.lower():
+            err = "Invalid Anthropic API key. Check your key in Settings \u2192 API Keys."
+        with _vc_jobs_lock:
+            _vc_jobs[job_id] = {"status": "error", "error": err}
+
 @app.post("/api/visual_creator")
 def api_visual_creator():
     try:
@@ -35932,26 +35982,22 @@ def api_visual_creator():
         if not u:
             return jsonify({"ok": False, "error": "Not authenticated — please refresh and log in."}), 401
         payload = request.get_json(silent=True) or {}
-        prompt  = (payload.get("prompt") or "").strip()
-        theme   = (payload.get("theme")  or "dark purple").strip()
-        vtype   = (payload.get("type")   or "animation").strip()
-        brand   = (payload.get("brand")  or "").strip()
+        prompt = (payload.get("prompt") or "").strip()
+        theme  = (payload.get("theme")  or "dark purple").strip()
+        vtype  = (payload.get("type")   or "animation").strip()
+        brand  = (payload.get("brand")  or "").strip()
         if not prompt:
             return jsonify({"ok": False, "error": "Prompt is required"}), 400
 
-        # Require user's own Anthropic key
         claude_key = ""
         try:
             settings = (u.get("settings") or {})
             claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
         except Exception:
             pass
-
         if not claude_key or not _anthropic_sdk:
-            return jsonify({
-                "ok": False,
-                "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...) to use this feature."
-            }), 400
+            return jsonify({"ok": False,
+                "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...)."}), 400
 
         brand_note = f" Brand: {brand}." if brand else ""
         system = (
@@ -35968,44 +36014,41 @@ def api_visual_creator():
         user_msg = (
             f"Create a {vtype} with a {theme} color theme.{brand_note} "
             f"Request: {prompt} "
-            f"Make it genuinely beautiful and impressive. Real copy, real animations, fully interactive. "
+            f"Make it genuinely beautiful and impressive. Real animations, fully interactive. "
             f"Output only the complete HTML file starting with <!DOCTYPE html>."
         )
 
-        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
-        resp = cl.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=8000,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-            temperature=1.0,
-        )
-        html = (resp.content[0].text or "").strip()
-
-        # Strip accidental markdown fences
-        if "```" in html:
-            lines = html.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            html = "\n".join(lines).strip()
-
-        # Find doctype start
-        if not html.lower().startswith("<!doctype") and not html.startswith("<html"):
-            for marker in ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]:
-                idx2 = html.find(marker)
-                if idx2 != -1:
-                    html = html[idx2:]
-                    break
-
-        if len(html) < 100:
-            return jsonify({"ok": False, "error": "Generation produced no output — please try again."}), 500
-
-        return jsonify({"ok": True, "html": html})
-
+        import uuid as _uuid
+        job_id = _uuid.uuid4().hex
+        with _vc_jobs_lock:
+            _vc_jobs[job_id] = {"status": "pending"}
+        t = _vc_threading.Thread(target=_vc_run_job, args=(job_id, claude_key, system, user_msg), daemon=True)
+        t.start()
+        return jsonify({"ok": True, "job_id": job_id})
     except Exception as e:
-        err = str(e)
-        if "401" in err or "auth" in err.lower() or "api_key" in err.lower() or "invalid_api_key" in err.lower():
-            err = "Invalid Anthropic API key. Check your key in Settings \u2192 API Keys."
-        return jsonify({"ok": False, "error": err}), 500
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.get("/api/visual_creator/status/<job_id>")
+def api_visual_creator_status(job_id: str):
+    try:
+        with _vc_jobs_lock:
+            job = _vc_jobs.get(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Job not found"}), 404
+        if job["status"] == "pending":
+            return jsonify({"ok": True, "status": "pending"})
+        elif job["status"] == "done":
+            html = job.get("html", "")
+            with _vc_jobs_lock:
+                del _vc_jobs[job_id]
+            return jsonify({"ok": True, "status": "done", "html": html})
+        else:
+            err = job.get("error", "Generation failed")
+            with _vc_jobs_lock:
+                _vc_jobs.pop(job_id, None)
+            return jsonify({"ok": False, "status": "error", "error": err})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.post("/api/crm/playbooks")
