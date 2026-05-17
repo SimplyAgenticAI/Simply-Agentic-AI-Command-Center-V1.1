@@ -4708,22 +4708,46 @@ def is_visual_request(prompt: str) -> bool:
     if not p:
         return False
     _VISUAL_TRIGGERS = [
-        "create an animation", "make an animation", "build an animation",
-        "create a slideshow", "make a slideshow", "build a slideshow",
+        # "create/make/build/generate + visual thing"
+        "create an animation", "make an animation", "build an animation", "generate an animation",
+        "create a slideshow", "make a slideshow", "build a slideshow", "generate a slideshow",
         "create a carousel", "make a carousel", "build a carousel",
         "create a presentation", "make a presentation", "build a presentation",
         "create an animated", "make an animated", "build an animated",
-        "create a visual", "make a visual", "generate a visual",
+        "create a visual", "make a visual", "generate a visual", "build a visual",
         "create an interactive", "make an interactive", "build an interactive",
-        "animate ", "visualize ", "visualise ",
-        "show me an animation", "show me a slideshow", "show me a carousel",
-        "render a", "generate an animation", "generate a slideshow",
-        "create a countdown", "make a countdown",
         "create a demo", "make a demo", "build a demo",
-        "show me a preview", "create a preview",
-        "make it animated", "with animations", "with animation",
+        "create a countdown", "make a countdown", "build a countdown",
         "create an infographic", "make an infographic",
+        "create a preview", "make a preview",
+        "create a landing", "make a landing",
+        # "show me" triggers
+        "show me an animation", "show me a slideshow", "show me a carousel",
+        "show me a preview", "show me a visual", "show me a presentation",
+        "show me how", "show me what",
+        # direct action verbs
+        "animate ", "animate the", "animate my",
+        "visualize ", "visualize my", "visualise ",
+        "render a", "render an",
+        # natural phrasing: "can you create", "i want", "i need", "please make"
+        "can you create an animation", "can you make an animation",
+        "can you create a slideshow", "can you make a slideshow",
+        "can you animate", "can you visualize",
+        "i want an animation", "i need an animation",
+        "i want a slideshow", "i need a slideshow",
+        "i want a carousel", "i need a carousel",
+        "i want a presentation", "i need a presentation",
+        "i want a visual", "i need a visual",
+        "please animate", "please create an animation",
+        "please make an animation", "please create a slideshow",
+        # modifiers
+        "with animations", "with animation", "animated version",
+        "make it animated", "make it interactive",
         "landing page animation", "animated landing",
+        # specific types
+        "counter animation", "number counter", "stats animation",
+        "hero animation", "intro animation", "loading animation",
+        "typing animation", "scroll animation",
     ]
     for t in _VISUAL_TRIGGERS:
         if t in p:
@@ -4732,34 +4756,39 @@ def is_visual_request(prompt: str) -> bool:
 
 
 def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
-    """Generate a self-contained HTML animation/visual using Claude."""
-    claude_key = ""
+    """Generate a self-contained HTML animation/visual using Claude via the user's own API key."""
+    # Use the same pattern as the rest of the app — current_user() + _get_claude_client_for_user()
     try:
-        u = load_users().get("users", {}).get(username, {})
-        settings = u.get("settings") or {}
-        claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
+        u = current_user()
+        cl = _get_claude_client_for_user(u)
     except Exception:
-        pass
+        cl = None
 
-    if not claude_key or _anthropic_sdk is None:
-        return ""
+    if cl is None:
+        return "__NO_KEY__"
 
     system = (
-        "You are an elite creative developer. Output ONLY a complete self-contained HTML file. "
-        "No explanation, no markdown, no code fences. Start with <!DOCTYPE html>. "
-        "Rules: all CSS/JS inline; only Google Fonts as external resource; "
-        "real animations with @keyframes; fully interactive; mobile responsive; "
-        "dark background (#07091a or #060c1e), rich purple/blue accents (#7c3aed, #a78bfa); "
-        "beautiful typography; smooth cubic-bezier transitions; production quality. "
-        "Output ONLY the HTML starting with <!DOCTYPE html>."
+        "You are an elite creative HTML/CSS/JS developer. "
+        "Output ONLY a single complete self-contained HTML file. "
+        "No explanation, no markdown fences, no commentary. "
+        "Start directly with <!DOCTYPE html> and end with </html>. "
+        "Requirements: "
+        "1) All CSS and JS must be inline — no external files except Google Fonts. "
+        "2) Real CSS @keyframes animations — smooth, professional, cubic-bezier easing. "
+        "3) Fully interactive — buttons work, slides advance, counters count. "
+        "4) Dark rich background (#07091a or #060c1e) with purple/blue accents (#7c3aed, #a78bfa, #c4b5fd). "
+        "5) Beautiful typography — use Google Fonts (Inter or Poppins). "
+        "6) Mobile responsive. "
+        "7) Production quality — no placeholders, no lorem ipsum, write every word. "
+        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
     )
     user_msg = (
-        f"Create this visual: {prompt} "
-        f"Make it genuinely beautiful and impressive. "
-        f"Output only the complete HTML file."
+        f"Create this: {prompt}. "
+        "Make it genuinely beautiful, polished, and impressive. "
+        "Write every word of content — no placeholders. "
+        "Output only the complete HTML file starting with <!DOCTYPE html>."
     )
     try:
-        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
         resp = cl.messages.create(
             model="claude-opus-4-5",
             max_tokens=8000,
@@ -4768,17 +4797,20 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
             temperature=1.0,
         )
         html = (resp.content[0].text or "").strip()
-        if html.startswith("```"):
+        # Strip accidental markdown fences
+        if "```" in html:
             lines = html.split("\n")
-            html = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
-        for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            html = "\n".join(lines).strip()
+        # Find the real start
+        for marker in ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]:
             idx = html.find(marker)
             if idx != -1:
                 html = html[idx:]
                 break
         return html if len(html) > 200 else ""
-    except Exception:
-        return ""
+    except Exception as e:
+        return f"__ERROR__{str(e)}"
 
 
 def is_image_request(prompt: str) -> bool:
@@ -6879,26 +6911,33 @@ def _api_followup_impl(data):
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
-    # Visual request: generate live animated HTML and return it
+    # Visual request: intercept BEFORE calling the LLM — generate live HTML directly
     if is_visual_request(msg2):
-        try:
-            uname_vis = uname
-        except Exception:
-            uname_vis = ""
-        html_out = _generate_visual_html(msg2, name, uname_vis)
-        if html_out:
-            # Store in thread as a special visual message
-            thread_entry_user = {"role": "user", "content": msg}
-            thread_entry_asst = {"role": "assistant", "content": "__VISUAL__" + html_out}
-            thread.append(thread_entry_user)
-            thread.append(thread_entry_asst)
-            save_thread(name, uname_vis, thread)
-            return jsonify({
-                "ok": True,
-                "response": "__VISUAL__" + html_out,
-                "thread": thread,
-            })
-        # If no Anthropic key, fall through to regular text response
+        html_out = _generate_visual_html(msg2, name, uname)
+        if html_out == "__NO_KEY__":
+            # No Anthropic key — return a clear message in the thread
+            no_key_msg = (
+                "To generate live animations and visuals, you need an Anthropic API key. "
+                "Go to Settings → API Keys and add your Anthropic key (starts with sk-ant-). "
+                "Once added, just ask again and I'll render it live right here!"
+            )
+            thread.append({"role": "user", "content": msg})
+            thread.append({"role": "assistant", "content": no_key_msg})
+            save_thread(name, uname, thread)
+            return jsonify({"ok": True, "response": no_key_msg, "thread": thread})
+        elif html_out and html_out.startswith("__ERROR__"):
+            err_msg = f"Visual generation failed: {html_out[9:]}. Check your Anthropic API key in Settings."
+            thread.append({"role": "user", "content": msg})
+            thread.append({"role": "assistant", "content": err_msg})
+            save_thread(name, uname, thread)
+            return jsonify({"ok": True, "response": err_msg, "thread": thread})
+        elif html_out:
+            visual_response = "__VISUAL__" + html_out
+            thread.append({"role": "user", "content": msg})
+            thread.append({"role": "assistant", "content": visual_response})
+            save_thread(name, uname, thread)
+            return jsonify({"ok": True, "response": visual_response, "thread": thread})
+        # Empty html — fall through to regular text response
 
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
