@@ -6953,50 +6953,6 @@ def _api_followup_impl(data):
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
-    # Visual request: intercept BEFORE calling the LLM — generate live HTML directly
-    if is_visual_request(msg2):
-        try:
-            append_log("visual_request_detected", {"msg": msg2[:120], "name": name, "uname": uname})
-        except Exception:
-            pass
-        html_out = _generate_visual_html(msg2, name, uname)
-        try:
-            append_log("visual_request_result", {"result_prefix": (html_out or "")[:80], "uname": uname})
-        except Exception:
-            pass
-        if html_out == "__NO_KEY__":
-            no_key_msg = (
-                "To generate live animations and visuals, I need your Anthropic API key. "
-                "Go to Settings → API Keys and add your Anthropic key (starts with sk-ant-). "
-                "Once added, just ask again and I’ll render it live right here!"
-            )
-            thread.append({"role": "user", "content": msg})
-            thread.append({"role": "assistant", "content": no_key_msg})
-            save_thread(name, uname, thread)
-            return jsonify({"ok": True, "response": no_key_msg, "thread": thread})
-        elif html_out and html_out.startswith("__ERROR__"):
-            err_msg = f"Visual generation failed: {html_out[9:]}. Check your Anthropic API key in Settings."
-            thread.append({"role": "user", "content": msg})
-            thread.append({"role": "assistant", "content": err_msg})
-            save_thread(name, uname, thread)
-            return jsonify({"ok": True, "response": err_msg, "thread": thread})
-        elif html_out:
-            visual_response = "__VISUAL__" + html_out
-            thread.append({"role": "user", "content": msg})
-            thread.append({"role": "assistant", "content": visual_response})
-            save_thread(name, uname, thread)
-            return jsonify({"ok": True, "response": visual_response, "thread": thread})
-        # html_out was empty — still intercept, don't let Alex respond with text
-        fallback_msg = (
-            "I tried to generate that visual but something went wrong. "
-            "Please make sure your Anthropic API key (sk-ant-...) is saved in Settings → API Keys, "
-            "then try again."
-        )
-        thread.append({"role": "user", "content": msg})
-        thread.append({"role": "assistant", "content": fallback_msg})
-        save_thread(name, uname, thread)
-        return jsonify({"ok": True, "response": fallback_msg, "thread": thread})
-
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
@@ -39267,14 +39223,6 @@ def api_followup_stream():
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
 
-    # ── Visual request: intercept BEFORE streaming ──
-    # Check against BOTH original msg and processed msg2
-    _is_vis = is_visual_request(msg) or is_visual_request(msg2)
-    try:
-        append_log("stream_vis_check", {"msg": msg[:80], "is_vis": _is_vis, "uname": uname})
-    except Exception:
-        pass
-
     def _persist_stream_result(parts: list) -> tuple:
         """Save thread, extract draft, log. Returns (complete_text, draft)."""
         complete_text = "".join(parts)
@@ -39296,34 +39244,6 @@ def api_followup_stream():
         except Exception:
             pass
         return complete_text, draft
-
-    # ── Visual request: intercept BEFORE streaming — generate HTML and return as JSON ──
-    if _is_vis:
-        import concurrent.futures as _cf
-        try:
-            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
-                _fut = _ex.submit(_generate_visual_html, msg2, name, uname)
-                html_out = _fut.result(timeout=55)
-        except _cf.TimeoutError:
-            html_out = "__ERROR__Request timed out"
-        except Exception as _ve:
-            html_out = "__ERROR__" + str(_ve)
-
-        if html_out == "__NO_KEY__":
-            reply = "Add your Anthropic API key in Settings \u2192 API Keys (starts with sk-ant-) to generate live visuals."
-        elif (html_out or "").startswith("__ERROR__"):
-            reply = "Visual generation failed: " + (html_out or "")[9:] + ". Check your Anthropic API key in Settings."
-        elif html_out:
-            reply = "__VISUAL__" + html_out
-        else:
-            reply = "Visual generation failed. Check your Anthropic API key in Settings \u2192 API Keys."
-
-        new_thread = pre_thread + [
-            {"role": "user", "content": msg2},
-            {"role": "assistant", "content": reply},
-        ]
-        save_thread(name, new_thread, uname)
-        return jsonify({"ok": True, "visual": True, "response": reply, "thread": new_thread})
 
     # Guard: no OpenAI key available at all
     if not _use_claude and not oai_client:
