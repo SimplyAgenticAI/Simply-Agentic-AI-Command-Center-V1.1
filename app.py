@@ -29575,10 +29575,24 @@ window._streamTtsFired = false;
           method:"POST", headers:{"Content-Type":"application/json"},
           body: JSON.stringify({prompt:msg, theme:"dark purple", type:"animation", brand:""})
         });
+        // Guard against HTML error pages (login redirects etc.)
+        const vCt = vRes.headers.get("content-type") || "";
+        if(!vCt.includes("application/json")){
+          const vTxt = await vRes.text();
+          const isAuth = vRes.status===401||vRes.status===302||vTxt.includes("login")||vTxt.includes("Login");
+          throw new Error(isAuth
+            ? "Session expired — please refresh the page and log in again."
+            : "Server error ("+vRes.status+"). Try refreshing the page.");
+        }
         const vData = await vRes.json();
         aBody.innerHTML="";
         if(vData.ok && vData.html && vData.html.length > 100){
           _buildVisualOutput(aBody, vData.html);
+          // Persist to thread so it survives teammate switching
+          try{
+            fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({name:seat,save_visual:true,user_msg:msg,visual_html:"__VISUAL__"+vData.html})});
+          }catch(_){}
         } else {
           aBody.style.color=""; aBody.innerText = vData.error || "Visual generation failed. Check your Anthropic API key in Settings → API Keys.";
         }
@@ -35913,60 +35927,51 @@ def api_crm_offer_builder():
 
 @app.post("/api/visual_creator")
 def api_visual_creator():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    payload = request.get_json(silent=True) or {}
-    prompt  = (payload.get("prompt") or "").strip()
-    theme   = (payload.get("theme")  or "dark purple").strip()
-    vtype   = (payload.get("type")   or "slideshow").strip()
-    brand   = (payload.get("brand")  or "").strip()
-    if not prompt:
-        return jsonify({"ok": False, "error": "Prompt is required"}), 400
-
-    # Visual Creator requires the user's own Anthropic API key
-    claude_key = ""
     try:
-        settings = (u.get("settings") or {})
-        claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
-    except Exception:
-        pass
+        u = current_user()
+        if not u:
+            return jsonify({"ok": False, "error": "Not authenticated — please refresh and log in."}), 401
+        payload = request.get_json(silent=True) or {}
+        prompt  = (payload.get("prompt") or "").strip()
+        theme   = (payload.get("theme")  or "dark purple").strip()
+        vtype   = (payload.get("type")   or "animation").strip()
+        brand   = (payload.get("brand")  or "").strip()
+        if not prompt:
+            return jsonify({"ok": False, "error": "Prompt is required"}), 400
 
-    if not claude_key or not _anthropic_sdk:
-        return jsonify({
-            "ok": False,
-            "error": "Visual Creator requires an Anthropic API key. Go to Settings → API Keys and add your Anthropic key (sk-ant-...) to use this feature."
-        }), 400
+        # Require user's own Anthropic key
+        claude_key = ""
+        try:
+            settings = (u.get("settings") or {})
+            claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
+        except Exception:
+            pass
 
-    brand_note = f" Brand/business name: {brand}." if brand else ""
+        if not claude_key or not _anthropic_sdk:
+            return jsonify({
+                "ok": False,
+                "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...) to use this feature."
+            }), 400
 
-    system = (
-        "You are an elite creative developer who builds stunning, self-contained interactive HTML experiences. "
-        "Your output is ALWAYS a single complete HTML file — no explanation, no markdown fences, no commentary. "
-        "Start directly with <!DOCTYPE html>. "
-        "Your work is visually exceptional: beautiful typography, smooth animations, perfect spacing, rich color. "
-        "Every pixel matters. You write real CSS animations with @keyframes, real JS interactivity, real polish. "
-        "Rules: "
-        "(1) Self-contained — all CSS/JS inline, only Google Fonts allowed as external resource. "
-        "(2) No placeholders — write every word of copy, every color, every animation fully. "
-        "(3) Interactive — buttons work, slides advance, carousels scroll, counters count. "
-        "(4) Responsive — looks great at any width. "
-        "(5) Production quality — this could ship to real users right now. "
-        "Dark themes use deep navy/purple backgrounds (#07091a, #0e1238, #1a0a3e) with vibrant accents. "
-        "Light themes use clean white/gray with bold typography. "
-        "Animations are smooth (ease, cubic-bezier), not janky. "
-        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
-    )
+        brand_note = f" Brand: {brand}." if brand else ""
+        system = (
+            "You are an elite creative HTML/CSS/JavaScript developer. "
+            "Output ONLY a single complete self-contained HTML file. "
+            "No explanation, no markdown fences, no commentary. "
+            "Start with <!DOCTYPE html> and end with </html>. "
+            "Requirements: all CSS/JS inline; only Google Fonts external; "
+            "real @keyframes animations; fully interactive; mobile responsive; "
+            "dark backgrounds (#07091a, #060c1e) with purple/blue accents (#7c3aed, #a78bfa); "
+            "beautiful typography; smooth cubic-bezier transitions; production quality. "
+            "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
+        )
+        user_msg = (
+            f"Create a {vtype} with a {theme} color theme.{brand_note} "
+            f"Request: {prompt} "
+            f"Make it genuinely beautiful and impressive. Real copy, real animations, fully interactive. "
+            f"Output only the complete HTML file starting with <!DOCTYPE html>."
+        )
 
-    user_msg = (
-        f"Create a {vtype}.{brand_note} "
-        f"Theme: {theme}. "
-        f"Request: {prompt} "
-        f"Make it genuinely beautiful and impressive. Real copy, real animations, fully interactive. "
-        f"Output only the HTML file starting with <!DOCTYPE html>."
-    )
-
-    try:
         cl = _anthropic_sdk.Anthropic(api_key=claude_key)
         resp = cl.messages.create(
             model="claude-opus-4-5",
@@ -35978,7 +35983,7 @@ def api_visual_creator():
         html = (resp.content[0].text or "").strip()
 
         # Strip accidental markdown fences
-        if html.startswith("```"):
+        if "```" in html:
             lines = html.split("\n")
             lines = [l for l in lines if not l.strip().startswith("```")]
             html = "\n".join(lines).strip()
@@ -35992,14 +35997,16 @@ def api_visual_creator():
                     break
 
         if len(html) < 100:
-            return jsonify({"ok": False, "error": "Generation produced no output"}), 500
+            return jsonify({"ok": False, "error": "Generation produced no output — please try again."}), 500
 
         return jsonify({"ok": True, "html": html})
+
     except Exception as e:
         err = str(e)
-        if "401" in err or "auth" in err.lower() or "api_key" in err.lower():
-            err = "Invalid Anthropic API key. Check your key in Settings → API Keys."
+        if "401" in err or "auth" in err.lower() or "api_key" in err.lower() or "invalid_api_key" in err.lower():
+            err = "Invalid Anthropic API key. Check your key in Settings \u2192 API Keys."
         return jsonify({"ok": False, "error": err}), 500
+
 
 @app.post("/api/crm/playbooks")
 def api_crm_playbooks():
