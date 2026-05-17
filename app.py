@@ -6699,6 +6699,79 @@ def api_images_list():
     return jsonify({"ok": True, "images": out})
 
 
+@app.get("/api/visuals")
+def api_visuals_list():
+    """List saved visual animations for current user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try:
+        data_path = DATA_DIR / f"visuals_{uname}.json"
+        import json as _json
+        if data_path.exists():
+            visuals = _json.loads(data_path.read_text(encoding="utf-8"))
+        else:
+            visuals = []
+        return jsonify({"ok": True, "visuals": visuals})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/visuals/save")
+def api_visuals_save():
+    """Save a visual animation to the user's library."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    prompt = (payload.get("prompt") or "").strip()
+    html   = (payload.get("html") or "").strip()
+    teammate = (payload.get("teammate") or "").strip()
+    if not html:
+        return jsonify({"ok": False, "error": "No HTML provided"}), 400
+    try:
+        import json as _json, time as _time
+        data_path = DATA_DIR / f"visuals_{uname}.json"
+        visuals = _json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else []
+        entry = {
+            "id": str(int(_time.time() * 1000)),
+            "prompt": prompt[:120],
+            "html": html,
+            "teammate": teammate,
+            "saved_at": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+            "preview": html[:200],
+        }
+        visuals.insert(0, entry)
+        if len(visuals) > 50:
+            visuals = visuals[:50]
+        data_path.write_text(_json.dumps(visuals, ensure_ascii=False), encoding="utf-8")
+        return jsonify({"ok": True, "id": entry["id"]})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.delete("/api/visuals/<vis_id>")
+def api_visuals_delete(vis_id: str):
+    """Delete a saved visual from the library."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try:
+        import json as _json
+        data_path = DATA_DIR / f"visuals_{uname}.json"
+        if not data_path.exists():
+            return jsonify({"ok": True})
+        visuals = _json.loads(data_path.read_text(encoding="utf-8"))
+        visuals = [v for v in visuals if str(v.get("id","")) != str(vis_id)]
+        data_path.write_text(_json.dumps(visuals, ensure_ascii=False), encoding="utf-8")
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.get("/api/images/job/<job_id>")
 def api_image_job_status(job_id: str):
     u = current_user()
@@ -6883,26 +6956,6 @@ def _api_convene_impl(data):
 
 @app.post("/api/followup")
 def api_followup():
-    # Fast path: save a visual to thread without going through LLM
-    try:
-        _d = request.get_json(force=True) or {}
-        if _d.get("save_visual"):
-            u = current_user()
-            if u:
-                _uname = _get_session_username()
-                _name  = (_d.get("name") or "").strip()
-                _umsg  = (_d.get("user_msg") or "").strip()
-                _vhtml = (_d.get("visual_html") or "").strip()
-                if _name and _vhtml:
-                    _thread = load_thread(_name, _uname) or []
-                    if _umsg:
-                        _thread.append({"role": "user", "content": _umsg})
-                    _thread.append({"role": "assistant", "content": _vhtml})
-                    save_thread(_name, _thread, _uname)
-            return jsonify({"ok": True})
-    except Exception:
-        pass
-
     rl = _check_rate_limit("followup", 30)  # 30 AI requests/min per user
     if rl:
         return rl
@@ -12152,13 +12205,14 @@ HTML = r"""
       top: 0;
       align-self:start;
       height: 100vh;
-      overflow: hidden;
+      overflow:hidden;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
+      padding: 12px;
+      display:flex;
+      flex-direction:column;
+      gap: 12px;
     }
 
     .sideCard{
@@ -12169,8 +12223,8 @@ HTML = r"""
       box-shadow: 0 0 24px rgba(0,0,0,.24);
       display: flex;
       flex-direction: column;
-      flex: 1;
-      min-height: 0;
+      height: calc(100vh - 80px);
+      max-height: calc(100vh - 80px);
       overflow: hidden;
     }
 
@@ -18162,7 +18216,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }else if(raw.startsWith('__VISUAL__')){
           // Live visual/animation — render in sandboxed iframe
           const htmlSrc = raw.slice('__VISUAL__'.length);
-          _buildVisualOutput(content, htmlSrc);
+          content._visualPrompt = m.role === 'user' ? '' : ((msgs[msgs.indexOf(m)-1]||{}).content||'').slice(0,120);
+          _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
           content.innerText = raw;
           // Feature 2: CRM name detection — if response mentions a known contact, show quick-open button
@@ -20803,15 +20858,15 @@ Challenge weak assumptions. Surface risks.`;
           + 'cvs.height=Math.max(document.documentElement.scrollHeight,600);'
           + 'var ctx=cvs.getContext("2d");'
           + 'var stream=cvs.captureStream(30);'
-          + 'var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var ext=mime.includes("mp4")?"mp4":"webm";'
+          + 'var mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";'
           + 'var recorder=new MediaRecorder(stream,{mimeType:mime});'
           + 'var chunks=[];'
           + 'recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
           + 'recorder.onstop=function(){'
-          +   'var blob=new Blob(chunks,{type:mime});'
+          +   'var blob=new Blob(chunks,{type:"video/webm"});'
           +   'var url=URL.createObjectURL(blob);'
           +   'var a=document.createElement("a");'
-          +   'a.href=url;a.download="visual-"+Date.now()+"."+ext;a.click();'
+          +   'a.href=url;a.download="visual-animation.webm";a.click();'
           +   'setTimeout(function(){URL.revokeObjectURL(url);},3000);'
           +   'window._saRecording=false;'
           + '};'
@@ -25183,9 +25238,102 @@ function calSelectDate(dt){ wcalSelectDate(dt); }
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
 
-async function showImageLibraryModal(){
+async function showImageLibraryModal(startTab){
+  startTab = startTab || 'images';
+  showModal("Media Library", "");
+  if($("calendarForm")) $("calendarForm").style.display = "none";
+  if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+  const body = $("modalBody");
+  if(!body) return;
+
+  // Tab bar
+  body.innerHTML = "";
+  const tabBar = document.createElement("div");
+  tabBar.style.cssText = "display:flex;gap:0;border-bottom:1px solid rgba(42,58,106,.5);margin-bottom:16px;";
+
+  function makeTab(id, label, active){
+    const t = document.createElement("button");
+    t.style.cssText = "padding:9px 18px;font-size:13px;font-weight:600;border:none;border-bottom:2px solid "+(active?"#7c3aed":"transparent")+";color:"+(active?"#c4b5fd":"#475569")+";background:transparent;cursor:pointer;";
+    t.innerText = label;
+    t.onclick = () => showImageLibraryModal(id);
+    return t;
+  }
+  tabBar.appendChild(makeTab("images", "🖼 Images", startTab==="images"));
+  tabBar.appendChild(makeTab("visuals", "✨ Visuals", startTab==="visuals"));
+  body.appendChild(tabBar);
+
+  const pane = document.createElement("div");
+  body.appendChild(pane);
+
+  if(startTab === "visuals"){
+    // ── Visuals tab ──────────────────────────────────────────────────────────
+    pane.innerHTML = '<div style="text-align:center;padding:24px;color:#475569;font-size:13px;">Loading visuals…</div>';
+    try{
+      const vRes = await fetch("/api/visuals");
+      const vData = await vRes.json();
+      const visuals = vData.visuals || [];
+      pane.innerHTML = "";
+      if(!visuals.length){
+        pane.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:.3;">✨</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">No saved visuals yet</div><div style="font-size:13px;color:#475569;max-width:300px;line-height:1.6;">Ask a teammate to create an animation and click 💾 Save to add it here.</div></div>';
+        return;
+      }
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;";
+      visuals.forEach(function(v){
+        const card = document.createElement("div");
+        card.style.cssText = "border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:10px;background:rgba(14,22,48,.6);";
+        // Mini preview using iframe
+        const prev = document.createElement("div");
+        prev.style.cssText = "position:relative;height:130px;border-radius:8px;overflow:hidden;background:#060c1e;cursor:pointer;margin-bottom:8px;";
+        const fr = document.createElement("iframe");
+        fr.sandbox="allow-scripts allow-same-origin";
+        fr.srcdoc=v.html;
+        fr.style.cssText="width:100%;height:130px;border:none;pointer-events:none;transform:scale(0.85);transform-origin:top left;width:117.6%;height:152px;";
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:absolute;inset:0;cursor:zoom-in;";
+        overlay.onclick = function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html, v.teammate, v.prompt); };
+        prev.appendChild(fr); prev.appendChild(overlay);
+        card.appendChild(prev);
+        const meta = document.createElement("div");
+        meta.style.cssText = "font-size:11px;color:#64748b;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        meta.innerText = (v.prompt||"Visual animation") + (v.saved_at?" · "+v.saved_at:"");
+        meta.title = v.prompt||"";
+        card.appendChild(meta);
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:6px;";
+        const openBtn = document.createElement("button");
+        openBtn.className="btn btnMini"; openBtn.innerText="⛶ Open";
+        openBtn.onclick=function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html, v.teammate, v.prompt); };
+        const dlBtn = document.createElement("button");
+        dlBtn.className="btn btnMini"; dlBtn.innerText="⬇ HTML";
+        dlBtn.onclick=function(){ var a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(v.html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); };
+        const delBtn = document.createElement("button");
+        delBtn.className="btn btnMini"; delBtn.style.cssText="color:#f87171;border-color:rgba(248,113,113,.3);"; delBtn.innerText="✕";
+        delBtn.onclick=async function(){
+          if(!confirm("Delete this visual?")) return;
+          await fetch("/api/visuals/"+v.id,{method:"DELETE"});
+          showImageLibraryModal("visuals");
+        };
+        actions.appendChild(openBtn); actions.appendChild(dlBtn); actions.appendChild(delBtn);
+        card.appendChild(actions);
+        grid.appendChild(card);
+      });
+      pane.appendChild(grid);
+    }catch(e){
+      pane.innerHTML = '<div style="color:#f87171;padding:20px;">Failed to load visuals: '+e.message+'</div>';
+    }
+    return;
+  }
+
+  // ── Images tab ───────────────────────────────────────────────────────────────
   try{
     const res = await fetch("/api/images");
+    const data = await res.json();
+    if(!data.ok){
+      pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+(data.error||"Failed to load images")+'</div>';
+      return;
+    }
+    const imgs = data.images || [];
     const data = await res.json();
     if(!data.ok){
       showModal("Image Library", data.error || "Failed to load images");
@@ -25199,15 +25347,11 @@ async function showImageLibraryModal(){
     if(!body) return;
 
     if(imgs.length === 0){
-      body.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;">
-        <div style="font-size:48px;opacity:0.4;">🖼️</div>
-        <div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div>
-        <div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style="color:#c4b5fd;">"Create a logo for my business"</em> and the image will appear here.</div>
-      </div>`;
+      pane.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:0.4;">🖼️</div><div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div><div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style=\'color:#c4b5fd;\'>\"Create a logo for my business\"</em> and the image will appear here.</div></div>';
       return;
     }
 
-    body.innerHTML = "";
+    pane.innerHTML = "";
     const grid = document.createElement("div");
     grid.style.display = "grid";
     grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(200px, 1fr))";
@@ -25294,9 +25438,9 @@ async function showImageLibraryModal(){
       grid.appendChild(card);
     });
 
-    body.appendChild(grid);
+    pane.appendChild(grid);
   }catch(e){
-    showModal("Image Library", String(e || "Failed to load images"));
+    pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+String(e||"Failed to load images")+'</div>';
   }
 }
 
@@ -29389,169 +29533,232 @@ window._streamTtsFired = false;
   // ── Fullscreen overlay (inside Simply, not a new window) ───────────────────
   (function(){
     var _fsHtml = '';
+    var _fsPrompt = '';
+    var _fsSeat = '';
     var _fsCreated = false;
-    function _makeFsOverlay(){
+
+    function _makeFs(){
       if(_fsCreated) return;
       _fsCreated = true;
       var ov = document.createElement('div');
       ov.id = 'saVfsOv';
       ov.style.cssText = 'display:none;position:fixed;inset:0;z-index:999950;background:#060c1e;flex-direction:column;font-family:system-ui,sans-serif;';
+
       // Header
       var hdr = document.createElement('div');
-      hdr.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(8,12,32,.99);border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;';
+      hdr.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(8,12,32,.99);border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;flex-wrap:wrap;';
+
       var ttl = document.createElement('div');
-      ttl.style.cssText = 'font-size:13px;font-weight:600;color:#c4b5fd;flex:1;';
+      ttl.style.cssText = 'font-size:13px;font-weight:600;color:#c4b5fd;flex:1;min-width:120px;';
       ttl.textContent = '✨ Visual Preview';
       hdr.appendChild(ttl);
-      // Download HTML btn
-      var dlH = document.createElement('button');
-      dlH.className='btn btnMini'; dlH.textContent='⬇ HTML';
-      dlH.onclick=function(){
-        if(!_fsHtml)return;
+
+      function mkHBtn(txt, xs, fn){
+        var b=document.createElement('button'); b.className='btn btnMini'; b.textContent=txt;
+        if(xs) b.style.cssText=xs; b.onclick=fn; return b;
+      }
+
+      // ⬇ HTML
+      hdr.appendChild(mkHBtn('⬇ HTML', '', function(){
+        if(!_fsHtml) return;
         var a=document.createElement('a');a.href='data:text/html;charset=utf-8,'+encodeURIComponent(_fsHtml);
         a.download='visual-'+Date.now()+'.html';document.body.appendChild(a);a.click();document.body.removeChild(a);
-      };
-      hdr.appendChild(dlH);
-      // Video btn
-      var dlV = document.createElement('button');
-      dlV.className='btn btnMini';
-      dlV.style.cssText='background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;';
-      dlV.textContent='🎬 Video';
-      dlV.onclick=function(){
-        var fr=document.getElementById('saVfsFr');
+      }));
+
+      // 🎬 Video
+      var fsDlV = mkHBtn('🎬 Video','background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;', function(){});
+      fsDlV.onclick = async function(){
+        var fr = document.getElementById('saVfsFr');
         if(!fr||!_fsHtml){if(typeof showToast==='function')showToast('No visual loaded');return;}
-        var orig=dlV.textContent; dlV.textContent='⏺ Recording 8s…'; dlV.disabled=true;
-        function onMsg(e){
-          if(e.source!==fr.contentWindow)return;
-          if(e.data&&e.data.type==='SA_RECORD_DONE'){
-            window.removeEventListener('message',onMsg);
-            var a=document.createElement('a');a.href=e.data.dataUrl;a.download='visual-'+Date.now()+'.'+(e.data.ext||'webm');
-            document.body.appendChild(a);a.click();document.body.removeChild(a);
-            if(typeof showToast==='function')showToast('✓ Video downloaded!');
-            dlV.textContent=orig;dlV.disabled=false;
-          }
-        }
-        window.addEventListener('message',onMsg);
-        try{
-          fr.contentWindow.postMessage({type:'SA_START_RECORD',duration:8},'*');
-          setTimeout(function(){dlV.textContent=orig;dlV.disabled=false;},12000);
-        }catch(ex){
-          window.removeEventListener('message',onMsg);
-          dlV.textContent=orig;dlV.disabled=false;
-          if(typeof showToast==='function')showToast('Video requires Chrome/Edge');
-        }
+        var orig=fsDlV.textContent; fsDlV.textContent='⏺ Recording…'; fsDlV.disabled=true;
+        await _downloadVisualVideo(_fsHtml, fr, 8);
+        fsDlV.textContent=orig; fsDlV.disabled=false;
       };
-      hdr.appendChild(dlV);
-      // Close
-      var cls = document.createElement('button');
-      cls.style.cssText='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:4px;';
+      hdr.appendChild(fsDlV);
+
+      // 💾 Save
+      hdr.appendChild(mkHBtn('💾 Save','background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.4);color:#6ee7b7;', function(){
+        _saveVisualToLibrary(_fsHtml, _fsPrompt, _fsSeat);
+      }));
+
+      // ✏️ Edit toggle
+      var editOpen = false;
+      var fsEditPanel = document.createElement('div');
+      fsEditPanel.style.cssText = 'display:none;padding:10px 14px;background:rgba(8,12,32,.99);border-top:1px solid rgba(124,58,237,.3);flex-shrink:0;';
+
+      // Edit chips
+      var editChips = [
+        {label:'🎨 Change theme', val:'Change to a vibrant gradient color theme'},
+        {label:'⚡ Faster', val:'Make all animations twice as fast'},
+        {label:'🐢 Slower', val:'Make all animations half as fast'},
+        {label:'✨ Particles', val:'Add floating particle effects in the background'},
+        {label:'🔄 Loop', val:'Make all animations loop seamlessly'},
+        {label:'🔠 Bigger text', val:'Make all text larger and more readable'},
+      ];
+      var chipRow2 = document.createElement('div');
+      chipRow2.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;';
+      editChips.forEach(function(c){
+        var chip=document.createElement('button'); chip.className='btn btnMini';
+        chip.style.cssText='font-size:11px;border-radius:20px;background:rgba(255,255,255,.05);';
+        chip.innerText=c.label;
+        chip.onclick=function(){fsEditTa.value=c.val; fsApplyEdit();};
+        chipRow2.appendChild(chip);
+      });
+      fsEditPanel.appendChild(chipRow2);
+
+      var editRow = document.createElement('div');
+      editRow.style.cssText = 'display:flex;gap:8px;';
+      var fsEditTa = document.createElement('textarea');
+      fsEditTa.placeholder = 'Describe changes… e.g. "change to blue theme, make text larger"';
+      fsEditTa.style.cssText = 'flex:1;height:48px;background:rgba(14,22,48,.9);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;resize:none;font-family:inherit;outline:none;';
+      var fsApplyBtn = document.createElement('button');
+      fsApplyBtn.className = 'btn btnPrimary';
+      fsApplyBtn.style.cssText = 'flex-shrink:0;align-self:flex-end;padding:8px 14px;';
+      fsApplyBtn.innerText = 'Apply';
+
+      async function fsApplyEdit(){
+        var instr = fsEditTa.value.trim();
+        if(!instr) return;
+        fsApplyBtn.disabled=true; fsApplyBtn.innerText='Generating…';
+        var editPrompt = 'EXISTING VISUAL TO EDIT (keep overall structure, apply changes only): ' + instr;
+        try{
+          var r1=await fetch('/api/visual_creator',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({prompt:editPrompt,theme:'dark purple',type:'animation',brand:''})});
+          var d1=await r1.json();
+          if(!d1.ok) throw new Error(d1.error||'Start failed');
+          var polls=0;
+          var result=await new Promise(function(resolve,reject){
+            var iv=setInterval(async function(){
+              polls++;
+              var sr=await fetch('/api/visual_creator/status/'+d1.job_id);
+              var sd=await sr.json();
+              if(sd.status==='done'||sd.status==='error'||!sd.ok){clearInterval(iv);resolve(sd);}
+              else if(polls>=45){clearInterval(iv);reject(new Error('Timed out'));}
+            },2000);
+          });
+          if(result.ok&&result.html&&result.html.length>100){
+            _fsHtml=result.html;
+            var fr=document.getElementById('saVfsFr');
+            if(fr){
+              var rb='<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
+              var src2=_fsHtml.replace('</body>',rb+'</body>');if(src2===_fsHtml)src2=_fsHtml+rb;
+              fr.srcdoc=src2;
+            }
+            if(typeof showToast==='function') showToast('✓ Visual updated!');
+          } else {
+            if(typeof showToast==='function') showToast(result.error||'Edit failed');
+          }
+        }catch(e){ if(typeof showToast==='function') showToast('Edit failed: '+e.message); }
+        finally{ fsApplyBtn.disabled=false; fsApplyBtn.innerText='Apply'; }
+      }
+      fsApplyBtn.onclick=fsApplyEdit;
+      editRow.appendChild(fsEditTa); editRow.appendChild(fsApplyBtn);
+      fsEditPanel.appendChild(editRow);
+
+      var editToggle = mkHBtn('✏️ Edit','background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.4);color:#c4b5fd;', function(){
+        editOpen=!editOpen;
+        fsEditPanel.style.display=editOpen?'block':'none';
+        editToggle.innerText=editOpen?'✏️ Close edit':'✏️ Edit';
+        if(editOpen) setTimeout(function(){fsEditTa.focus();},50);
+      });
+      hdr.appendChild(editToggle);
+
+      // ✕ Close
+      var cls=document.createElement('button');
+      cls.style.cssText='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;';
       cls.textContent='✕ Close';
       cls.onclick=function(){ov.style.display='none';document.body.classList.remove('modal-open');};
       hdr.appendChild(cls);
+
       ov.appendChild(hdr);
+      ov.appendChild(fsEditPanel);
+
       // iframe
       var fr=document.createElement('iframe');
       fr.id='saVfsFr';fr.sandbox='allow-scripts allow-same-origin';
-      fr.style.cssText='flex:1;width:100%;border:none;';
+      fr.style.cssText='flex:1;width:100%;border:none;min-height:0;';
       ov.appendChild(fr);
       document.body.appendChild(ov);
     }
-    window._saOpenVisualFullscreen=function(html){
-      _fsHtml=html;
-      _makeFsOverlay();
+
+    window._saOpenVisualFullscreen=function(html, seat, prompt){
+      _fsHtml=html||''; _fsSeat=seat||''; _fsPrompt=prompt||'';
+      _makeFs();
       var ov=document.getElementById('saVfsOv');
       var fr=document.getElementById('saVfsFr');
-      if(!ov||!fr)return;
-      // Inject recording bridge
-      var recBridge='<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
-      var srcWithBridge=html.replace('</body>',recBridge+'</body>');
-      if(srcWithBridge===html)srcWithBridge=html+recBridge;
-      fr.srcdoc=srcWithBridge;
+      if(!ov||!fr) return;
+      var rb='<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
+      var src=html.replace('</body>',rb+'</body>');if(src===html)src=html+rb;
+      fr.srcdoc=src;
       ov.style.display='flex';
       document.body.classList.add('modal-open');
     };
   })();
 
-  function _buildVisualOutput(container, htmlSrc){
+
+  function _buildVisualOutput(container, htmlSrc, seat){
     container.innerHTML = "";
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+    var _prompt = container._visualPrompt || '';
 
-    // Inject recording bridge so postMessage video works from same origin
-    const recBridge = '<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
-    const srcWithBridge = htmlSrc.replace('</body>', recBridge+'</body>') !== htmlSrc
-      ? htmlSrc.replace('</body>', recBridge+'</body>') : htmlSrc+recBridge;
+    // Recording bridge injected into srcdoc
+    var recBridge = '<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
+    var srcWithBridge = htmlSrc.replace('</body>', recBridge+'</body>');
+    if(srcWithBridge===htmlSrc) srcWithBridge = htmlSrc + recBridge;
 
-    const frame = document.createElement("iframe");
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 6px;";
+
+    var frame = document.createElement("iframe");
     frame.sandbox = "allow-scripts allow-same-origin";
     frame.srcdoc = srcWithBridge;
     frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
     wrap.appendChild(frame);
 
-    // Listen for recording done
-    window.addEventListener("message", function _bvoMsg(e){
-      if(e.source !== frame.contentWindow) return;
-      if(e.data && e.data.type === "SA_RECORD_DONE"){
-        window.removeEventListener("message", _bvoMsg);
-        const a = document.createElement("a");
-        a.href = e.data.dataUrl; a.download = "visual-"+Date.now()+".webm";
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        if(typeof showToast==="function") showToast("✓ Video downloaded!");
-      }
-    });
+    // Action bar
+    var bar = document.createElement("div");
+    bar.style.cssText = "display:flex;gap:6px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;align-items:center;";
 
-    const bar = document.createElement("div");
-    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;align-items:center;";
-
-    const mk = (lbl, fn, xStyle) => {
-      const b = document.createElement("button");
-      b.className="btn btnMini"; b.innerText=lbl;
-      if(xStyle) Object.assign(b.style, {cssText:xStyle});
-      b.onclick=fn; return b;
+    var mk = function(lbl, fn, xs){
+      var b=document.createElement("button"); b.className="btn btnMini"; b.innerText=lbl;
+      if(xs) b.style.cssText=xs; b.onclick=fn; return b;
     };
 
-    // ⬇ HTML download
-    bar.appendChild(mk("⬇ HTML", ()=>{
-      const a=document.createElement("a");
-      a.href="data:text/html;charset=utf-8,"+encodeURIComponent(htmlSrc);
-      a.download="visual-"+Date.now()+".html";
-      document.body.appendChild(a);a.click();document.body.removeChild(a);
+    // ⬇ HTML
+    bar.appendChild(mk("⬇ HTML", function(){
+      var a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(htmlSrc);
+      a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);
     }));
 
-    // 🎬 Video — uses postMessage to iframe recording bridge
-    const vidBtn = document.createElement("button");
-    vidBtn.className="btn btnMini";
-    vidBtn.style.cssText="background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;";
-    vidBtn.innerText="🎬 Video";
-    vidBtn.onclick=function(){
-      const orig=vidBtn.innerText;
-      vidBtn.innerText="⏺ Recording 8s…"; vidBtn.disabled=true;
-      try{
-        frame.contentWindow.postMessage({type:"SA_START_RECORD",duration:8},"*");
-        if(typeof showToast==="function") showToast("Recording — download starts automatically when done");
-        setTimeout(()=>{vidBtn.innerText=orig;vidBtn.disabled=false;},11000);
-      }catch(e){
-        vidBtn.innerText=orig;vidBtn.disabled=false;
-        if(typeof showToast==="function") showToast("Video requires Chrome or Edge");
-      }
+    // 🎬 Video (MP4 via ffmpeg)
+    var vidBtn = mk("🎬 Video", null, "background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;");
+    vidBtn.onclick = async function(){
+      var orig = vidBtn.innerText; vidBtn.innerText="⏺ Recording…"; vidBtn.disabled=true;
+      await _downloadVisualVideo(htmlSrc, frame, 8);
+      vidBtn.innerText=orig; vidBtn.disabled=false;
     };
     bar.appendChild(vidBtn);
 
-    // ⛶ Fullscreen — opens overlay inside Simply, not a new window
-    bar.appendChild(mk("⛶ Fullscreen", ()=>{
-      if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(htmlSrc);
+    // ⛶ Fullscreen
+    bar.appendChild(mk("⛶ Full", function(){
+      if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(htmlSrc, seat, _prompt);
     }));
 
     // ↕ Resize
-    let exp=false;
-    const rzBtn=mk("↕ Resize",null);
-    rzBtn.onclick=function(){
-      exp=!exp;frame.style.height=exp?"700px":"420px";rzBtn.innerText=exp?"↕ Shrink":"↕ Resize";
-    };
+    var exp=false;
+    var rzBtn=mk("↕ Resize",null);
+    rzBtn.onclick=function(){exp=!exp;frame.style.height=exp?"700px":"420px";rzBtn.innerText=exp?"↕ Shrink":"↕ Resize";};
     bar.appendChild(rzBtn);
+
+    // 💾 Save
+    bar.appendChild(mk("💾 Save", function(){
+      _saveVisualToLibrary(htmlSrc, _prompt, seat||window.selectedSeat||'');
+    }, "background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.4);color:#6ee7b7;"));
 
     wrap.appendChild(bar);
     container.appendChild(wrap);
+
+    // ✏️ Edit panel below
+    _attachVisualEditPanel(container, htmlSrc, seat||window.selectedSeat||'');
   }
 
 
@@ -29621,7 +29828,8 @@ window._streamTtsFired = false;
 
         aBody.innerHTML="";
         if(pollResult.ok && pollResult.status==="done" && pollResult.html && pollResult.html.length>100){
-          _buildVisualOutput(aBody, pollResult.html);
+          aBody._visualPrompt = msg;
+          _buildVisualOutput(aBody, pollResult.html, seat);
           try{ fetch("/api/followup",{method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({name:seat,save_visual:true,user_msg:msg,visual_html:"__VISUAL__"+pollResult.html})}); }catch(_){}
         } else {
