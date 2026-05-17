@@ -20864,11 +20864,7 @@ Challenge weak assumptions. Surface risks.`;
       _vcOriginalPrompt = prompt;
 
       var fullPrompt = prompt;
-      if(editContext) fullPrompt = 'EXISTING VISUAL TO EDIT:
-' + editContext + '
-
-CHANGE REQUEST:
-' + prompt;
+      if(editContext) fullPrompt = 'EXISTING VISUAL TO EDIT: ' + editContext + ' CHANGE REQUEST: ' + prompt;
 
       var btn = document.getElementById('vcGenBtn');
       var status = document.getElementById('vcStatus');
