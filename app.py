@@ -4704,65 +4704,78 @@ _IMAGE_TRIGGERS = [
 
 def is_visual_request(prompt: str) -> bool:
     """Detect when the user wants a live animated/interactive visual rendered in the chat."""
+    import re
     p = (prompt or "").strip().lower()
     if not p:
         return False
-    _VISUAL_TRIGGERS = [
-        # "create/make/build/generate + visual thing"
-        "create an animation", "make an animation", "build an animation", "generate an animation",
-        "create a slideshow", "make a slideshow", "build a slideshow", "generate a slideshow",
-        "create a carousel", "make a carousel", "build a carousel",
-        "create a presentation", "make a presentation", "build a presentation",
-        "create an animated", "make an animated", "build an animated",
-        "create a visual", "make a visual", "generate a visual", "build a visual",
-        "create an interactive", "make an interactive", "build an interactive",
-        "create a demo", "make a demo", "build a demo",
-        "create a countdown", "make a countdown", "build a countdown",
-        "create an infographic", "make an infographic",
-        "create a preview", "make a preview",
-        "create a landing", "make a landing",
-        # "show me" triggers
-        "show me an animation", "show me a slideshow", "show me a carousel",
-        "show me a preview", "show me a visual", "show me a presentation",
-        "show me how", "show me what",
-        # direct action verbs
-        "animate ", "animate the", "animate my",
-        "visualize ", "visualize my", "visualise ",
-        "render a", "render an",
-        # natural phrasing: "can you create", "i want", "i need", "please make"
-        "can you create an animation", "can you make an animation",
-        "can you create a slideshow", "can you make a slideshow",
-        "can you animate", "can you visualize",
-        "i want an animation", "i need an animation",
-        "i want a slideshow", "i need a slideshow",
-        "i want a carousel", "i need a carousel",
-        "i want a presentation", "i need a presentation",
-        "i want a visual", "i need a visual",
-        "please animate", "please create an animation",
-        "please make an animation", "please create a slideshow",
-        # modifiers
-        "with animations", "with animation", "animated version",
-        "make it animated", "make it interactive",
-        "landing page animation", "animated landing",
-        # specific types
-        "counter animation", "number counter", "stats animation",
-        "hero animation", "intro animation", "loading animation",
-        "typing animation", "scroll animation",
+
+    # Visual output nouns — things that require a live rendered output
+    _VISUAL_NOUNS = [
+        "animation", "animations", "animated",
+        "slideshow", "slide show", "slides",
+        "carousel", "carousels",
+        "presentation", "presentations",
+        "interactive", "visualisation", "visualization",
+        "infographic", "infographics",
+        "countdown", "counter animation",
+        "demo", "preview", "landing page",
+        "hero section", "stats animation",
     ]
-    for t in _VISUAL_TRIGGERS:
-        if t in p:
+
+    # Action verbs that signal generation
+    _ACTION_VERBS = [
+        r"creat[e|ing]",
+        r"mak[e|ing]",
+        r"build|builds|building",
+        r"generat[e|ing]",
+        r"render|renders|rendering",
+        r"show me",
+        r"animat[e|ing]",
+        r"visuali[sz][e|ing]",
+        r"design",
+        r"give me",
+        r"can you",
+        r"please",
+        r"i want",
+        r"i need",
+        r"i'd like",
+    ]
+
+    # Direct single-word triggers
+    _DIRECT = ["animate ", "animated ", "visualize ", "visualise ", "animation of"]
+
+    for d in _DIRECT:
+        if d in p:
             return True
+
+    # Check: does the prompt contain an action verb AND a visual noun?
+    has_noun = any(noun in p for noun in _VISUAL_NOUNS)
+    if has_noun:
+        for verb_pat in _ACTION_VERBS:
+            if re.search(verb_pat, p):
+                return True
+
     return False
 
 
 def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
     """Generate a self-contained HTML animation/visual using Claude via the user's own API key."""
-    # Use the same pattern as the rest of the app — current_user() + _get_claude_client_for_user()
+    cl = None
+    # Try current_user() first (works in request context)
     try:
         u = current_user()
         cl = _get_claude_client_for_user(u)
     except Exception:
         cl = None
+
+    # Fallback: load user record directly by username
+    if cl is None and username:
+        try:
+            users_data = load_users()
+            u2 = users_data.get("users", {}).get(username, {})
+            cl = _get_claude_client_for_user(u2)
+        except Exception:
+            cl = None
 
     if cl is None:
         return "__NO_KEY__"
@@ -6913,13 +6926,20 @@ def _api_followup_impl(data):
 
     # Visual request: intercept BEFORE calling the LLM — generate live HTML directly
     if is_visual_request(msg2):
+        try:
+            append_log("visual_request_detected", {"msg": msg2[:120], "name": name, "uname": uname})
+        except Exception:
+            pass
         html_out = _generate_visual_html(msg2, name, uname)
+        try:
+            append_log("visual_request_result", {"result_prefix": (html_out or "")[:80], "uname": uname})
+        except Exception:
+            pass
         if html_out == "__NO_KEY__":
-            # No Anthropic key — return a clear message in the thread
             no_key_msg = (
-                "To generate live animations and visuals, you need an Anthropic API key. "
+                "To generate live animations and visuals, I need your Anthropic API key. "
                 "Go to Settings → API Keys and add your Anthropic key (starts with sk-ant-). "
-                "Once added, just ask again and I'll render it live right here!"
+                "Once added, just ask again and I’ll render it live right here!"
             )
             thread.append({"role": "user", "content": msg})
             thread.append({"role": "assistant", "content": no_key_msg})
@@ -6937,7 +6957,16 @@ def _api_followup_impl(data):
             thread.append({"role": "assistant", "content": visual_response})
             save_thread(name, uname, thread)
             return jsonify({"ok": True, "response": visual_response, "thread": thread})
-        # Empty html — fall through to regular text response
+        # html_out was empty — still intercept, don't let Alex respond with text
+        fallback_msg = (
+            "I tried to generate that visual but something went wrong. "
+            "Please make sure your Anthropic API key (sk-ant-...) is saved in Settings → API Keys, "
+            "then try again."
+        )
+        thread.append({"role": "user", "content": msg})
+        thread.append({"role": "assistant", "content": fallback_msg})
+        save_thread(name, uname, thread)
+        return jsonify({"ok": True, "response": fallback_msg, "thread": thread})
 
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
