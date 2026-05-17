@@ -21032,8 +21032,9 @@ Challenge weak assumptions. Surface risks.`;
 
     function vcFullscreen(){
       if(!_vcCurrentHtml){ showToast('Nothing to preview'); return; }
-      var b = new Blob([_vcCurrentHtml],{type:'text/html'});
-      window.open(URL.createObjectURL(b),'_blank');
+      if(typeof window._saOpenVisualFullscreen === 'function'){
+        window._saOpenVisualFullscreen(_vcCurrentHtml);
+      }
     }
 
     function vcExportVideo(){
@@ -29598,6 +29599,124 @@ window._streamTtsFired = false;
   // ── Shared visual output renderer ─────────────────────────────────────────
   // Builds an iframe + action bar (Download HTML, Download Video, Copy, Full screen, Resize)
   // and appends it to the given container element.
+  // ── Shared fullscreen overlay for visuals ───────────────────────────────────
+  (function(){
+    var _fsOverlay = null;
+    var _fsCurrentHtml = '';
+
+    function _ensureFsOverlay(){
+      if(_fsOverlay) return _fsOverlay;
+      _fsOverlay = document.createElement('div');
+      _fsOverlay.id = 'saVisualFsOverlay';
+      _fsOverlay.style.cssText = 'display:none;position:fixed;inset:0;z-index:999990;background:#060c1e;flex-direction:column;font-family:system-ui,sans-serif;';
+      // Header bar
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:rgba(8,12,32,.99);border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;gap:10px;';
+      var title = document.createElement('div');
+      title.style.cssText = 'font-size:13px;font-weight:600;color:#c4b5fd;';
+      title.textContent = '✨ Visual Preview';
+      hdr.appendChild(title);
+      // Action buttons in header
+      var btns = document.createElement('div');
+      btns.style.cssText = 'display:flex;gap:8px;align-items:center;';
+      // Download HTML
+      var dlHtml = document.createElement('button');
+      dlHtml.className='btn btnMini'; dlHtml.textContent='⬇ HTML';
+      dlHtml.onclick=function(){
+        if(!_fsCurrentHtml) return;
+        var a=document.createElement('a');
+        a.href='data:text/html;charset=utf-8,'+encodeURIComponent(_fsCurrentHtml);
+        a.download='visual-'+Date.now()+'.html';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+      };
+      btns.appendChild(dlHtml);
+      // Download Video
+      var dlVid = document.createElement('button');
+      dlVid.className='btn btnMini';
+      dlVid.style.cssText='background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.45);color:#fca5a5;';
+      dlVid.textContent='🎬 Download Video';
+      dlVid.onclick=function(){
+        if(!_fsCurrentHtml){ if(typeof showToast==='function') showToast('No visual loaded'); return; }
+        var origText = dlVid.textContent;
+        dlVid.textContent='⏺ Recording…'; dlVid.disabled=true;
+        try{
+          var openTag='<'+'script>', closeTag='<'+'/script>';
+          var recSrc = openTag+'(function(){'
+            +'setTimeout(function(){'
+            +'var cvs=document.createElement("canvas");'
+            +'cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;'
+            +'var ctx=cvs.getContext("2d");'
+            +'var stream=cvs.captureStream(30);'
+            +'var mimes=["video/webm;codecs=vp9","video/webm"];'
+            +'var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";'
+            +'var rec=new MediaRecorder(stream,{mimeType:mime});'
+            +'var chunks=[];'
+            +'rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
+            +'rec.onstop=function(){'
+            +'var blob=new Blob(chunks,{type:"video/webm"});'
+            +'var url=URL.createObjectURL(blob);'
+            +'var a=document.createElement("a");a.href=url;a.download="visual.webm";a.click();'
+            +'setTimeout(function(){URL.revokeObjectURL(url);window.close();},2000);'
+            +'};'
+            +'var svgs=document.querySelectorAll("svg");'
+            +'function draw(){'
+            +'try{if(svgs.length){'
+            +'var s=new XMLSerializer().serializeToString(svgs[0]);'
+            +'var img=new Image();'
+            +'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle=document.body.style.background||"#060c1e";ctx.fillRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
+            +'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
+            +'}}catch(e){}'
+            +'if(rec.state==="recording")requestAnimationFrame(draw);'
+            +'}'
+            +'rec.start(100);requestAnimationFrame(draw);'
+            +'setTimeout(function(){if(rec.state!=="inactive")rec.stop();},8000);'
+            +'},600);'
+            +'})()'+closeTag;
+          var blob = new Blob([_fsCurrentHtml+recSrc],{type:'text/html'});
+          var recUrl = URL.createObjectURL(blob);
+          window.open(recUrl,'_blank','width=1280,height=720,menubar=no,toolbar=no');
+          if(typeof showToast==='function') showToast('Recording 8s in new window — download starts automatically');
+          setTimeout(function(){
+            dlVid.textContent=origText; dlVid.disabled=false;
+            try{URL.revokeObjectURL(recUrl);}catch(_){}
+          },10000);
+        }catch(e){
+          dlVid.textContent=origText; dlVid.disabled=false;
+          if(typeof showToast==='function') showToast('Video requires Chrome or Edge');
+        }
+      };
+      btns.appendChild(dlVid);
+      // Close
+      var closeBtn = document.createElement('button');
+      closeBtn.style.cssText='background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;';
+      closeBtn.textContent='✕ Close';
+      closeBtn.onclick=function(){
+        _fsOverlay.style.display='none';
+        document.body.classList.remove('modal-open');
+      };
+      btns.appendChild(closeBtn);
+      hdr.appendChild(btns);
+      _fsOverlay.appendChild(hdr);
+      // iframe
+      var fsFrame = document.createElement('iframe');
+      fsFrame.id='saVisualFsFrame';
+      fsFrame.sandbox='allow-scripts allow-same-origin';
+      fsFrame.style.cssText='flex:1;width:100%;border:none;';
+      _fsOverlay.appendChild(fsFrame);
+      document.body.appendChild(_fsOverlay);
+      return _fsOverlay;
+    }
+
+    window._saOpenVisualFullscreen = function(htmlSrc){
+      _fsCurrentHtml = htmlSrc;
+      var ov = _ensureFsOverlay();
+      var fr = document.getElementById('saVisualFsFrame');
+      if(fr) fr.srcdoc = htmlSrc;
+      ov.style.display='flex';
+      document.body.classList.add('modal-open');
+    };
+  })();
+
   function _buildVisualOutput(container, htmlSrc){
     container.innerHTML = "";
     const wrap = document.createElement("div");
@@ -29607,20 +29726,19 @@ window._streamTtsFired = false;
     frame.sandbox = "allow-scripts allow-same-origin";
     frame.srcdoc = htmlSrc;
     frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
-    frame.title = "Generated visual";
     wrap.appendChild(frame);
 
     const bar = document.createElement("div");
-    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;align-items:center;";
 
-    const mk = (lbl, fn, style) => {
+    const mk = (lbl, fn, extraStyle) => {
       const b = document.createElement("button");
       b.className = "btn btnMini"; b.innerText = lbl;
-      if(style) b.style.cssText = style;
+      if(extraStyle) b.style.cssText += extraStyle;
       b.onclick = fn; return b;
     };
 
-    // Download HTML
+    // ⬇ Download HTML
     bar.appendChild(mk("⬇ HTML", () => {
       const a = document.createElement("a");
       a.href = "data:text/html;charset=utf-8," + encodeURIComponent(htmlSrc);
@@ -29628,123 +29746,64 @@ window._streamTtsFired = false;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
     }));
 
-    // Download as Video (records iframe canvas via MediaRecorder)
+    // 🎬 Download Video — opens recording window
     const vidBtn = mk("🎬 Video", null, "background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;");
     vidBtn.onclick = function(){
-      vidBtn.innerText = "⏺ Recording…";
-      vidBtn.disabled = true;
+      const orig = vidBtn.innerText;
+      vidBtn.innerText="⏺ Recording…"; vidBtn.disabled=true;
       try{
-        // Get the iframe's canvas/document — inject a recorder script
-        const ifrDoc = frame.contentDocument || frame.contentWindow.document;
-        const ifrWin = frame.contentWindow;
-        // Try captureStream from canvas inside iframe first
-        const canvases = ifrDoc.querySelectorAll("canvas");
-        let stream = null;
-        if(canvases.length){
-          stream = canvases[0].captureStream(30);
-        } else {
-          // Fallback: capture the iframe element itself using element.captureStream if available
-          // Use a OffscreenCanvas approach via the parent
-          stream = null;
-        }
-        if(!stream){
-          // Best cross-browser fallback: open in new window and let user record with OS tools
-          vidBtn.innerText = "🎬 Video";
-          vidBtn.disabled = false;
-          // Instead use html2canvas approach — inject script into iframe to draw to canvas then record
-          const recordScript = ifrDoc.createElement("script");
-          recordScript.textContent = `
-            (function(){
-              if(window._saRecording) return;
-              window._saRecording = true;
-              var duration = 8000;
-              var fps = 30;
-              // Create offscreen canvas matching viewport
-              var cvs = document.createElement('canvas');
-              cvs.width = document.documentElement.scrollWidth || 800;
-              cvs.height = document.documentElement.scrollHeight || 600;
-              var ctx = cvs.getContext('2d');
-              var stream = cvs.captureStream(fps);
-              var recorder = new MediaRecorder(stream, {mimeType: 'video/webm;codecs=vp9'});
-              var chunks = [];
-              recorder.ondataavailable = function(e){ if(e.data.size) chunks.push(e.data); };
-              recorder.onstop = function(){
-                var blob = new Blob(chunks, {type:'video/webm'});
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url; a.download = 'visual-animation.webm'; a.click();
-                window._saRecording = false;
-              };
-              // Draw frames using html2canvas-like approach
-              var svgs = document.querySelectorAll('svg');
-              var animEls = document.querySelectorAll('[style*="animation"]');
-              recorder.start();
-              // For SVG-based animations, serialize and draw
-              function drawFrame(){
-                try{
-                  var svgEl = svgs[0];
-                  if(svgEl){
-                    var svgData = new XMLSerializer().serializeToString(svgEl);
-                    var img = new Image();
-                    img.onload = function(){ ctx.clearRect(0,0,cvs.width,cvs.height); ctx.drawImage(img,0,0); };
-                    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
-                  }
-                }catch(e){}
-              }
-              var frameInterval = setInterval(drawFrame, 1000/fps);
-              setTimeout(function(){
-                clearInterval(frameInterval);
-                recorder.stop();
-              }, duration);
-            })();
-          `;
-          ifrDoc.head.appendChild(recordScript);
-          vidBtn.innerText = "⏺ Rec 8s…";
-          vidBtn.disabled = true;
-          setTimeout(function(){ vidBtn.innerText="🎬 Video"; vidBtn.disabled=false; }, 9000);
-          return;
-        }
-        // Canvas stream path
-        const recorder = new MediaRecorder(stream, {mimeType:"video/webm;codecs=vp9"});
-        const chunks = [];
-        recorder.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
-        recorder.onstop = () => {
-          const blob = new Blob(chunks, {type:"video/webm"});
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href=url; a.download="visual-"+Date.now()+".webm";
-          document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          vidBtn.innerText="🎬 Video"; vidBtn.disabled=false;
-        };
-        const recDuration = 8000;
-        recorder.start();
-        vidBtn.innerText = "⏺ Rec 8s…";
-        setTimeout(()=>recorder.stop(), recDuration);
-      } catch(e){
-        vidBtn.innerText = "🎬 Video"; vidBtn.disabled = false;
-        alert("Video recording not supported in this browser. Try Chrome or Edge.");
+        const openTag='<'+'script>', closeTag='<'+'/script>';
+        const recSrc = openTag+'(function(){'
+          +'setTimeout(function(){'
+          +'var cvs=document.createElement("canvas");'
+          +'cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;'
+          +'var ctx=cvs.getContext("2d");'
+          +'var stream=cvs.captureStream(30);'
+          +'var mimes=["video/webm;codecs=vp9","video/webm"];'
+          +'var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";'
+          +'var rec=new MediaRecorder(stream,{mimeType:mime});'
+          +'var chunks=[];'
+          +'rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
+          +'rec.onstop=function(){'
+          +'var blob=new Blob(chunks,{type:"video/webm"});'
+          +'var url=URL.createObjectURL(blob);'
+          +'var a=document.createElement("a");a.href=url;a.download="visual.webm";a.click();'
+          +'setTimeout(function(){URL.revokeObjectURL(url);window.close();},2000);'
+          +'};'
+          +'var svgs=document.querySelectorAll("svg");'
+          +'function draw(){'
+          +'try{if(svgs.length){'
+          +'var s=new XMLSerializer().serializeToString(svgs[0]);'
+          +'var img=new Image();'
+          +'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.fillStyle=document.body.style.background||"#060c1e";ctx.fillRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
+          +'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
+          +'}}catch(e){}'
+          +'if(rec.state==="recording")requestAnimationFrame(draw);'
+          +'}'
+          +'rec.start(100);requestAnimationFrame(draw);'
+          +'setTimeout(function(){if(rec.state!=="inactive")rec.stop();},8000);'
+          +'},600);'
+          +'})()'+closeTag;
+        const blob = new Blob([htmlSrc+recSrc],{type:"text/html"});
+        const recUrl = URL.createObjectURL(blob);
+        window.open(recUrl,"_blank","width=1280,height=720,menubar=no,toolbar=no");
+        showToast("Recording 8s — download starts automatically when done");
+        setTimeout(()=>{ vidBtn.innerText=orig; vidBtn.disabled=false; try{URL.revokeObjectURL(recUrl);}catch(_){} },10000);
+      }catch(e){
+        vidBtn.innerText=orig; vidBtn.disabled=false;
+        showToast("Video requires Chrome or Edge");
       }
     };
     bar.appendChild(vidBtn);
 
-    // Copy code
-    const cpBtn = mk("📋 Code", null);
-    cpBtn.onclick = function(){
-      navigator.clipboard.writeText(htmlSrc).then(()=>{
-        cpBtn.innerText="✓ Copied!";
-        setTimeout(()=>{ cpBtn.innerText="📋 Code"; }, 2000);
-      });
-    };
-    bar.appendChild(cpBtn);
-
-    // Full screen
-    bar.appendChild(mk("⛶ Full screen", () => {
-      const b = new Blob([htmlSrc], {type:"text/html"});
-      window.open(URL.createObjectURL(b), "_blank");
+    // ⛶ Fullscreen — opens inside Simply as overlay (not new window)
+    bar.appendChild(mk("⛶ Fullscreen", () => {
+      if(typeof window._saOpenVisualFullscreen === "function"){
+        window._saOpenVisualFullscreen(htmlSrc);
+      }
     }));
 
-    // Resize
+    // ↕ Resize
     let expanded = false;
     const rzBtn = mk("↕ Resize", null);
     rzBtn.onclick = function(){
@@ -29886,8 +29945,7 @@ window._streamTtsFired = false;
                 _b2.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
                 const _mk2 = (lbl,fn)=>{ const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b; };
                 _b2.appendChild(_mk2("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html2);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
-                _b2.appendChild(_mk2("📋 Copy code",function(){navigator.clipboard.writeText(_html2).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
-                _b2.appendChild(_mk2("⛶ Full screen",()=>{const b=new Blob([_html2],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");}));
+                _b2.appendChild(_mk2("⛶ Fullscreen",()=>{ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(_html2); }));
                 let _e2=false;_b2.appendChild(_mk2("↕ Resize",function(){_e2=!_e2;_f2.style.height=_e2?"700px":"420px";this.innerText=_e2?"↕ Shrink":"↕ Resize";}));
                 _w2.appendChild(_b2);aBody.appendChild(_w2);
               } else {
@@ -29922,8 +29980,7 @@ window._streamTtsFired = false;
           _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
           const _mkBtn = (label, fn) => { const b=document.createElement("button"); b.className="btn btnMini"; b.innerText=label; b.onclick=fn; return b; };
           _bar.appendChild(_mkBtn("⬇ Download", ()=>{ const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); }));
-          _bar.appendChild(_mkBtn("📋 Copy code", function(){ navigator.clipboard.writeText(_html).then(()=>{ this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000); }); }));
-          _bar.appendChild(_mkBtn("⛶ Full screen", ()=>{ const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank"); }));
+          _bar.appendChild(_mkBtn("⛶ Fullscreen", ()=>{ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(_html); }));
           let _exp=false; _bar.appendChild(_mkBtn("↕ Resize", function(){ _exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize"; }));
           _wrap.appendChild(_bar); aBody.appendChild(_wrap);
         } else {
