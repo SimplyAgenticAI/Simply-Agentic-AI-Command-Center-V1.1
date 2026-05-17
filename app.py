@@ -29430,14 +29430,62 @@ window._streamTtsFired = false;
         throw new Error(errData.error||"Stream unavailable");
       }
 
-      // Check if backend returned plain JSON (visual response) instead of SSE stream
+      // Clone response so we can peek at it without consuming the body
+      const responseClone = response.clone();
       const contentType = response.headers.get("content-type") || "";
-      if(contentType.includes("application/json")){
+      const isJson = contentType.includes("application/json");
+
+      // Also peek at first bytes to detect JSON even if content-type is wrong
+      let isVisualJson = false;
+      if(!isJson){
+        try{
+          const peekText = await responseClone.text();
+          if(peekText.trim().startsWith("{")){
+            const peekData = JSON.parse(peekText);
+            if(peekData.visual || (peekData.response && peekData.response.includes("__VISUAL__"))){
+              isVisualJson = true;
+              // Handle it directly
+              aCursor.remove();
+              const _reply = peekData.response || "";
+              const _visIdx2 = _reply.indexOf("__VISUAL__");
+              if(_visIdx2 !== -1){
+                const _html2 = _reply.slice(_visIdx2 + "__VISUAL__".length);
+                aBody.innerHTML = "";
+                const _w2 = document.createElement("div");
+                _w2.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+                const _f2 = document.createElement("iframe");
+                _f2.sandbox = "allow-scripts allow-same-origin";
+                _f2.srcdoc = _html2;
+                _f2.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+                _w2.appendChild(_f2);
+                const _b2 = document.createElement("div");
+                _b2.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+                const _mk2 = (lbl,fn)=>{ const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b; };
+                _b2.appendChild(_mk2("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html2);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
+                _b2.appendChild(_mk2("📋 Copy code",function(){navigator.clipboard.writeText(_html2).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
+                _b2.appendChild(_mk2("⛶ Full screen",()=>{const b=new Blob([_html2],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");}));
+                let _e2=false;_b2.appendChild(_mk2("↕ Resize",function(){_e2=!_e2;_f2.style.height=_e2?"700px":"420px";this.innerText=_e2?"↕ Shrink":"↕ Resize";}));
+                _w2.appendChild(_b2);aBody.appendChild(_w2);
+              } else {
+                aBody.innerText = _reply;
+              }
+              if(typeof setSeatLive==="function") setSeatLive(seat,"done");
+              if(typeof setOpStatus==="function") setOpStatus("Complete");
+              if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
+              try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+              return;
+            }
+          }
+        }catch(_peekErr){ /* not JSON, continue to SSE */ }
+      }
+
+      // Check if backend returned plain JSON (visual response) instead of SSE stream
+      if(isJson){
         const jsonData = await response.json().catch(()=>({}));
         aCursor.remove();
         const _reply = jsonData.response || "";
-        if(_reply.startsWith("__VISUAL__")){
-          const _html = _reply.slice("__VISUAL__".length);
+        if(_reply.indexOf("__VISUAL__") !== -1){
+          const _html = _reply.slice(_reply.indexOf("__VISUAL__") + "__VISUAL__".length);
           aBody.innerHTML = "";
           const _wrap = document.createElement("div");
           _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
