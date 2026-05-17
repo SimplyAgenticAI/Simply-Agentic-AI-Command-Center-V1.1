@@ -29389,6 +29389,69 @@ window._streamTtsFired = false;
     const msg = (msgEl ? msgEl.value : "").trim();
     if(!msg){ if(typeof showModal==="function") showModal("Missing message","Type a message."); return; }
 
+    // ── Visual request: detect on the frontend and call dedicated endpoint ──
+    function _isVisualMsg(m){
+      const p = m.toLowerCase();
+      const nouns = ["animation","animated","slideshow","carousel","presentation","interactive","infographic","countdown","visual","demo","preview"];
+      const verbs = ["create","make","build","generate","show me","animate","visualize","visualise","render","give me","can you","please","i want","i need"];
+      if(nouns.some(n=>p.includes(n)) && verbs.some(v=>p.includes(v))) return true;
+      if(p.includes("animate ") || p.includes("animation of") || p.includes("animated ")) return true;
+      return false;
+    }
+
+    if(_isVisualMsg(msg)){
+      const dmFileIds = window.dmFileIds || [];
+      if(typeof setSeatLive==="function") setSeatLive(seat,"thinking");
+      if(typeof setOpStatus==="function") setOpStatus("Generating visual…");
+      const threadEl = document.getElementById("thread");
+      // Show user message
+      const uDiv=document.createElement("div"); uDiv.className="msg user";
+      const uWho=document.createElement("div"); uWho.className="who"; uWho.innerText="You";
+      const uBody=document.createElement("div"); uBody.innerText=msg;
+      uDiv.appendChild(uWho); uDiv.appendChild(uBody); threadEl.appendChild(uDiv);
+      // Show assistant loading bubble
+      const aDiv=document.createElement("div"); aDiv.className="msg assistant";
+      const aWho=document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
+      const aBody=document.createElement("div"); aBody.style.color="#a78bfa"; aBody.innerText="✨ Generating your visual… this takes ~15 seconds";
+      aDiv.appendChild(aWho); aDiv.appendChild(aBody); threadEl.appendChild(aDiv);
+      threadEl.scrollTop=threadEl.scrollHeight;
+      if(msgEl) msgEl.value="";
+      try{
+        const vRes = await fetch("/api/visual_creator", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({prompt:msg, theme:"dark purple", type:"animation", brand:""})
+        });
+        const vData = await vRes.json();
+        aBody.innerHTML="";
+        if(vData.ok && vData.html && vData.html.length > 100){
+          const _html = vData.html;
+          const _wrap=document.createElement("div");
+          _wrap.style.cssText="border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+          const _frame=document.createElement("iframe");
+          _frame.sandbox="allow-scripts allow-same-origin";
+          _frame.srcdoc=_html;
+          _frame.style.cssText="width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+          _wrap.appendChild(_frame);
+          const _bar=document.createElement("div");
+          _bar.style.cssText="display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+          const _mk=(lbl,fn)=>{const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b;};
+          _bar.appendChild(_mk("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
+          _bar.appendChild(_mk("📋 Copy code",function(){navigator.clipboard.writeText(_html).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
+          _bar.appendChild(_mk("⛶ Full screen",()=>{const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");}));
+          let _exp=false;_bar.appendChild(_mk("↕ Resize",function(){_exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize";}));
+          _wrap.appendChild(_bar); aBody.appendChild(_wrap);
+        } else {
+          aBody.style.color=""; aBody.innerText = vData.error || "Visual generation failed. Check your Anthropic API key in Settings → API Keys.";
+        }
+      } catch(e){
+        aBody.style.color=""; aBody.innerText = "Visual generation failed: " + (e.message||"unknown error");
+      }
+      if(typeof setSeatLive==="function") setSeatLive(seat,"done");
+      if(typeof setOpStatus==="function") setOpStatus("Complete");
+      if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
+      return;
+    }
+
     const dmFileIds = window.dmFileIds || [];
     const lightingOn = !!window.lightingModeOn;
 
