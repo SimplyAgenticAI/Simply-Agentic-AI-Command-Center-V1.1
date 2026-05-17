@@ -29425,9 +29425,48 @@ window._streamTtsFired = false;
         body: JSON.stringify({name:seat, message:msg, file_ids:dmFileIds, lighting_mode:lightingOn})
       });
 
-      if(!response.ok || !response.body){
+      if(!response.ok){
         const errData = await response.json().catch(()=>({error:"Stream unavailable"}));
         throw new Error(errData.error||"Stream unavailable");
+      }
+
+      // Check if backend returned plain JSON (visual response) instead of SSE stream
+      const contentType = response.headers.get("content-type") || "";
+      if(contentType.includes("application/json")){
+        const jsonData = await response.json().catch(()=>({}));
+        aCursor.remove();
+        const _reply = jsonData.response || "";
+        if(_reply.startsWith("__VISUAL__")){
+          const _html = _reply.slice("__VISUAL__".length);
+          aBody.innerHTML = "";
+          const _wrap = document.createElement("div");
+          _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+          const _frame = document.createElement("iframe");
+          _frame.sandbox = "allow-scripts allow-same-origin";
+          _frame.srcdoc = _html;
+          _frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+          _wrap.appendChild(_frame);
+          const _bar = document.createElement("div");
+          _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+          const _mkBtn = (label, fn) => { const b=document.createElement("button"); b.className="btn btnMini"; b.innerText=label; b.onclick=fn; return b; };
+          _bar.appendChild(_mkBtn("⬇ Download", ()=>{ const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); }));
+          _bar.appendChild(_mkBtn("📋 Copy code", function(){ navigator.clipboard.writeText(_html).then(()=>{ this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000); }); }));
+          _bar.appendChild(_mkBtn("⛶ Full screen", ()=>{ const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank"); }));
+          let _exp=false; _bar.appendChild(_mkBtn("↕ Resize", function(){ _exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize"; }));
+          _wrap.appendChild(_bar); aBody.appendChild(_wrap);
+        } else {
+          aBody.innerText = _reply;
+          window.lastSeatAssistantText = _reply;
+        }
+        if(typeof setSeatLive==="function") setSeatLive(seat,"done");
+        if(typeof setOpStatus==="function") setOpStatus("Complete");
+        if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
+        try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+        return;
+      }
+
+      if(!response.body){
+        throw new Error("Stream unavailable");
       }
 
       const reader  = response.body.getReader();
@@ -38976,33 +39015,31 @@ def api_followup_stream():
 
     # ── Visual request: intercept BEFORE streaming — generate HTML and return as JSON ──
     if _is_vis:
-        html_out = _generate_visual_html(msg2, name, uname)
+        import concurrent.futures as _cf
+        try:
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(_generate_visual_html, msg2, name, uname)
+                html_out = _fut.result(timeout=55)
+        except _cf.TimeoutError:
+            html_out = "__ERROR__Request timed out"
+        except Exception as _ve:
+            html_out = "__ERROR__" + str(_ve)
+
         if html_out == "__NO_KEY__":
-            reply = ("To generate live animations and visuals, I need your Anthropic API key. "
-                     "Go to Settings → API Keys and add your Anthropic key (starts with sk-ant-). "
-                     "Once added, just ask again and I’ll render it live right here!")
-        elif html_out and html_out.startswith("__ERROR__"):
-            reply = f"Visual generation failed: {html_out[9:]}. Check your Anthropic API key in Settings."
+            reply = "Add your Anthropic API key in Settings \u2192 API Keys (starts with sk-ant-) to generate live visuals."
+        elif (html_out or "").startswith("__ERROR__"):
+            reply = "Visual generation failed: " + (html_out or "")[9:] + ". Check your Anthropic API key in Settings."
         elif html_out:
             reply = "__VISUAL__" + html_out
         else:
-            reply = ("I tried to generate that visual but something went wrong. "
-                     "Please make sure your Anthropic API key (sk-ant-...) is saved in Settings → API Keys, "
-                     "then try again.")
+            reply = "Visual generation failed. Check your Anthropic API key in Settings \u2192 API Keys."
+
         new_thread = pre_thread + [
             {"role": "user", "content": msg2},
             {"role": "assistant", "content": reply},
         ]
         save_thread(name, new_thread, uname)
-        # Return as a single SSE done event so the frontend handles it correctly
-        from flask import Response, stream_with_context
-        def _visual_stream():
-            import json as _json
-            payload = _json.dumps({"type": "done", "response": reply, "thread": new_thread, "done": True})
-            yield "data: " + payload + "\n\n"
-        return Response(stream_with_context(_visual_stream()),
-                        mimetype="text/event-stream",
-                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return jsonify({"ok": True, "visual": True, "response": reply, "thread": new_thread})
 
     # Guard: no OpenAI key available at all
     if not _use_claude and not oai_client:
