@@ -15510,7 +15510,8 @@ label         { font-size: 14px !important; }
         <!-- Action bar below iframe -->
         <div id="vcActionBar" style="display:none;padding:10px 16px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,16,36,.98);display:none;align-items:center;gap:10px;flex-shrink:0;">
           <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">↻ Regenerate</button>
-          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ Download HTML</button>
+          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ HTML</button>
+          <button onclick="vcDownloadVideo()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;cursor:pointer;">🎬 Video</button>
           <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;">📋 Copy code</button>
         </div>
       </div>
@@ -18176,65 +18177,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }else if(raw.startsWith('__VISUAL__')){
           // Live visual/animation — render in sandboxed iframe
           const htmlSrc = raw.slice('__VISUAL__'.length);
-          const wrap = document.createElement('div');
-          wrap.style.cssText = 'border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;';
-
-          const frame = document.createElement('iframe');
-          frame.sandbox = 'allow-scripts allow-same-origin';
-          frame.srcdoc = htmlSrc;
-          frame.style.cssText = 'width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;';
-          frame.title = 'Generated visual';
-          wrap.appendChild(frame);
-
-          // Action bar
-          const bar = document.createElement('div');
-          bar.style.cssText = 'display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;';
-
-          const dlBtn = document.createElement('button');
-          dlBtn.className = 'btn btnMini';
-          dlBtn.innerText = '⬇ Download';
-          dlBtn.onclick = function(){
-            const a = document.createElement('a');
-            a.href = 'data:text/html;charset=utf-8,' + encodeURIComponent(htmlSrc);
-            a.download = 'visual-' + Date.now() + '.html';
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-          };
-
-          const cpBtn = document.createElement('button');
-          cpBtn.className = 'btn btnMini';
-          cpBtn.innerText = '📋 Copy code';
-          cpBtn.onclick = function(){
-            navigator.clipboard.writeText(htmlSrc).then(function(){
-              cpBtn.innerText = '✓ Copied!';
-              setTimeout(function(){ cpBtn.innerText = '📋 Copy code'; }, 2000);
-            });
-          };
-
-          const fullBtn = document.createElement('button');
-          fullBtn.className = 'btn btnMini';
-          fullBtn.innerText = '⛶ Full screen';
-          fullBtn.onclick = function(){
-            const blob = new Blob([htmlSrc], {type:'text/html'});
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
-          };
-
-          const resizeBtn = document.createElement('button');
-          resizeBtn.className = 'btn btnMini';
-          resizeBtn.innerText = '↕ Resize';
-          let expanded = false;
-          resizeBtn.onclick = function(){
-            expanded = !expanded;
-            frame.style.height = expanded ? '700px' : '420px';
-            resizeBtn.innerText = expanded ? '↕ Shrink' : '↕ Resize';
-          };
-
-          bar.appendChild(dlBtn);
-          bar.appendChild(cpBtn);
-          bar.appendChild(fullBtn);
-          bar.appendChild(resizeBtn);
-          wrap.appendChild(bar);
-          content.appendChild(wrap);
+          _buildVisualOutput(content, htmlSrc);
         }else{
           content.innerText = raw;
           // Feature 2: CRM name detection — if response mentions a known contact, show quick-open button
@@ -20857,7 +20800,59 @@ Challenge weak assumptions. Surface risks.`;
       a.href = 'data:text/html;charset=utf-8,'+encodeURIComponent(_vcCurrentHtml);
       a.download = 'visual-'+ Date.now()+'.html';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      showToast('Downloaded!');
+      showToast('HTML downloaded!');
+    }
+
+    function vcDownloadVideo(){
+      var frame = document.getElementById('vcFrame');
+      if(!frame || !_vcCurrentHtml){ showToast('Generate a visual first'); return; }
+      var btn = document.querySelector('[onclick="vcDownloadVideo()"]');
+      var orig = btn ? btn.textContent : '🎬 Video';
+      try{
+        var ifrDoc = frame.contentDocument || frame.contentWindow.document;
+        var recordScript = ifrDoc.createElement('script');
+        recordScript.textContent = '(function(){'
+          + 'if(window._saRecording)return; window._saRecording=true;'
+          + 'var cvs=document.createElement("canvas");'
+          + 'cvs.width=Math.max(document.documentElement.scrollWidth,800);'
+          + 'cvs.height=Math.max(document.documentElement.scrollHeight,600);'
+          + 'var ctx=cvs.getContext("2d");'
+          + 'var stream=cvs.captureStream(30);'
+          + 'var mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";'
+          + 'var recorder=new MediaRecorder(stream,{mimeType:mime});'
+          + 'var chunks=[];'
+          + 'recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
+          + 'recorder.onstop=function(){'
+          +   'var blob=new Blob(chunks,{type:"video/webm"});'
+          +   'var url=URL.createObjectURL(blob);'
+          +   'var a=document.createElement("a");'
+          +   'a.href=url;a.download="visual-animation.webm";a.click();'
+          +   'setTimeout(function(){URL.revokeObjectURL(url);},3000);'
+          +   'window._saRecording=false;'
+          + '};'
+          + 'recorder.start();'
+          + 'var svgs=document.querySelectorAll("svg");'
+          + 'function drawFrame(){'
+          +   'if(!window._saRecording)return;'
+          +   'try{if(svgs.length){'
+          +     'var s=new XMLSerializer().serializeToString(svgs[0]);'
+          +     'var img=new Image();'
+          +     'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
+          +     'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
+          +   '}}catch(e){}'
+          +   'if(window._saRecording)requestAnimationFrame(drawFrame);'
+          + '}'
+          + 'if(svgs.length)requestAnimationFrame(drawFrame);'
+          + 'setTimeout(function(){if(recorder.state!=="inactive")recorder.stop();},8000);'
+          + '})();';
+        ifrDoc.head.appendChild(recordScript);
+        if(btn){ btn.textContent='⏺ Recording…'; btn.disabled=true; }
+        showToast('Recording 8 seconds — download starts automatically');
+        setTimeout(function(){ if(btn){ btn.textContent=orig; btn.disabled=false; } }, 9500);
+      } catch(e){
+        showToast('Video recording requires Chrome or Edge');
+        if(btn){ btn.textContent=orig; btn.disabled=false; }
+      }
     }
 
     function vcCopyCode(){
@@ -29382,6 +29377,169 @@ window._streamTtsFired = false;
   })();
 
   /* ─── STREAMING SEND ──────────────────────────────────────────────────────── */
+  // ── Shared visual output renderer ─────────────────────────────────────────
+  // Builds an iframe + action bar (Download HTML, Download Video, Copy, Full screen, Resize)
+  // and appends it to the given container element.
+  function _buildVisualOutput(container, htmlSrc){
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+
+    const frame = document.createElement("iframe");
+    frame.sandbox = "allow-scripts allow-same-origin";
+    frame.srcdoc = htmlSrc;
+    frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+    frame.title = "Generated visual";
+    wrap.appendChild(frame);
+
+    const bar = document.createElement("div");
+    bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+
+    const mk = (lbl, fn, style) => {
+      const b = document.createElement("button");
+      b.className = "btn btnMini"; b.innerText = lbl;
+      if(style) b.style.cssText = style;
+      b.onclick = fn; return b;
+    };
+
+    // Download HTML
+    bar.appendChild(mk("⬇ HTML", () => {
+      const a = document.createElement("a");
+      a.href = "data:text/html;charset=utf-8," + encodeURIComponent(htmlSrc);
+      a.download = "visual-" + Date.now() + ".html";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }));
+
+    // Download as Video (records iframe canvas via MediaRecorder)
+    const vidBtn = mk("🎬 Video", null, "background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.4);color:#fca5a5;");
+    vidBtn.onclick = function(){
+      vidBtn.innerText = "⏺ Recording…";
+      vidBtn.disabled = true;
+      try{
+        // Get the iframe's canvas/document — inject a recorder script
+        const ifrDoc = frame.contentDocument || frame.contentWindow.document;
+        const ifrWin = frame.contentWindow;
+        // Try captureStream from canvas inside iframe first
+        const canvases = ifrDoc.querySelectorAll("canvas");
+        let stream = null;
+        if(canvases.length){
+          stream = canvases[0].captureStream(30);
+        } else {
+          // Fallback: capture the iframe element itself using element.captureStream if available
+          // Use a OffscreenCanvas approach via the parent
+          stream = null;
+        }
+        if(!stream){
+          // Best cross-browser fallback: open in new window and let user record with OS tools
+          vidBtn.innerText = "🎬 Video";
+          vidBtn.disabled = false;
+          // Instead use html2canvas approach — inject script into iframe to draw to canvas then record
+          const recordScript = ifrDoc.createElement("script");
+          recordScript.textContent = `
+            (function(){
+              if(window._saRecording) return;
+              window._saRecording = true;
+              var duration = 8000;
+              var fps = 30;
+              // Create offscreen canvas matching viewport
+              var cvs = document.createElement('canvas');
+              cvs.width = document.documentElement.scrollWidth || 800;
+              cvs.height = document.documentElement.scrollHeight || 600;
+              var ctx = cvs.getContext('2d');
+              var stream = cvs.captureStream(fps);
+              var recorder = new MediaRecorder(stream, {mimeType: 'video/webm;codecs=vp9'});
+              var chunks = [];
+              recorder.ondataavailable = function(e){ if(e.data.size) chunks.push(e.data); };
+              recorder.onstop = function(){
+                var blob = new Blob(chunks, {type:'video/webm'});
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = 'visual-animation.webm'; a.click();
+                window._saRecording = false;
+              };
+              // Draw frames using html2canvas-like approach
+              var svgs = document.querySelectorAll('svg');
+              var animEls = document.querySelectorAll('[style*="animation"]');
+              recorder.start();
+              // For SVG-based animations, serialize and draw
+              function drawFrame(){
+                try{
+                  var svgEl = svgs[0];
+                  if(svgEl){
+                    var svgData = new XMLSerializer().serializeToString(svgEl);
+                    var img = new Image();
+                    img.onload = function(){ ctx.clearRect(0,0,cvs.width,cvs.height); ctx.drawImage(img,0,0); };
+                    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                  }
+                }catch(e){}
+              }
+              var frameInterval = setInterval(drawFrame, 1000/fps);
+              setTimeout(function(){
+                clearInterval(frameInterval);
+                recorder.stop();
+              }, duration);
+            })();
+          `;
+          ifrDoc.head.appendChild(recordScript);
+          vidBtn.innerText = "⏺ Rec 8s…";
+          vidBtn.disabled = true;
+          setTimeout(function(){ vidBtn.innerText="🎬 Video"; vidBtn.disabled=false; }, 9000);
+          return;
+        }
+        // Canvas stream path
+        const recorder = new MediaRecorder(stream, {mimeType:"video/webm;codecs=vp9"});
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data.size) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const blob = new Blob(chunks, {type:"video/webm"});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href=url; a.download="visual-"+Date.now()+".webm";
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          vidBtn.innerText="🎬 Video"; vidBtn.disabled=false;
+        };
+        const recDuration = 8000;
+        recorder.start();
+        vidBtn.innerText = "⏺ Rec 8s…";
+        setTimeout(()=>recorder.stop(), recDuration);
+      } catch(e){
+        vidBtn.innerText = "🎬 Video"; vidBtn.disabled = false;
+        alert("Video recording not supported in this browser. Try Chrome or Edge.");
+      }
+    };
+    bar.appendChild(vidBtn);
+
+    // Copy code
+    const cpBtn = mk("📋 Code", null);
+    cpBtn.onclick = function(){
+      navigator.clipboard.writeText(htmlSrc).then(()=>{
+        cpBtn.innerText="✓ Copied!";
+        setTimeout(()=>{ cpBtn.innerText="📋 Code"; }, 2000);
+      });
+    };
+    bar.appendChild(cpBtn);
+
+    // Full screen
+    bar.appendChild(mk("⛶ Full screen", () => {
+      const b = new Blob([htmlSrc], {type:"text/html"});
+      window.open(URL.createObjectURL(b), "_blank");
+    }));
+
+    // Resize
+    let expanded = false;
+    const rzBtn = mk("↕ Resize", null);
+    rzBtn.onclick = function(){
+      expanded = !expanded;
+      frame.style.height = expanded ? "700px" : "420px";
+      rzBtn.innerText = expanded ? "↕ Shrink" : "↕ Resize";
+    };
+    bar.appendChild(rzBtn);
+
+    wrap.appendChild(bar);
+    container.appendChild(wrap);
+  }
+
   async function sendFollowStream(){
     const seat = window.selectedSeat;
     if(!seat){ if(typeof showToast==="function") showToast("⚠️ Click a teammate card first"); return; }
@@ -29412,7 +29570,7 @@ window._streamTtsFired = false;
       // Show assistant loading bubble
       const aDiv=document.createElement("div"); aDiv.className="msg assistant";
       const aWho=document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
-      const aBody=document.createElement("div"); aBody.style.color="#a78bfa"; aBody.innerText="✨ Generating your visual… this takes ~15 seconds";
+      const aBody=document.createElement("div"); aBody.style.color="#a78bfa"; aBody.innerText="✨ Generating your visual… hang tight, this may take a moment";
       aDiv.appendChild(aWho); aDiv.appendChild(aBody); threadEl.appendChild(aDiv);
       threadEl.scrollTop=threadEl.scrollHeight;
       if(msgEl) msgEl.value="";
@@ -29424,22 +29582,7 @@ window._streamTtsFired = false;
         const vData = await vRes.json();
         aBody.innerHTML="";
         if(vData.ok && vData.html && vData.html.length > 100){
-          const _html = vData.html;
-          const _wrap=document.createElement("div");
-          _wrap.style.cssText="border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
-          const _frame=document.createElement("iframe");
-          _frame.sandbox="allow-scripts allow-same-origin";
-          _frame.srcdoc=_html;
-          _frame.style.cssText="width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
-          _wrap.appendChild(_frame);
-          const _bar=document.createElement("div");
-          _bar.style.cssText="display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
-          const _mk=(lbl,fn)=>{const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b;};
-          _bar.appendChild(_mk("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
-          _bar.appendChild(_mk("📋 Copy code",function(){navigator.clipboard.writeText(_html).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
-          _bar.appendChild(_mk("⛶ Full screen",()=>{const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");}));
-          let _exp=false;_bar.appendChild(_mk("↕ Resize",function(){_exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize";}));
-          _wrap.appendChild(_bar); aBody.appendChild(_wrap);
+          _buildVisualOutput(aBody, vData.html);
         } else {
           aBody.style.color=""; aBody.innerText = vData.error || "Visual generation failed. Check your Anthropic API key in Settings → API Keys.";
         }
@@ -29639,32 +29782,7 @@ window._streamTtsFired = false;
             const _visIdx = _finalText ? _finalText.indexOf("__VISUAL__") : -1;
             if(_visIdx !== -1){
               const _html = _finalText.slice(_visIdx + "__VISUAL__".length);
-              aBody.innerHTML = "";
-              const _wrap = document.createElement("div");
-              _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
-              const _frame = document.createElement("iframe");
-              _frame.sandbox = "allow-scripts allow-same-origin";
-              _frame.srcdoc = _html;
-              _frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
-              _wrap.appendChild(_frame);
-              const _bar = document.createElement("div");
-              _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
-              const _dlBtn = document.createElement("button");
-              _dlBtn.className="btn btnMini"; _dlBtn.innerText="⬇ Download";
-              _dlBtn.onclick=function(){const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);};
-              const _cpBtn = document.createElement("button");
-              _cpBtn.className="btn btnMini"; _cpBtn.innerText="📋 Copy code";
-              _cpBtn.onclick=function(){navigator.clipboard.writeText(_html).then(function(){_cpBtn.innerText="✓ Copied!";setTimeout(function(){_cpBtn.innerText="📋 Copy code";},2000);});};
-              const _fsBtn = document.createElement("button");
-              _fsBtn.className="btn btnMini"; _fsBtn.innerText="⛶ Full screen";
-              _fsBtn.onclick=function(){const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");};
-              const _rzBtn = document.createElement("button");
-              _rzBtn.className="btn btnMini"; _rzBtn.innerText="↕ Resize";
-              let _exp=false;
-              _rzBtn.onclick=function(){_exp=!_exp;_frame.style.height=_exp?"700px":"420px";_rzBtn.innerText=_exp?"↕ Shrink":"↕ Resize";};
-              _bar.appendChild(_dlBtn);_bar.appendChild(_cpBtn);_bar.appendChild(_fsBtn);_bar.appendChild(_rzBtn);
-              _wrap.appendChild(_bar);
-              aBody.appendChild(_wrap);
+              _buildVisualOutput(aBody, _html);
             } else {
               window.lastSeatAssistantText = _finalText;
               if(_finalText && _finalText !== fullText) aBody.innerText = _finalText;
