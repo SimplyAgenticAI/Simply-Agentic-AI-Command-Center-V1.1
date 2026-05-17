@@ -12203,28 +12203,27 @@ HTML = r"""
     .side{
       position: sticky;
       top: 0;
-      align-self:start;
+      align-self: start;
       height: 100vh;
-      overflow:hidden;
-      border-left:1px solid rgba(34,49,90,.8);
+      overflow: hidden;
+      border-left: 1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
-      padding: 12px;
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
     }
 
     .sideCard{
       background: rgba(11,16,36,.92);
-      border:1px solid rgba(42,58,106,.9);
+      border: 1px solid rgba(42,58,106,.9);
       border-radius: 16px;
-      padding: 12px;
+      padding: 10px;
       box-shadow: 0 0 24px rgba(0,0,0,.24);
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 80px);
-      max-height: calc(100vh - 80px);
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -29683,6 +29682,182 @@ window._streamTtsFired = false;
       document.body.classList.add('modal-open');
     };
   })();
+
+
+  // ── ffmpeg.wasm lazy loader ───────────────────────────────────────────────
+  var _ffmpegLoaded=false,_ffmpegLoading=false,_ffmpegQ=[];
+  function _loadFFmpeg(cb){
+    if(_ffmpegLoaded){cb(window._ffmpeg);return;}
+    _ffmpegQ.push(cb);
+    if(_ffmpegLoading)return;
+    _ffmpegLoading=true;
+    var s=document.createElement('script');
+    s.src='https://unpkg.com/@ffmpeg/ffmpeg@0.12.6/dist/umd/ffmpeg.js';
+    s.onload=async function(){
+      try{
+        var FF=window.FFmpeg&&window.FFmpeg.FFmpeg;
+        if(!FF)throw new Error('no FFmpeg');
+        var ff=new FF();
+        await ff.load({coreURL:'https://unpkg.com/@ffmpeg/core@0.12.4/dist/umd/ffmpeg-core.js'});
+        window._ffmpeg=ff;
+      }catch(e){window._ffmpeg=null;}
+      _ffmpegLoaded=true;_ffmpegLoading=false;
+      _ffmpegQ.forEach(function(fn){fn(window._ffmpeg);});_ffmpegQ=[];
+    };
+    s.onerror=function(){
+      window._ffmpeg=null;_ffmpegLoaded=true;_ffmpegLoading=false;
+      _ffmpegQ.forEach(function(fn){fn(null);});_ffmpegQ=[];
+    };
+    document.head.appendChild(s);
+  }
+
+  async function _convertToMp4(webmBlob){
+    return new Promise(function(resolve){
+      _loadFFmpeg(async function(ff){
+        if(!ff){resolve(null);return;}
+        try{
+          var fetchFile=window.FFmpeg&&window.FFmpeg.fetchFile;
+          if(!fetchFile){resolve(null);return;}
+          await ff.writeFile('in.webm',await fetchFile(webmBlob));
+          await ff.exec(['-i','in.webm','-c:v','libx264','-preset','fast','-crf','28','-movflags','+faststart','out.mp4']);
+          var d=await ff.readFile('out.mp4');
+          resolve(new Blob([d.buffer],{type:'video/mp4'}));
+        }catch(e){resolve(null);}
+      });
+    });
+  }
+
+  // ── Download visual as video ──────────────────────────────────────────────
+  async function _downloadVisualVideo(htmlSrc, frame, dur){
+    return new Promise(function(resolve){
+      var mimes=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+      var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||'video/webm';
+      var isNativeMp4=mime.includes('mp4');
+      function finish(blob){
+        if(isNativeMp4){
+          var url=URL.createObjectURL(blob);
+          var a=document.createElement('a');a.href=url;a.download='visual-'+Date.now()+'.mp4';
+          document.body.appendChild(a);a.click();document.body.removeChild(a);
+          setTimeout(function(){URL.revokeObjectURL(url);},3000);
+          if(typeof showToast==='function')showToast('✓ MP4 downloaded!');
+          resolve();
+        }else{
+          if(typeof showToast==='function')showToast('Converting to MP4…');
+          _convertToMp4(blob).then(function(mp4){
+            var out=mp4||blob;var ext=mp4?'mp4':'webm';
+            var url=URL.createObjectURL(out);
+            var a=document.createElement('a');a.href=url;a.download='visual-'+Date.now()+'.'+ext;
+            document.body.appendChild(a);a.click();document.body.removeChild(a);
+            setTimeout(function(){URL.revokeObjectURL(url);},3000);
+            if(typeof showToast==='function')showToast(mp4?'✓ MP4 downloaded!':'✓ Video downloaded (open with VLC)');
+            resolve();
+          });
+        }
+      }
+      function onMsg(e){
+        if(!frame||e.source!==frame.contentWindow)return;
+        if(e.data&&e.data.type==='SA_RECORD_DONE'){
+          window.removeEventListener('message',onMsg);
+          fetch(e.data.dataUrl).then(function(r){return r.blob();}).then(finish);
+        }
+      }
+      window.addEventListener('message',onMsg);
+      try{
+        frame.contentWindow.postMessage({type:'SA_START_RECORD',duration:dur||8},'*');
+      }catch(ex){
+        window.removeEventListener('message',onMsg);
+        if(typeof showToast==='function')showToast('Recording failed — use Chrome or Edge');
+        resolve();
+      }
+      setTimeout(function(){window.removeEventListener('message',onMsg);resolve();},(dur||8)*1000+15000);
+    });
+  }
+
+  // ── Save visual to library ────────────────────────────────────────────────
+  async function _saveVisualToLibrary(html, prompt, seat){
+    try{
+      var r=await fetch('/api/visuals/save',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({html:html,prompt:prompt||'Visual animation',teammate:seat||''})});
+      var d=await r.json();
+      if(d.ok){if(typeof showToast==='function')showToast('✓ Saved to Visual Library!');}
+      else{if(typeof showToast==='function')showToast('Save failed: '+(d.error||'error'));}
+    }catch(e){if(typeof showToast==='function')showToast('Save failed: '+e.message);}
+  }
+
+  // ── Edit panel (attached below each animation in thread) ──────────────────
+  function _attachVisualEditPanel(container, htmlSrc, seat){
+    var wrap=document.createElement('div');
+    wrap.style.cssText='margin-top:6px;';
+    var panel=document.createElement('div');
+    panel.style.cssText='display:none;background:rgba(14,22,48,.85);border:1px solid rgba(124,58,237,.35);border-radius:10px;padding:10px 12px;margin-top:6px;';
+    var chips=[
+      {l:'🎨 Change theme',v:'Change to a vibrant gradient color theme with bright colors'},
+      {l:'⚡ Faster',v:'Make all animations twice as fast'},
+      {l:'🐢 Slower',v:'Make all animations half as fast'},
+      {l:'✨ Particles',v:'Add floating particle effects in the background'},
+      {l:'🔄 Loop',v:'Make all animations loop seamlessly with no gaps'},
+      {l:'🔠 Bigger text',v:'Make all text larger and more readable'},
+    ];
+    var chipRow=document.createElement('div');
+    chipRow.style.cssText='display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;';
+    var ta=document.createElement('textarea');
+    ta.placeholder='Describe changes… e.g. "make background darker, add rain"';
+    ta.style.cssText='width:100%;height:52px;background:rgba(14,22,48,.9);border:1px solid rgba(124,58,237,.4);border-radius:8px;padding:7px 10px;font-size:13px;color:#e2e8f0;resize:none;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:6px;';
+    chips.forEach(function(c){
+      var chip=document.createElement('button');chip.className='btn btnMini';
+      chip.style.cssText='font-size:11px;border-radius:20px;';
+      chip.innerText=c.l;chip.onclick=function(){ta.value=c.v;doEdit();};
+      chipRow.appendChild(chip);
+    });
+    panel.appendChild(chipRow);
+    var row=document.createElement('div');row.style.cssText='display:flex;gap:8px;';
+    var applyBtn=document.createElement('button');applyBtn.className='btn btnPrimary';
+    applyBtn.style.cssText='flex-shrink:0;padding:8px 14px;font-size:13px;';
+    applyBtn.innerText='Apply';
+    row.appendChild(ta);row.appendChild(applyBtn);panel.appendChild(row);
+
+    async function doEdit(){
+      var instr=ta.value.trim();if(!instr)return;
+      applyBtn.disabled=true;applyBtn.innerText='Generating…';
+      try{
+        var r1=await fetch('/api/visual_creator',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({prompt:'Edit this visual — '+instr,theme:'dark purple',type:'animation',brand:''})});
+        var d1=await r1.json();
+        if(!d1.ok)throw new Error(d1.error||'Failed');
+        var polls=0;
+        var result=await new Promise(function(resolve,reject){
+          var iv=setInterval(async function(){
+            polls++;
+            try{
+              var sr=await fetch('/api/visual_creator/status/'+d1.job_id);
+              var sd=await sr.json();
+              if(sd.status==='done'||sd.status==='error'||!sd.ok){clearInterval(iv);resolve(sd);}
+              else if(polls>=45){clearInterval(iv);reject(new Error('Timed out'));}
+            }catch(pe){if(polls>=45){clearInterval(iv);reject(pe);}}
+          },2000);
+        });
+        if(result.ok&&result.html&&result.html.length>100){
+          _buildVisualOutput(container,result.html,seat);
+        }else{
+          if(typeof showToast==='function')showToast(result.error||'Edit failed');
+        }
+      }catch(e){if(typeof showToast==='function')showToast('Edit failed: '+e.message);}
+      finally{applyBtn.disabled=false;applyBtn.innerText='Apply';}
+    }
+    applyBtn.onclick=doEdit;
+
+    var toggle=document.createElement('button');toggle.className='btn btnMini';
+    toggle.style.cssText='background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.4);color:#c4b5fd;';
+    toggle.innerText='✏️ Edit';
+    var open=false;
+    toggle.onclick=function(){
+      open=!open;panel.style.display=open?'block':'none';
+      toggle.innerText=open?'✏️ Close edit':'✏️ Edit';
+      if(open)setTimeout(function(){ta.focus();},50);
+    };
+    wrap.appendChild(toggle);wrap.appendChild(panel);
+    container.appendChild(wrap);
+  }
 
 
   function _buildVisualOutput(container, htmlSrc, seat){
