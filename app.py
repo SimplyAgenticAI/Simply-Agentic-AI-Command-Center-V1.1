@@ -4264,12 +4264,12 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     )
 
     visual_rules = (
-        "ANIMATION AND VISUAL CREATOR CAPABILITY: "
-        "You CAN create live animations, slideshows, carousels, presentations, and interactive visuals. "
-        "The system detects these requests and renders them live in the chat as a working interactive preview. "
-        "NEVER say you cannot create animations. NEVER suggest After Effects, Canva, or external tools. "
-        "NEVER say animation requires specialized software. "
-        "You have full animation capability built into Simply Agentic AI.\n"
+        "ANIMATION & VISUAL REQUESTS: When a user asks for any animation, slideshow, carousel, "
+        "presentation, or interactive visual, respond with ONLY this single short line: "
+        "'On it! Generating your visual now...' "
+        "Do NOT describe what the animation will look like. Do NOT write HTML or code. "
+        "Do NOT explain anything. The system intercepts these requests automatically "
+        "and generates the visual before your response even runs — so just say you're on it.\n"
     )
 
     _op_name_for_email = (_load_operator_profile(
@@ -29487,8 +29487,25 @@ window._streamTtsFired = false;
 
           if(parsed.token){
             fullText += parsed.token;
-            aBody.innerText = fullText;
-            aBody.appendChild(aCursor);
+            // Detect if response is a visual — stop text rendering, switch to iframe
+            if(fullText.startsWith("__VISUAL__") || fullText.includes("\n__VISUAL__")){
+              const _vIdx = fullText.indexOf("__VISUAL__");
+              const _htmlSoFar = fullText.slice(_vIdx + "__VISUAL__".length);
+              aBody.innerHTML = "";
+              if(!aBody._visFrame){
+                const _wrap = document.createElement("div");
+                _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;font-size:13px;color:#a78bfa;padding:12px 16px;background:rgba(14,22,48,.6);";
+                _wrap.innerText = "Rendering visual...";
+                aBody._visWrap = _wrap;
+                aBody._visFrame = true;
+                aBody._visHtml = "";
+                aBody.appendChild(_wrap);
+              }
+              aBody._visHtml = _htmlSoFar;
+            } else {
+              aBody.innerText = fullText;
+              aBody.appendChild(aCursor);
+            }
             threadEl.scrollTop = threadEl.scrollHeight;
             // ── Sentence-streaming TTS: speak first sentence ~1s after it arrives ──
             if(window._streamTtsEnabled && !window._streamTtsFired){
@@ -29507,10 +29524,10 @@ window._streamTtsFired = false;
           if(parsed.error){ throw new Error(parsed.error); }
           if(parsed.done){
             aCursor.remove();
-            // Check if this is a visual response (HTML animation)
             const _finalText = parsed.response || fullText;
-            if(_finalText && _finalText.startsWith("__VISUAL__")){
-              const _html = _finalText.slice("__VISUAL__".length);
+            const _visIdx = _finalText ? _finalText.indexOf("__VISUAL__") : -1;
+            if(_visIdx !== -1){
+              const _html = _finalText.slice(_visIdx + "__VISUAL__".length);
               aBody.innerHTML = "";
               const _wrap = document.createElement("div");
               _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
@@ -29518,7 +29535,6 @@ window._streamTtsFired = false;
               _frame.sandbox = "allow-scripts allow-same-origin";
               _frame.srcdoc = _html;
               _frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
-              _frame.title = "Generated visual";
               _wrap.appendChild(_frame);
               const _bar = document.createElement("div");
               _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
@@ -29548,7 +29564,7 @@ window._streamTtsFired = false;
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
-            if(!(_finalText||"").startsWith("__VISUAL__")) addTtsButton(aDiv, _finalText, tm.tts_voice||"alloy");
+            if(_visIdx === -1) addTtsButton(aDiv, _finalText, tm.tts_voice||"alloy");
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
           }
