@@ -6883,6 +6883,26 @@ def _api_convene_impl(data):
 
 @app.post("/api/followup")
 def api_followup():
+    # Fast path: save a visual to thread without going through LLM
+    try:
+        _d = request.get_json(force=True) or {}
+        if _d.get("save_visual"):
+            u = current_user()
+            if u:
+                _uname = _get_session_username()
+                _name  = (_d.get("name") or "").strip()
+                _umsg  = (_d.get("user_msg") or "").strip()
+                _vhtml = (_d.get("visual_html") or "").strip()
+                if _name and _vhtml:
+                    _thread = load_thread(_name, _uname) or []
+                    if _umsg:
+                        _thread.append({"role": "user", "content": _umsg})
+                    _thread.append({"role": "assistant", "content": _vhtml})
+                    save_thread(_name, _thread, _uname)
+            return jsonify({"ok": True})
+    except Exception:
+        pass
+
     rl = _check_rate_limit("followup", 30)  # 30 AI requests/min per user
     if rl:
         return rl
@@ -12132,14 +12152,13 @@ HTML = r"""
       top: 0;
       align-self:start;
       height: 100vh;
-      overflow:hidden;
+      overflow: hidden;
       border-left:1px solid rgba(34,49,90,.8);
       background: linear-gradient(180deg, rgba(14,22,48,.92), rgba(10,14,30,.92));
       backdrop-filter: blur(10px);
-      padding: 12px;
-      display:flex;
-      flex-direction:column;
-      gap: 12px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
     }
 
     .sideCard{
@@ -12150,8 +12169,8 @@ HTML = r"""
       box-shadow: 0 0 24px rgba(0,0,0,.24);
       display: flex;
       flex-direction: column;
-      height: calc(100vh - 80px);
-      max-height: calc(100vh - 80px);
+      flex: 1;
+      min-height: 0;
       overflow: hidden;
     }
 
@@ -20784,15 +20803,15 @@ Challenge weak assumptions. Surface risks.`;
           + 'cvs.height=Math.max(document.documentElement.scrollHeight,600);'
           + 'var ctx=cvs.getContext("2d");'
           + 'var stream=cvs.captureStream(30);'
-          + 'var mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";'
+          + 'var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var ext=mime.includes("mp4")?"mp4":"webm";'
           + 'var recorder=new MediaRecorder(stream,{mimeType:mime});'
           + 'var chunks=[];'
           + 'recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
           + 'recorder.onstop=function(){'
-          +   'var blob=new Blob(chunks,{type:"video/webm"});'
+          +   'var blob=new Blob(chunks,{type:mime});'
           +   'var url=URL.createObjectURL(blob);'
           +   'var a=document.createElement("a");'
-          +   'a.href=url;a.download="visual-animation.webm";a.click();'
+          +   'a.href=url;a.download="visual-"+Date.now()+"."+ext;a.click();'
           +   'setTimeout(function(){URL.revokeObjectURL(url);},3000);'
           +   'window._saRecording=false;'
           + '};'
@@ -29406,7 +29425,7 @@ window._streamTtsFired = false;
           if(e.source!==fr.contentWindow)return;
           if(e.data&&e.data.type==='SA_RECORD_DONE'){
             window.removeEventListener('message',onMsg);
-            var a=document.createElement('a');a.href=e.data.dataUrl;a.download='visual-'+Date.now()+'.webm';
+            var a=document.createElement('a');a.href=e.data.dataUrl;a.download='visual-'+Date.now()+'.'+(e.data.ext||'webm');
             document.body.appendChild(a);a.click();document.body.removeChild(a);
             if(typeof showToast==='function')showToast('✓ Video downloaded!');
             dlV.textContent=orig;dlV.disabled=false;
@@ -29444,7 +29463,7 @@ window._streamTtsFired = false;
       var fr=document.getElementById('saVfsFr');
       if(!ov||!fr)return;
       // Inject recording bridge
-      var recBridge='<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:"video/webm"});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
+      var recBridge='<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
       var srcWithBridge=html.replace('</body>',recBridge+'</body>');
       if(srcWithBridge===html)srcWithBridge=html+recBridge;
       fr.srcdoc=srcWithBridge;
@@ -29459,7 +29478,7 @@ window._streamTtsFired = false;
     wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
 
     // Inject recording bridge so postMessage video works from same origin
-    const recBridge = '<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:"video/webm"});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
+    const recBridge = '<sc'+'ript>(function(){window.addEventListener("message",function(e){if(!e.data||e.data.type!=="SA_START_RECORD")return;var dur=(e.data.duration||8)*1000;var cvs=document.createElement("canvas");cvs.width=window.innerWidth||1280;cvs.height=window.innerHeight||720;var ctx=cvs.getContext("2d");var stream=cvs.captureStream(30);var mimes=["video/mp4;codecs=avc1","video/mp4","video/webm;codecs=vp9","video/webm"];var mime=mimes.find(function(m){try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"video/webm";var rec=new MediaRecorder(stream,{mimeType:mime});var chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)chunks.push(e.data);};rec.onstop=function(){var blob=new Blob(chunks,{type:mime});var rd=new FileReader();rd.onload=function(){window.parent.postMessage({type:"SA_RECORD_DONE",dataUrl:rd.result},"*");};rd.readAsDataURL(blob);};var svgs=document.querySelectorAll("svg");function draw(){try{if(svgs.length){var s=new XMLSerializer().serializeToString(svgs[0]);var img=new Image();img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(s);}}catch(ex){}if(rec.state==="recording")requestAnimationFrame(draw);}rec.start(100);requestAnimationFrame(draw);setTimeout(function(){if(rec.state!=="inactive")rec.stop();},dur);});})();</'+'script>';
     const srcWithBridge = htmlSrc.replace('</body>', recBridge+'</body>') !== htmlSrc
       ? htmlSrc.replace('</body>', recBridge+'</body>') : htmlSrc+recBridge;
 
