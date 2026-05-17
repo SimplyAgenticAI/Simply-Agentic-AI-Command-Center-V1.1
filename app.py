@@ -4777,6 +4777,23 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         except Exception:
             cl = None
 
+    # Log what we found for debugging
+    try:
+        _u_debug = current_user()
+        _u2_debug = (load_users().get("users", {}) or {}).get(username, {})
+        _k1 = bool(_decrypt_field(((_u_debug or {}).get("settings") or {}).get("claude_key","").strip())) if _u_debug else False
+        _k2 = bool(_decrypt_field(((_u2_debug or {}).get("settings") or {}).get("claude_key","").strip()))
+        append_log("visual_gen_debug", {
+            "uname": username,
+            "current_user_found": bool(_u_debug),
+            "key_via_current_user": _k1,
+            "key_via_load_users": _k2,
+            "cl_is_none": cl is None,
+            "anthropic_sdk": _anthropic_sdk is not None,
+        })
+    except Exception as _log_err:
+        pass
+
     if cl is None:
         return "__NO_KEY__"
 
@@ -29451,15 +29468,48 @@ window._streamTtsFired = false;
           if(parsed.error){ throw new Error(parsed.error); }
           if(parsed.done){
             aCursor.remove();
-            window.lastSeatAssistantText = fullText;
+            // Check if this is a visual response (HTML animation)
+            const _finalText = parsed.response || fullText;
+            if(_finalText && _finalText.startsWith("__VISUAL__")){
+              const _html = _finalText.slice("__VISUAL__".length);
+              aBody.innerHTML = "";
+              const _wrap = document.createElement("div");
+              _wrap.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
+              const _frame = document.createElement("iframe");
+              _frame.sandbox = "allow-scripts allow-same-origin";
+              _frame.srcdoc = _html;
+              _frame.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
+              _frame.title = "Generated visual";
+              _wrap.appendChild(_frame);
+              const _bar = document.createElement("div");
+              _bar.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
+              const _dlBtn = document.createElement("button");
+              _dlBtn.className="btn btnMini"; _dlBtn.innerText="⬇ Download";
+              _dlBtn.onclick=function(){const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);};
+              const _cpBtn = document.createElement("button");
+              _cpBtn.className="btn btnMini"; _cpBtn.innerText="📋 Copy code";
+              _cpBtn.onclick=function(){navigator.clipboard.writeText(_html).then(function(){_cpBtn.innerText="✓ Copied!";setTimeout(function(){_cpBtn.innerText="📋 Copy code";},2000);});};
+              const _fsBtn = document.createElement("button");
+              _fsBtn.className="btn btnMini"; _fsBtn.innerText="⛶ Full screen";
+              _fsBtn.onclick=function(){const b=new Blob([_html],{type:"text/html"});window.open(URL.createObjectURL(b),"_blank");};
+              const _rzBtn = document.createElement("button");
+              _rzBtn.className="btn btnMini"; _rzBtn.innerText="↕ Resize";
+              let _exp=false;
+              _rzBtn.onclick=function(){_exp=!_exp;_frame.style.height=_exp?"700px":"420px";_rzBtn.innerText=_exp?"↕ Shrink":"↕ Resize";};
+              _bar.appendChild(_dlBtn);_bar.appendChild(_cpBtn);_bar.appendChild(_fsBtn);_bar.appendChild(_rzBtn);
+              _wrap.appendChild(_bar);
+              aBody.appendChild(_wrap);
+            } else {
+              window.lastSeatAssistantText = _finalText;
+              if(_finalText && _finalText !== fullText) aBody.innerText = _finalText;
+            }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
             if(typeof setOpStatus==="function") setOpStatus("Complete");
             if(parsed.email_draft && typeof applyEmailDraft==="function") applyEmailDraft(parsed.email_draft, seat);
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
-            // Wire TTS + click-to-expand
             const tm = _tm(seat);
-            addTtsButton(aDiv, fullText, tm.tts_voice||"alloy");
+            if(!(_finalText||"").startsWith("__VISUAL__")) addTtsButton(aDiv, _finalText, tm.tts_voice||"alloy");
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
           }
@@ -38894,6 +38944,14 @@ def api_followup_stream():
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
 
+    # ── Visual request: intercept BEFORE streaming ──
+    # Check against BOTH original msg and processed msg2
+    _is_vis = is_visual_request(msg) or is_visual_request(msg2)
+    try:
+        append_log("stream_vis_check", {"msg": msg[:80], "is_vis": _is_vis, "uname": uname})
+    except Exception:
+        pass
+
     def _persist_stream_result(parts: list) -> tuple:
         """Save thread, extract draft, log. Returns (complete_text, draft)."""
         complete_text = "".join(parts)
@@ -38915,6 +38973,36 @@ def api_followup_stream():
         except Exception:
             pass
         return complete_text, draft
+
+    # ── Visual request: intercept BEFORE streaming — generate HTML and return as JSON ──
+    if _is_vis:
+        html_out = _generate_visual_html(msg2, name, uname)
+        if html_out == "__NO_KEY__":
+            reply = ("To generate live animations and visuals, I need your Anthropic API key. "
+                     "Go to Settings → API Keys and add your Anthropic key (starts with sk-ant-). "
+                     "Once added, just ask again and I’ll render it live right here!")
+        elif html_out and html_out.startswith("__ERROR__"):
+            reply = f"Visual generation failed: {html_out[9:]}. Check your Anthropic API key in Settings."
+        elif html_out:
+            reply = "__VISUAL__" + html_out
+        else:
+            reply = ("I tried to generate that visual but something went wrong. "
+                     "Please make sure your Anthropic API key (sk-ant-...) is saved in Settings → API Keys, "
+                     "then try again.")
+        new_thread = pre_thread + [
+            {"role": "user", "content": msg2},
+            {"role": "assistant", "content": reply},
+        ]
+        save_thread(name, new_thread, uname)
+        # Return as a single SSE done event so the frontend handles it correctly
+        from flask import Response, stream_with_context
+        def _visual_stream():
+            import json as _json
+            payload = _json.dumps({"type": "done", "response": reply, "thread": new_thread, "done": True})
+            yield "data: " + payload + "\n\n"
+        return Response(stream_with_context(_visual_stream()),
+                        mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     # Guard: no OpenAI key available at all
     if not _use_claude and not oai_client:
