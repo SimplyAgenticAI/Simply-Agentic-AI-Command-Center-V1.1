@@ -3845,8 +3845,8 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
     if refreshed:
         try:
             _save_user_calendar_oauth(u, refreshed)
-        except Exception:
-            pass
+        except Exception as e:
+            _capture_error(e, context="calendar_token_refresh_save")
     return access_token, ""
 
 def _calendar_create_event(access_token: str, title: str, start_iso: str, end_iso: str, timezone: str, attendees: Optional[List[str]] = None, description: str = "", location: str = "", use_meet: bool = False) -> Dict[str, Any]:
@@ -3949,7 +3949,8 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
             if r.status_code >= 400:
                 return []
             return (r.json() if r.content else {}).get("items") or []
-        except Exception:
+        except Exception as e:
+            _capture_error(e, context="calendar_secondary_fetch")
             return []
 
     def _parse_items(items: list) -> List[Dict[str, Any]]:
@@ -4038,8 +4039,8 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
     if refreshed:
         try:
             _save_user_gmail_oauth(u, refreshed)
-        except Exception:
-            pass
+        except Exception as e:
+            _capture_error(e, context="gmail_token_refresh_save")
     return access_token, ""
 
 def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
@@ -5895,7 +5896,7 @@ def api_get_user_settings():
             "has_claude_key":       bool(claude_key),
             "claude_key_hint":      claude_hint,
             "global_default_model": (settings.get("global_default_model") or "").strip(),
-            "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {})),
+            "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {}).get("refresh_token") or (settings.get("gmail_oauth") or {}).get("access_token")),
             "smtp": safe_smtp,
             "tooltip_level": (settings.get("tooltip_level") or "medium"),  # off | low | medium | high
             "theme": (settings.get("theme") or {})  # ui customisation prefs
@@ -6601,6 +6602,9 @@ def api_upload():
     if not _upload_extension_allowed(filename):
         return jsonify({"ok": False, "error": f"File type not allowed. Allowed types: images, PDFs, documents, CSV, JSON, ZIP."}), 400
 
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"ok": False, "error": f"File too large. Maximum {MAX_UPLOAD_MB} MB allowed."}), 413
+
     file_id = uuid.uuid4().hex
     subdir = datetime.utcnow().strftime("%Y%m%d")
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
@@ -6609,6 +6613,12 @@ def api_upload():
     f.save(out_path)
 
     size_bytes = out_path.stat().st_size if out_path.exists() else 0
+    if size_bytes > MAX_UPLOAD_BYTES:
+        try:
+            out_path.unlink()
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": f"File too large. Maximum {MAX_UPLOAD_MB} MB allowed."}), 413
     mimetype = (f.mimetype or "").strip()
 
     owner = ""
@@ -7624,7 +7634,8 @@ def api_calendar_delete_event():
         if r.status_code in (200, 204):
             append_log("calendar_event_deleted", {"user": u.get("username",""), "event_id": event_id, "at": now_iso()})
             return jsonify({"ok": True})
-        return jsonify({"ok": False, "error": f"Google API returned {r.status_code}: {r.text[:200]}"}), 400
+        _capture_error(Exception(f"Calendar delete {r.status_code}: {r.text}"), context="calendar_delete_event")
+        return jsonify({"ok": False, "error": f"Google Calendar returned {r.status_code}. Please try again."}), 400
     except Exception as e:
         _capture_error(e, context="calendar_delete_event")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -33747,7 +33758,7 @@ def _crm_migrate_from_client_memory_if_empty(username: str) -> None:
                 "phone": "",
                 "tags": tags_list,
                 "status": "lead",
-                "pipeline_stage": (prof.get("pipeline_stage") or "Lead").strip(),
+                "pipeline_stage": (c.get("pipeline_stage") or "Lead").strip(),
                 "last_contact": "",
                 "next_followup": "",
                 "notes": (c.get("notes") or "").strip(),
@@ -33837,7 +33848,7 @@ def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, st
         url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
         r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
         if r.status_code >= 400:
-            return False, f"Twilio error: {r.text}"
+            return False, f"SMS delivery failed (Twilio HTTP {r.status_code}). Check your Twilio credentials and phone number."
         return True, ""
     except Exception as e:
         return False, str(e)
@@ -34477,7 +34488,7 @@ def api_crm_draft_outreach(client_id: str):
     draft = extract_email_draft(raw)
     if not draft:
         draft = {"to": email, "subject": f"Following up — {name}", "body": raw}
-    if not draft.get("to"):
+    if not draft.get("to") or not EMAIL_RE.match(str(draft.get("to") or "")):
         draft["to"] = email
 
     return jsonify({
@@ -34508,10 +34519,6 @@ def api_crm_broadcast_email():
     subject = (payload.get("subject") or "").strip()
     body_t = (payload.get("body") or "").strip()
     dry_run = bool(payload.get("dry_run"))
-    if not dry_run:
-        _award_points(uname, "Sent an email broadcast", 30)
-        _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": 0, "subject": (payload.get("subject") or "")[:80]})
-
     if not subject or not body_t:
         return jsonify({"ok": False, "error": "Missing subject or body"}), 400
 
@@ -34590,6 +34597,9 @@ def api_crm_broadcast_email():
             results.append({"client_id": c.get("id", ""), "ok": bool(ok), "provider": provider, "error": err})
 
         _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
+        if not dry_run and sent > 0:
+            _award_points(uname, "Sent an email broadcast", 30)
+            _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": sent, "subject": subject[:80]})
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
 
     except Exception as e:
@@ -34631,7 +34641,8 @@ def api_crm_broadcast_sms():
     try:
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
-        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)]
+        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)
+                      and not c.get("sms_unsubscribed")]
 
         # Plan-based broadcast recipient limit
         plan_key  = _get_user_plan(uname)
