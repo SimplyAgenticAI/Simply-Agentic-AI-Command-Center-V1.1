@@ -6960,6 +6960,33 @@ def _api_followup_impl(data):
     msg = (data.get("message") or "").strip()
     file_ids = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
+
+    # ── Visual save shortcut ─────────────────────────────────────────────────
+    # When the frontend generates an animation it calls /api/followup with
+    # save_visual=True and the finished HTML so we can persist it in the thread.
+    # We write it and return immediately — no LLM call needed.
+    if data.get("save_visual") and data.get("visual_html"):
+        try:
+            uname = _get_session_username()
+            visual_html = (data.get("visual_html") or "").strip()
+            user_msg    = (data.get("user_msg") or msg or "Visual request").strip()
+            if name and visual_html:
+                reg = load_registry(uname)
+                installed = reg.get("installed") or {}
+                name = _resolve_teammate_name(name, installed)
+                if name in installed:
+                    thread = load_thread(name, uname)
+                    thread = thread[-14:] if len(thread) > 14 else thread
+                    new_thread = thread + [
+                        {"role": "user",      "content": user_msg},
+                        {"role": "assistant", "content": visual_html},
+                    ]
+                    save_thread(name, new_thread, uname)
+            return jsonify({"ok": True, "saved": True})
+        except Exception as _ve:
+            return jsonify({"ok": False, "error": str(_ve)}), 500
+    # ────────────────────────────────────────────────────────────────────────
+
     # Auto-enable lighting_mode for explicit web search requests
     _msg_lower = (msg or "").strip().lower()
     if _msg_lower.startswith("search the web") or _msg_lower.startswith("search the internet"):
@@ -12255,7 +12282,6 @@ HTML = r"""
       border: none;
       font-size: 14px;
       line-height: 1.5;
-      max-width: 92%;
       position: relative;
       animation: msgIn .18s ease;
     }
@@ -12270,15 +12296,19 @@ HTML = r"""
       margin-left: auto;
       border-bottom-right-radius: 5px;
       box-shadow: 0 2px 12px rgba(79,70,229,.3);
+      max-width: 78%;
+      align-self: flex-end;
     }
-    /* Assistant messages: left-aligned dark bubble */
+    /* Assistant messages: full-width document style */
     .msg.assistant{
       background: rgba(20,28,58,.8);
       border: 1px solid rgba(124,58,237,.25);
       color: #e2e8f0;
-      margin-right: auto;
       border-bottom-left-radius: 5px;
       box-shadow: 0 2px 10px rgba(0,0,0,.25);
+      max-width: 100%;
+      width: 100%;
+      align-self: stretch;
     }
     .msg .who{
       font-size: 10px;
@@ -29767,6 +29797,7 @@ window._streamTtsFired = false;
 
   // ── Edit panel (attached below each animation in thread) ──────────────────
   function _attachVisualEditPanel(container, htmlSrc, seat){
+    var currentHtml = htmlSrc; // track the live version so edits chain properly
     var wrap=document.createElement('div');
     wrap.style.cssText='margin-top:6px;';
     var panel=document.createElement('div');
@@ -29799,10 +29830,16 @@ window._streamTtsFired = false;
 
     async function doEdit(){
       var instr=ta.value.trim();if(!instr)return;
-      applyBtn.disabled=true;applyBtn.innerText='Generating…';
+      applyBtn.disabled=true;applyBtn.innerText='Editing…';
+      // Pass the FULL current HTML so the AI edits it rather than starting fresh
+      var editPrompt = 'You are editing an existing HTML animation. Here is the COMPLETE current HTML:\n\n'
+        + currentHtml
+        + '\n\nApply ONLY this change to the existing animation — do not recreate it from scratch: '
+        + instr
+        + '\n\nReturn the complete modified HTML file starting with <!DOCTYPE html>.';
       try{
         var r1=await fetch('/api/visual_creator',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({prompt:'Edit this visual — '+instr,theme:'dark purple',type:'animation',brand:''})});
+          body:JSON.stringify({prompt:editPrompt,theme:'dark purple',type:'animation',brand:'',edit_mode:true})});
         var d1=await r1.json();
         if(!d1.ok)throw new Error(d1.error||'Failed');
         var polls=0;
@@ -29818,7 +29855,14 @@ window._streamTtsFired = false;
           },2000);
         });
         if(result.ok&&result.html&&result.html.length>100){
-          _buildVisualOutput(container,result.html,seat);
+          currentHtml = result.html; // update our local reference so next edit chains
+          _buildVisualOutput(container, result.html, seat);
+          // Save updated animation back to the thread
+          try{
+            fetch('/api/followup',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({name:seat||window.selectedSeat||'',save_visual:true,user_msg:'Edited: '+instr,visual_html:'__VISUAL__'+result.html})});
+          }catch(_){}
+          if(typeof showToast==='function')showToast('✓ Animation updated!');
         }else{
           if(typeof showToast==='function')showToast(result.error||'Edit failed');
         }
