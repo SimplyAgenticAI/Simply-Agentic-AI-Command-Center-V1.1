@@ -9060,7 +9060,7 @@ function showTip(nd,mx,my){
   var tx=Math.min(mx+14,W-tw-pad);
   var ty=Math.min(my-20,H-180);if(ty<pad)ty=my+14;
   tip.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;"><span style="font-size:22px;flex-shrink:0;line-height:1.2;">'+t.icon+'</span><div><div style="font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:5px;line-height:1.3;">'+t.title+'</div><div style="font-size:12px;color:#94a3b8;line-height:1.55;">'+t.body+'</div></div></div><div style="font-size:10px;color:#475569;margin-top:8px;text-align:right;">click anywhere to close</div>';
-  tip.style.cssText='display:block;left:'+tx+'px;top:'+ty+'px;width:'+tw+'px;background:rgba(8,12,30,.97);border:1px solid rgba(124,58,237,.55);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,.75);backdrop-filter:blur(14px);pointer-events:none;z-index:200;';
+  tip.style.cssText='position:fixed;display:block;left:'+tx+'px;top:'+ty+'px;width:'+tw+'px;background:rgba(8,12,30,.97);border:1px solid rgba(124,58,237,.55);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,.75);backdrop-filter:blur(14px);pointer-events:none;z-index:200;';
   activeTip=nd;nd.lit=true;
   clearTimeout(tipTO);tipTO=setTimeout(hideTip,7000);
 }
@@ -10318,6 +10318,20 @@ function startCheckout(plan){{
 def showcase_page():
     return SHOWCASE_HTML
 
+
+_LEGAL_PAGE_CSS = """
+body{font-family:system-ui,sans-serif;background:#07091a;color:#cbd5e1;margin:0;padding:0;}
+.wrap{max-width:760px;margin:0 auto;padding:48px 24px 80px;}
+h1{font-size:28px;font-weight:800;color:#e2e8f0;margin:0 0 6px;}
+h2{font-size:16px;font-weight:700;color:#c4b5fd;margin:32px 0 8px;}
+p{font-size:14px;line-height:1.7;margin:0 0 14px;color:#94a3b8;}
+a{color:#c4b5fd;text-decoration:underline;}
+.meta{font-size:12px;color:#475569;margin:0 0 32px;}
+.back{display:inline-block;margin-bottom:28px;font-size:13px;color:#7c3aed;text-decoration:none;
+      border:1px solid rgba(124,58,237,.35);padding:7px 16px;border-radius:8px;
+      background:rgba(124,58,237,.1);}
+.back:hover{background:rgba(124,58,237,.2);}
+"""
 
 # =========================
 @app.get("/terms")
