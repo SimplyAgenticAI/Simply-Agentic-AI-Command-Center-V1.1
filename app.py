@@ -12548,17 +12548,21 @@ HTML = r"""
       border: 1px solid rgba(42,58,106,.6);
       background: rgba(18,28,56,.5);
       padding: 10px;
+      display: flex;
+      flex-direction: column;
     }
 
     .modal pre{
-      margin:0;
+      margin: 0 auto;
       white-space: pre-wrap;
       color: var(--text);
       background: transparent;
       border: 0;
-      padding: 0;
-      font-size: 13px;
-      line-height: 1.35;
+      padding: 24px 32px;
+      font-size: 15px;
+      line-height: 1.7;
+      max-width: 820px;
+      font-family: system-ui, Arial, sans-serif;
     }
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
@@ -15007,7 +15011,7 @@ label         { font-size: 14px !important; }
     .plCard:hover{background:rgba(124,58,237,.1);border-color:rgba(124,58,237,.35);}
     .plCardBody{flex:1;min-width:0;cursor:pointer;}
     .plCardTitle{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:5px;}
-    .plCardText{font-size:13px;color:#94a3b8;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+    .plCardText{font-size:14px;color:#94a3b8;line-height:1.6;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
     .plCardMeta{display:flex;align-items:center;gap:6px;margin-top:7px;}
     .plCatBadge{font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(124,58,237,.15);color:#a78bfa;font-weight:600;}
     .plUseBadge{font-size:11px;color:#475569;}
@@ -15522,7 +15526,7 @@ label         { font-size: 14px !important; }
     <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
 
       <!-- Left: prompt panel -->
-      <div id="vcPromptPanel" style="width:340px;min-width:280px;max-width:380px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
+      <div id="vcPromptPanel" style="width:460px;min-width:360px;max-width:520px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
         <div style="padding:18px 18px 0;">
           <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">What do you want to create?</div>
           <textarea id="vcPrompt" placeholder="e.g. An animated slideshow of 3 services with fade transitions and purple theme..." style="width:100%;height:110px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
@@ -16392,7 +16396,7 @@ input[type="range"]::-moz-range-progress {
                     <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
                     <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
                     <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
-                    <button id="screenGroupBtn"     class="saMoreItem" style="color:#e2e8f0;">🖥 Share screen</button>
+                    <button id="screenGroupBtn"     class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share screen</button>
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                     <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
                     <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
@@ -16492,13 +16496,13 @@ input[type="range"]::-moz-range-progress {
               <button class="btn btnMini" id="dmAttachBtn" onclick="saToggleDmAttach()" style="font-weight:700;font-size:15px;padding:3px 10px;line-height:1.4;" title="Actions">+</button>
               <div id="dmAttachDrop" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;width:202px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
                 <button id="pickDmFiles"        class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files</button>
-                <button id="screenDmBtn"        class="saMoreItem" style="color:#e2e8f0;">🖥 Share Screen</button>
+                <button id="screenDmBtn"        class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share Screen</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="talkDmBtn"          class="saMoreItem" style="color:#93c5fd;">🔊 Speak once</button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
-                <button id="passSeatWeb"        class="saMoreItem" style="color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
+                <button id="passSeatWeb"        class="saMoreItem" style="display:none;color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
                 <button id="passSeatSumm"       class="saMoreItem" style="color:#86efac;" onclick="saToggleDmAttach();var fm=document.getElementById('followMsg'),sf=document.getElementById('sendFollow');if(fm&&sf){fm.value='Summarize our conversation so far in clear bullet points.';sf.click();}">📋 Summarize</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="deepDiveBtn"        class="saMoreItem" style="color:#fbbf24;display:none;">🔬 Deep Dive</button>
@@ -36168,7 +36172,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=55):
+                for fut in as_completed(future_map, timeout=20):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
@@ -36518,8 +36522,16 @@ def api_crm_playbooks():
     goal = (payload.get("goal") or "get_clients").strip()
     timeline = (payload.get("timeline") or "30 days").strip()
     context = (payload.get("context") or "").strip()
-    system = "You create crisp business growth playbooks. Return a practical sequence of steps with short explanations."
-    prompt = f"Goal: {goal}\nTimeline: {timeline}\nContext: {context}\n\nGenerate a step-by-step playbook."
+    system = (
+        "You are an expert business growth strategist. "
+        "Generate a clear, structured growth playbook using this exact format:\n\n"
+        "Use numbered steps as main headings: '1. **Step Title**'\n"
+        "Under each step add sub-sections in bold: '**Why this matters:**', '**Action:**', '**Success signal:**'\n"
+        "Keep each step focused and actionable. Use bullet points for action items.\n"
+        "Separate each step with a blank line for readability.\n"
+        "Write for a real operator who needs to execute this today — no fluff, no placeholder text."
+    )
+    prompt = f"Goal: {goal.replace('_',' ')}\nTimeline: {timeline}\nContext: {context or 'Small business operator looking to grow.'}\n\nGenerate a complete step-by-step growth playbook."
     fallback = (
         f"Playbook for {goal.replace('_',' ')}\n"
         f"Step 1\n- Clarify your offer and the one audience you are speaking to.\n"
