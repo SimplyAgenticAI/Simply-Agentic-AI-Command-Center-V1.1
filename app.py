@@ -15882,7 +15882,7 @@ input[type="range"]::-moz-range-progress {
 ::-webkit-scrollbar-corner { background:transparent; }
 * { scrollbar-width:thin; scrollbar-color:rgba(80,110,200,.35) transparent; }
 
-.wcal-sidebar { width:280px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
+.wcal-sidebar { width:460px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
 .wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:4px 11px; font-size:12px; cursor:pointer; }
@@ -15979,7 +15979,7 @@ input[type="range"]::-moz-range-progress {
 .wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#94a3b8; line-height:1; pointer-events:none; }
 .wcal-event[data-etype="task"].task-overdue:not(.is-done) { border-left-color:#f87171 !important; }
 /* Detail Panel (Motion-style right sidebar) */
-.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:370px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:600px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
