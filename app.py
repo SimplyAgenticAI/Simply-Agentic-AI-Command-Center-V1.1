@@ -11838,8 +11838,7 @@ HTML = r"""
   <style>
     :root{ --text:#eef2ff; --muted:#d4dcffee; --surface:#1a2040; --card:#1e2548; --border:rgba(80,110,200,.35); }
     *{box-sizing:border-box}
-    html{ height:100vh; overflow:hidden; }
-    body{ height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+    html, body{ height:auto; min-height:100%; overflow-y:auto; }
     body{
       margin:0;
       font-family: Arial, sans-serif;
@@ -11927,33 +11926,26 @@ HTML = r"""
     }
 
     .stage{
-      flex: 1;
-      min-height: 0;
+      min-height: calc(100vh - 24px);
       display:grid;
       grid-template-columns: minmax(0, 1fr) 680px;
-      align-items:stretch;
-      overflow:hidden;
+      align-items:start;
     }
-    /* Arena wrapper (anonymous grid child) must fill the grid cell */
-    .stage > div:first-child{ height:100%; }
 
     .arena{
       position:relative;
-      height:100%;
       display:flex;
-      flex-direction:column;
-      align-items:center;
+      align-items:flex-start;
       justify-content:center;
-      padding: 10px 0 14px 0;
-      overflow:hidden;
+      padding: 18px 0 36px 0;
     }
 
     .tableWrap{
       position:relative;
       width: min(1100px, 95vw);
-      height: min(570px, calc(100vh - 110px));
-      min-height: 0;
-      max-height: calc(100vh - 90px);
+      height: min(590px, 60vw);
+      min-height: 440px;
+      max-height: 610px;
       margin-bottom: 0;
     }
 
@@ -12293,10 +12285,10 @@ HTML = r"""
     }
 
     .side{
-      position: relative;
+      position: sticky;
       top: 0;
-      align-self: stretch;
-      height: 100%;
+      align-self: start;
+      height: 100vh;
       overflow: hidden;
       border-left: 1px solid rgba(55,78,140,.8);
       background: linear-gradient(180deg, rgba(20,32,68,.95), rgba(14,20,48,.95));
@@ -12329,7 +12321,7 @@ HTML = r"""
 
 
     /* ===== REDESIGNED NAV BAR ===== */
-    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(22,34,72,.97);border-bottom:1px solid rgba(80,110,200,.38);flex-wrap:wrap;position:relative;top:0;z-index:900;backdrop-filter:blur(12px);flex-shrink:0;}@media(max-width:720px){.saNavBar{display:none!important;}}
+    .saNavBar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(22,34,72,.97);border-bottom:1px solid rgba(80,110,200,.38);flex-wrap:wrap;position:sticky;top:0;z-index:900;backdrop-filter:blur(12px);}@media(max-width:720px){.saNavBar{display:none!important;}}
     .saNavLeft{display:flex;gap:6px;align-items:center;flex-shrink:0;}
     .saNavCenter{flex:1;display:flex;flex-direction:column;gap:4px;align-items:center;}
     #saPinnedBar:empty{ display:none; }
@@ -12830,16 +12822,6 @@ HTML = r"""
       .modalBarTitle{ max-width: 240px; }
     }
   
-
-    /* Tablet: restore scroll so panels don't clip */
-    @media (max-width: 980px){
-      html, body{ height:auto !important; overflow:auto !important; }
-      .stage{ flex:none !important; height:auto !important; overflow:visible !important; align-items:start !important; }
-      .stage > div:first-child{ height:auto !important; }
-      .arena{ height:auto !important; overflow:visible !important; }
-      .side{ height:auto !important; position:relative !important; }
-      .tableWrap{ height:min(540px,60vw) !important; min-height:340px !important; }
-    }
 
     /* Mobile responsiveness */
     @media (max-width: 720px){
