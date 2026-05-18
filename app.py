@@ -11844,7 +11844,6 @@ HTML = r"""
       font-family: Arial, sans-serif;
       background:
         radial-gradient(900px 600px at 50% 30%, rgba(124,58,237,.18), transparent 55%),
-        radial-gradient(800px 600px at 70% 60%, rgba(59,130,246,.14), transparent 55%),
         linear-gradient(160deg, #111827 0%, #0f1629 40%, #121c38 100%);
       color:var(--text);
     }
