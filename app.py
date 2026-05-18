@@ -12265,72 +12265,105 @@ HTML = r"""
       flex: 1;
       min-height: 0;
       overflow-y: auto;
-      background: rgba(20,30,60,.65);
-      border:1px solid rgba(42,58,106,.6);
+      background: rgba(10,14,30,.55);
+      border: 1px solid rgba(42,58,106,.5);
       border-radius: 14px;
-      padding: 10px;
-      font-size: 13px;
-      line-height: 1.35;
-      white-space: pre-wrap;
+      padding: 16px 14px 10px;
+      font-size: 14px;
+      line-height: 1.6;
     }
 
-    /* ── Chat bubbles ── */
+    /* ── Thread layout ── */
+    #thread{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    /* ── Message row wrapper ── */
     .msg{
-      margin-bottom: 10px;
-      padding: 11px 14px;
-      border-radius: 18px;
-      border: none;
-      font-size: 14px;
-      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      animation: msgIn .2s ease;
       position: relative;
-      animation: msgIn .18s ease;
     }
     @keyframes msgIn{
-      from{ opacity:0; transform:translateY(6px); }
+      from{ opacity:0; transform:translateY(5px); }
       to  { opacity:1; transform:translateY(0);   }
     }
-    /* User messages: right-aligned blue bubble */
-    .msg.user{
-      background: linear-gradient(135deg, rgba(79,70,229,.85), rgba(99,102,241,.75));
-      color: #f0f0ff;
-      margin-left: auto;
-      border-bottom-right-radius: 5px;
-      box-shadow: 0 2px 12px rgba(79,70,229,.3);
-      max-width: 78%;
-      align-self: flex-end;
-    }
-    /* Assistant messages: full-width document style */
-    .msg.assistant{
-      background: rgba(20,28,58,.8);
-      border: 1px solid rgba(124,58,237,.25);
-      color: #e2e8f0;
-      border-bottom-left-radius: 5px;
-      box-shadow: 0 2px 10px rgba(0,0,0,.25);
-      max-width: 100%;
-      width: 100%;
-      align-self: stretch;
-    }
+
+    /* ── WHO label — sits ABOVE the bubble, outside it ── */
     .msg .who{
       font-size: 10px;
-      color: rgba(148,163,184,.7);
-      margin-bottom: 5px;
-      font-weight: 700;
-      letter-spacing: .3px;
+      font-weight: 800;
+      letter-spacing: .5px;
       text-transform: uppercase;
+      margin-bottom: 4px;
+      padding: 0 4px;
+      opacity: .7;
     }
-    .msg.user .who{ text-align: right; color: rgba(200,210,255,.6); }
-    /* Streaming cursor */
+    .msg.user .who{
+      text-align: right;
+      color: #818cf8;
+      align-self: flex-end;
+    }
+    .msg.assistant .who{
+      color: #a78bfa;
+      align-self: flex-start;
+    }
+
+    /* ── User bubble: compact right-side pill ── */
+    .msg.user .msg-body{
+      align-self: flex-end;
+      max-width: 72%;
+      background: linear-gradient(135deg, rgba(79,70,229,.9), rgba(99,102,241,.8));
+      color: #eef0ff;
+      padding: 10px 15px;
+      border-radius: 16px 16px 4px 16px;
+      box-shadow: 0 2px 16px rgba(79,70,229,.35);
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ── Assistant response: full-width document card ── */
+    .msg.assistant .msg-body{
+      align-self: stretch;
+      width: 100%;
+      background: transparent;
+      border-left: 3px solid rgba(124,58,237,.5);
+      padding: 6px 0 6px 14px;
+      color: #dde4f5;
+      font-size: 14px;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Exchange grouping — tighter within same speaker, more space between turns */
+    .msg.user + .msg.assistant,
+    .msg.assistant + .msg.user{
+      margin-top: 14px;
+    }
+    .msg.user + .msg.user,
+    .msg.assistant + .msg.assistant{
+      margin-top: 3px;
+    }
+
+    /* ── Streaming cursor ── */
     .sa-cursor{
       display: inline-block;
       width: 2px; height: 14px;
-      background: rgba(124,58,237,.8);
+      background: rgba(124,58,237,.85);
       border-radius: 1px;
       margin-left: 2px;
       vertical-align: middle;
       animation: blink .7s step-end infinite;
     }
     @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:0;} }
-    /* Skeleton loading */
+
+    /* ── Skeleton loading ── */
     .sa-skeleton{
       background: linear-gradient(90deg,rgba(30,40,80,.5) 25%,rgba(50,60,100,.5) 50%,rgba(30,40,80,.5) 75%);
       background-size: 200% 100%;
@@ -12339,11 +12372,6 @@ HTML = r"""
       height: 14px; margin: 6px 0;
     }
     @keyframes shimmer{ 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
-    /* Thread layout */
-    #thread{
-      display: flex;
-      flex-direction: column;
-    }
 
 
     /* ── Teammate status improvements ── */
@@ -18067,6 +18095,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         who.className = "who";
         who.innerText = selectedSeat + " image context";
         const body = document.createElement("div");
+        body.className = "msg-body";
         const currentUrl = lastImageState.current_image_url || lastImageState.approved_image_url || "";
         const note = document.createElement("div");
         note.className = "tiny";
@@ -18125,17 +18154,30 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(!msgs || msgs.length === 0){
         const empty = document.createElement("div");
         empty.className = "msg assistant";
-        empty.innerHTML = `<div class="who">System</div><div>No messages yet. Use the center Group Console or send to the selected teammate.</div>`;
+        const emptyWho = document.createElement("div");
+        emptyWho.className = "who";
+        emptyWho.innerText = "System";
+        const emptyBody = document.createElement("div");
+        emptyBody.className = "msg-body";
+        emptyBody.innerText = "No messages yet. Use the center Group Console or send to the selected teammate.";
+        empty.appendChild(emptyWho);
+        empty.appendChild(emptyBody);
         box.appendChild(empty);
         return;
       }
       msgs.forEach(m => {
         const div = document.createElement("div");
-        div.className = "msg " + (m.role === "user" ? "user" : "assistant");
+        const isUser = m.role === "user";
+        div.className = "msg " + (isUser ? "user" : "assistant");
+
         const who = document.createElement("div");
         who.className = "who";
-        who.innerText = (m.role === "user") ? "You" : selectedSeat;
+        who.innerText = isUser ? "You" : selectedSeat;
+
+        // msg-body wraps all actual content
         const content = document.createElement("div");
+        content.className = "msg-body";
+
         const raw = (m.content || "");
         const imgMatch = raw.match(/\/uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i) || raw.match(/\/api\/uploads\/[^\s]+/i);
         if(imgMatch){
@@ -18230,7 +18272,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
           content.innerText = raw;
-          // Feature 2: CRM name detection — if response mentions a known contact, show quick-open button
+          // CRM name detection — if response mentions a known contact, show quick-open button
           if(m.role !== "user" && raw && (crmCache.clients||[]).length){
             const rawLower = raw.toLowerCase();
             const hit = (crmCache.clients||[]).find(c => {
@@ -29976,12 +30018,12 @@ window._streamTtsFired = false;
       // Show user message
       const uDiv=document.createElement("div"); uDiv.className="msg user";
       const uWho=document.createElement("div"); uWho.className="who"; uWho.innerText="You";
-      const uBody=document.createElement("div"); uBody.innerText=msg;
+      const uBody=document.createElement("div"); uBody.className="msg-body"; uBody.innerText=msg;
       uDiv.appendChild(uWho); uDiv.appendChild(uBody); threadEl.appendChild(uDiv);
       // Show assistant loading bubble
       const aDiv=document.createElement("div"); aDiv.className="msg assistant";
       const aWho=document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
-      const aBody=document.createElement("div"); aBody.style.color="#a78bfa"; aBody.innerText="✨ Generating your visual… hang tight, this may take a moment";
+      const aBody=document.createElement("div"); aBody.className="msg-body"; aBody.style.color="#a78bfa"; aBody.innerText="✨ Generating your visual… hang tight, this may take a moment";
       aDiv.appendChild(aWho); aDiv.appendChild(aBody); threadEl.appendChild(aDiv);
       threadEl.scrollTop=threadEl.scrollHeight;
       if(msgEl) msgEl.value="";
@@ -30045,14 +30087,14 @@ window._streamTtsFired = false;
     const userDiv = document.createElement("div");
     userDiv.className = "msg user";
     const userWho = document.createElement("div"); userWho.className="who"; userWho.innerText="You";
-    const userBody = document.createElement("div"); userBody.innerText=msg;
+    const userBody = document.createElement("div"); userBody.className="msg-body"; userBody.innerText=msg;
     userDiv.appendChild(userWho); userDiv.appendChild(userBody);
     threadEl.appendChild(userDiv);
 
     // Append assistant streaming bubble
     const aDiv = document.createElement("div"); aDiv.className="msg assistant";
     const aWho = document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
-    const aBody = document.createElement("div");
+    const aBody = document.createElement("div"); aBody.className="msg-body";
     const aCursor = document.createElement("span"); aCursor.className="sa-cursor"; aCursor.textContent="▋";
     aBody.appendChild(aCursor);
     aDiv.appendChild(aWho); aDiv.appendChild(aBody);
