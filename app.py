@@ -256,7 +256,6 @@ STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
 
 STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "price_1TNLaBKAWBo2NxJsK5bMQr4x") or STRIPE_PRICE_ID or "price_1TNLaBKAWBo2NxJsK5bMQr4x"
 STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")  # Teams plan
-STRIPE_PRICE_ID_PRO     = os.getenv("STRIPE_PRICE_ID_PRO",     "price_1TNzBXKAWBo2NxJsur0jGGwR")
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Founder plan — product: prod_UP048a3RZv4e9i
@@ -343,26 +342,6 @@ PLANS: Dict[str, Any] = {
             "3 team seats — run with a crew",
             "Advanced pipeline automation",
             "Priority support",
-        ],
-    },
-    "pro": {
-        "name":             "Operator Pro",
-        "price":            197,
-        "price_id":         STRIPE_PRICE_ID_PRO,
-        "badge":            "Unlimited",
-        "tagline":          "Full command. No ceilings. Built for operators running at scale.",
-        "custom_teammates": None,
-        "crm_contacts":     None,
-        "broadcast_recipients": None,
-        "team_seats":       10,
-        "features": [
-            "Everything in Growth",
-            "Unlimited custom AI teammates",
-            "Unlimited CRM contacts & broadcasts",
-            "10 team seats — bring your whole operation",
-            "Dedicated onboarding + strategy call",
-            "Early access to every new feature",
-            "Priority support — direct line, no queue",
         ],
     },
 }
@@ -531,7 +510,7 @@ def _get_user_plan(username: str) -> str:
         if users:
             first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
             if first.get("username") == username:
-                result = "pro"
+                result = "growth"
                 if cache is not None:
                     cache[username] = result
                 return result
@@ -1232,7 +1211,7 @@ def _stripe_ready() -> bool:
     # Ready if secret key + at least one plan price ID is configured
     return bool(STRIPE_SECRET_KEY and (
         STRIPE_PRICE_ID_FOUNDER or STRIPE_PRICE_ID_STARTER or
-        STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID_PRO or STRIPE_PRICE_ID
+        STRIPE_PRICE_ID_GROWTH or STRIPE_PRICE_ID
     ))
 
 def _stripe_api(method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
@@ -5523,7 +5502,6 @@ a.back:hover{color:#c4b5fd;}
     <select id="genPlan">
       <option value="starter">Starter Operator</option>
       <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
       <option value="founder">Founder</option>
     </select>
     <div class="msg" id="genMsg"></div>
@@ -5545,7 +5523,6 @@ a.back:hover{color:#c4b5fd;}
     <select id="editPlan">
       <option value="starter">Starter Operator</option>
       <option value="growth">Growth System</option>
-      <option value="pro">Operator Pro</option>
       <option value="founder">Founder</option>
     </select>
     <label>Status</label>
@@ -11844,7 +11821,7 @@ HTML = r"""
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 500px;
+      grid-template-columns: minmax(0, 1fr) 680px;
       align-items:start;
     }
 
@@ -12278,7 +12255,7 @@ HTML = r"""
       border: none;
       font-size: 14px;
       line-height: 1.5;
-      max-width: 88%;
+      max-width: 92%;
       position: relative;
       animation: msgIn .18s ease;
     }
@@ -12380,7 +12357,7 @@ HTML = r"""
       font-size:13px;
       line-height:1.3;
     }
-    .followBox{ height: 92px; }
+    .followBox{ height: 110px; }
 
     .underTable{
       width: min(1100px, 95vw);
@@ -12682,8 +12659,12 @@ HTML = r"""
     .pill button:hover{ color: var(--text); }
 
 
+    @media (max-width: 1500px) and (min-width: 1281px){
+      .stage{ grid-template-columns: minmax(0,1fr) 580px; }
+    }
+
     @media (max-width: 1280px){
-      .stage{ grid-template-columns: minmax(0,1fr) 340px; }
+      .stage{ grid-template-columns: minmax(0,1fr) 500px; }
       .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
       .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
     }
