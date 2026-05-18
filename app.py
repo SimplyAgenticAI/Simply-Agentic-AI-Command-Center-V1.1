@@ -126,6 +126,38 @@ def _capture_error(exc: Exception, context: str = "") -> None:
         pass  # error logger must never crash the app
 
 
+def _retry_request(method: str, url: str, retries: int = 3, backoff: float = 0.6, **kwargs):
+    """HTTP request with exponential backoff on transient errors (429, 5xx, network failures).
+    Only use for idempotent/read-only calls — never for sends/creates that would duplicate."""
+    import time as _t
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            resp = requests.request(method, url, **kwargs)
+            if resp.status_code not in (429, 500, 502, 503, 504) or attempt == retries - 1:
+                return resp
+            _t.sleep(backoff * (2 ** attempt))
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                _t.sleep(backoff * (2 ** attempt))
+    if last_exc:
+        raise last_exc
+    return resp  # type: ignore[return-value]
+
+
+def _audit_log(uname: str, action: str, details: Dict[str, Any]) -> None:
+    """Write a structured audit entry that survives across log rotations."""
+    try:
+        append_log("audit", {"user": uname, "action": action, "at": now_iso(), **details})
+    except Exception:
+        pass
+
+
+# In-memory broadcast job tracker — keys are job UUIDs, values are status dicts
+_BROADCAST_JOBS: Dict[str, Dict[str, Any]] = {}
+
+
 # =========================
 # API KEY ENCRYPTION (Fernet / symmetric AES-128-CBC)
 # =========================
@@ -3894,6 +3926,19 @@ def _calendar_move_event(access_token: str, event_id: str, new_start_iso: str, n
     return data
 
 
+def _calendar_check_conflicts(access_token: str, start_iso: str, end_iso: str, timezone: str = "UTC") -> List[Dict[str, Any]]:
+    """Return list of busy time blocks overlapping [start_iso, end_iso]. Empty = no conflict."""
+    try:
+        url = "https://www.googleapis.com/calendar/v3/freeBusy"
+        body = {"timeMin": start_iso, "timeMax": end_iso, "timeZone": timezone, "items": [{"id": "primary"}]}
+        r = _retry_request("POST", url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=body, timeout=15)
+        if r.status_code >= 400:
+            return []
+        return ((r.json() if r.content else {}).get("calendars") or {}).get("primary", {}).get("busy") or []
+    except Exception:
+        return []
+
+
 def _strip_motion_boilerplate(text: str) -> str:
     """Strip Motion/third-party auto-generated boilerplate from event/task descriptions."""
     if not text:
@@ -3943,7 +3988,8 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     def _fetch_cal(cal_id: str) -> list:
         safe = _req.utils.quote(cal_id, safe="")
         try:
-            r = _req.get(
+            r = _retry_request(
+                "GET",
                 f"https://www.googleapis.com/calendar/v3/calendars/{safe}/events",
                 headers=headers, params=base_params, timeout=20)
             if r.status_code >= 400:
@@ -6019,6 +6065,9 @@ def api_set_user_settings():
     save_users(users)
 
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
+    changed_fields = [k for k in ("openai_key", "claude_key", "global_default_model", "tooltip_level", "smtp") if k in data]
+    if changed_fields:
+        _audit_log(uname, "settings_updated", {"changed_fields": changed_fields})
     return jsonify({"ok": True})
 
 
@@ -7574,6 +7623,13 @@ def api_calendar_create_event():
 
     if not start or not end:
         return jsonify({"ok": False, "error": "Missing start/end. Provide ISO datetime strings."}), 400
+    # Conflict detection — warn but allow override
+    force = bool(payload.get("force"))
+    if not force:
+        conflicts = _calendar_check_conflicts(access_token, start, end, timezone)
+        if conflicts:
+            return jsonify({"ok": False, "conflict": True, "busy": conflicts,
+                            "error": f"You already have {len(conflicts)} event(s) in that time slot. Pass force=true to book anyway."}), 409
     try:
         created = _calendar_create_event(access_token, title=title, start_iso=start, end_iso=end, timezone=timezone, attendees=attendees, description=description, location=location, use_meet=use_meet)
         append_log("calendar_event_created", {"user": u.get("username", ""), "title": title, "start": start, "end": end, "at": now_iso()})
@@ -34128,6 +34184,23 @@ def api_crm_clients_list():
                         "has_more": (start + page_size) < total})
     return jsonify({"ok": True, "clients": clients, "pipeline": crm.get("pipeline") or {}, "total": total})
 
+def _validate_crm_client_fields(payload: dict) -> Optional[str]:
+    """Returns an error string if fields are invalid, else None."""
+    name  = (payload.get("name")  or "").strip()
+    email = (payload.get("email") or "").strip()
+    phone = (payload.get("phone") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+    if name and len(name) > 200:
+        return "Name must be 200 characters or fewer."
+    if email and not EMAIL_RE.match(email):
+        return f"'{email}' is not a valid email address."
+    if phone and len(phone) > 30:
+        return "Phone number must be 30 characters or fewer."
+    if notes and len(notes) > 10000:
+        return "Notes must be 10,000 characters or fewer."
+    return None
+
+
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
     u = current_user()
@@ -34138,6 +34211,9 @@ def api_crm_clients_create():
     name = (payload.get("name") or "").strip()
     if not name:
         return jsonify({"ok": False, "error": "Name is required"}), 400
+    val_err = _validate_crm_client_fields(payload)
+    if val_err:
+        return jsonify({"ok": False, "error": val_err}), 400
     crm = _crm_load(uname)
 
     # Plan-based contact limit
@@ -34207,6 +34283,9 @@ def api_crm_clients_update(client_id: str):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     payload = request.get_json(silent=True) or {}
+    val_err = _validate_crm_client_fields(payload)
+    if val_err:
+        return jsonify({"ok": False, "error": val_err}), 400
     crm = _crm_load(uname)
     clients = crm.get("clients") or {}
     if client_id not in clients or not isinstance(clients[client_id], dict):
@@ -34287,6 +34366,14 @@ def api_crm_clients_import_csv():
 
     imported = 0
     skipped = 0
+    duplicates = 0
+
+    # Build set of existing emails for duplicate detection
+    existing_emails = {
+        (c.get("email") or "").strip().lower()
+        for c in (crm.get("clients") or {}).values()
+        if (c.get("email") or "").strip()
+    }
 
     def pick(row, *names):
         lowered = {str(k).strip().lower(): v for k, v in row.items()}
@@ -34317,6 +34404,11 @@ def api_crm_clients_import_csv():
                 continue
             if not name:
                 name = email or phone or "Imported prospect"
+            # Skip duplicate emails
+            if email and email.lower() in existing_emails:
+                duplicates += 1
+                skipped += 1
+                continue
             # Check contact limit before adding each row
             if max_contacts is not None and len(crm.get("clients") or {}) >= max_contacts:
                 skipped += 1
@@ -34340,12 +34432,14 @@ def api_crm_clients_import_csv():
                 "created_at": now,
                 "updated_at": now,
             }
+            if email:
+                existing_emails.add(email.lower())
             imported += 1
     except Exception as e:
         return jsonify({"ok": False, "error": f"CSV import failed: {e}"}), 400
 
     _crm_save(uname, crm)
-    return jsonify({"ok": True, "imported": imported, "skipped": skipped, "total_clients": len(crm.get("clients") or {})})
+    return jsonify({"ok": True, "imported": imported, "skipped": skipped, "duplicates": duplicates, "total_clients": len(crm.get("clients") or {})})
 
 
 @app.post("/api/crm/pipeline")
@@ -34563,47 +34657,57 @@ def api_crm_broadcast_email():
         if dry_run:
             return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
 
-        sent = 0
-        failed = 0
-        results = []
         from_name = (_user_smtp_settings(u).get("from_name", "") or "").strip()
+        run_async = bool(payload.get("async")) or len(recipients) > 20
 
-        for c in recipients:
-            to_addr = (c.get("email") or "").strip()
-            if not to_addr or (not EMAIL_RE.match(to_addr)):
-                failed += 1
-                results.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing/invalid email"})
-                continue
+        def _do_send(job_id_: Optional[str] = None):
+            sent_ = 0
+            failed_ = 0
+            results_ = []
+            total_ = len(recipients)
+            for idx, c in enumerate(recipients):
+                to_addr = (c.get("email") or "").strip()
+                if not to_addr or not EMAIL_RE.match(to_addr):
+                    failed_ += 1
+                    results_.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing/invalid email"})
+                else:
+                    ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
+                    body = _safe_render(body_t, ctx)
+                    try:
+                        _unsub_tok = _unsub_token(uname, to_addr)
+                        _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
+                        body = _add_unsub_footer(body, f"{_unsub_base}/unsubscribe/{_unsub_tok}")
+                    except Exception:
+                        pass
+                    ok_send, provider, err = _crm_send_email_to(u, to_addr, subject, body, from_name=from_name)
+                    if ok_send:
+                        sent_ += 1
+                    else:
+                        failed_ += 1
+                    results_.append({"client_id": c.get("id", ""), "ok": bool(ok_send), "provider": provider, "error": err})
+                if job_id_:
+                    _BROADCAST_JOBS[job_id_] = {"status": "running", "sent": sent_, "failed": failed_,
+                                                 "count": total_, "progress": idx + 1, "results": results_}
+            _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent_, "failed": failed_})
+            if sent_ > 0:
+                _award_points(uname, "Sent an email broadcast", 30)
+                _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": sent_, "subject": subject[:80]})
+            if job_id_:
+                _BROADCAST_JOBS[job_id_] = {"status": "done", "sent": sent_, "failed": failed_,
+                                             "count": total_, "progress": total_, "results": results_}
+            return sent_, failed_, results_
 
-            ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
-            body = _safe_render(body_t, ctx)
-            # Append CAN-SPAM / GDPR compliant unsubscribe link
-            try:
-                _unsub_tok = _unsub_token(uname, to_addr)
-                _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
-                _unsub_url = f"{_unsub_base}/unsubscribe/{_unsub_tok}"
-                body = _add_unsub_footer(body, _unsub_url)
-            except Exception:
-                pass
+        if run_async:
+            job_id = uuid.uuid4().hex
+            _BROADCAST_JOBS[job_id] = {"status": "running", "sent": 0, "failed": 0,
+                                        "count": len(recipients), "progress": 0, "results": []}
+            threading.Thread(target=_do_send, args=(job_id,), daemon=True).start()
+            return jsonify({"ok": True, "async": True, "job_id": job_id, "count": len(recipients)})
 
-            ok, provider, err = _crm_send_email_to(
-                u, to_addr, subject, body,
-                from_name=from_name
-            )
-            if ok:
-                sent += 1
-            else:
-                failed += 1
-            results.append({"client_id": c.get("id", ""), "ok": bool(ok), "provider": provider, "error": err})
-
-        _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent, "failed": failed})
-        if not dry_run and sent > 0:
-            _award_points(uname, "Sent an email broadcast", 30)
-            _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": sent, "subject": subject[:80]})
+        sent, failed, results = _do_send()
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
 
     except Exception as e:
-        # Never 500 the UI; return a clear error.
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
 
 @app.post("/api/crm/broadcast/sms")
@@ -34685,6 +34789,126 @@ def api_crm_broadcast_sms():
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
 
 
+# ── Broadcast job status (for async/threaded runs) ─────────────────────────
+@app.get("/api/crm/broadcast/job/<job_id>")
+def api_broadcast_job_status(job_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    job = _BROADCAST_JOBS.get(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    return jsonify({"ok": True, "job": job})
+
+
+@app.get("/api/crm/broadcast/job/<job_id>/stream")
+def api_broadcast_job_stream(job_id: str):
+    """SSE stream for real-time broadcast progress."""
+    from flask import Response, stream_with_context
+    import time as _t
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    import json as _json
+    def _generate():
+        for _ in range(120):
+            job = _BROADCAST_JOBS.get(job_id)
+            if not job:
+                yield f"data: {_json.dumps({'error': 'Job not found'})}\n\n"
+                break
+            yield f"data: {_json.dumps(job)}\n\n"
+            if job.get("status") in ("done", "error"):
+                break
+            _t.sleep(0.8)
+    return Response(stream_with_context(_generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── Broadcast templates ─────────────────────────────────────────────────────
+@app.get("/api/crm/broadcast/templates")
+def api_broadcast_templates_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    templates = list((crm.get("broadcast_templates") or {}).values())
+    templates.sort(key=lambda t: t.get("updated_at") or "", reverse=True)
+    return jsonify({"ok": True, "templates": templates})
+
+
+@app.post("/api/crm/broadcast/templates")
+def api_broadcast_templates_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    channel = (payload.get("channel") or "email").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Template name is required"}), 400
+    if channel not in ("email", "sms"):
+        return jsonify({"ok": False, "error": "Channel must be 'email' or 'sms'"}), 400
+    crm = _crm_load(uname)
+    crm.setdefault("broadcast_templates", {})
+    tid = payload.get("id") or _crm_new_id("tmpl")
+    now = now_iso()
+    template = {
+        "id": tid,
+        "name": name,
+        "channel": channel,
+        "subject": (payload.get("subject") or "").strip(),
+        "body": (payload.get("body") or "").strip(),
+        "created_at": crm["broadcast_templates"].get(tid, {}).get("created_at") or now,
+        "updated_at": now,
+    }
+    crm["broadcast_templates"][tid] = template
+    _crm_save(uname, crm)
+    _audit_log(uname, "broadcast_template_saved", {"template_id": tid, "name": name, "channel": channel})
+    return jsonify({"ok": True, "template": template})
+
+
+@app.delete("/api/crm/broadcast/templates/<template_id>")
+def api_broadcast_templates_delete(template_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    crm = _crm_load(uname)
+    templates = crm.get("broadcast_templates") or {}
+    if template_id not in templates:
+        return jsonify({"ok": False, "error": "Template not found"}), 404
+    del templates[template_id]
+    crm["broadcast_templates"] = templates
+    _crm_save(uname, crm)
+    return jsonify({"ok": True})
+
+
+# ── OAuth token health check ────────────────────────────────────────────────
+@app.get("/api/health/tokens")
+def api_health_tokens():
+    """Proactively validate and refresh all connected OAuth tokens."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    calendar_ok, calendar_reason = False, ""
+    gmail_ok, gmail_reason = False, ""
+    try:
+        tok, reason = _calendar_creds_for_user(u)
+        calendar_ok = bool(tok)
+        calendar_reason = "" if tok else (reason or "Not connected")
+    except Exception as e:
+        calendar_reason = str(e)
+    try:
+        tok, reason = _gmail_creds_for_user(u)
+        gmail_ok = bool(tok)
+        gmail_reason = "" if tok else (reason or "Not connected")
+    except Exception as e:
+        gmail_reason = str(e)
+    return jsonify({"ok": True,
+                    "calendar": {"connected": calendar_ok, "reason": calendar_reason},
+                    "gmail":    {"connected": gmail_ok,    "reason": gmail_reason}})
 
 
 @app.post("/api/crm/tasks")
