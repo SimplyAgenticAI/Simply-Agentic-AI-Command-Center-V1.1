@@ -9059,7 +9059,7 @@ function showTip(nd,mx,my){
   var tw=300,pad=16;
   var tx=Math.min(mx+14,W-tw-pad);
   var ty=Math.min(my-20,H-180);if(ty<pad)ty=my+14;
-  tip.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;"><span style="font-size:22px;flex-shrink:0;line-height:1.2;">'+t.icon+'</span><div><div style="font-size:13px;font-weight:800;color:#e2e8f0;margin-bottom:5px;line-height:1.3;">'+t.title+'</div><div style="font-size:12px;color:#94a3b8;line-height:1.55;">'+t.body+'</div></div></div><div style="font-size:10px;color:#475569;margin-top:8px;text-align:right;">click anywhere to close</div>';
+  tip.innerHTML='<div style="display:flex;align-items:flex-start;gap:10px;"><span style="font-size:22px;flex-shrink:0;line-height:1.2;">'+t.icon+'</span><div><div style="font-size:16px;font-weight:800;color:#e2e8f0;margin-bottom:5px;line-height:1.3;">'+t.title+'</div><div style="font-size:14px;color:#94a3b8;line-height:1.55;">'+t.body+'</div></div></div><div style="font-size:11px;color:#475569;margin-top:8px;text-align:right;">click anywhere to close</div>';
   tip.style.cssText='position:fixed;display:block;left:'+tx+'px;top:'+ty+'px;width:'+tw+'px;background:rgba(8,12,30,.97);border:1px solid rgba(124,58,237,.55);border-radius:14px;padding:14px;box-shadow:0 12px 48px rgba(0,0,0,.75);backdrop-filter:blur(14px);pointer-events:none;z-index:200;';
   activeTip=nd;nd.lit=true;
   clearTimeout(tipTO);tipTO=setTimeout(hideTip,7000);
@@ -15882,7 +15882,7 @@ input[type="range"]::-moz-range-progress {
 ::-webkit-scrollbar-corner { background:transparent; }
 * { scrollbar-width:thin; scrollbar-color:rgba(80,110,200,.35) transparent; }
 
-.wcal-sidebar { width:230px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
+.wcal-sidebar { width:280px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
 .wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:4px 11px; font-size:12px; cursor:pointer; }
@@ -15979,7 +15979,7 @@ input[type="range"]::-moz-range-progress {
 .wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#94a3b8; line-height:1; pointer-events:none; }
 .wcal-event[data-etype="task"].task-overdue:not(.is-done) { border-left-color:#f87171 !important; }
 /* Detail Panel (Motion-style right sidebar) */
-.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:300px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
+.wcal-detail { position:absolute; top:0; right:0; bottom:0; width:370px; background:#131e3a; border-left:1px solid rgba(42,58,106,.7); display:flex; flex-direction:column; z-index:200; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); box-shadow:-6px 0 30px rgba(0,0,0,.5); }
 .wcal-detail.open { transform:translateX(0); }
 .wcal-detail-header { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; }
 .wcal-detail-type { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:rgba(180,200,240,.85); }
