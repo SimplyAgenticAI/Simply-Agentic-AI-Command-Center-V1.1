@@ -21396,7 +21396,7 @@ Challenge weak assumptions. Surface risks.`;
         return;
       }
 
-      const payload = {subject, body, dry_run: !!dry_run};
+      const payload = {subject, body, dry_run: !!dry_run, async: !dry_run};
       if(audience==='tag') payload.tag = val;
       if(audience==='stage') payload.stage = val;
       if(audience==='status') payload.status = val;
@@ -21420,14 +21420,19 @@ Challenge weak assumptions. Surface risks.`;
           throw new Error((data && data.error) ? data.error : 'Broadcast failed');
         }
 
-        if(st){
-          if(dry_run){
-            st.innerText = `Dry run: would send to ${data.count||0}`;
-          }else{
-            st.innerText = `Sent: ${data.sent||0} | Failed: ${data.failed||0} | Total: ${data.count||0}`;
-          }
+        if(dry_run){
+          if(st) st.innerText = `Dry run: would send to ${data.count||0}`;
+          showToast('Dry run complete');
+          return;
         }
-        showToast(dry_run ? 'Dry run complete' : 'Email broadcast sent');
+
+        if(data.async && data.job_id){
+          if(st) st.innerText = `Sending to ${data.count||0} contacts…`;
+          if(typeof sa5OpenBcastModal === 'function') sa5OpenBcastModal('Email Broadcast', data.count, data.job_id);
+        } else {
+          if(st) st.innerText = `Sent: ${data.sent||0} | Failed: ${data.failed||0} | Total: ${data.count||0}`;
+          showToast('Email broadcast sent');
+        }
 
       }catch(e){
         if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
@@ -21437,7 +21442,7 @@ Challenge weak assumptions. Surface risks.`;
     
 async function crmBroadcastSMS(dry_run=false){
   const st = $("crmSmsStatus");
-  if(st) st.innerText = dry_run ? 'Running...' : 'Sending...';
+  if(st) st.innerText = dry_run ? 'Running...' : 'Sending…';
 
   const audience = ($("crmSmsAudience").value||'all');
   const val = ($("crmSmsAudienceValue").value||'').trim();
@@ -21465,11 +21470,17 @@ async function crmBroadcastSMS(dry_run=false){
 
     if(dry_run){
       if(st) st.innerText = `Dry run: would send to ${data.count||0} recipient(s).`;
-    }else{
-      if(st) st.innerText = `Done. Sent: ${data.sent||0} Failed: ${data.failed||0}`;
+    } else {
+      if(st) st.innerText = `Done. Sent: ${data.sent||0}  Failed: ${data.failed||0}`;
+      // Show completion summary in the progress modal
+      if(typeof sa5OpenBcastModal === 'function'){
+        sa5OpenBcastModal('SMS Broadcast', data.count, null);
+        if(typeof sa5FinishBcastModal === 'function') sa5FinishBcastModal(data.sent||0, data.failed||0, data.count||0);
+      }
+      if(typeof showToast === 'function') showToast('SMS broadcast sent');
     }
   }catch(e){
-    if(st) st.innerText = 'Send failed (SMS not configured)';
+    if(st) st.innerText = 'Send failed: ' + (e&&e.message ? e.message : 'check SMS settings');
   }
 }
 
@@ -33474,6 +33485,355 @@ document.addEventListener('keydown',function(e){
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
 
+<!-- ================================================================
+     FEATURES PACK — Broadcast Progress · Templates · Activity · Onboarding · Mobile Nav
+     ================================================================ -->
+<style>
+/* ── Broadcast Progress Modal ─────────────────────────────────────── */
+#sa5BcastModal{display:none;position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);align-items:center;justify-content:center;}
+#sa5BcastModal.sa5-open{display:flex;}
+.sa5-bcard{background:rgba(13,19,46,.98);border:1px solid rgba(80,110,200,.55);border-radius:20px;padding:28px;width:min(480px,94vw);box-shadow:0 24px 80px rgba(0,0,0,.7);}
+.sa5-bh{font-size:17px;font-weight:800;color:#e2e8f0;margin-bottom:4px;}
+.sa5-bsub{font-size:13px;color:#94a3b8;margin-bottom:18px;}
+.sa5-rail{height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-bottom:16px;}
+.sa5-fill{height:100%;border-radius:999px;background:linear-gradient(90deg,#7c3aed,#a78bfa);transition:width .5s ease;width:0%;}
+.sa5-counts{display:flex;gap:12px;margin-bottom:16px;}
+.sa5-cnt{flex:1;text-align:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:10px 6px;}
+.sa5-cnt-n{font-size:22px;font-weight:800;}
+.sa5-cnt-l{font-size:11px;color:#94a3b8;margin-top:2px;}
+.sa5-cnt-sent .sa5-cnt-n{color:#22c55e;}.sa5-cnt-fail .sa5-cnt-n{color:#f87171;}.sa5-cnt-tot .sa5-cnt-n{color:#a5b4fc;}
+.sa5-bmsg{font-size:13px;color:#94a3b8;text-align:center;min-height:18px;margin-bottom:14px;}
+#sa5BcastClose{width:100%;display:none;}
+
+/* ── Template toolbar ─────────────────────────────────────────────── */
+.sa5-tbar{display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+.sa5-tdd{position:relative;}
+.sa5-tpanel{display:none;position:absolute;top:calc(100% + 6px);left:0;width:270px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9002;padding:5px;max-height:260px;overflow-y:auto;}
+.sa5-tpanel.sa5-open{display:block;}
+.sa5-trow{display:flex;align-items:center;gap:6px;padding:7px 9px;border-radius:9px;cursor:pointer;}
+.sa5-trow:hover{background:rgba(255,255,255,.07);}
+.sa5-tname{flex:1;font-size:13px;font-weight:600;}
+.sa5-tch{font-size:10px;color:#94a3b8;background:rgba(255,255,255,.07);border-radius:5px;padding:2px 5px;}
+.sa5-tdel{color:#f87171;font-size:13px;opacity:.55;background:none;border:none;cursor:pointer;padding:0 2px;}
+.sa5-tdel:hover{opacity:1;}
+.sa5-tempty{font-size:12px;color:#64748b;padding:12px;text-align:center;}
+
+/* ── Activity section inside notification panel ───────────────────── */
+#sa5ActSec{border-top:1px solid rgba(255,255,255,.07);margin-top:2px;padding-top:2px;}
+.sa5-acth{font-size:10px;color:#64748b;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:8px 16px 3px;}
+.sa5-arow{display:flex;gap:9px;padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.04);}
+.sa5-arow:last-child{border-bottom:none;}
+.sa5-aico{font-size:14px;width:22px;text-align:center;flex-shrink:0;margin-top:1px;}
+.sa5-albl{font-size:12px;color:#e2e8f0;font-weight:500;}
+.sa5-ats{font-size:10px;color:#475569;margin-top:1px;}
+
+/* ── Mobile bottom nav ────────────────────────────────────────────── */
+#sa5MobNav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:8100;background:rgba(13,19,46,.97);border-top:1px solid rgba(55,78,140,.7);backdrop-filter:blur(14px);padding:6px 4px max(6px,env(safe-area-inset-bottom)) 4px;flex-direction:row;justify-content:space-around;align-items:flex-end;}
+@media(max-width:720px){#sa5MobNav{display:flex;}body{padding-bottom:68px;}}
+.sa5-mtab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px;cursor:pointer;background:none;border:none;color:#64748b;font-size:9px;font-weight:700;letter-spacing:.03em;min-width:48px;}
+.sa5-mtab span:first-child{font-size:21px;}
+.sa5-mtab:hover,.sa5-mtab.sa5-active{color:#a78bfa;}
+
+/* ── First-visit welcome banner ───────────────────────────────────── */
+#sa5WelcomeBanner{display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9600;background:rgba(14,20,46,.98);border:1px solid rgba(124,58,237,.6);border-radius:16px;padding:16px 20px;box-shadow:0 12px 44px rgba(0,0,0,.55);width:min(440px,92vw);animation:sa5BannerIn .4s cubic-bezier(.4,0,.2,1);}
+@keyframes sa5BannerIn{from{opacity:0;transform:translateX(-50%) translateY(18px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+.sa5-wbh{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.sa5-wbt{font-weight:800;font-size:15px;}
+.sa5-wbs{font-size:13px;color:#94a3b8;line-height:1.5;margin-bottom:12px;}
+.sa5-wba{display:flex;gap:8px;}
+@media(max-width:720px){#sa5WelcomeBanner{bottom:84px;}}
+</style>
+
+<!-- Broadcast Progress Modal -->
+<div id="sa5BcastModal">
+  <div class="sa5-bcard">
+    <div class="sa5-bh" id="sa5BHdr">Sending broadcast…</div>
+    <div class="sa5-bsub" id="sa5BSub">Please wait — do not close this window</div>
+    <div class="sa5-rail"><div class="sa5-fill" id="sa5BFill"></div></div>
+    <div class="sa5-counts">
+      <div class="sa5-cnt sa5-cnt-sent"><div class="sa5-cnt-n" id="sa5BSent">0</div><div class="sa5-cnt-l">Sent</div></div>
+      <div class="sa5-cnt sa5-cnt-fail"><div class="sa5-cnt-n" id="sa5BFail">0</div><div class="sa5-cnt-l">Failed</div></div>
+      <div class="sa5-cnt sa5-cnt-tot" ><div class="sa5-cnt-n" id="sa5BTot">0</div> <div class="sa5-cnt-l">Total</div></div>
+    </div>
+    <div class="sa5-bmsg" id="sa5BMsg">Starting…</div>
+    <button class="btn btnPrimary" id="sa5BcastClose" onclick="document.getElementById('sa5BcastModal').classList.remove('sa5-open');if(typeof loadNotifs==='function')setTimeout(loadNotifs,800);">Done ✓</button>
+  </div>
+</div>
+
+<!-- Mobile Bottom Nav -->
+<nav id="sa5MobNav" aria-label="Quick navigation">
+  <button class="sa5-mtab" onclick="window.scrollTo({top:0,behavior:'smooth'})"><span>🏠</span>Home</button>
+  <button class="sa5-mtab" onclick="var b=document.getElementById('crmBtn');if(b)b.click()"><span>👥</span>Contacts</button>
+  <button class="sa5-mtab" onclick="var b=document.getElementById('calendarBtn');if(b)b.click()"><span>📅</span>Calendar</button>
+  <button class="sa5-mtab" onclick="var b=document.getElementById('emailConsoleBtn');if(b)b.click()"><span>📣</span>Broadcast</button>
+  <button class="sa5-mtab" onclick="var b=document.getElementById('notifBellBtn');if(b)b.click()"><span>🔔</span>Activity</button>
+</nav>
+
+<!-- First-visit Welcome Banner -->
+<div id="sa5WelcomeBanner">
+  <div class="sa5-wbh"><div class="sa5-wbt">👋 Welcome to Simply Agentic!</div><button class="btn btnMini" onclick="sa5DismissBanner()">✕</button></div>
+  <div class="sa5-wbs">You're a few steps away from your AI command center. Let's get your team set up.</div>
+  <div class="sa5-wba">
+    <button class="btn btnPrimary" onclick="sa5DismissBanner();setTimeout(function(){if(typeof openOnboarding==='function')openOnboarding();},100);">Get Started →</button>
+    <button class="btn" onclick="sa5DismissBanner()">Maybe later</button>
+  </div>
+</div>
+
+<script>
+/* ================================================================
+   FEATURES PACK JS
+   ================================================================ */
+(function(){
+'use strict';
+
+/* ── 1. Broadcast Progress Modal ─────────────────────────────────── */
+var _sa5Sse = null;
+
+window.sa5OpenBcastModal = function(label, total, jobId){
+  var m=document.getElementById('sa5BcastModal');
+  if(!m) return;
+  document.getElementById('sa5BHdr').textContent  = label || 'Sending…';
+  document.getElementById('sa5BSub').textContent  = 'Please wait — sending in progress';
+  document.getElementById('sa5BTot').textContent  = total || '?';
+  document.getElementById('sa5BSent').textContent = '0';
+  document.getElementById('sa5BFail').textContent = '0';
+  document.getElementById('sa5BFill').style.width = '0%';
+  document.getElementById('sa5BMsg').textContent  = 'Starting…';
+  document.getElementById('sa5BcastClose').style.display = 'none';
+  m.classList.add('sa5-open');
+
+  if(!jobId) return; // sync path — caller will call sa5FinishBcastModal
+
+  if(_sa5Sse){ try{_sa5Sse.close();}catch(_){} }
+  _sa5Sse = new EventSource('/api/crm/broadcast/job/' + jobId + '/stream');
+  _sa5Sse.onmessage = function(e){
+    try{
+      var job = JSON.parse(e.data);
+      var cnt = job.count || 0;
+      var pct = cnt > 0 ? Math.min(100, Math.round((job.progress||0)/cnt*100)) : 0;
+      document.getElementById('sa5BFill').style.width = pct + '%';
+      document.getElementById('sa5BSent').textContent = job.sent  || 0;
+      document.getElementById('sa5BFail').textContent = job.failed || 0;
+      document.getElementById('sa5BTot').textContent  = cnt;
+      var done = job.status === 'done' || job.status === 'error';
+      document.getElementById('sa5BMsg').textContent = done
+        ? (job.status === 'error' ? 'An error occurred.' : 'Broadcast complete! 🎉')
+        : 'Sending ' + (job.progress||0) + ' of ' + cnt + '…';
+      document.getElementById('sa5BSub').textContent = done
+        ? 'Done — ' + (job.sent||0) + ' sent, ' + (job.failed||0) + ' failed'
+        : 'Please wait — do not close this window';
+      if(done){
+        document.getElementById('sa5BcastClose').style.display = 'block';
+        _sa5Sse.close(); _sa5Sse = null;
+      }
+    }catch(_){}
+  };
+  _sa5Sse.onerror = function(){
+    try{_sa5Sse.close();}catch(_){} _sa5Sse = null;
+    document.getElementById('sa5BcastClose').style.display = 'block';
+    document.getElementById('sa5BMsg').textContent = 'Connection interrupted — see results above.';
+  };
+};
+
+window.sa5FinishBcastModal = function(sent, failed, total){
+  var pct = total > 0 ? 100 : 0;
+  document.getElementById('sa5BFill').style.width = pct + '%';
+  document.getElementById('sa5BSent').textContent = sent;
+  document.getElementById('sa5BFail').textContent = failed;
+  document.getElementById('sa5BTot').textContent  = total;
+  document.getElementById('sa5BMsg').textContent  = 'Complete! 🎉';
+  document.getElementById('sa5BSub').textContent  = 'Done — ' + sent + ' sent, ' + failed + ' failed';
+  document.getElementById('sa5BcastClose').style.display = 'block';
+};
+
+/* ── 2. Template Library ──────────────────────────────────────────── */
+function sa5InjectTmplBar(formId, channel){
+  if(!document.getElementById(formId)) return;
+  if(document.getElementById('sa5tb_' + formId)) return;
+  var form = document.getElementById(formId);
+  var bar = document.createElement('div');
+  bar.id = 'sa5tb_' + formId;
+  bar.className = 'sa5-tbar';
+  bar.innerHTML =
+    '<div class="sa5-tdd" id="sa5td_' + formId + '">' +
+      '<button class="btn btnMini" onclick="sa5ToggleTmpl(\'' + formId + '\')">📄 Templates ▾</button>' +
+      '<div class="sa5-tpanel" id="sa5tp_' + formId + '"><div class="sa5-tempty">Loading…</div></div>' +
+    '</div>' +
+    '<button class="btn btnMini" onclick="sa5SaveTmpl(\'' + formId + '\',\'' + channel + '\')">💾 Save</button>';
+  var firstLabel = form.querySelector('label');
+  if(firstLabel) form.insertBefore(bar, firstLabel);
+  else form.insertBefore(bar, form.firstChild);
+}
+
+window.sa5ToggleTmpl = function(formId){
+  var panel = document.getElementById('sa5tp_' + formId);
+  if(!panel) return;
+  var isOpen = panel.classList.contains('sa5-open');
+  document.querySelectorAll('.sa5-tpanel').forEach(function(p){ p.classList.remove('sa5-open'); });
+  if(!isOpen){ panel.classList.add('sa5-open'); sa5FetchTmpls(formId, panel); }
+};
+
+function sa5FetchTmpls(formId, panel){
+  var ch = (formId.indexOf('SMS') >= 0 || formId.indexOf('Sms') >= 0) ? 'sms' : 'email';
+  fetch('/api/crm/broadcast/templates', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.ok || !(d.templates||[]).length){
+        panel.innerHTML = '<div class="sa5-tempty">No saved templates yet.<br>Compose a message then click Save.</div>';
+        return;
+      }
+      var rows = d.templates.filter(function(t){ return t.channel === ch; });
+      if(!rows.length){ panel.innerHTML = '<div class="sa5-tempty">No ' + ch + ' templates yet.</div>'; return; }
+      panel.innerHTML = rows.map(function(t){
+        var n = (t.name||'Untitled').replace(/</g,'&lt;');
+        return '<div class="sa5-trow">' +
+          '<span class="sa5-tname" onclick="sa5ApplyTmpl(\'' + formId + '\',\'' + (t.id||'') + '\')" title="Load template">' + n + '</span>' +
+          '<span class="sa5-tch">' + (t.channel||'email') + '</span>' +
+          '<button class="sa5-tdel" title="Delete" onclick="sa5DelTmpl(\'' + (t.id||'') + '\',\'' + formId + '\')">✕</button>' +
+        '</div>';
+      }).join('');
+    }).catch(function(){ panel.innerHTML = '<div class="sa5-tempty">Could not load templates.</div>'; });
+}
+
+window.sa5ApplyTmpl = function(formId, tid){
+  fetch('/api/crm/broadcast/templates', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var t = (d.templates||[]).find(function(x){ return x.id === tid; });
+      if(!t) return;
+      var isEmail = formId.indexOf('SMS') < 0 && formId.indexOf('Sms') < 0;
+      if(isEmail){
+        var subj = document.getElementById('crmEmailSubject');
+        var body = document.getElementById('crmEmailBody');
+        if(subj) subj.value = t.subject || '';
+        if(body) body.value = t.body    || '';
+      } else {
+        var body2 = document.getElementById('crmSmsBody');
+        if(body2) body2.value = t.body || '';
+      }
+      document.querySelectorAll('.sa5-tpanel').forEach(function(p){ p.classList.remove('sa5-open'); });
+      if(typeof showToast === 'function') showToast('Template loaded');
+    }).catch(function(){});
+};
+
+window.sa5DelTmpl = function(tid, formId){
+  if(!confirm('Delete this template?')) return;
+  fetch('/api/crm/broadcast/templates/' + tid, {method:'DELETE', credentials:'same-origin'})
+    .then(function(){
+      var panel = document.getElementById('sa5tp_' + formId);
+      if(panel) sa5FetchTmpls(formId, panel);
+      if(typeof showToast === 'function') showToast('Template deleted');
+    }).catch(function(){});
+};
+
+window.sa5SaveTmpl = function(formId, channel){
+  var name = prompt('Name this template:');
+  if(!name || !name.trim()) return;
+  var payload = {name: name.trim(), channel: channel};
+  if(channel === 'email'){
+    payload.subject = (document.getElementById('crmEmailSubject')||{}).value || '';
+    payload.body    = (document.getElementById('crmEmailBody')||{}).value    || '';
+    if(!payload.subject && !payload.body){ alert('Nothing to save — fill in the subject and body first.'); return; }
+  } else {
+    payload.body = (document.getElementById('crmSmsBody')||{}).value || '';
+    if(!payload.body){ alert('Nothing to save — write your message first.'); return; }
+  }
+  fetch('/api/crm/broadcast/templates', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d.ok && typeof showToast === 'function') showToast('Template saved!');
+      else alert((d&&d.error)||'Save failed');
+    }).catch(function(){ alert('Save failed'); });
+};
+
+function sa5WireTemplates(){
+  sa5InjectTmplBar('crmViewBroadcast',    'email');
+  sa5InjectTmplBar('crmViewBroadcastSMS', 'sms');
+}
+sa5WireTemplates();
+document.addEventListener('click', function(){ setTimeout(sa5WireTemplates, 250); });
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.sa5-tdd')){ document.querySelectorAll('.sa5-tpanel').forEach(function(p){ p.classList.remove('sa5-open'); }); }
+});
+
+/* ── 3. Onboarding Auto-show ─────────────────────────────────────── */
+window.sa5DismissBanner = function(){
+  var b = document.getElementById('sa5WelcomeBanner');
+  if(b) b.style.display = 'none';
+  try{ sessionStorage.setItem('sa5_wb_shown','1'); }catch(_){}
+};
+
+function sa5CheckWelcome(){
+  try{ if(sessionStorage.getItem('sa5_wb_shown') === '1') return; }catch(_){}
+  fetch('/api/onboarding/status', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d || !d.ok || d.dismissed || d.all_done) return;
+      var steps = d.steps || {};
+      var done = Object.values(steps).filter(function(s){ return s && s.done; }).length;
+      try{ sessionStorage.setItem('sa5_wb_shown','1'); }catch(_){}
+      if(done < 2){
+        var banner = document.getElementById('sa5WelcomeBanner');
+        if(banner) banner.style.display = 'block';
+        // Auto-hide after 18s if not dismissed
+        setTimeout(function(){ if(typeof sa5DismissBanner==='function') sa5DismissBanner(); }, 18000);
+      } else if(!d.dismissed){
+        setTimeout(function(){ try{ if(typeof openOnboarding==='function') openOnboarding(); }catch(_){} }, 1000);
+      }
+    }).catch(function(){});
+}
+setTimeout(sa5CheckWelcome, 3500);
+
+/* ── 4. Activity feed inside Notification Panel ──────────────────── */
+var _sa5ActLoaded = false;
+var _actIcons = {
+  broadcast_sent:'📣', broadcast_template_saved:'📄', login:'🔑', logout:'👋',
+  settings_updated:'⚙️', password_changed:'🔒', api_key_created:'🗝', api_key_deleted:'🗑',
+  register:'🎉', account_deleted:'❌', broadcast_email:'📧', broadcast_sms:'💬'
+};
+
+function sa5LoadActivity(){
+  var panel = document.getElementById('notifPanel');
+  if(!panel || panel.style.display === 'none') return;
+  if(!document.getElementById('sa5ActSec')){
+    var sec = document.createElement('div');
+    sec.id = 'sa5ActSec';
+    sec.innerHTML = '<div class="sa5-acth">Recent Activity</div><div id="sa5ActList"><div style="padding:10px 16px;font-size:12px;color:#64748b;">Loading…</div></div>';
+    panel.appendChild(sec);
+  }
+  fetch('/api/audit/log?limit=15', {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = document.getElementById('sa5ActList');
+      if(!list) return;
+      if(!d.ok || !(d.events||[]).length){
+        list.innerHTML = '<div style="padding:10px 16px;font-size:12px;color:#64748b;">No activity yet.</div>';
+        return;
+      }
+      list.innerHTML = d.events.slice(0,10).map(function(ev){
+        var ico = _actIcons[ev.action] || '📋';
+        var lbl = (ev.action||'').replace(/_/g,' ');
+        lbl = lbl.charAt(0).toUpperCase() + lbl.slice(1);
+        var ts = (ev.at||'').slice(0,16).replace('T',' ');
+        return '<div class="sa5-arow"><span class="sa5-aico">' + ico + '</span>' +
+          '<div><div class="sa5-albl">' + lbl + '</div><div class="sa5-ats">' + ts + '</div></div></div>';
+      }).join('');
+    }).catch(function(){
+      var list = document.getElementById('sa5ActList');
+      if(list) list.innerHTML = '<div style="padding:10px 16px;font-size:12px;color:#64748b;">Could not load activity.</div>';
+    });
+}
+
+// Hook into the notification panel toggle
+var _origToggle = window.toggleNotifPanel;
+window.toggleNotifPanel = function(){
+  if(typeof _origToggle === 'function') _origToggle();
+  setTimeout(sa5LoadActivity, 120);
+};
+
+})();
+</script>
+
 <script>
 /* Measure actual header height so .side panel never clips the Send button */
 (function(){
@@ -34711,6 +35071,8 @@ def api_crm_broadcast_email():
                 _award_points(uname, "Sent an email broadcast", 30)
                 _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": sent_, "subject": subject[:80]})
             if job_id_:
+                _notif_push(uname, "Email broadcast complete",
+                            f"Sent {sent_}, failed {failed_} of {total_}", "success")
                 _BROADCAST_JOBS[job_id_] = {"status": "done", "sent": sent_, "failed": failed_,
                                              "count": total_, "progress": total_, "results": results_}
             return sent_, failed_, results_
@@ -34800,6 +35162,7 @@ def api_crm_broadcast_sms():
             results.append({"client_id": c.get("id",""), "ok": bool(ok_send), "error": err})
 
         _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
+        _notif_push(uname, "SMS broadcast complete", f"Sent {sent}, failed {failed}", "success")
         return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
 
     except Exception as e:
@@ -41046,6 +41409,20 @@ def api_notifications_mark_read():
     except Exception as e:
         _capture_error(e, context="notifications_mark_read")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/api/notifications")
+def api_notifications_push():
+    """Frontend-initiated notification push (e.g. after async broadcast)."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()[:120]
+    msg   = (body.get("body")  or "").strip()[:240]
+    ntype = body.get("type", "info")
+    if title:
+        _notif_push(uname, title, msg, ntype)
+    return jsonify({"ok": True})
 
 @app.delete("/api/notifications")
 def api_notifications_clear():
