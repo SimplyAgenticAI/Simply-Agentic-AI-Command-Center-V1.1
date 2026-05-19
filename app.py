@@ -12286,9 +12286,9 @@ HTML = r"""
 
     .side{
       position: sticky;
-      top: 0;
+      top: var(--navbar-h, 50px);
       align-self: start;
-      height: calc(100vh - 52px);
+      height: calc(100vh - var(--topbar-h, 100px));
       overflow: hidden;
       border-left: 1px solid rgba(55,78,140,.8);
       background: linear-gradient(180deg, rgba(20,32,68,.95), rgba(14,20,48,.95));
@@ -33474,7 +33474,26 @@ document.addEventListener('keydown',function(e){
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
 
-
+<script>
+/* Measure actual header height so .side panel never clips the Send button */
+(function(){
+  function _fixSideH(){
+    var tb=document.querySelector('.topbar');
+    var nb=document.querySelector('.saNavBar');
+    if(!tb) return;
+    var tbH=Math.ceil(tb.getBoundingClientRect().height);
+    var nbH=nb ? Math.ceil(nb.getBoundingClientRect().height) : 50;
+    document.documentElement.style.setProperty('--topbar-h', tbH+'px');
+    document.documentElement.style.setProperty('--navbar-h',  nbH+'px');
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', _fixSideH);
+  } else {
+    _fixSideH();
+  }
+  window.addEventListener('resize', _fixSideH);
+})();
+</script>
 
 </body>
 </html>
