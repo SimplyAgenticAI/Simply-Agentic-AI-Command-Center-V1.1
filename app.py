@@ -3687,7 +3687,15 @@ def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
     try:
         if hasattr(resp, "data") and resp.data:
             first = resp.data[0]
-            return getattr(first, "b64_json", None) or (first.get("b64_json") if isinstance(first, dict) else None)
+            b64 = getattr(first, "b64_json", None) or (first.get("b64_json") if isinstance(first, dict) else None)
+            if b64:
+                return b64
+            # Fallback: fetch from URL and convert to b64 (for models that ignore response_format)
+            url = getattr(first, "url", None) or (first.get("url") if isinstance(first, dict) else None)
+            if url:
+                import urllib.request
+                with urllib.request.urlopen(url, timeout=30) as r:
+                    return base64.b64encode(r.read()).decode("utf-8")
     except Exception:
         return None
     return None
@@ -4725,7 +4733,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
 # Front-end expects optional fields returned by /api/followup:
 #   { image_url: "/uploads/<relpath>", image_file: {upload record} }
 
-IMAGE_MODELS_FALLBACK = ["gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini"]
+IMAGE_MODELS_FALLBACK = ["gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini", "dall-e-3", "dall-e-2"]
 
 _IMAGE_TRIGGERS = [
     "generate an image", "generate image", "create an image", "create image",
@@ -5005,12 +5013,15 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                         tmp.flush()
                         tmp_name = tmp.name
                     with open(tmp_name, "rb") as imgf:
-                        resp = client.images.edit(
-                            model=m,
-                            image=imgf,
-                            prompt=prompt2,
-                            size=os.getenv("IMAGE_SIZE", "1024x1024"),
-                        )
+                        edit_kw: Dict[str, Any] = {
+                            "model": m,
+                            "image": imgf,
+                            "prompt": prompt2,
+                            "size": os.getenv("IMAGE_SIZE", "1024x1024"),
+                        }
+                        if m.startswith("dall-e"):
+                            edit_kw["response_format"] = "b64_json"
+                        resp = client.images.edit(**edit_kw)
                 finally:
                     try:
                         if tmp_name and os.path.exists(tmp_name):
@@ -5018,11 +5029,14 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                     except Exception:
                         pass
             if resp is None:
-                resp = client.images.generate(
-                    model=m,
-                    prompt=prompt2,
-                    size=os.getenv("IMAGE_SIZE", "1024x1024"),
-                )
+                gen_kw: Dict[str, Any] = {
+                    "model": m,
+                    "prompt": prompt2,
+                    "size": os.getenv("IMAGE_SIZE", "1024x1024"),
+                }
+                if m.startswith("dall-e"):
+                    gen_kw["response_format"] = "b64_json"
+                resp = client.images.generate(**gen_kw)
             b64 = _extract_b64_from_image_resp(resp)
             if not b64:
                 last_err = "Image generation returned no data"
