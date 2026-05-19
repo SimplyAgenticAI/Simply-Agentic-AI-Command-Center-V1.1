@@ -12288,7 +12288,7 @@ HTML = r"""
       position: sticky;
       top: 0;
       align-self: start;
-      height: 100vh;
+      height: calc(100vh - 52px);
       overflow: hidden;
       border-left: 1px solid rgba(55,78,140,.8);
       background: linear-gradient(180deg, rgba(20,32,68,.95), rgba(14,20,48,.95));
