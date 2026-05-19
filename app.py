@@ -8172,15 +8172,15 @@ AUTH_BASE_CSS = r"""
     padding: 28px 18px;
   }
   .card{
-    width: min(680px, calc(100vw - 36px));
+    width: min(850px, 92vw);
     min-height: auto;
-    max-width: calc(100vw - 36px);
+    max-width: 92vw;
     background:
       linear-gradient(180deg, rgba(19,28,59,.94), rgba(10,15,33,.96)),
       radial-gradient(900px 520px at 50% 0%, rgba(124,58,237,.14), transparent 62%);
     border:1px solid rgba(76,92,148,.72);
     border-radius: 26px;
-    padding: 34px 34px 30px;
+    padding: 42px 42px 38px;
     box-shadow: 0 24px 90px rgba(0,0,0,.58), 0 0 34px rgba(124,58,237,.12);
     backdrop-filter: blur(14px);
     position: relative;
