@@ -33325,6 +33325,7 @@ document.addEventListener('click',e=>{
       <button id="mobStripMinimize" title="Minimize chat" style="background:rgba(42,58,106,.4);border:1px solid rgba(42,58,106,.7);color:#64748b;border-radius:8px;padding:4px 8px;font-size:13px;cursor:pointer;line-height:1;">—</button>
     </div>
   </div>
+  <div id="mobStripPreview" onclick="if(typeof openFullChat==='function')openFullChat()"></div>
   <div id="mobStripRow">
     <textarea id="mobStripMsg"
       placeholder="Message teammate…"
@@ -33388,6 +33389,27 @@ document.addEventListener('click',e=>{
     overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important;
   }
   #mobStripRole{ font-size:10px!important; color:#64748b!important; margin-top:1px!important; }
+  #mobStripPreview{
+    display:none;
+    padding:7px 14px 10px!important;
+    border-bottom:1px solid rgba(42,58,106,.35)!important;
+    cursor:pointer!important;
+    background:rgba(14,20,46,.55)!important;
+    position:relative!important;
+    overflow:hidden!important;
+    flex-shrink:0!important;
+    min-height:52px!important;
+    max-height:92px!important;
+  }
+  #mobStripPreview::after{
+    content:'';
+    position:absolute!important;
+    bottom:0!important; left:0!important; right:0!important;
+    height:22px!important;
+    background:linear-gradient(transparent,rgba(14,20,46,.98))!important;
+    pointer-events:none!important;
+  }
+  #mobStripPreview:active{ background:rgba(20,28,60,.7)!important; }
   #mobStripRow{
     display:flex!important; align-items:flex-end!important;
     gap:8px!important; padding:6px 10px 8px!important; flex-shrink:0!important;
@@ -33493,13 +33515,54 @@ function pin(){
   if(s&&s.parentNode!==document.body) document.body.appendChild(s);
 }
 
+/* Populate last-reply preview panel */
+function setPreview(){
+  var pv=ge('mobStripPreview');
+  if(!pv)return;
+  var thread=document.getElementById('thread');
+  if(!thread||!_nm){pv.style.display='none';return;}
+  var msgs=thread.querySelectorAll('.msg');
+  if(!msgs.length){pv.style.display='none';return;}
+  // Find the last assistant message
+  var lastMsg=null;
+  for(var i=msgs.length-1;i>=0;i--){
+    if(!msgs[i].classList.contains('user')){lastMsg=msgs[i];break;}
+  }
+  if(!lastMsg)lastMsg=msgs[msgs.length-1];
+  var bodyEl=lastMsg.querySelector('.msg-body')||lastMsg.querySelector('[class*="content"]');
+  var whoEl=lastMsg.querySelector('.who');
+  var text=(bodyEl?bodyEl.innerText||bodyEl.textContent:'').trim().replace(/\s+/g,' ');
+  if(!text){pv.style.display='none';return;}
+  var whoName=whoEl?whoEl.textContent.trim():'';
+  var safe=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+  pv.style.display='block';
+  pv.innerHTML=
+    (whoName?'<div style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:3px;">'+safe(whoName)+'</div>':'')+
+    '<div style="font-size:13px;color:#94a3b8;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;">'+safe(text.slice(0,320))+'</div>'+
+    '<div style="font-size:10px;color:#475569;margin-top:5px;">Tap to open full chat ▸</div>';
+  _updateStripPad();
+}
+
+/* Keep tableWrap padding-bottom in sync with actual strip height */
+function _updateStripPad(){
+  var s=ge('mobStrip');
+  var tw=document.getElementById('tableWrap')||document.querySelector('.tableWrap');
+  if(!s||!tw||window.innerWidth>960)return;
+  var h=Math.ceil(s.getBoundingClientRect().height);
+  if(h>0)tw.style.setProperty('padding-bottom',(h+12)+'px','important');
+}
+window.addEventListener('resize',_updateStripPad);
+
 /* Update who-row */
 function setWho(name){
   var av=ge('mobStripAv'),nm=ge('mobStripName'),rl=ge('mobStripRole');
   if(!av||!nm)return;
   if(!name){
     av.textContent='';av.style.background='rgba(124,58,237,.5)';
-    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';return;
+    nm.textContent='Tap a teammate to chat';if(rl)rl.textContent='';
+    var pv=ge('mobStripPreview');if(pv)pv.style.display='none';
+    _updateStripPad();
+    return;
   }
   var color='rgba(124,58,237,.75)';
   document.querySelectorAll('.seat').forEach(function(s){
@@ -33572,11 +33635,28 @@ function patchSS(){
   var o=window.selectSeat;if(!o||o._v10)return;
   var p=function(n){
     var r=o.apply(this,arguments);
-    if(MOB()){_nm=n;setWho(n);}
+    if(MOB()){
+      _nm=n;setWho(n);
+      // Show preview after thread renders
+      if(r&&typeof r.then==='function'){
+        r.then(function(){ setTimeout(setPreview,100); });
+      } else {
+        setTimeout(setPreview,100);
+      }
+    }
     return r;
   };
   p._v10=true; window.selectSeat=p;
 }
+
+/* Observe #thread for new messages and refresh preview */
+(function(){
+  var thread=document.getElementById('thread');
+  if(!thread||!window.MutationObserver)return;
+  new MutationObserver(function(){
+    if(MOB()&&_nm) setTimeout(setPreview,80);
+  }).observe(thread,{childList:true,subtree:true});
+})();
 
 /* MutationObserver: re-pin if anything moves strip, re-hook new seats */
 if(window.MutationObserver){
@@ -33588,10 +33668,12 @@ function init(){
   pin();
   if(typeof window.selectSeat==='function'){patchSS();hookSeats();}
   else{setTimeout(init,400);}
+  setTimeout(_updateStripPad,300);
 }
 pin();
 setTimeout(init,600);
 setTimeout(hookSeats,1400);
+setTimeout(_updateStripPad,800);
 
 /* ── Expand / Minimize / Reopen strip ── */
 var _stripMinimized = false;
@@ -33658,6 +33740,7 @@ function reopenStrip(){
   s.style.transition='transform .25s ease';
   var exp=ge('mobStripExpand'); if(exp){ exp.textContent='⤢'; exp.title='Expand chat'; }
   var mn=ge('mobStripMinimize'); if(mn) mn.style.display='';
+  setTimeout(_updateStripPad, 280);
 }
 
 var expandBtn=ge('mobStripExpand');
