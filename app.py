@@ -6938,6 +6938,12 @@ def _api_convene_impl(data):
         if not defn:
             continue
 
+        # Image requests are handled by the client-side /api/followup fanout which
+        # creates a real image job. Skip the LLM here so we don't get a stale text
+        # response ("I'll create it...") saved over the image placeholder.
+        if is_image_request(prompt2):
+            continue
+
         sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
         thread = load_thread(name, uname)
@@ -19569,6 +19575,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           // Update the group panel incrementally
           renderGroupReplies(outputs, drafts, images);
           setSeatLive(n, "done");
+
+          // If server triggered an image job, poll for it so the result appears
+          if(data.job_id){
+            try{ pollImageJob(data.job_id, n); }catch(_){}
+          }
         }catch(e){
           setSeatLive(n, "waiting");
         }
