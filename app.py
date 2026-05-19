@@ -18164,6 +18164,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
+      // Ensure chat scrolls to the latest message after switching teammates
+      var _th = $("thread");
+      if(_th) setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 120);
     }
     window.selectSeat = selectSeat;  // expose for prompt library and other cross-scope callers
 
@@ -18383,7 +18386,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(content);
         box.appendChild(div);
       });
-      box.scrollTop = box.scrollHeight;
+      // Defer scroll so browser computes layout before measuring scrollHeight
+      setTimeout(function(){ box.scrollTop = box.scrollHeight; }, 60);
     }
     function renderOperatorProfile(p){
       const box = $("thread");
