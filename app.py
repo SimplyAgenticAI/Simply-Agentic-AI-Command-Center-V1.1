@@ -33529,7 +33529,7 @@ document.addEventListener('keydown',function(e){
 
 /* ── Mobile bottom nav ────────────────────────────────────────────── */
 #sa5MobNav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:8100;background:rgba(13,19,46,.97);border-top:1px solid rgba(55,78,140,.7);backdrop-filter:blur(14px);padding:6px 4px max(6px,env(safe-area-inset-bottom)) 4px;flex-direction:row;justify-content:space-around;align-items:flex-end;}
-@media(max-width:720px){#sa5MobNav{display:flex;}body{padding-bottom:68px;}}
+@media(max-width:720px){ #sa5MobNav{display:flex;}body{padding-bottom:68px;}}
 .sa5-mtab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 8px;cursor:pointer;background:none;border:none;color:#64748b;font-size:9px;font-weight:700;letter-spacing:.03em;min-width:48px;}
 .sa5-mtab span:first-child{font-size:21px;}
 .sa5-mtab:hover,.sa5-mtab.sa5-active{color:#a78bfa;}
@@ -33541,7 +33541,7 @@ document.addEventListener('keydown',function(e){
 .sa5-wbt{font-weight:800;font-size:15px;}
 .sa5-wbs{font-size:13px;color:#94a3b8;line-height:1.5;margin-bottom:12px;}
 .sa5-wba{display:flex;gap:8px;}
-@media(max-width:720px){#sa5WelcomeBanner{bottom:84px;}}
+@media(max-width:720px){ #sa5WelcomeBanner{bottom:84px;}}
 </style>
 
 <!-- Broadcast Progress Modal -->
