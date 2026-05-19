@@ -409,7 +409,9 @@ def _save_founder_seats(data: Dict[str, Any]) -> None:
 def _founder_seats_remaining() -> int:
     """How many founder seats are still available."""
     d = _load_founder_seats()
-    claimed = d.get("claimed", 0)
+    # FOUNDER_SEATS_SEED = actual signups not captured in the seats file
+    FOUNDER_SEATS_SEED = int(os.getenv("FOUNDER_SEATS_SEED", "3"))
+    claimed = d.get("claimed", 0) + FOUNDER_SEATS_SEED
     return max(0, FOUNDER_SEATS_MAX - claimed)
 
 def _claim_founder_seat(username: str) -> bool:
