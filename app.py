@@ -14054,6 +14054,10 @@ label         { font-size: 14px !important; }
           <div class="saDrop" id="saResearchDrop">
             <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
             <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
           </div>
         </div>
 
@@ -14220,6 +14224,9 @@ label         { font-size: 14px !important; }
           <div class="mdGroupBody">
             <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🔬 Find Leads</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showSiteAnalyzerModal,200);">🌐 Site Analyzer</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showProspectDossierModal,200);">🎯 Prospect Dossier</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showMarketScannerModal,200);">📊 Market Scanner</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showIntentSignalsModal,200);">📡 Intent Signals</button>
           </div>
         </div>
 
@@ -14912,15 +14919,59 @@ label         { font-size: 14px !important; }
               <!-- SITE ANALYZER MODAL FORM -->
               <div class="modalForm" id="siteAnalyzerForm" style="display:none;">
                 <div class="modalInner" style="max-width:900px;">
+                  <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Enter a competitor or your own website URL to get a full competitive analysis: UX score, content strategy, SEO signals, tech stack, and how to win against them.</div>
                   <div style="display:flex;gap:8px;margin-bottom:16px;">
-                    <input id="saUrl" type="url" placeholder="https://yourwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
+                    <input id="saUrl" type="url" placeholder="https://competitorwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
                     <button class="btn btnPrimary" id="saAnalyzeBtn" onclick="runSiteAnalysis()" style="white-space:nowrap;padding:9px 20px;">&#128269; Analyze</button>
                   </div>
                   <div id="saResults" style="min-height:320px;">
-                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter a URL above to get a full conversion &amp; UX analysis rated 1–100.</div>
+                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter a URL above to get a full competitive intelligence report.</div>
                   </div>
                 </div>
               </div>
+
+              <!-- PROSPECT DOSSIER MODAL FORM -->
+              <div class="modalForm" id="prospectDossierForm" style="display:none;">
+                <div class="modalInner" style="max-width:900px;">
+                  <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Enter a company name or website URL to get a full intelligence brief before reaching out — what they do, who decides, their pain points, and the best angle to approach them.</div>
+                  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                    <input id="pdQuery" type="text" placeholder="Company name or website URL" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
+                    <button class="btn btnPrimary" id="pdRunBtn" onclick="runProspectDossier()" style="white-space:nowrap;padding:9px 20px;">🎯 Research</button>
+                  </div>
+                  <div id="pdResults" style="min-height:200px;">
+                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter a company or URL above to build a prospect brief.</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- MARKET SCANNER MODAL FORM -->
+              <div class="modalForm" id="marketScannerForm" style="display:none;">
+                <div class="modalInner" style="max-width:900px;">
+                  <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Research an entire niche or market — top players, common pricing, what customers love and hate, gaps to exploit, and the best channels to reach them.</div>
+                  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                    <input id="msNiche" type="text" placeholder="e.g. real estate agents in Texas, fitness coaches, SaaS startups" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
+                    <button class="btn btnPrimary" id="msRunBtn" onclick="runMarketScanner()" style="white-space:nowrap;padding:9px 20px;">📊 Scan Market</button>
+                  </div>
+                  <div id="msResults" style="min-height:200px;">
+                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter a niche or market above to get full intelligence.</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- INTENT SIGNALS MODAL FORM -->
+              <div class="modalForm" id="intentSignalsForm" style="display:none;">
+                <div class="modalInner" style="max-width:900px;">
+                  <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Find companies and people actively signaling a need for what you sell right now — job postings, complaints, discussions, and buying triggers.</div>
+                  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                    <input id="isQuery" type="text" placeholder="What do you sell? e.g. AI marketing tools for coaches" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
+                    <button class="btn btnPrimary" id="isRunBtn" onclick="runIntentSignals()" style="white-space:nowrap;padding:9px 20px;">📡 Find Signals</button>
+                  </div>
+                  <div id="isResults" style="min-height:200px;">
+                    <div style="text-align:center;color:#475569;padding:60px 0;font-size:14px;">Enter your offer or solution above to find active buyers.</div>
+                  </div>
+                </div>
+              </div>
+
               <div class="modalForm" id="teamForm" style="display:none;">
                 <div class="modalInner">
                   <div style="text-align:center;margin-bottom:18px;">
@@ -16888,6 +16939,9 @@ function applyModalPos(){
       if($("customizeForm")) $("customizeForm").style.display = "none";
       if($("notepadForm")) $("notepadForm").style.display = "none";
       if($("siteAnalyzerForm")) $("siteAnalyzerForm").style.display = "none";
+      if($("prospectDossierForm")) $("prospectDossierForm").style.display = "none";
+      if($("marketScannerForm")) $("marketScannerForm").style.display = "none";
+      if($("intentSignalsForm")) $("intentSignalsForm").style.display = "none";
       if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = "none";
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
@@ -22128,18 +22182,27 @@ async function crmFetchTasks(){
         box.innerHTML = '<div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">No leads match the current filter.</div>';
         return;
       }
+      const hasEstimated = items.some(it => it.email && it.confidence === 'low');
+      const estimatedNote = hasEstimated ? `<div style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#fbbf24;margin-bottom:10px;">⚠ Some leads have no verified public email. Pattern estimates are shown in amber — always verify before outreach.</div>` : '';
       const exportBar = `<div style="display:flex;justify-content:flex-end;padding:8px 0 4px;">
         <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (${items.length})</button></div>`;
-      box.innerHTML = exportBar + items.map((item, idx)=>{
+      box.innerHTML = exportBar + estimatedNote + items.map((item, idx)=>{
         const email = item.email || '';
+        const isVerifiedEmail = email && item.confidence !== 'low';
+        const isEstimatedEmail = email && item.confidence === 'low';
         const phone = item.phone || '';
         const rating = item.google_rating ? `${item.google_rating}★${item.review_count?' ('+item.review_count+')':''}` : '';
         const badges = [
-          _llConfBadge(item.confidence||''),
+          isVerifiedEmail ? _llBadge('Email verified','green') : isEstimatedEmail ? _llBadge('Email estimated','amber') : '',
           _llBizBadge(item.business_type||''),
           _llActivityBadge(item.activity||''),
           rating ? _llBadge(rating,'amber') : '',
         ].filter(Boolean).join(' ');
+        const emailHtml = isVerifiedEmail
+          ? `<div>✉ <a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;">${escapeHtml(email)}</a></div>`
+          : isEstimatedEmail
+          ? `<div style="opacity:.65;">⚠ <span style="color:#fbbf24;font-size:11px;">Pattern estimate</span> · ${escapeHtml(email)} <span style="color:#475569;font-size:10px;">(not verified)</span></div>`
+          : '<div style="opacity:.4;">No public email found</div>';
         return `<div class="diagCard" style="padding:16px;margin-bottom:10px;" data-ll-idx="${idx}">
           <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;">
             <div>
@@ -22148,7 +22211,7 @@ async function crmFetchTasks(){
               <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">${badges}</div>
               ${item.warm_reason?`<div style="font-size:12px;color:#a78bfa;margin-bottom:8px;line-height:1.5;">&#9889; ${escapeHtml(item.warm_reason)}</div>`:''}
               <div style="font-size:13px;color:#e2e8f0;line-height:2;">
-                ${email?`<div>✉ <a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;">${escapeHtml(email)}</a></div>`:'<div style="opacity:.4;">No email found</div>'}
+                ${emailHtml}
                 ${phone?`<div>📞 ${escapeHtml(phone)}</div>`:'<div style="opacity:.4;">No phone found</div>'}
                 ${(()=>{
                   const site = item.website || (item.domain ? 'https://'+item.domain : '');
@@ -22164,7 +22227,7 @@ async function crmFetchTasks(){
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;border-top:0.5px solid rgba(255,255,255,.06);padding-top:10px;">
             ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
             ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}">📋 Copy phone</button>`:''}
-            ${email?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
+            ${isVerifiedEmail?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
             ${phone?`<button class="btn btnMini" data-ll-sms="${idx}">💬 Text</button>`:''}
             <button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>
           </div>
@@ -29368,10 +29431,127 @@ document.addEventListener("click", function(e) {
         var a=d.analysis,sc=a.score>=80?"#22c55e":a.score>=60?"#f59e0b":"#ef4444";
         var catH=Object.entries(a.categories||{}).map(function(e){return "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'><div style='width:110px;font-size:11px;color:#94a3b8;text-transform:capitalize;'>"+e[0].replace(/_/g," ")+"</div><div style='flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;'><div style='width:"+Math.round(e[1]*10)+"%;height:100%;background:"+sc+";border-radius:3px;'></div></div><div style='font-size:11px;color:#94a3b8;min-width:18px;'>"+e[1]+"</div></div>";}).join("");
         var qwH=(a.quick_wins||[]).map(function(q){var ic=q.impact==="High"?"#22c55e":q.impact==="Medium"?"#f59e0b":"#94a3b8";return "<div style='padding:9px 12px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:7px;border-left:3px solid "+ic+";'><div style='font-size:13px;color:#e2e8f0;margin-bottom:3px;'>"+q.action+"</div><div style='font-size:11px;color:#64748b;'>Impact: <span style='color:"+ic+";'>"+q.impact+"</span> | Effort: "+q.effort+"</div></div>";}).join("");
-        if(res)res.innerHTML="<div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>";
+        var intelH="";
+        if(a.content_strategy) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>Content Strategy</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.content_strategy)+"</div></div>";
+        if(a.tech_signals) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>Tech / Tools Detected</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.tech_signals)+"</div></div>";
+        if(a.seo_summary) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>SEO Signals</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.seo_summary)+"</div></div>";
+        if(a.target_audience) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>Target Audience</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.target_audience)+"</div></div>";
+        var competeH=a.how_to_compete?"<div style='margin-top:20px;padding:14px 16px;background:rgba(124,58,237,.09);border-radius:10px;border-left:3px solid rgba(124,58,237,.5);'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>How to Win Against Them</div><div style='font-size:14px;color:#c4b5fd;line-height:1.65;'>"+escapeHtml(a.how_to_compete)+"</div></div>":"";
+        if(res)res.innerHTML="<div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>"+(intelH?"<div style='margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);'>"+intelH+"</div>":"")+competeH;
       }catch(e){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+e.message+"</div>";}
       if(btn){btn.disabled=false;btn.textContent="Analyze";}
     };
+
+  // ══ PROSPECT DOSSIER ══════════════════════════════════════════════════════
+  window.showProspectDossierModal = function(){
+    showModal(); hideAllModalForms();
+    if($("modalBody")) $("modalBody").style.display = "none";
+    if($("prospectDossierForm")) $("prospectDossierForm").style.display = "block";
+    if($("modalTitle")) $("modalTitle").innerText = "🎯 Prospect Dossier";
+  };
+
+  window.runProspectDossier = async function(){
+    var q = (($("pdQuery")||{}).value||"").trim();
+    if(!q){ alert("Enter a company name or URL."); return; }
+    var btn=$("pdRunBtn"), res=$("pdResults");
+    if(btn){ btn.disabled=true; btn.textContent="Researching..."; }
+    if(res) res.innerHTML = "<div style='text-align:center;padding:60px 0;color:#94a3b8;font-size:13px;'>Building prospect brief for <strong>"+escapeHtml(q)+"</strong>…</div>";
+    try{
+      var r = await fetch("/api/research/prospect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});
+      var d = await r.json();
+      if(!d.ok){ if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>"; return; }
+      var b = d.brief;
+      var row2 = function(label,val){ return val?`<tr><td style="font-size:12px;color:#64748b;padding:5px 10px 5px 0;white-space:nowrap;vertical-align:top;">${label}</td><td style="font-size:13px;color:#e2e8f0;padding:5px 0;">${escapeHtml(String(val))}</td></tr>`:''; };
+      var section = function(title,icon,html){ return `<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">${icon} ${title}</div>${html}</div>`; };
+      var listHtml = function(arr,col){ return (arr||[]).map(function(s){ return `<div style="font-size:13px;color:${col||'#94a3b8'};margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(167,139,250,.3);">${escapeHtml(s)}</div>`; }).join(''); };
+      var html = "";
+      html += section("Overview","🏢",`<table style="border-collapse:collapse;width:100%;">${row2("Company",b.company_name)}${row2("Description",b.description)}${row2("Industry",b.industry)}${row2("Est. Size",b.estimated_size)}${row2("Location",b.location)}${row2("Website",b.website)}${row2("Founded",b.founded)}</table>`);
+      if((b.decision_makers||[]).length) html += section("Decision Makers","👤",listHtml(b.decision_makers,"#c4b5fd"));
+      if((b.pain_points||[]).length) html += section("Likely Pain Points","🔥",listHtml(b.pain_points,"#fca5a5"));
+      if((b.strengths||[]).length) html += section("Their Strengths","💪",listHtml(b.strengths,"#86efac"));
+      if(b.tech_stack) html += section("Tech / Tools Used","🔧",`<div style="font-size:13px;color:#94a3b8;">${escapeHtml(b.tech_stack)}</div>`);
+      if(b.outreach_angle) html += section("Suggested Outreach Angle","🎯",`<div style="font-size:14px;color:#c4b5fd;line-height:1.65;font-style:italic;">"${escapeHtml(b.outreach_angle)}"</div>`);
+      if(b.talking_points&&b.talking_points.length) html += section("Talking Points","💬",listHtml(b.talking_points,"#7dd3fc"));
+      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>";
+    }catch(e){
+      if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent="🎯 Research"; }
+    }
+  };
+
+  // ══ MARKET SCANNER ════════════════════════════════════════════════════════
+  window.showMarketScannerModal = function(){
+    showModal(); hideAllModalForms();
+    if($("modalBody")) $("modalBody").style.display = "none";
+    if($("marketScannerForm")) $("marketScannerForm").style.display = "block";
+    if($("modalTitle")) $("modalTitle").innerText = "📊 Market Scanner";
+  };
+
+  window.runMarketScanner = async function(){
+    var q = (($("msNiche")||{}).value||"").trim();
+    if(!q){ alert("Enter a market or niche to scan."); return; }
+    var btn=$("msRunBtn"), res=$("msResults");
+    if(btn){ btn.disabled=true; btn.textContent="Scanning..."; }
+    if(res) res.innerHTML = "<div style='text-align:center;padding:60px 0;color:#94a3b8;font-size:13px;'>Scanning market: <strong>"+escapeHtml(q)+"</strong>…</div>";
+    try{
+      var r = await fetch("/api/research/market",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({niche:q})});
+      var d = await r.json();
+      if(!d.ok){ if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>"; return; }
+      var m = d.market;
+      var section = function(title,icon,html){ return `<div style="margin-bottom:20px;"><div style="font-size:12px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">${icon} ${title}</div>${html}</div>`; };
+      var listHtml = function(arr,col){ return (arr||[]).map(function(s){ return `<div style="font-size:13px;color:${col||'#94a3b8'};margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(167,139,250,.3);">${escapeHtml(s)}</div>`; }).join(''); };
+      var html = "";
+      if(m.summary) html += `<div style="font-size:14px;color:#c4b5fd;line-height:1.65;margin-bottom:20px;padding:14px 16px;background:rgba(124,58,237,.08);border-radius:10px;border-left:3px solid rgba(124,58,237,.5);">${escapeHtml(m.summary)}</div>`;
+      if((m.top_players||[]).length) html += section("Top Players","🏆",listHtml(m.top_players,"#fcd34d"));
+      if(m.pricing_landscape) html += section("Pricing Landscape","💰",`<div style="font-size:13px;color:#94a3b8;line-height:1.6;">${escapeHtml(m.pricing_landscape)}</div>`);
+      if((m.customer_loves||[]).length) html += section("What Customers Love","💚",listHtml(m.customer_loves,"#86efac"));
+      if((m.customer_hates||[]).length) html += section("What Customers Hate / Pain Points","🔴",listHtml(m.customer_hates,"#fca5a5"));
+      if((m.market_gaps||[]).length) html += section("Market Gaps & Opportunities","💡",listHtml(m.market_gaps,"#fbbf24"));
+      if((m.best_channels||[]).length) html += section("Best Channels to Reach This Market","📣",listHtml(m.best_channels,"#7dd3fc"));
+      if(m.positioning_advice) html += section("Your Positioning Angle","🎯",`<div style="font-size:14px;color:#c4b5fd;line-height:1.65;font-style:italic;">"${escapeHtml(m.positioning_advice)}"</div>`);
+      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>";
+    }catch(e){
+      if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent="📊 Scan Market"; }
+    }
+  };
+
+  // ══ INTENT SIGNALS ════════════════════════════════════════════════════════
+  window.showIntentSignalsModal = function(){
+    showModal(); hideAllModalForms();
+    if($("modalBody")) $("modalBody").style.display = "none";
+    if($("intentSignalsForm")) $("intentSignalsForm").style.display = "block";
+    if($("modalTitle")) $("modalTitle").innerText = "📡 Intent Signals";
+  };
+
+  window.runIntentSignals = async function(){
+    var q = (($("isQuery")||{}).value||"").trim();
+    if(!q){ alert("Describe what you sell or the problem you solve."); return; }
+    var btn=$("isRunBtn"), res=$("isResults");
+    if(btn){ btn.disabled=true; btn.textContent="Scanning for signals..."; }
+    if(res) res.innerHTML = "<div style='text-align:center;padding:60px 0;color:#94a3b8;font-size:13px;'>Searching for active buyer signals for: <strong>"+escapeHtml(q)+"</strong>…</div>";
+    try{
+      var r = await fetch("/api/research/intent",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({offer:q})});
+      var d = await r.json();
+      if(!d.ok){ if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>"; return; }
+      var s = d.signals;
+      var section = function(title,icon,html){ return `<div style="margin-bottom:20px;"><div style="font-size:12px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">${icon} ${title}</div>${html}</div>`; };
+      var signalCard = function(sig){ return `<div style="padding:11px 14px;background:rgba(255,255,255,.03);border-radius:10px;margin-bottom:8px;border-left:3px solid rgba(167,139,250,.4);"><div style="font-size:13px;color:#e2e8f0;margin-bottom:3px;font-weight:500;">${escapeHtml(sig.signal||'')}</div><div style="font-size:11px;color:#64748b;">${escapeHtml(sig.source||'')}${sig.why?' · '+escapeHtml(sig.why):''}</div></div>`; };
+      var html = "";
+      if(s.summary) html += `<div style="font-size:14px;color:#c4b5fd;line-height:1.65;margin-bottom:20px;padding:14px 16px;background:rgba(124,58,237,.08);border-radius:10px;border-left:3px solid rgba(124,58,237,.5);">${escapeHtml(s.summary)}</div>`;
+      if((s.signals||[]).length) html += section("Active Buyer Signals Found","📡",(s.signals||[]).map(signalCard).join(''));
+      if((s.trigger_keywords||[]).length) html += section("High-Intent Keywords to Monitor","🔑",(s.trigger_keywords||[]).map(function(k){ return `<span style="display:inline-block;background:rgba(124,58,237,.2);color:#c4b5fd;border-radius:6px;padding:3px 10px;font-size:12px;margin:3px;">${escapeHtml(k)}</span>`; }).join(''));
+      if((s.where_to_look||[]).length) html += section("Where to Find These Buyers","📍",(s.where_to_look||[]).map(function(w){ return `<div style="font-size:13px;color:#7dd3fc;margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(125,211,252,.3);">${escapeHtml(w)}</div>`; }).join(''));
+      if(s.outreach_hook) html += section("Best Opening Line","🎣",`<div style="font-size:14px;color:#86efac;line-height:1.65;font-style:italic;">"${escapeHtml(s.outreach_hook)}"</div>`);
+      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No signals found. Try rephrasing your offer.</div>";
+    }catch(e){
+      if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
+    }finally{
+      if(btn){ btn.disabled=false; btn.textContent="📡 Find Signals"; }
+    }
+  };
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   // Cmd+Enter (Mac) / Ctrl+Enter (Win): send message in active DM
@@ -39648,7 +39828,7 @@ def api_analyze_website():
         return jsonify({"ok": False, "error": err or "Could not fetch page content"}), 400
 
     system = (
-        "You are an expert conversion rate optimizer, UX designer, and digital marketing strategist. "
+        "You are an expert conversion rate optimizer, competitive intelligence analyst, and digital marketing strategist. "
         "Analyze the provided website content and return a structured JSON analysis. "
         "Respond ONLY with valid JSON, no markdown, no explanation outside the JSON."
     )
@@ -39656,13 +39836,13 @@ def api_analyze_website():
 {{
   "score": <integer 1-100>,
   "grade": "<A/B/C/D/F>",
-  "summary": "<2 sentence overall verdict>",
+  "summary": "<2-3 sentence overall verdict — what they do well and where they fall short>",
   "strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
   "weaknesses": ["<weakness 1>", "<weakness 2>", "<weakness 3>"],
   "quick_wins": [
-    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
-    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
-    {{"action": "<action>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}}
+    {{"action": "<specific actionable improvement>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
+    {{"action": "<specific actionable improvement>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}},
+    {{"action": "<specific actionable improvement>", "impact": "<High/Medium/Low>", "effort": "<Low/Medium/High>"}}
   ],
   "categories": {{
     "clarity": <1-10>,
@@ -39673,7 +39853,12 @@ def api_analyze_website():
     "mobile": <1-10>,
     "speed_signals": <1-10>,
     "seo": <1-10>
-  }}
+  }},
+  "content_strategy": "<1-2 sentences: what content approach they use — blog, video, long-form, testimonials, etc.>",
+  "tech_signals": "<comma-separated list of tools/tech you can detect from the page — e.g. Shopify, WordPress, Typeform, Intercom, Google Fonts>",
+  "seo_summary": "<1-2 sentences on their keyword focus and SEO approach based on headings, meta, and copy>",
+  "target_audience": "<who they are clearly targeting based on the content and messaging>",
+  "how_to_compete": "<2-3 specific sentences: if you were a competitor, what angle or gap would you exploit to beat this site? Be direct and actionable.>"
 }}
 
 Website content:
@@ -39693,6 +39878,215 @@ Website content:
     except Exception as e:
         _, msg = _classify_openai_error(e)
         return jsonify({"ok": False, "error": msg}), 500
+
+@app.post("/api/research/prospect")
+def api_research_prospect():
+    """Build a full prospect intelligence brief for a company/URL."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
+    if not query: return jsonify({"ok": False, "error": "Company name or URL required"}), 400
+
+    # Pull operator profile for outreach angle context
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or ""
+        op_profile = _load_operator_profile(uname) if uname else {}
+        op_context = ""
+        if op_profile:
+            op_context = f"\nOperator business context: {op_profile.get('business','')} | Offer: {op_profile.get('offers','')} | Audience: {op_profile.get('audience','')}"
+    except Exception:
+        op_context = ""
+
+    # Web search for context
+    search_results = []
+    try:
+        rows = _crm_ddg_search(f"{query} company overview", max_results=6)
+        search_results = [f"{r.get('title','')}: {r.get('snippet','')}" for r in rows if r.get('snippet')]
+    except Exception:
+        pass
+
+    web_context = "\n".join(search_results[:5]) if search_results else "No web results found."
+
+    # Try fetching the website if a URL was given
+    site_content = ""
+    if query.startswith("http"):
+        try:
+            content, _ = _fetch_url_content(query, max_chars=4000)
+            if content:
+                site_content = f"\nWebsite content:\n{content[:3000]}"
+        except Exception:
+            pass
+
+    system = (
+        "You are an expert B2B sales researcher and business intelligence analyst. "
+        "Build a detailed prospect brief based on the information provided. "
+        "Respond ONLY with valid JSON, no markdown fences, no explanation outside the JSON."
+    )
+    prompt = f"""Build a prospect intelligence brief for: {query}
+{op_context}
+
+Web research results:
+{web_context}
+{site_content}
+
+Return JSON in exactly this format:
+{{
+  "company_name": "<name>",
+  "description": "<1-2 sentence description of what they do>",
+  "industry": "<industry/sector>",
+  "estimated_size": "<Solo / Small (2-10) / Medium (11-50) / Large (50+)>",
+  "location": "<city, country if known>",
+  "website": "<URL if known>",
+  "founded": "<year or decade if known, or blank>",
+  "decision_makers": ["<role or name if known>", "<role or name>"],
+  "pain_points": ["<likely pain point 1>", "<likely pain point 2>", "<likely pain point 3>"],
+  "strengths": ["<what they do well>", "<what they do well>"],
+  "tech_stack": "<tools/software they likely use based on size and industry>",
+  "outreach_angle": "<1-2 sentence suggested first contact angle based on their pain points and the operator context>",
+  "talking_points": ["<specific talking point 1>", "<specific talking point 2>", "<specific talking point 3>"]
+}}"""
+
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.3)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        brief = json.loads(raw)
+        return jsonify({"ok": True, "brief": brief})
+    except json.JSONDecodeError:
+        return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
+
+@app.post("/api/research/market")
+def api_research_market():
+    """Scan a niche/market for competitive intelligence."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    niche = (data.get("niche") or "").strip()
+    if not niche: return jsonify({"ok": False, "error": "Niche or market required"}), 400
+
+    # Operator context
+    try:
+        uname = (u.get("username") if isinstance(u, dict) else None) or ""
+        op_profile = _load_operator_profile(uname) if uname else {}
+        op_context = f"Operator offer: {op_profile.get('offers','')} | Business: {op_profile.get('business','')}" if op_profile else ""
+    except Exception:
+        op_context = ""
+
+    # Web search for market intelligence
+    search_snippets: list = []
+    for q in [f"top companies {niche}", f"{niche} pricing market 2024 2025", f"{niche} customer complaints reviews problems"]:
+        try:
+            rows = _crm_ddg_search(q, max_results=5)
+            for r in rows:
+                if r.get("snippet"):
+                    search_snippets.append(f"{r.get('title','')}: {r.get('snippet','')}")
+        except Exception:
+            pass
+
+    web_context = "\n".join(search_snippets[:12]) if search_snippets else "No web results found."
+
+    system = (
+        "You are an expert market intelligence analyst and business strategist. "
+        "Analyze the market and return a comprehensive intelligence brief. "
+        "Respond ONLY with valid JSON, no markdown fences."
+    )
+    prompt = f"""Conduct a market intelligence scan for: {niche}
+{('Operator context: ' + op_context) if op_context else ''}
+
+Web research gathered:
+{web_context}
+
+Return JSON in exactly this format:
+{{
+  "summary": "<2-3 sentence executive summary of this market>",
+  "top_players": ["<company 1>", "<company 2>", "<company 3>", "<company 4>", "<company 5>"],
+  "pricing_landscape": "<describe common pricing models and typical price ranges in this market>",
+  "customer_loves": ["<what customers consistently praise>", "<what they praise>", "<what they praise>"],
+  "customer_hates": ["<common complaint/pain point>", "<common complaint>", "<common complaint>"],
+  "market_gaps": ["<underserved need or gap>", "<gap>", "<gap>"],
+  "best_channels": ["<best channel to reach this market>", "<channel>", "<channel>"],
+  "positioning_advice": "<specific 1-2 sentence advice on how the operator should position their offer to stand out in this market>"
+}}"""
+
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        market = json.loads(raw)
+        return jsonify({"ok": True, "market": market})
+    except json.JSONDecodeError:
+        return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
+
+@app.post("/api/research/intent")
+def api_research_intent():
+    """Find active buyer intent signals for an offer."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    offer = (data.get("offer") or "").strip()
+    if not offer: return jsonify({"ok": False, "error": "Offer description required"}), 400
+
+    # Web search for intent signals
+    search_snippets: list = []
+    for q in [
+        f"looking for {offer} site:reddit.com OR site:quora.com",
+        f"need help with {offer}",
+        f"hiring {offer} job posting",
+        f"{offer} alternatives frustrated",
+    ]:
+        try:
+            rows = _crm_ddg_search(q, max_results=5)
+            for r in rows:
+                if r.get("snippet"):
+                    search_snippets.append(f"[{r.get('title','')}] {r.get('snippet','')} (source: {r.get('domain','')})")
+        except Exception:
+            pass
+
+    web_context = "\n".join(search_snippets[:14]) if search_snippets else "No web results found."
+
+    system = (
+        "You are an expert demand generation strategist who specializes in finding high-intent buying signals. "
+        "Analyze search results to identify real buyer intent signals and return structured JSON. "
+        "Respond ONLY with valid JSON, no markdown fences."
+    )
+    prompt = f"""Find active buyer intent signals for this offer: {offer}
+
+Web search results gathered:
+{web_context}
+
+Return JSON in exactly this format:
+{{
+  "summary": "<2-3 sentence summary of the intent signal landscape — how warm is the market right now>",
+  "signals": [
+    {{"signal": "<specific signal or pattern found>", "source": "<where it was found>", "why": "<why this matters for outreach>"}},
+    {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
+    {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
+    {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
+    {{"signal": "<signal>", "source": "<source>", "why": "<why>"}}
+  ],
+  "trigger_keywords": ["<keyword someone uses when they are ready to buy>", "<keyword>", "<keyword>", "<keyword>", "<keyword>"],
+  "where_to_look": ["<specific place or platform to find these buyers>", "<place>", "<place>", "<place>"],
+  "outreach_hook": "<1 sentence opening line that speaks directly to the pain signals found — designed to immediately grab attention>"
+}}"""
+
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        signals = json.loads(raw)
+        return jsonify({"ok": True, "signals": signals})
+    except json.JSONDecodeError:
+        return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
+    except Exception as e:
+        _, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), 500
+
 
 @app.get("/api/notepad")
 def api_notepad_get():
