@@ -6034,10 +6034,9 @@ def api_set_user_settings():
     if tooltip_level in ("off", "low", "medium", "high"):
         rec["settings"]["tooltip_level"] = tooltip_level
 
-    # UI theme / customisation
+    # UI theme / customisation — full replace so reset (empty dict) clears correctly
     theme_in = data.get("theme")
     if isinstance(theme_in, dict):
-        rec["settings"].setdefault("theme", {})
         allowed_theme_keys = {
             "table_color", "table_glow_opacity",
             "task_glow_color", "event_color",
@@ -6047,9 +6046,11 @@ def api_set_user_settings():
             "bg_color", "bg_brightness",
             "cal_glow_color", "cal_glow_opacity",
         }
-        for k, v in theme_in.items():
-            if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80:
-                rec["settings"]["theme"][k] = v.strip()
+        rec["settings"]["theme"] = {
+            k: v.strip()
+            for k, v in theme_in.items()
+            if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80
+        }
 
     rec["settings"].setdefault("smtp", {})
     if smtp_host != "":
