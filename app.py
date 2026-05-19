@@ -14133,11 +14133,11 @@ label         { font-size: 14px !important; }
         <div id="navLevelBadge" style="display:none;"></div>
         <!-- ⋯ More dropdown — replaces 6 individual right-nav buttons -->
         <div style="position:relative;display:inline-block;" id="moreMenuWrap">
-          <button id="moreMenuBtn" onclick="saToggleMoreMenu()" style="background:rgba(255,255,255,.07);border:1px solid rgba(80,110,200,.4);color:#000;padding:5px 13px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:5px;">
+          <button id="moreMenuBtn" onclick="saToggleMoreMenu()" style="background:rgba(255,255,255,.07);border:1px solid rgba(80,110,200,.4);color:#ffffff;padding:5px 13px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:5px;">
             ⋯ More
           </button>
           <div id="moreMenuDrop" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:220px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.55);z-index:9999;overflow:hidden;padding:6px;">
-            <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting started guide</a>
+            <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;font-size:12px;font-weight:500;">📚 Getting started guide</a>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
             <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
