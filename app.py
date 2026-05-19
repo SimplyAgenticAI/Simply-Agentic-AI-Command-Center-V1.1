@@ -10286,7 +10286,14 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
         <div class='f-locked'>&#128274; Price locked forever — never increases</div>
         <div class='f-tagline'>{fp.get("tagline","")}</div>
       </div>
-      <div class='f-right'></div>
+      <div class='f-right'>
+        <div>
+          <div class='seats-lbl'>Founder Seats Remaining</div>
+          <div class='seats-num'>{founder_remain}</div>
+          <div class='seats-sub'>of {FOUNDER_SEATS_MAX} total founder seats</div>
+          <div class='seats-bar'><div class='seats-bar-fill' style='width:{seats_bar_pct}%'></div></div>
+        </div>
+      </div>
     </div>
     <div class='f-feats'>
       <ul class='f-feat-grid'>{founder_features_html}</ul>
