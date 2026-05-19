@@ -14816,9 +14816,9 @@ label         { font-size: 14px !important; }
                         <div style="display:flex;align-items:center;gap:8px;">
                           <span class="tiny" style="opacity:.5">A</span>
                           <input type="range" id="fontSizeSlider" min="12" max="20" value="14" step="1"
-                            style="flex:1" oninput="_applyThemePref('font_size',this.value+'px');document.getElementById('fontSizeVal').textContent=this.value+'px';this.style.setProperty('--val',Math.round((this.value-12)/8*100)+'%')">
+                            style="flex:1" oninput="_applyThemePref('font_size',this.value+'px');var _p=Math.round(this.value/14*100);document.getElementById('fontSizeVal').textContent=(_p===100?'Default':(_p>100?'+'+(_p-100)+'%':(_p-100)+'%'));this.style.setProperty('--val',Math.round((this.value-12)/8*100)+'%')">
                           <span class="tiny" style="opacity:.5;font-size:17px;">A</span>
-                          <span class="tiny" id="fontSizeVal" style="opacity:.7;min-width:28px;">14px</span>
+                          <span class="tiny" id="fontSizeVal" style="opacity:.7;min-width:52px;">Default</span>
                         </div>
                       </div>
 
@@ -29025,13 +29025,57 @@ if(typeof maybeAutoShowOnboarding === "function"){
 
     if (p.font_size) {
       const sz = parseInt(p.font_size) || 14;
+      const r  = sz / 14;
+      const sc = v => Math.max(8, Math.round(v * r));
       css += `
-        body { font-size: ${sz}px !important; }
-        .sn { font-size: ${Math.max(10, sz-2)}px !important; }
-        .sd { font-size: ${Math.max(9, sz-3)}px !important; }
-        .tiny { font-size: ${Math.max(9, sz-3)}px !important; }
+        :root { --sa-fs: ${sz}px; }
+        body  { font-size: ${sz}px !important; }
+
+        /* All form controls */
+        button, input, select, textarea { font-size: ${sc(13)}px !important; }
+        td, th, li, p { font-size: ${sc(13)}px !important; }
+
+        /* Buttons */
+        .btn     { font-size: ${sc(13)}px !important; }
+        .btnMini { font-size: ${sc(12)}px !important; }
+        .btnTiny { font-size: ${sc(11)}px !important; }
+        .commandRow .btn { font-size: ${sz}px !important; }
+
+        /* Nav */
+        .saNavBtn, .saDropItem { font-size: ${sc(13)}px !important; }
+        .saChevron  { font-size: ${sc(9)}px !important; }
+        .saModelTag { font-size: ${sc(12)}px !important; }
+
+        /* Seat cards */
+        .seatName { font-size: ${sc(12)}px !important; }
+        .seatRole { font-size: ${sc(10)}px !important; }
+        .seatNum  { font-size: ${sc(9)}px !important; }
+
+        /* Thread & chat */
+        .thread, .msg-body, .followBox, .followMsg { font-size: ${sz}px !important; }
+        .who     { font-size: ${sc(12)}px !important; }
+        .dmMsg   { font-size: ${sz}px !important; }
         #dmInput { font-size: ${sz}px !important; }
-        .dmMsg { font-size: ${sz}px !important; }
+
+        /* Sidebar text */
+        .sn   { font-size: ${sc(12)}px !important; }
+        .sd   { font-size: ${sc(11)}px !important; }
+        .tiny { font-size: ${sc(12)}px !important; }
+        .rightmeta { font-size: ${sc(12)}px !important; }
+
+        /* Modals & forms */
+        .modalBody, .modalForm, .modalScroll { font-size: ${sc(13)}px !important; }
+
+        /* Operator console */
+        .opTitle .t1, .opText { font-size: ${sc(13)}px !important; }
+        .toolHint { font-size: ${sz}px !important; }
+
+        /* Group / CRM */
+        .replyItem   { font-size: ${sc(13)}px !important; }
+        .saObjectivePill { font-size: ${sz}px !important; }
+
+        /* Side panel headers */
+        .sideTitle .h2, .h2 { font-size: ${sc(12)}px !important; }
       `;
     }
 
@@ -29058,8 +29102,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       try { document.getElementById("tableGlowVal").textContent = "22%"; } catch(e) {}
       // Also clear the style override so native CSS glow is restored
       try { var so = document.getElementById("sa-theme-overrides"); if (so) so.textContent = ""; } catch(e) {}
-      try { document.getElementById("fontSizeSlider").value = "14"; } catch(e) {}
-      try { document.getElementById("fontSizeVal").textContent = "14px"; } catch(e) {}
+      try { document.getElementById("fontSizeSlider").value = "14"; document.getElementById("fontSizeVal").textContent = "Default"; } catch(e) {}
       try { document.getElementById("fontFamilySelect").value = ""; } catch(e) {}
       try { document.getElementById("seatGlowCustom").value = "#7c3aed"; } catch(e) {}
       try { document.getElementById("bgColorCustom").value = "#060c18"; } catch(e) {}
@@ -29119,7 +29162,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if (theme.font_size) {
         const sz = parseInt(theme.font_size) || 14;
         document.getElementById("fontSizeSlider").value = sz;
-        document.getElementById("fontSizeVal").textContent = sz + "px";
+        const _pct = Math.round(sz / 14 * 100);
+        document.getElementById("fontSizeVal").textContent = _pct === 100 ? "Default" : (_pct > 100 ? "+" + (_pct - 100) + "%" : (_pct - 100) + "%");
       }
       if (theme.bg_color) {
         try { document.getElementById("bgColorCustom").value = theme.bg_color; } catch(e) {}
