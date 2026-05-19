@@ -6044,6 +6044,8 @@ def api_set_user_settings():
             "seat_glow_color", "nav_style",
             "font_family", "font_size",
             "arena_bg_color", "accent_color",
+            "bg_color", "bg_brightness",
+            "cal_glow_color", "cal_glow_opacity",
         }
         for k, v in theme_in.items():
             if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80:
