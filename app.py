@@ -14047,15 +14047,15 @@ label         { font-size: 14px !important; }
 
         <div class="saDropWrap">
           <button class="saNavBtn" id="saTeamDropBtn" data-tip="Manage your AI teammates" onclick="saToggleDrop('saTeamDrop')">
-            <span>Team</span><span class="saChevron">&#9660;</span>
+            <span>👥 Teammates</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saTeamDrop">
-            <button class="saDropItem" id="frameworkBtn">Core framework</button>
-            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
-            <button class="saDropItem" id="editTeammatesBtn">✏️ Edit teammates</button>
-            <button class="saDropItem" id="manageTeamBtn">Add / dismiss teammates</button>
-            <button class="saDropItem" id="createTeamBtn">Create teammate</button>
-            <button class="saDropItem" id="installFullBtn">Install full team</button>
+            <button class="saDropItem" id="createTeamBtn">✨ Create Teammate</button>
+            <button class="saDropItem" id="editTeammatesBtn">✏️ Edit Teammates</button>
+            <button class="saDropItem" id="manageTeamBtn">➕ Add / Dismiss</button>
+            <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+            <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
           </div>
         </div>
 
@@ -14070,6 +14070,8 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
           </div>
         </div>
 
@@ -14092,25 +14094,9 @@ label         { font-size: 14px !important; }
             <span>📊 Manage</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saManageDrop">
-            <button class="saDropItem" id="teamBtn">👥 My Team</button>
-            <button class="saDropItem" id="operatorProfileBtn">🧑‍💼 Operator Profile</button>
-            <button class="saDropItem" id="sessionObjectiveBtn">🎯 Session Objective</button>
-            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
-          </div>
-        </div>
-
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saSettingsDropBtn" data-tip="Account settings & preferences" onclick="saToggleDrop('saSettingsDrop')">
-            <span>Settings</span><span class="saChevron">&#9660;</span>
-          </button>
-          <div class="saDrop" id="saSettingsDrop">
-            <button class="saDropItem" id="settingsBtn">User settings</button>
-            <button class="saDropItem" id="customizeBtn">🎨 Customize</button>
-            <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
-            <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
           </div>
         </div>
 
@@ -14153,16 +14139,26 @@ label         { font-size: 14px !important; }
         <div id="navLevelBadge" style="display:none;"></div>
         <!-- ⋯ More dropdown — replaces 6 individual right-nav buttons -->
         <div style="position:relative;display:inline-block;" id="moreMenuWrap">
-          <button id="moreMenuBtn" onclick="saToggleMoreMenu()" style="border:1px solid rgba(80,110,200,.4);color:#ffffff;padding:5px 13px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:5px;">
-            ⋯ More
+          <button id="moreMenuBtn" onclick="saToggleMoreMenu()" style="border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:5px 13px;font-size:12px;border-radius:8px;cursor:pointer;font-weight:700;white-space:nowrap;display:flex;align-items:center;gap:5px;">
+            ⚙ Account ▾
           </button>
-          <div id="moreMenuDrop" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:220px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.55);z-index:9999;overflow:hidden;padding:6px;">
-            <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting started guide</a>
+          <div id="moreMenuDrop" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:230px;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.35);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.55);z-index:9999;overflow:hidden;padding:6px;">
+            <!-- Account / Settings -->
+            <button id="settingsBtn" class="saMoreItem" style="color:#e2e8f0;">⚙️ User Settings</button>
+            <button id="customizeBtn" class="saMoreItem" style="color:#e2e8f0;">🎨 Customize</button>
+            <button id="operatorProfileBtn" class="saMoreItem" style="color:#e2e8f0;">🧑‍💼 Operator Profile</button>
+            <button id="teamBtn" class="saMoreItem" style="color:#e2e8f0;">👥 My Team</button>
+            <button id="sessionObjectiveBtn" class="saMoreItem" style="color:#e2e8f0;">🎯 Session Objective</button>
+            <button id="openApiKeyHelpBtn" class="saMoreItem" style="color:#e2e8f0;">🔑 API Keys</button>
+            <a id="seatManagerLink" href="/admin/seats" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🗝 Seat Manager</a>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
+            <!-- Onboarding / Support -->
+            <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting Started</a>
             <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
             <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
             <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
+            <!-- Admin / Debug -->
             <button onclick="openBugReportModal();saCloseMoreMenu();" class="saMoreItem" style="color:#fca5a5;">🐛 Report Bug</button>
             <button id="bugInboxNavBtn" onclick="openBugInboxModal();saCloseMoreMenu();" class="saMoreItem" style="display:none;color:#fca5a5;">🐛 Bug Inbox</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
@@ -14222,12 +14218,13 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showVisualCreatorModal,200);">✨ Visual Creator</button>
             <button class="btn" data-click="socialStudioBtn" onclick="closeMobileDrawer()">📣 Social Studio</button>
             <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
+            <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
+            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
           </div>
         </div>
 
@@ -14251,9 +14248,6 @@ label         { font-size: 14px !important; }
             <span>📊 Manage</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="teamBtn" onclick="closeMobileDrawer()">👥 My Team</button>
-            <button class="btn" data-click="operatorProfileBtn" onclick="closeMobileDrawer()">🧑‍💼 Operator Profile</button>
-            <button class="btn" data-click="sessionObjectiveBtn" onclick="closeMobileDrawer()">🎯 Session Objective</button>
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👥 Contacts</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
@@ -14261,33 +14255,35 @@ label         { font-size: 14px !important; }
           </div>
         </div>
 
-        <!-- 🤖 Teammates -->
+        <!-- 👥 Teammates -->
         <div class="mdGroup">
           <button class="mdGroupHead" onclick="mdToggle(this)">
-            <span>🤖 Teammates</span><span class="mdChevron">▾</span>
+            <span>👥 Teammates</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
-            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
+            <button class="btn" data-click="createTeamBtn" onclick="closeMobileDrawer()">✨ Create Teammate</button>
             <button class="btn" data-click="editTeammatesBtn" onclick="closeMobileDrawer()">✏️ Edit Teammates</button>
             <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
-            <button class="btn" data-click="createTeamBtn" onclick="closeMobileDrawer()">🛠 Create Teammate</button>
             <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
+            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
           </div>
         </div>
 
-        <!-- ⚙️ Settings & Help -->
+        <!-- ⚙️ Account -->
         <div class="mdGroup">
           <button class="mdGroupHead" onclick="mdToggle(this)">
-            <span>⚙️ Settings &amp; Help</span><span class="mdChevron">▾</span>
+            <span>⚙️ Account</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="settingsBtn" onclick="closeMobileDrawer()">⚙️ Settings</button>
+            <button class="btn" data-click="settingsBtn" onclick="closeMobileDrawer()">⚙️ User Settings</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showCustomizeModal,200);">🎨 Customize</button>
-            <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 Get OpenAI Key</button>
-            <a class="btn" href="/getting-started" style="text-decoration:none;display:block;text-align:left;">📚 Getting started</a>
+            <button class="btn" data-click="operatorProfileBtn" onclick="closeMobileDrawer()">🧑‍💼 Operator Profile</button>
+            <button class="btn" data-click="teamBtn" onclick="closeMobileDrawer()">👥 My Team</button>
+            <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 API Keys</button>
+            <a class="btn" href="/getting-started" style="text-decoration:none;display:block;text-align:left;">📚 Getting Started</a>
             <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Help</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(openExtensionPanel,200);">🔌 Chrome Extension</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
             <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="color:#94a3b8;">🚪 Logout</button>
