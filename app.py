@@ -14107,13 +14107,10 @@ label         { font-size: 14px !important; }
             <span>Settings</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saSettingsDrop">
-            <a class="saDropItem" href="/getting-started" style="text-decoration:none;color:inherit;">📚 Getting started guide</a>
-            <button class="saDropItem" id="onboardingBtn">✨ Next step</button>
             <button class="saDropItem" id="settingsBtn">User settings</button>
             <button class="saDropItem" id="customizeBtn">🎨 Customize</button>
             <button class="saDropItem" id="openApiKeyHelpBtn">Get OpenAI key</button>
             <a class="saDropItem" id="seatManagerLink" href="/admin/seats" style="text-decoration:none;color:inherit;display:none;">🔑 Seat Manager</a>
-            <a class="saDropItem" href="/logout" style="text-decoration:none;color:inherit;">Logout</a>
           </div>
         </div>
 
@@ -27815,6 +27812,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
     setInterval(fetchOnboarding, 12000);
+    // Auto-open if arriving from Getting Started guide via ?next_step=1
+    try{
+      if(new URLSearchParams(window.location.search).get("next_step")==="1"){
+        setTimeout(openOnboarding, 1200);
+      }
+    }catch(_){}
   }catch(e){}
 })();
 </script>
@@ -30007,28 +30010,6 @@ window._streamTtsFired = false;
     msgBody.appendChild(actRow);
   };
 
-  /* Patch renderThread to add TTS buttons to every assistant message */
-  (function patchRenderThread(){
-    const orig = window.renderThread;
-    if(typeof orig !== "function"){ setTimeout(patchRenderThread, 300); return; }
-    window.renderThread = function(msgs, imageState){
-      orig.apply(this, arguments);
-      try{
-        const seat = window.selectedSeat || "";
-        const tm   = _tm(seat);
-        const voice = tm.tts_voice || "alloy";
-        const thread = document.getElementById("thread");
-        if(!thread) return;
-        thread.querySelectorAll(".msg.assistant").forEach(function(div){
-          if(div._saTtsWired) return;
-          // Get text content — skip image messages
-          const contentEl = div.querySelector("div:not(.who):not(.actions):not(.sa-tts-btn)");
-          const raw = contentEl ? (contentEl.innerText||"").trim() : "";
-          if(raw && raw.length > 10 && !raw.startsWith("[Image")) addTtsButton(div, raw, voice);
-        });
-      }catch(_){}
-    };
-  })();
 
   /* ─── STREAMING SEND ──────────────────────────────────────────────────────── */
   // ── Shared visual output renderer ─────────────────────────────────────────
@@ -30579,54 +30560,8 @@ window._streamTtsFired = false;
         throw new Error(errData.error||"Stream unavailable");
       }
 
-      // Clone response so we can peek at it without consuming the body
-      const responseClone = response.clone();
       const contentType = response.headers.get("content-type") || "";
       const isJson = contentType.includes("application/json");
-
-      // Also peek at first bytes to detect JSON even if content-type is wrong
-      let isVisualJson = false;
-      if(!isJson){
-        try{
-          const peekText = await responseClone.text();
-          if(peekText.trim().startsWith("{")){
-            const peekData = JSON.parse(peekText);
-            if(peekData.visual || (peekData.response && peekData.response.includes("__VISUAL__"))){
-              isVisualJson = true;
-              // Handle it directly
-              aCursor.remove();
-              const _reply = peekData.response || "";
-              const _visIdx2 = _reply.indexOf("__VISUAL__");
-              if(_visIdx2 !== -1){
-                const _html2 = _reply.slice(_visIdx2 + "__VISUAL__".length);
-                aBody.innerHTML = "";
-                const _w2 = document.createElement("div");
-                _w2.style.cssText = "border-radius:12px;overflow:hidden;border:1px solid rgba(124,58,237,.35);margin:4px 0 8px;";
-                const _f2 = document.createElement("iframe");
-                _f2.sandbox = "allow-scripts allow-same-origin";
-                _f2.srcdoc = _html2;
-                _f2.style.cssText = "width:100%;height:420px;border:none;display:block;border-radius:12px 12px 0 0;";
-                _w2.appendChild(_f2);
-                const _b2 = document.createElement("div");
-                _b2.style.cssText = "display:flex;gap:8px;padding:8px 10px;background:rgba(14,22,48,.6);border-top:1px solid rgba(42,58,106,.4);border-radius:0 0 12px 12px;flex-wrap:wrap;";
-                const _mk2 = (lbl,fn)=>{ const b=document.createElement("button");b.className="btn btnMini";b.innerText=lbl;b.onclick=fn;return b; };
-                _b2.appendChild(_mk2("⬇ Download",()=>{const a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(_html2);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a);}));
-                _b2.appendChild(_mk2("📋 Copy code",function(){navigator.clipboard.writeText(_html2).then(()=>{this.innerText="✓ Copied!";setTimeout(()=>{this.innerText="📋 Copy code";},2000);});}));
-                _b2.appendChild(_mk2("⛶ Fullscreen",()=>{if(typeof window._saOpenVisualFullscreen==="function")window._saOpenVisualFullscreen(_html2);}));
-                let _e2=false;_b2.appendChild(_mk2("↕ Resize",function(){_e2=!_e2;_f2.style.height=_e2?"700px":"420px";this.innerText=_e2?"↕ Shrink":"↕ Resize";}));
-                _w2.appendChild(_b2);aBody.appendChild(_w2);
-              } else {
-                aBody.innerText = _reply;
-              }
-              if(typeof setSeatLive==="function") setSeatLive(seat,"done");
-              if(typeof setOpStatus==="function") setOpStatus("Complete");
-              if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
-              try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
-              return;
-            }
-          }
-        }catch(_peekErr){ /* not JSON, continue to SSE */ }
-      }
 
       // Check if backend returned plain JSON (visual response) instead of SSE stream
       if(isJson){
@@ -43808,7 +43743,10 @@ a{color:#a78bfa;text-decoration:none;}
     <div class="gs-brand-name"><div class="gs-dot"></div> Simply Academy</div>
     <div class="gs-brand-sub">{{app_title}} — step-by-step animated guides</div>
   </div>
-  <a class="gs-back" href="/">← Back to command center</a>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <a href="/?next_step=1" style="display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:10px;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.15);color:#c4b5fd;font-size:13px;font-weight:600;text-decoration:none;transition:all .15s;" onmouseover="this.style.background='rgba(124,58,237,.28)'" onmouseout="this.style.background='rgba(124,58,237,.15)'">✨ My Next Step</a>
+    <a class="gs-back" href="/">← Back to command center</a>
+  </div>
 </div>
 
 <div class="gs-hero">
