@@ -14309,7 +14309,7 @@ label         { font-size: 14px !important; }
           <div class="modal" id="modalWin">
             <div class="modalBar" id="modalBar">
               <div class="modalBarTitle" id="modalTitle">Round Table</div>
-              <button id="saModalPinBtn" style="display:none;padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.15);color:#c4b5fd;transition:all .15s;white-space:nowrap;flex-shrink:0;" onclick="if(window._saModalPinKey)window.saTogglePin(window._saModalPinKey)">&#11088; Pin to bar</button>
+              <button id="saModalPinBtn" style="display:none;padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.15);color:#c4b5fd;transition:all .15s;white-space:nowrap;flex-shrink:0;" onclick="if(window._saModalPinKey)window.saTogglePin(window._saModalPinKey)">📌 Pin</button>
               <div class="modalBarBtns">
                 <button class="btn btnTiny" id="minModal">Minimize</button>
                 <button class="btn btnTiny" id="restoreModal" style="display:none">Restore</button>
@@ -17199,7 +17199,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
-        if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal")) return;
+        if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal" || t.id === "saModalPinBtn" || t.closest?.("#saModalPinBtn"))) return;
         if(modalMinimized) return;
         const r = normalizeWinRect();
         modalDragging = true;
@@ -19802,7 +19802,7 @@ async function pollImageJob(jobId, seatName){
         const isPinned = _pinned.includes(key);
         btn.style.display = 'inline-flex';
         btn.style.alignItems = 'center';
-        btn.textContent = isPinned ? 'Pinned' : 'Pin';
+        btn.textContent = isPinned ? '📌 Pinned' : '📌 Pin';
         btn.style.background   = isPinned ? 'rgba(251,191,36,.22)' : 'rgba(124,58,237,.15)';
         btn.style.borderColor  = isPinned ? 'rgba(251,191,36,.5)'  : 'rgba(124,58,237,.4)';
         btn.style.color        = isPinned ? '#fcd34d' : '#c4b5fd';
