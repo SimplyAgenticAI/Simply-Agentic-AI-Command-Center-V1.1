@@ -6108,8 +6108,9 @@ def api_set_pinned_features():
         return jsonify({"ok": False, "error": "pinned_features must be a list"}), 400
     # Validate against known feature keys
     VALID_FEATURES = {"calendar","crm","lead_lab","social_studio","offer_builder","notepad","site_analyzer",
-                      "growth_playbook","image_lib","email_console","dashboard"}
-    pinned = [str(f) for f in pinned if str(f) in VALID_FEATURES][:8]
+                      "growth_playbook","image_lib","email_console","dashboard","sms_console",
+                      "prospect_dossier","market_scanner","intent_signals"}
+    pinned = [str(f) for f in pinned if str(f) in VALID_FEATURES][:12]
     users = load_users()
     uname = u.get("username") if isinstance(u, dict) else _get_session_username()
     rec = (users.get("users") or {}).get(uname) or u
@@ -19736,17 +19737,21 @@ async function pollImageJob(jobId, seatName){
     (function(){
       // Map feature key → { label, icon, open function name }
       const FEATURE_MAP = {
-        calendar:       { icon:'📅', label:'Calendar',       fn:'showCalendarModal' },
-        crm:            { icon:'👥', label:'CRM',            fn:'showCRMModal' },
-        lead_lab:       { icon:'🔬', label:'Lead Lab',       fn:'showLeadLabModal' },
-        social_studio:  { icon:'📣', label:'Social Studio',  fn:'showSocialStudioModal' },
-        offer_builder:  { icon:'💡', label:'Offer Builder',  fn:'showOfferBuilderModal' },
-        growth_playbook:{ icon:'📈', label:'Playbook',       fn:'showGrowthPlaybookModal' },
-        image_lib:      { icon:'🖼', label:'Image Lib',      fn:'showImageLibraryModal' },
-        email_console:  { icon:'✉️', label:'Email',          fn:'showEmailConsoleModal' },
-        dashboard:      { icon:'📊', label:'Dashboard',      fn:'saOpenDashboard' },
-        notepad:        { icon:'📝', label:'Notepad',         fn:'showNotepadModal' },
-        site_analyzer:  { icon:'🌐', label:'Site Analyzer',   fn:'showSiteAnalyzerModal' },
+        calendar:         { icon:'📅', label:'Calendar',          fn:'showCalendarModal' },
+        crm:              { icon:'👥', label:'CRM',               fn:'showCRMModal' },
+        lead_lab:         { icon:'🔬', label:'Lead Lab',          fn:'showLeadLabModal' },
+        social_studio:    { icon:'📣', label:'Social Studio',     fn:'showSocialStudioModal' },
+        offer_builder:    { icon:'💡', label:'Offer Builder',     fn:'showOfferBuilderModal' },
+        growth_playbook:  { icon:'📈', label:'Playbook',          fn:'showGrowthPlaybookModal' },
+        image_lib:        { icon:'🖼', label:'Image Lib',         fn:'showImageLibraryModal' },
+        email_console:    { icon:'✉️', label:'Email',             fn:'showEmailConsoleModal' },
+        sms_console:      { icon:'💬', label:'SMS Console',       fn:'showSMSConsoleModal' },
+        dashboard:        { icon:'📊', label:'Dashboard',         fn:'saOpenDashboard' },
+        notepad:          { icon:'📝', label:'Notepad',           fn:'showNotepadModal' },
+        site_analyzer:    { icon:'🌐', label:'Site Analyzer',     fn:'showSiteAnalyzerModal' },
+        prospect_dossier: { icon:'🎯', label:'Prospect Dossier',  fn:'showProspectDossierModal' },
+        market_scanner:   { icon:'📊', label:'Market Scanner',    fn:'showMarketScannerModal' },
+        intent_signals:   { icon:'📡', label:'Intent Signals',    fn:'showIntentSignalsModal' },
       };
 
       let _pinned = [];
@@ -19835,8 +19840,12 @@ async function pollImageJob(jobId, seatName){
           {modalId:'growthPlaybookForm',    key:'growth_playbook'},
           {modalId:'imageLibraryModal',     key:'image_lib'},
           {modalId:'emailConsoleForm',      key:'email_console'},
-          {modalId:'notepadModal',            key:'notepad'},
-          {modalId:'siteAnalyzerModal',       key:'site_analyzer'},
+          {modalId:'smsConsoleForm',        key:'sms_console'},
+          {modalId:'notepadModal',          key:'notepad'},
+          {modalId:'siteAnalyzerModal',     key:'site_analyzer'},
+          {modalId:'prospectDossierForm',   key:'prospect_dossier'},
+          {modalId:'marketScannerForm',     key:'market_scanner'},
+          {modalId:'intentSignalsForm',     key:'intent_signals'},
         ];
         targets.forEach(({modalId, key})=>{
           const modal = document.getElementById(modalId);
@@ -29945,21 +29954,57 @@ window._streamTtsFired = false;
     }
   };
 
-  /* Attach a 🔊 button to a rendered assistant message div */
+  /* Attach 📋 Copy + 🔊 Speak buttons to a streamed assistant message div */
   window.addTtsButton = function addTtsButton(msgDiv, text, voice){
     if(!msgDiv || !text) return;
     if(msgDiv._saTtsWired) return;
     msgDiv._saTtsWired = true;
-    const btn = document.createElement("button");
-    btn.className = "sa-tts-btn";
-    btn.textContent = "🔊 Speak";
-    btn.title = "Read this response aloud";
-    btn.addEventListener("click", function(e){
+
+    const msgBody = msgDiv.querySelector(".msg-body") || msgDiv;
+
+    const actRow = document.createElement("div");
+    actRow.style.cssText = "margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;";
+
+    // Copy button
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "btn btnMini";
+    copyBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+    copyBtn.innerText = "📋 Copy";
+    copyBtn.title = "Copy response";
+    copyBtn.addEventListener("click", function(e){
       e.stopPropagation();
-      if(btn._saTtsStop){ btn._saTtsStop(); return; }
-      saTtsSpeak(text, voice, btn);
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(()=>{
+          copyBtn.innerText = "✓ Copied";
+          copyBtn.style.opacity = "1";
+          setTimeout(()=>{ copyBtn.innerText = "📋 Copy"; copyBtn.style.opacity = ".65"; }, 1500);
+        }).catch(()=>{});
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand("copy"); }catch(_){}
+        document.body.removeChild(ta);
+        copyBtn.innerText = "✓ Copied";
+        setTimeout(()=>{ copyBtn.innerText = "📋 Copy"; }, 1500);
+      }
     });
-    msgDiv.appendChild(btn);
+
+    // Speak button
+    const speakBtn = document.createElement("button");
+    speakBtn.className = "btn btnMini";
+    speakBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+    speakBtn.textContent = "🔊 Speak";
+    speakBtn.title = "Read this response aloud";
+    speakBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      if(speakBtn._saTtsStop){ speakBtn._saTtsStop(); return; }
+      saTtsSpeak(text, voice, speakBtn);
+    });
+
+    actRow.appendChild(copyBtn);
+    actRow.appendChild(speakBtn);
+    msgBody.appendChild(actRow);
   };
 
   /* Patch renderThread to add TTS buttons to every assistant message */
