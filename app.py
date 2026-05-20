@@ -16647,7 +16647,7 @@ input[type="range"]::-moz-range-progress {
                 <button id="screenshotDmBtn"    class="saMoreItem" style="color:#e2e8f0;">📸 Take a Screenshot</button>
                 <button id="screenDmBtn"        class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share Screen</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-                <button id="talkDmBtn"          class="saMoreItem" style="display:none;color:#93c5fd;">🔊 Speak once</button>
+                <button id="talkDmBtn"          style="display:none;position:absolute;left:-9999px;"></button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
