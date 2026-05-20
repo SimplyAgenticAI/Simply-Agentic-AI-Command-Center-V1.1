@@ -14309,6 +14309,7 @@ label         { font-size: 14px !important; }
           <div class="modal" id="modalWin">
             <div class="modalBar" id="modalBar">
               <div class="modalBarTitle" id="modalTitle">Round Table</div>
+              <button id="saModalPinBtn" style="display:none;padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.15);color:#c4b5fd;transition:all .15s;white-space:nowrap;flex-shrink:0;" onclick="if(window._saModalPinKey)window.saTogglePin(window._saModalPinKey)">&#11088; Pin to bar</button>
               <div class="modalBarBtns">
                 <button class="btn btnTiny" id="minModal">Minimize</button>
                 <button class="btn btnTiny" id="restoreModal" style="display:none">Restore</button>
@@ -17114,6 +17115,7 @@ window.showModal = function showModal(title, body, imgUrl){
     function hideModal(){
       try{ document.body.style.overflow = ""; }catch(_){ }
       document.body.classList.remove('modal-open');
+      try{ if(window.saSetModalPin) window.saSetModalPin(null); }catch(_){}
 
       const _ov = $("overlay");
       if(_ov){
@@ -17690,6 +17692,7 @@ window.showModal = function showModal(title, body, imgUrl){
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("smsConsoleForm")) $("smsConsoleForm").style.display = 'block';
       if($("modalTitle")) $("modalTitle").innerText = titleText;
+      if(window.saSetModalPin) window.saSetModalPin('sms_console');
     }
 
 
@@ -19873,6 +19876,22 @@ async function pollImageJob(jobId, seatName){
         _buildPinPanel();
       }
 
+      // Show/update the in-modal pin button for the given feature key (null = hide it)
+      window.saSetModalPin = function(key){
+        window._saModalPinKey = key || null;
+        const btn = document.getElementById('saModalPinBtn');
+        if(!btn) return;
+        if(!key){ btn.style.display='none'; return; }
+        const f = FEATURE_MAP[key]; if(!f){ btn.style.display='none'; return; }
+        const isPinned = _pinned.includes(key);
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.textContent = isPinned ? '📌 Pinned' : '⭐ Pin to bar';
+        btn.style.background   = isPinned ? 'rgba(251,191,36,.22)' : 'rgba(124,58,237,.15)';
+        btn.style.borderColor  = isPinned ? 'rgba(251,191,36,.5)'  : 'rgba(124,58,237,.4)';
+        btn.style.color        = isPinned ? '#fcd34d' : '#c4b5fd';
+      };
+
       // Toggle pin for a feature key
       window.saTogglePin = function(key){
         const idx = _pinned.indexOf(key);
@@ -19880,6 +19899,8 @@ async function pollImageJob(jobId, seatName){
         else _pinned.push(key);
         _renderPinnedBar();
         _savePinned();
+        // Refresh the in-modal pin button if it belongs to this key
+        if(window._saModalPinKey === key && window.saSetModalPin) window.saSetModalPin(key);
         if(typeof showToast==='function') showToast(idx>=0 ? '&#128204; Unpinned' : '&#128204; Pinned to bar!');
       };
 
@@ -21048,22 +21069,27 @@ Challenge weak assumptions. Surface risks.`;
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
+      if(window.saSetModalPin) window.saSetModalPin('email_console');
     }
 
     function showGrowthPlaybookModal(){
       showCRMModal('crmViewPlaybooks', 'Growth Playbook', {standalone:true});
+      if(window.saSetModalPin) window.saSetModalPin('growth_playbook');
     }
 
     function showLeadLabModal(){
       showCRMModal('crmViewLeadLab', 'Lead Lab', {standalone:true});
+      if(window.saSetModalPin) window.saSetModalPin('lead_lab');
     }
 
     function showSocialStudioModal(){
       showCRMModal('crmViewSocialStudio', 'Social Studio', {standalone:true});
+      if(window.saSetModalPin) window.saSetModalPin('social_studio');
     }
 
     function showOfferBuilderModal(){
       showCRMModal('crmViewOfferBuilder', 'Offer Builder', {standalone:true});
+      if(window.saSetModalPin) window.saSetModalPin('offer_builder');
     }
 
     // ===== VISUAL CREATOR =====
@@ -22042,6 +22068,7 @@ async function crmFetchTasks(){
 
     window.showCRMModal = function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
+      if(!standalone && window.saSetModalPin) window.saSetModalPin('crm');
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       if($("frameworkForm")) $("frameworkForm").style.display = "none";
@@ -25587,6 +25614,7 @@ window.showCalendarModal=function showCalendarModal(){
   wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); });
   clearInterval(window._wcalNowInterval);
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
+  if(window.saSetModalPin) window.saSetModalPin('calendar');
 };
 
 // Keep backward-compat stubs
@@ -25604,6 +25632,7 @@ async function showImageLibraryModal(startTab){
   showModal("Media Library", "");
   if($("calendarForm")) $("calendarForm").style.display = "none";
   if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
+  if(window.saSetModalPin) window.saSetModalPin('image_lib');
   const body = $("modalBody");
   if(!body) return;
 
@@ -29488,13 +29517,7 @@ document.addEventListener("click", function(e) {
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("notepadForm")) $("notepadForm").style.display = "block";
       if($("modalTitle")) $("modalTitle").innerText = "Notepad";
-      try {
-        var hdr = document.querySelector("#modalWin .modalHeader .modalActions");
-        if(hdr && !hdr.querySelector("[data-pin-key='notepad']") && typeof saCreatePinBtn==="function") {
-          var pb = saCreatePinBtn("notepad");
-          if(pb) hdr.insertBefore(pb, hdr.firstChild);
-        }
-      } catch(e) {}
+      if(window.saSetModalPin) window.saSetModalPin('notepad');
       npLoad();
     };
 
@@ -29565,12 +29588,7 @@ document.addEventListener("click", function(e) {
       if($("modalBody"))$("modalBody").style.display="none";
       if($("siteAnalyzerForm"))$("siteAnalyzerForm").style.display="block";
       if($("modalTitle"))$("modalTitle").innerText="Site Analyzer";
-      try{
-        var hdr=document.querySelector("#modalWin .modalHeader .modalActions");
-        if(hdr&&!hdr.querySelector("[data-pin-key='site_analyzer']")&&typeof saCreatePinBtn==="function"){
-          var pb=saCreatePinBtn("site_analyzer");if(pb)hdr.insertBefore(pb,hdr.firstChild);
-        }
-      }catch(e){}
+      if(window.saSetModalPin) window.saSetModalPin('site_analyzer');
     };
 
     window.runSiteAnalysis=async function(){
@@ -29601,6 +29619,7 @@ document.addEventListener("click", function(e) {
     if($("modalBody")) $("modalBody").style.display = "none";
     if($("prospectDossierForm")) $("prospectDossierForm").style.display = "block";
     if($("modalTitle")) $("modalTitle").innerText = "🎯 Prospect Dossier";
+    if(window.saSetModalPin) window.saSetModalPin('prospect_dossier');
   };
 
   window.runProspectDossier = async function(){
@@ -29639,6 +29658,7 @@ document.addEventListener("click", function(e) {
     if($("modalBody")) $("modalBody").style.display = "none";
     if($("marketScannerForm")) $("marketScannerForm").style.display = "block";
     if($("modalTitle")) $("modalTitle").innerText = "📊 Market Scanner";
+    if(window.saSetModalPin) window.saSetModalPin('market_scanner');
   };
 
   window.runMarketScanner = async function(){
@@ -29677,6 +29697,7 @@ document.addEventListener("click", function(e) {
     if($("modalBody")) $("modalBody").style.display = "none";
     if($("intentSignalsForm")) $("intentSignalsForm").style.display = "block";
     if($("modalTitle")) $("modalTitle").innerText = "📡 Intent Signals";
+    if(window.saSetModalPin) window.saSetModalPin('intent_signals');
   };
 
   window.runIntentSignals = async function(){
