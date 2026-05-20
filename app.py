@@ -5582,9 +5582,9 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="editEmail">
     <label>Plan</label>
     <select id="editPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
       <option value="founder">Founder</option>
+      <option value="starter">Solo</option>
+      <option value="growth">Teams</option>
     </select>
     <label>Status</label>
     <select id="editStatus">
