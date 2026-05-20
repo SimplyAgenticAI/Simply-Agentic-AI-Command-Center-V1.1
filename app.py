@@ -18451,10 +18451,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               content.appendChild(crmBtn);
             }
           }
-          // Copy button — visible directly on every assistant message bubble
+          // Copy + Speak buttons — visible directly on every assistant message bubble
           if(m.role !== "user" && raw){
-            const copyRow = document.createElement("div");
-            copyRow.style.cssText = "margin-top:8px;";
+            const actRow = document.createElement("div");
+            actRow.style.cssText = "margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;";
+
+            // Copy button
             const copyBtn = document.createElement("button");
             copyBtn.className = "btn btnMini";
             copyBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
@@ -18479,8 +18481,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 setTimeout(()=>{ copyBtn.innerText = "📋 Copy"; }, 1500);
               }
             };
-            copyRow.appendChild(copyBtn);
-            content.appendChild(copyRow);
+
+            // Speak button — reads the message aloud using the teammate's configured voice
+            const speakBtn = document.createElement("button");
+            speakBtn.className = "btn btnMini";
+            speakBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+            speakBtn.innerText = "🔊 Speak";
+            speakBtn.title = "Read response aloud";
+            speakBtn.onclick = (e) => {
+              e.stopPropagation();
+              if(speakBtn._saTtsStop){ speakBtn._saTtsStop(); return; }
+              const voice = ((state && state.installed && state.installed[selectedSeat||""]) || {}).tts_voice || "alloy";
+              if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
+            };
+
+            actRow.appendChild(copyBtn);
+            actRow.appendChild(speakBtn);
+            content.appendChild(actRow);
           }
         }
 
