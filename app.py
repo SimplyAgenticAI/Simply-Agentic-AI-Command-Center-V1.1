@@ -16643,10 +16643,11 @@ input[type="range"]::-moz-range-progress {
             <div style="position:relative;display:inline-block;" id="dmAttachWrap">
               <button class="btn btnMini" id="dmAttachBtn" onclick="saToggleDmAttach()" style="font-weight:700;font-size:15px;padding:3px 10px;line-height:1.4;" title="Actions">+</button>
               <div id="dmAttachDrop" style="display:none;position:absolute;bottom:calc(100% + 6px);left:0;width:202px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
-                <button id="pickDmFiles"        class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files</button>
+                <button id="pickDmFiles"        class="saMoreItem" style="color:#e2e8f0;">📎 Attach Files or Photos</button>
+                <button id="screenshotDmBtn"    class="saMoreItem" style="color:#e2e8f0;">📸 Take a Screenshot</button>
                 <button id="screenDmBtn"        class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share Screen</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-                <button id="talkDmBtn"          class="saMoreItem" style="color:#93c5fd;">🔊 Speak once</button>
+                <button id="talkDmBtn"          class="saMoreItem" style="display:none;color:#93c5fd;">🔊 Speak once</button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
@@ -18450,6 +18451,37 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               content.appendChild(crmBtn);
             }
           }
+          // Copy button — visible directly on every assistant message bubble
+          if(m.role !== "user" && raw){
+            const copyRow = document.createElement("div");
+            copyRow.style.cssText = "margin-top:8px;";
+            const copyBtn = document.createElement("button");
+            copyBtn.className = "btn btnMini";
+            copyBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+            copyBtn.innerText = "📋 Copy";
+            copyBtn.title = "Copy response";
+            copyBtn.onclick = (e) => {
+              e.stopPropagation();
+              const txt = raw;
+              if(navigator.clipboard && navigator.clipboard.writeText){
+                navigator.clipboard.writeText(txt).then(()=>{
+                  copyBtn.innerText = "✓ Copied";
+                  copyBtn.style.opacity = "1";
+                  setTimeout(()=>{ copyBtn.innerText = "📋 Copy"; copyBtn.style.opacity = ".65"; }, 1500);
+                }).catch(()=>{});
+              } else {
+                const ta = document.createElement("textarea");
+                ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+                document.body.appendChild(ta); ta.select();
+                try{ document.execCommand("copy"); }catch(_){}
+                document.body.removeChild(ta);
+                copyBtn.innerText = "✓ Copied";
+                setTimeout(()=>{ copyBtn.innerText = "📋 Copy"; }, 1500);
+              }
+            };
+            copyRow.appendChild(copyBtn);
+            content.appendChild(copyRow);
+          }
         }
 
         if(m.role !== "user"){ lastSeatAssistantText = (m.content || ""); window.lastSeatAssistantText = lastSeatAssistantText; }
@@ -18821,6 +18853,30 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     $("screenGroupBtn").onclick = () => captureAndAttach("group");
     $("screenDmBtn").onclick = () => captureAndAttach("dm");
+
+    // Screenshot button in DM + menu — uses camera on mobile, screen capture on desktop
+    $("screenshotDmBtn").onclick = async function(){
+      saToggleDmAttach();
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if(isMobile){
+        const inp = document.createElement("input");
+        inp.type = "file";
+        inp.accept = "image/*";
+        inp.onchange = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          if(!file) return;
+          try{
+            const rec = await uploadOne(file);
+            dmFileIds.push(rec.id);
+            renderAttachList("dmAttachList", dmFileIds);
+            if(typeof showToast==="function") showToast("Photo attached!");
+          }catch(err){ showModal("Upload error", String(err && err.message ? err.message : err)); }
+        };
+        inp.click();
+      } else {
+        await captureAndAttach("dm");
+      }
+    };
 
 
     // --- Voice / Mic reliability patch (ADD v6) ---
