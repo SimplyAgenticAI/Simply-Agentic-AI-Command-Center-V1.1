@@ -19790,90 +19790,6 @@ async function pollImageJob(jobId, seatName){
           btn.onclick = ()=>{ const fn=window[f.fn]; if(typeof fn==='function') fn(); };
           bar.appendChild(btn);
         });
-        // "Manage pins" toggle button
-        const addBtn = document.createElement('button');
-        addBtn.id = 'saPinManageBtn';
-        addBtn.title = 'Manage pinned shortcuts';
-        addBtn.style.cssText = 'background:transparent;border:1px dashed rgba(124,58,237,.45);color:#7c3aed;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:2px;transition:all .12s;line-height:1.4;';
-        addBtn.innerHTML = '&#128204; <span style="font-size:14px;line-height:1;">+</span>';
-        addBtn.onmouseenter = ()=>{ addBtn.style.borderColor='rgba(124,58,237,.8)'; addBtn.style.color='#a78bfa'; addBtn.style.background='rgba(124,58,237,.1)'; };
-        addBtn.onmouseleave = ()=>{ addBtn.style.borderColor='rgba(124,58,237,.45)'; addBtn.style.color='#7c3aed'; addBtn.style.background='transparent'; };
-        addBtn.onclick = (e)=>{ e.stopPropagation(); _togglePinPanel(); };
-        bar.appendChild(addBtn);
-        // Update all open pin buttons to reflect current state
-        document.querySelectorAll('[data-pin-key]').forEach(el=>{
-          const key = el.getAttribute('data-pin-key');
-          const isPinned = _pinned.includes(key);
-          el.textContent = isPinned ? '📌 Pinned' : '⭐ Pin to bar';
-          el.style.background = isPinned ? 'rgba(251,191,36,.2)' : 'rgba(124,58,237,.15)';
-          el.style.borderColor = isPinned ? 'rgba(251,191,36,.45)' : 'rgba(124,58,237,.35)';
-          el.style.color       = isPinned ? '#fcd34d' : '#c4b5fd';
-        });
-        // Refresh panel contents if it is currently open
-        if(document.getElementById('saPinPanel')) _buildPinPanel();
-      }
-
-      // Build / refresh the pin management popover
-      function _buildPinPanel(){
-        let panel = document.getElementById('saPinPanel');
-        if(!panel){ panel = document.createElement('div'); panel.id = 'saPinPanel'; document.body.appendChild(panel); }
-        const bar = document.getElementById('saPinnedBar');
-        const rect = bar ? bar.getBoundingClientRect() : {left:8, bottom:48};
-        panel.style.cssText = [
-          'position:fixed','z-index:99999',
-          'top:'+(rect.bottom+8)+'px',
-          'left:'+Math.max(8,rect.left)+'px',
-          'background:rgba(10,14,30,.98)',
-          'border:1px solid rgba(124,58,237,.45)',
-          'border-radius:14px',
-          'box-shadow:0 16px 48px rgba(0,0,0,.65)',
-          'padding:14px 12px',
-          'width:250px',
-          'max-height:70vh',
-          'overflow-y:auto'
-        ].join(';');
-        const GROUPS = [
-          { label:'Create',   keys:['notepad','image_lib','offer_builder','growth_playbook'] },
-          { label:'Research', keys:['site_analyzer','prospect_dossier','market_scanner','intent_signals'] },
-          { label:'Manage',   keys:['crm','lead_lab','social_studio','email_console','sms_console','dashboard'] },
-          { label:'Tools',    keys:['calendar'] },
-        ];
-        let rows = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-        rows += '<span style="color:#a78bfa;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;">&#128204; Pin Shortcuts</span>';
-        rows += '<button id="saPinPanelClose" style="background:none;border:none;color:#64748b;font-size:15px;cursor:pointer;padding:0 2px;line-height:1;">&#10005;</button>';
-        rows += '</div>';
-        GROUPS.forEach(g=>{
-          rows += '<div style="color:#475569;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin:8px 0 3px 2px;">'+g.label+'</div>';
-          g.keys.forEach(key=>{
-            const f = FEATURE_MAP[key]; if(!f) return;
-            const pinned = _pinned.includes(key);
-            const pillBg  = pinned ? 'rgba(251,191,36,.18)' : 'rgba(124,58,237,.1)';
-            const pillBrd = pinned ? 'rgba(251,191,36,.45)' : 'rgba(124,58,237,.28)';
-            const pillCol = pinned ? '#fcd34d' : '#7c3aed';
-            const pillTxt = pinned ? '&#128204; Pinned' : '+ Pin';
-            rows += '<div data-pinrow="'+key+'" style="display:flex;align-items:center;justify-content:space-between;padding:6px 6px;border-radius:8px;cursor:pointer;">';
-            rows += '<span style="color:#e2e8f0;font-size:13px;">'+f.icon+' '+f.label+'</span>';
-            rows += '<span style="font-size:11px;padding:2px 9px;border-radius:5px;font-weight:600;background:'+pillBg+';color:'+pillCol+';border:1px solid '+pillBrd+';">'+pillTxt+'</span>';
-            rows += '</div>';
-          });
-        });
-        panel.innerHTML = rows;
-        // Wire close button
-        const closeBtn = panel.querySelector('#saPinPanelClose');
-        if(closeBtn) closeBtn.onclick = ()=>{ panel.remove(); };
-        // Wire row clicks
-        panel.querySelectorAll('[data-pinrow]').forEach(row=>{
-          const k = row.getAttribute('data-pinrow');
-          row.onmouseenter = ()=>{ row.style.background='rgba(124,58,237,.13)'; };
-          row.onmouseleave = ()=>{ row.style.background='transparent'; };
-          row.onclick = ()=>{ window.saTogglePin(k); };
-        });
-      }
-
-      function _togglePinPanel(){
-        const existing = document.getElementById('saPinPanel');
-        if(existing){ existing.remove(); return; }
-        _buildPinPanel();
       }
 
       // Show/update the in-modal pin button for the given feature key (null = hide it)
@@ -19886,7 +19802,7 @@ async function pollImageJob(jobId, seatName){
         const isPinned = _pinned.includes(key);
         btn.style.display = 'inline-flex';
         btn.style.alignItems = 'center';
-        btn.textContent = isPinned ? '📌 Pinned' : '⭐ Pin to bar';
+        btn.textContent = isPinned ? 'Pinned' : 'Pin';
         btn.style.background   = isPinned ? 'rgba(251,191,36,.22)' : 'rgba(124,58,237,.15)';
         btn.style.borderColor  = isPinned ? 'rgba(251,191,36,.5)'  : 'rgba(124,58,237,.4)';
         btn.style.color        = isPinned ? '#fcd34d' : '#c4b5fd';
@@ -19901,7 +19817,7 @@ async function pollImageJob(jobId, seatName){
         _savePinned();
         // Refresh the in-modal pin button if it belongs to this key
         if(window._saModalPinKey === key && window.saSetModalPin) window.saSetModalPin(key);
-        if(typeof showToast==='function') showToast(idx>=0 ? '&#128204; Unpinned' : '&#128204; Pinned to bar!');
+        if(typeof showToast==='function') showToast(idx>=0 ? 'Unpinned' : 'Pinned!');
       };
 
       // Create a standard pin button element for any feature modal
@@ -19924,16 +19840,6 @@ async function pollImageJob(jobId, seatName){
 
       // Init
       _loadPinned();
-
-      // Close pin panel when clicking outside
-      document.addEventListener('click', function(e){
-        const panel = document.getElementById('saPinPanel');
-        if(!panel) return;
-        const manageBtn = document.getElementById('saPinManageBtn');
-        if(!panel.contains(e.target) && e.target !== manageBtn && !panel.querySelector('#saPinPanelClose').contains(e.target)){
-          panel.remove();
-        }
-      }, true);
     })();
     // ===== END PINNED FEATURE SHORTCUTS =====
     // ===== END EXPAND MODAL =====
