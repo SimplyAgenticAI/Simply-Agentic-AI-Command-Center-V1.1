@@ -17743,20 +17743,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else if(isCustom){
-        // Custom teammate: fixed position in lower-left area, never touches the ellipse
+        // Custom teammate: renderTable positions these in a centered row — just mark absolute here.
         seat.style.position = "absolute";
-        function _posCustom(){
-          const r = wrap.getBoundingClientRect();
-          const w = r.width || wrap.offsetWidth || 800;
-          const h = r.height || wrap.offsetHeight || 560;
-          const cardW = 118, cardH = 150;
-          const col = (overflowIdx || 0) % 3;
-          const row = Math.floor((overflowIdx || 0) / 3);
-          seat.style.left = Math.round(18 + col * (cardW + 14)) + "px";
-          seat.style.top  = Math.round(h - cardH - 14 - row * (cardH + 12)) + "px";
-        }
-        if(wrap.offsetWidth > 0){ _posCustom(); }
-        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustom); }); }
+        seat.style.left = "-9999px";
+        seat.style.top  = "-9999px";
       } else {
         // Built-in: always use locked 8-slot ellipse — positions never shift
         seat.style.position = "absolute";
@@ -17818,9 +17808,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
 
-      // Built-ins go on the fixed 8-slot ellipse; custom teammates fill the gap angles.
+      // Built-ins go on the fixed 8-slot ellipse; custom teammates go in a centered row in the middle of the table.
       let ellipseSlot = 1;
       let overflowIdx = 0;
+      const customSeatEls = [];
       seats.forEach((name) => {
         const defn = installed[name];
         const isCustom = BUILTINS.indexOf(name) === -1;
@@ -17828,6 +17819,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
           overflowIdx++;
           wrap.appendChild(seat);
+          customSeatEls.push(seat);
         } else {
           const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
           ellipseSlot++;
@@ -17835,6 +17827,28 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
+
+      // Center custom seats in a horizontal row at the vertical midpoint of the table.
+      // This space is always clear of built-in cards (Operator is above, Luna is below).
+      if(customSeatEls.length > 0){
+        function _posCustomRow(){
+          const r = wrap.getBoundingClientRect();
+          const w = r.width || wrap.offsetWidth || 800;
+          const h = r.height || wrap.offsetHeight || 520;
+          const cx = w / 2, cy = h / 2;
+          const cardW = 118, cardH = 150;
+          const spacing = cardW + 14;
+          const n = customSeatEls.length;
+          const totalW = n * cardW + (n - 1) * 14;
+          const startX = cx - totalW / 2;
+          customSeatEls.forEach(function(seat, i){
+            seat.style.left = Math.round(startX + i * spacing) + "px";
+            seat.style.top  = Math.round(cy - cardH / 2) + "px";
+          });
+        }
+        if(wrap.offsetWidth > 0){ _posCustomRow(); }
+        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomRow); }); }
+      }
 
       // ── NUCLEAR MOBILE FIX ──────────────────────────────────────────────────
       // Three-layer defence for phones ≤640px:
