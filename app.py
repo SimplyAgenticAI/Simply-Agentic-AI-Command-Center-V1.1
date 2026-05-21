@@ -15168,7 +15168,10 @@ label         { font-size: 14px !important; }
     <div id="plMain">
       <div id="plMainHeader">
         <div id="plTeammateTitle">Select a teammate</div>
-        <div id="plCountLabel"></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <input id="plSearch" type="text" placeholder="Search prompts…" oninput="plFilterCards()" style="background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:6px 12px;color:#e2e8f0;font-size:13px;width:180px;outline:none;" />
+          <div id="plCountLabel"></div>
+        </div>
       </div>
 
       <!-- Scrollable card area — grows to fill available space -->
@@ -16673,31 +16676,31 @@ input[type="range"]::-moz-range-progress {
 if (typeof window.showToast !== "function") {
   window.showToast = function(msg, type) {
     try {
+      const isError = type === "error";
       const el = document.createElement("div");
-      el.textContent = msg;
+      el.style.cssText = "position:fixed;bottom:20px;right:20px;padding:10px 14px;border-radius:8px;font-size:14px;z-index:999999;max-width:340px;display:flex;align-items:flex-start;gap:8px;line-height:1.4;word-break:break-word;";
+      el.style.background = isError ? "#7f1d1d" : "#1f2937";
+      el.style.color = "#fff";
+      el.style.border = isError ? "1px solid #dc2626" : "none";
 
-      el.style.position = "fixed";
-      el.style.bottom = "20px";
-      el.style.right = "20px";
-      el.style.padding = "10px 14px";
-      el.style.borderRadius = "8px";
-      el.style.fontSize = "14px";
-      el.style.zIndex = 999999;
+      const txt = document.createElement("span");
+      txt.textContent = msg;
+      txt.style.flex = "1";
+      el.appendChild(txt);
 
-      if (type === "error") {
-        el.style.background = "#7f1d1d";
-        el.style.color = "#fff";
-      } else {
-        el.style.background = "#1f2937";
-        el.style.color = "#fff";
+      if(isError){
+        const x = document.createElement("button");
+        x.textContent = "×";
+        x.style.cssText = "background:none;border:none;color:#fca5a5;cursor:pointer;font-size:18px;line-height:1;padding:0 0 0 6px;flex-shrink:0;";
+        x.onclick = function(){ el.remove(); };
+        el.appendChild(x);
       }
 
       document.body.appendChild(el);
 
-      setTimeout(() => {
-        el.remove();
-      }, 3000);
-
+      if(!isError){
+        setTimeout(() => { el.remove(); }, 3000);
+      }
     } catch (e) {
       alert(msg);
     }
@@ -20289,8 +20292,13 @@ Challenge weak assumptions. Surface risks.`;
 
     window.plSwitchTab = function(tm){
       plActiveTeammate = tm;
+      var s = $("plSearch"); if(s) s.value = "";
       renderPlTabs();
       renderPlCards(tm);
+    };
+
+    window.plFilterCards = function(){
+      renderPlCards(plActiveTeammate);
     };
 
     const _TIER_NAMES = {2:'Field Agent',3:'Command Ready',4:'Senior Operator',5:'Elite Operator',6:'Legendary'};
@@ -20304,12 +20312,16 @@ Challenge weak assumptions. Surface risks.`;
       if(!tmData){ container.innerHTML = '<div style="color:#64748b;font-size:13px;">No prompts found.</div>'; return; }
       if(titleEl) titleEl.innerText = tm;
 
+      const searchQ = (($("plSearch")||{}).value||"").trim().toLowerCase();
       const cats = tmData.categories || {};
       const catKeys = Object.keys(cats).sort((a,b) => a==="Custom"?1:b==="Custom"?-1:a.localeCompare(b));
       let total = 0;
       let html  = "";
       for(const cat of catKeys){
-        const prompts = cats[cat] || [];
+        const allPrompts = cats[cat] || [];
+        const prompts = searchQ
+          ? allPrompts.filter(p => (p.title||"").toLowerCase().includes(searchQ) || (p.prompt||"").toLowerCase().includes(searchQ) || (p.category||"").toLowerCase().includes(searchQ))
+          : allPrompts;
         if(!prompts.length) continue;
         total += prompts.length;
         html += `<div class="plCat">${escapeHtml(cat)}</div>`;
@@ -20346,7 +20358,9 @@ Challenge weak assumptions. Surface risks.`;
           </div>`;
         }
       }
-      container.innerHTML = html || '<div style="color:#64748b;font-size:13px;">No prompts yet.</div>';
+      container.innerHTML = html || (searchQ
+        ? '<div style="color:#64748b;font-size:13px;padding:16px 0;">No prompts match "' + escapeHtml(searchQ) + '"</div>'
+        : '<div style="color:#64748b;font-size:13px;">No prompts yet.</div>');
       if(countEl) countEl.innerText = total + " prompt" + (total!==1?"s":"");
     }
 
@@ -21148,7 +21162,15 @@ Challenge weak assumptions. Surface risks.`;
       const list = (crmCache.clients||[]).filter(c=>crmMatchFilter(c,q,filt));
 
       if(!list.length){
-        box.innerHTML = '<div class="tiny" style="opacity:.9;">No clients found.</div>';
+        const noData = !(crmCache.clients||[]).length;
+        box.innerHTML = noData
+          ? `<div style="text-align:center;padding:48px 24px;color:#64748b;">
+               <div style="font-size:36px;margin-bottom:12px;">👤</div>
+               <div style="font-size:15px;font-weight:600;color:#94a3b8;margin-bottom:6px;">No contacts yet</div>
+               <div style="font-size:13px;margin-bottom:18px;">Add your first contact or import a CSV to get started.</div>
+               <button class="btn btnPrimary" onclick="crmOpenClientEditor(null)" style="font-size:13px;">+ Add Contact</button>
+             </div>`
+          : `<div style="text-align:center;padding:32px 16px;color:#64748b;font-size:13px;">No contacts match your search or filter.</div>`;
         return;
       }
 
@@ -29008,7 +29030,22 @@ document.addEventListener("click", function(e) {
 
 
     // ══ NOTEPAD MODAL ════════════════════════════════════════
-    var _npNotes = [], _npCurrent = null;
+    var _npNotes = [], _npCurrent = null, _npDirty = false, _npSavedTitle = "", _npSavedContent = "";
+
+    function npMarkClean(){
+      _npDirty = false;
+      _npSavedTitle   = ($("npTitle")   || {}).value || "";
+      _npSavedContent = ($("npContent") || {}).value || "";
+      var st = $("npStatus"); if(st && st.textContent === "• Unsaved changes") st.textContent = "";
+    }
+
+    function npCheckDirty(){
+      var t = ($("npTitle")   || {}).value || "";
+      var c = ($("npContent") || {}).value || "";
+      _npDirty = (t !== _npSavedTitle || c !== _npSavedContent);
+      var st = $("npStatus");
+      if(st) st.textContent = _npDirty ? "• Unsaved changes" : st.textContent === "• Unsaved changes" ? "" : st.textContent;
+    }
 
     window.showNotepadModal = function() {
       showModal();
@@ -29018,6 +29055,10 @@ document.addEventListener("click", function(e) {
       if($("modalTitle")) $("modalTitle").innerText = "Notepad";
       if(window.saSetModalPin) window.saSetModalPin('notepad');
       npLoad();
+      // Wire dirty-tracking on title/content inputs (idempotent)
+      var ti = $("npTitle"), co = $("npContent");
+      if(ti && !ti._npDirtyWired){ ti.addEventListener("input", npCheckDirty); ti._npDirtyWired = true; }
+      if(co && !co._npDirtyWired){ co.addEventListener("input", npCheckDirty); co._npDirtyWired = true; }
     };
 
     async function npLoad() {
@@ -29038,13 +29079,20 @@ document.addEventListener("click", function(e) {
     }
 
     function npSelect(i){
+      if(_npDirty && _npCurrent !== null && _npCurrent !== i){
+        if(!confirm("You have unsaved changes. Discard and switch notes?")) return;
+      }
       _npCurrent=i; var n=_npNotes[i];
       if($("npTitle"))$("npTitle").value=n.title||"";
       if($("npContent"))$("npContent").value=n.content||"";
+      npMarkClean();
       npRenderList();
     }
 
     window.npNewNote=function(){
+      if(_npDirty && _npCurrent !== null){
+        if(!confirm("You have unsaved changes. Discard and create a new note?")) return;
+      }
       _npNotes.unshift({id:Date.now(),title:"",content:"",updated:new Date().toISOString()});
       _npCurrent=0;npRenderList();npSelect(0);if($("npTitle"))$("npTitle").focus();
     };
@@ -29056,6 +29104,7 @@ document.addEventListener("click", function(e) {
       _npNotes[_npCurrent].updated=new Date().toISOString();
       try{
         await fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
+        npMarkClean();
         if($("npStatus")){$("npStatus").textContent="Saved";setTimeout(function(){if($("npStatus"))$("npStatus").textContent="";},2000);}
       }catch(e){}
       npRenderList();
@@ -29090,6 +29139,19 @@ document.addEventListener("click", function(e) {
       if(window.saSetModalPin) window.saSetModalPin('site_analyzer');
     };
 
+    window.saResearchCopy = function(btn, contentId){
+      var t = document.getElementById(contentId);
+      if(!t) return;
+      navigator.clipboard.writeText(t.innerText).then(function(){
+        btn.textContent = '✅ Copied!';
+        setTimeout(function(){ btn.textContent = '📋 Copy'; }, 1800);
+      }, function(){});
+    };
+
+    function saResCopyBar(contentId){
+      return '<div style="text-align:right;padding-bottom:10px;"><button onclick="saResearchCopy(this,\''+contentId+'\')" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:5px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📋 Copy</button></div>';
+    }
+
     window.runSiteAnalysis=async function(){
       var url=($("saUrl")||{}).value||"";if(!url){alert("Enter a URL first.");return;}
       var btn=$("saAnalyzeBtn"),res=$("saResults");
@@ -29107,7 +29169,7 @@ document.addEventListener("click", function(e) {
         if(a.seo_summary) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>SEO Signals</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.seo_summary)+"</div></div>";
         if(a.target_audience) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>Target Audience</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.target_audience)+"</div></div>";
         var competeH=a.how_to_compete?"<div style='margin-top:20px;padding:14px 16px;background:rgba(124,58,237,.09);border-radius:10px;border-left:3px solid rgba(124,58,237,.5);'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>How to Win Against Them</div><div style='font-size:14px;color:#c4b5fd;line-height:1.65;'>"+escapeHtml(a.how_to_compete)+"</div></div>":"";
-        if(res)res.innerHTML="<div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>"+(intelH?"<div style='margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);'>"+intelH+"</div>":"")+competeH;
+        if(res)res.innerHTML=saResCopyBar('saResultContent')+"<div id='saResultContent'><div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>"+(intelH?"<div style='margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);'>"+intelH+"</div>":"")+competeH+"</div>";
       }catch(e){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+e.message+"</div>";}
       if(btn){btn.disabled=false;btn.textContent="Analyze";}
     };
@@ -29143,7 +29205,7 @@ document.addEventListener("click", function(e) {
       if(b.tech_stack) html += section("Tech / Tools Used","🔧",`<div style="font-size:13px;color:#94a3b8;">${escapeHtml(b.tech_stack)}</div>`);
       if(b.outreach_angle) html += section("Suggested Outreach Angle","🎯",`<div style="font-size:14px;color:#c4b5fd;line-height:1.65;font-style:italic;">"${escapeHtml(b.outreach_angle)}"</div>`);
       if(b.talking_points&&b.talking_points.length) html += section("Talking Points","💬",listHtml(b.talking_points,"#7dd3fc"));
-      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>";
+      if(res) res.innerHTML = saResCopyBar('pdResultContent') + "<div id='pdResultContent'>" + (html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>") + "</div>";
     }catch(e){
       if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
     }finally{
@@ -29182,7 +29244,7 @@ document.addEventListener("click", function(e) {
       if((m.market_gaps||[]).length) html += section("Market Gaps & Opportunities","💡",listHtml(m.market_gaps,"#fbbf24"));
       if((m.best_channels||[]).length) html += section("Best Channels to Reach This Market","📣",listHtml(m.best_channels,"#7dd3fc"));
       if(m.positioning_advice) html += section("Your Positioning Angle","🎯",`<div style="font-size:14px;color:#c4b5fd;line-height:1.65;font-style:italic;">"${escapeHtml(m.positioning_advice)}"</div>`);
-      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>";
+      if(res) res.innerHTML = saResCopyBar('msResultContent') + "<div id='msResultContent'>" + (html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>") + "</div>";
     }catch(e){
       if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
     }finally{
@@ -29218,7 +29280,7 @@ document.addEventListener("click", function(e) {
       if((s.trigger_keywords||[]).length) html += section("High-Intent Keywords to Monitor","🔑",(s.trigger_keywords||[]).map(function(k){ return `<span style="display:inline-block;background:rgba(124,58,237,.2);color:#c4b5fd;border-radius:6px;padding:3px 10px;font-size:12px;margin:3px;">${escapeHtml(k)}</span>`; }).join(''));
       if((s.where_to_look||[]).length) html += section("Where to Find These Buyers","📍",(s.where_to_look||[]).map(function(w){ return `<div style="font-size:13px;color:#7dd3fc;margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(125,211,252,.3);">${escapeHtml(w)}</div>`; }).join(''));
       if(s.outreach_hook) html += section("Best Opening Line","🎣",`<div style="font-size:14px;color:#86efac;line-height:1.65;font-style:italic;">"${escapeHtml(s.outreach_hook)}"</div>`);
-      if(res) res.innerHTML = html || "<div style='color:#64748b;padding:20px;'>No signals found. Try rephrasing your offer.</div>";
+      if(res) res.innerHTML = saResCopyBar('isResultContent') + "<div id='isResultContent'>" + (html || "<div style='color:#64748b;padding:20px;'>No signals found. Try rephrasing your offer.</div>") + "</div>";
     }catch(e){
       if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
     }finally{
