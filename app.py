@@ -320,7 +320,6 @@ PLANS: Dict[str, Any] = {
             "3 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
-            "SMS outreach via Twilio",
             "Lead Lab, Social Studio & Offer Builder",
             "AI Notepad — write, improve, expand & summarize",
             "Website & landing page analyzer (scored 1–100)",
@@ -343,7 +342,6 @@ PLANS: Dict[str, Any] = {
             "All 7 built-in AI teammates — GPT-4o & Claude",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
-            "SMS outreach via Twilio",
             "Lead Lab, Social Studio & Offer Builder",
             "AI Notepad — write, improve, expand & summarize",
             "Website & landing page analyzer (scored 1–100)",
@@ -366,7 +364,6 @@ PLANS: Dict[str, Any] = {
             "3 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
-            "SMS outreach via Twilio",
             "Lead Lab, Social Studio & Offer Builder",
             "AI Notepad — write, improve, expand & summarize",
             "Website & landing page analyzer (scored 1–100)",
@@ -6108,7 +6105,7 @@ def api_set_pinned_features():
         return jsonify({"ok": False, "error": "pinned_features must be a list"}), 400
     # Validate against known feature keys
     VALID_FEATURES = {"calendar","crm","lead_lab","social_studio","offer_builder","notepad","site_analyzer",
-                      "growth_playbook","image_lib","email_console","dashboard","sms_console",
+                      "growth_playbook","image_lib","email_console","dashboard",
                       "prospect_dossier","market_scanner","intent_signals"}
     pinned = [str(f) for f in pinned if str(f) in VALID_FEATURES][:12]
     users = load_users()
@@ -7401,32 +7398,6 @@ def api_send_email():
 
     return jsonify({"ok": True, "provider": provider})
 
-
-@app.post("/api/send_sms")
-def api_send_sms():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-
-    data = request.get_json(silent=True) or {}
-    to_phone = (data.get("to") or "").strip()
-    body = (data.get("body") or "").strip()
-    from_teammate = (data.get("from_teammate") or "").strip()
-
-    if not to_phone or not body:
-        return jsonify({"ok": False, "error": "Missing to or body"}), 400
-
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
-    if not ok_send:
-        return jsonify({"ok": False, "error": err or "SMS send failed"}), 400
-
-    try:
-        _crm_log_message(uname, {"type": "single_sms", "to": to_phone, "from_teammate": from_teammate, "sent": 1, "failed": 0})
-    except Exception:
-        pass
-
-    return jsonify({"ok": True, "provider": "twilio"})
 
 
 
@@ -8772,7 +8743,7 @@ footer a{color:var(--pl);text-decoration:none;}
   <div class="ctr"><span class="lbl">Features</span><h2 class="h2">Everything Built In. Nothing Extra to Buy.</h2></div>
   <div class="fgg">
     <div class="fgc a5"><span class="fgc-i">&#128302;</span><div class="fgc-n">Lead Lab</div><div class="fgc-d">Scored, contact-ready leads from the web. Filter by niche, location, count, and contact type. One-click to CRM or Sunshine.</div></div>
-    <div class="fgc a6"><span class="fgc-i">&#128203;</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email &amp; SMS broadcast, and client sequences &mdash; no extra tools required.</div></div>
+    <div class="fgc a6"><span class="fgc-i">&#128203;</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email broadcast, and client sequences &mdash; no extra tools required.</div></div>
     <div class="fgc a7"><span class="fgc-i">&#128227;</span><div class="fgc-n">Social Studio</div><div class="fgc-d">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X.</div></div>
     <div class="fgc a5"><span class="fgc-i">&#127919;</span><div class="fgc-n">Offer Builder</div><div class="fgc-d">Sharpen positioning, clarify your offer, and generate launch-ready copy from one structured form.</div></div>
     <div class="fgc a6"><span class="fgc-i">&#128218;</span><div class="fgc-n">Prompt Library</div><div class="fgc-d">200+ expert prompts organized by teammate. Click to fire instantly. Save custom prompts for reuse.</div></div>
@@ -9078,8 +9049,8 @@ var TIPS=[
    body:'Track leads from first touch to closed deal. Import contacts from Facebook, run email sequences, and let Sunshine draft personalised follow-ups that sound like you.'},
   {icon:'🧠',title:'Teammates remember your business',
    body:'Every conversation builds context. Your teammates learn your offer, voice, and audience — responses get sharper the more you use them.'},
-  {icon:'📡',title:'SMS + email broadcasts, built in',
-   body:'Connect Twilio for SMS or send email blasts. Sunshine drafts personalised outreach for every contact — one by one or in bulk, from the CRM.'},
+  {icon:'📡',title:'Email broadcasts, built in',
+   body:'Send personalised email blasts to your entire list or a filtered segment. Sunshine drafts outreach for every contact — one by one or in bulk, from the CRM.'},
   {icon:'🔌',title:'Chrome extension for Facebook leads',
    body:'Import leads from Facebook profiles, groups, and marketplace straight into your pipeline — tagged and staged automatically.'},
   {icon:'🎙',title:'Voice mode — talk to your team',
@@ -9998,10 +9969,10 @@ TERMS_HTML = r"""
     <li>We do not guarantee the accuracy, reliability, or fitness of AI-generated output for any particular purpose.</li>
   </ul>
 
-  <h2>7. Email, SMS, and Communication Features</h2>
-  <p>When using email or SMS features within the Service:</p>
+  <h2>7. Email and Communication Features</h2>
+  <p>When using email features within the Service:</p>
   <ul>
-    <li>You are solely responsible for complying with all applicable laws including CAN-SPAM, TCPA, GDPR, and any other applicable regulations governing electronic communications.</li>
+    <li>You are solely responsible for complying with all applicable laws including CAN-SPAM, GDPR, and any other applicable regulations governing electronic communications.</li>
     <li>You must have proper consent from recipients before sending any communications.</li>
     <li>You may not use the Service for unsolicited bulk messaging of any kind.</li>
     <li>We are not responsible for any communications you send through the Service.</li>
@@ -14597,7 +14568,7 @@ label         { font-size: 14px !important; }
                     </div>
                   </div>
 
-                  <!-- RIGHT: Google Connections + SMTP + Twilio -->
+                  <!-- RIGHT: Google Connections + SMTP -->
                   <div style="display:flex;flex-direction:column;gap:12px;">
                     <div>
                       <div class="tiny" style="margin-bottom:8px;font-weight:700;color:#c4b5fd;">Google Connections</div>
@@ -14619,19 +14590,6 @@ label         { font-size: 14px !important; }
                       </div>
                       <div class="tiny" style="margin-top:6px;opacity:.7;">Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable.</div>
                     </div>
-
-                    <details style="border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
-                      <summary style="cursor:pointer;user-select:none;font-size:12px;font-weight:700;color:#c4b5fd;">Twilio (SMS)</summary>
-                      <div class="tiny" style="margin-top:8px;opacity:.9;">Used for Broadcast SMS in the Client Center.</div>
-                      <label>Account SID</label><input id="twilioSid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-                      <label>Auth Token</label><input id="twilioToken" type="password" placeholder="••••••••" />
-                      <label>From Number</label><input id="twilioFrom" placeholder="+15551234567" />
-                      <div class="actions" style="justify-content:flex-start;gap:8px;margin-top:8px;">
-                        <button class="btn btnMini" id="twilioLoadBtn">Load</button>
-                        <button class="btn btnMini" id="twilioSaveBtn">Save</button>
-                      </div>
-                      <div class="tiny" id="twilioStatus" style="margin-top:8px;"></div>
-                    </details>
 
                     <!-- TOOLTIP HELP LEVEL -->
                     <div style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;margin-top:4px;">
@@ -15058,22 +15016,6 @@ label         { font-size: 14px !important; }
   </div>
 </div>
 
-<div class="modalForm" id="smsConsoleForm" style="display:none;">
-  <div class="modalInner">
-    <div class="toolHint">When a teammate drafts a text message, fields auto-fill here. Review and approve before sending.</div>
-    <div class="formGrid2">
-      <div><label>From</label><input class="field" id="smsFrom" placeholder="From" readonly/></div>
-      <div><label>To</label><input class="field" id="smsTo" placeholder="+1..."/></div>
-    </div>
-    <label style="margin-top:12px;">Message</label>
-    <textarea class="field" id="smsBody" class="primaryArea" style="height:360px;" placeholder="Text message body"></textarea>
-    <div class="toolRunBar">
-      <button class="btn" id="draftSmsWithSelected">Draft with selected teammate</button>
-      <button class="btn btnPrimary" id="sendSmsBtn">✅ Approve and send text</button>
-    </div>
-    <div class="tiny" id="smsConsoleStatus" style="margin-top:8px;text-align:center;"></div>
-  </div>
-</div>
 
 <div class="modalForm" id="leadHandoffForm" style="display:none;">
   <div class="modalInner">
@@ -15322,7 +15264,6 @@ label         { font-size: 14px !important; }
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
-    <button class="btn btnMini" id="crmTabBroadcastSMS">Broadcast SMS</button>
   </div>
 
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
@@ -15440,31 +15381,6 @@ label         { font-size: 14px !important; }
   </div>
 
 
-<!-- Broadcast SMS -->
-<div id="crmViewBroadcastSMS" style="display:none;">
-  <div class="modalInner">
-    <div class="toolHint">Send a broadcast text message to a filtered segment of your clients.</div>
-    <div class="formGrid2">
-      <div><label>Audience</label>
-        <select id="crmSmsAudience">
-          <option value="all">All clients</option><option value="tag">Tag</option>
-          <option value="stage">Pipeline stage</option><option value="status">Status</option>
-          <option value="selected">Selected IDs</option>
-        </select>
-      </div>
-      <div><label>Value (tag / stage / IDs)</label>
-        <input id="crmSmsAudienceValue" placeholder="vip, Lead, or client_123" />
-      </div>
-    </div>
-    <label style="margin-top:18px;">Message</label>
-    <textarea id="crmSmsBody" style="height:300px;" placeholder="Write your text message..."></textarea>
-    <div class="toolRunBar">
-      <button class="btn" id="crmSmsDryRun">Dry run</button>
-      <button class="btn btnPrimary" id="crmSmsSend">Send SMS</button>
-    </div>
-    <div class="tiny" id="crmSmsStatus" style="margin-top:8px;text-align:center;"></div>
-  </div>
-</div>
 
   <!-- Tasks -->
   <div id="crmViewTasks" style="display:none;">
@@ -15984,17 +15900,13 @@ input[type="range"]::-moz-range-progress {
   }
 }
 @media (max-width:720px) {
-  #emailConsoleForm .modalInner,
-  #smsConsoleForm .modalInner { padding:12px !important; }
+  #emailConsoleForm .modalInner { padding:12px !important; }
 
   #emailBody { height:180px !important; min-height:120px !important; }
-  #smsBody   { height:160px !important; min-height:100px !important; }
 
-  #emailConsoleForm .formGrid2,
-  #smsConsoleForm .formGrid2 { grid-template-columns:1fr !important; gap:8px !important; }
+  #emailConsoleForm .formGrid2 { grid-template-columns:1fr !important; gap:8px !important; }
 
-  #emailConsoleForm .toolRunBar,
-  #smsConsoleForm .toolRunBar {
+  #emailConsoleForm .toolRunBar {
     position:sticky !important;
     bottom:0 !important;
     background:#0f1629 !important;
@@ -16947,7 +16859,6 @@ function applyModalPos(){
       if($("crmForm")) $("crmForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("smsConsoleForm")) $("smsConsoleForm").style.display = "none";
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = "none";
       if($("customizeForm")) $("customizeForm").style.display = "none";
       if($("notepadForm")) $("notepadForm").style.display = "none";
@@ -17427,20 +17338,6 @@ window.showModal = function showModal(title, body, imgUrl){
     // Expose globally so calendar and other features can call it without the email console being open first
     window.applyEmailDraft = applyEmailDraft;
 
-    function setSmsFrom(teammate){
-      if($("smsFrom")) $("smsFrom").value = teammate ? `${teammate} via Twilio/CRM` : 'Twilio/CRM';
-    }
-
-    function applySmsDraft(draft, teammateName){
-      if(!draft) return;
-      lastSmsDraftBy = teammateName || selectedSeat || "";
-      if($("smsTo") && draft.to) $("smsTo").value = draft.to;
-      if($("smsBody") && draft.body) $("smsBody").value = draft.body;
-      setSmsFrom(lastSmsDraftBy);
-      showSMSConsoleModal("SMS Console");
-      showToast(`Text draft loaded${lastSmsDraftBy ? ' by ' + lastSmsDraftBy : ''}`);
-    }
-
     function getActiveTeammateOptions(){
       const installed = (state && state.installed) ? state.installed : {};
       const active = (state && state.active_order && state.active_order.length) ? state.active_order : ((state && state.installed_order) ? state.installed_order : []);
@@ -17483,15 +17380,15 @@ window.showModal = function showModal(title, body, imgUrl){
       hideAllModalForms();
       if($("leadHandoffForm")) $("leadHandoffForm").style.display = 'block';
       if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("modalTitle")) $("modalTitle").innerText = channel === 'sms' ? 'Write lead text' : 'Write lead email';
+      if($("modalTitle")) $("modalTitle").innerText = 'Write lead email';
       const sel = $("leadHandoffTeammate");
       if(sel){
         sel.innerHTML = options.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
         if(selectedSeat && options.includes(selectedSeat)) sel.value = selectedSeat;
       }
-      if($("leadHandoffChannel")) $("leadHandoffChannel").value = channel === 'sms' ? 'Text message' : 'Email';
+      if($("leadHandoffChannel")) $("leadHandoffChannel").value = 'Email';
       if($("leadHandoffGoal")) $("leadHandoffGoal").value = 'intro';
-      if($("leadHandoffTone")) $("leadHandoffTone").value = channel === 'sms' ? 'warm' : 'professional';
+      if($("leadHandoffTone")) $("leadHandoffTone").value = 'professional';
       if($("leadHandoffContext")) $("leadHandoffContext").value = buildLeadOutreachContext(item || {}, channel);
       if($("leadHandoffStatus")) $("leadHandoffStatus").innerText = '';
     }
@@ -17511,42 +17408,23 @@ window.showModal = function showModal(title, body, imgUrl){
       if(st) st.innerText = 'Writing draft...';
       const email = item.email || "";
       const phone = item.phone || '';
-      if(channel === 'email' && !email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
-      if(channel === 'sms' && !phone){ if(st) st.innerText = 'This lead does not have a phone number yet.'; return; }
+      if(!email){ if(st) st.innerText = 'This lead does not have an email yet.'; return; }
 
-      let prompt = '';
-      if(channel === 'email'){
-        prompt = [
-          'Draft a prospecting email for this lead.',
-          'Write it in a ' + tone + ' tone.',
-          'Goal: ' + goal + '.',
-          'Use the exact structured format below so the Email Console can auto fill:',
-          '```email',
-          'To: recipient@email.com',
-          'Subject: subject line',
-          'Body: first line',
-          'rest of body...',
-          '```',
-          'Keep it specific, human, and ready to send.',
-          '',
-          buildLeadOutreachContext(item, channel)
-        ].join('\n');
-      }else{
-        prompt = [
-          'Draft a prospecting text message for this lead.',
-          'Write it in a ' + tone + ' tone.',
-          'Goal: ' + goal + '.',
-          'Use the exact structured format below so the SMS Console can auto fill:',
-          '```sms',
-          'To: +15555550123',
-          'Body: first line',
-          'rest of body...',
-          '```',
-          'Keep it concise, natural, and ready to send.',
-          '',
-          buildLeadOutreachContext(item, channel)
-        ].join('\n');
-      }
+      const prompt = [
+        'Draft a prospecting email for this lead.',
+        'Write it in a ' + tone + ' tone.',
+        'Goal: ' + goal + '.',
+        'Use the exact structured format below so the Email Console can auto fill:',
+        '```email',
+        'To: recipient@email.com',
+        'Subject: subject line',
+        'Body: first line',
+        'rest of body...',
+        '```',
+        'Keep it specific, human, and ready to send.',
+        '',
+        buildLeadOutreachContext(item, 'email')
+      ].join('\n');
 
       try{
         const res = await fetch('/api/followup', {
@@ -17556,15 +17434,10 @@ window.showModal = function showModal(title, body, imgUrl){
         });
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Draft failed');
-        if(channel === 'email'){
-          const draft = data.email_draft || {to: email, subject: '', body: ''};
-          if(!draft.to) draft.to = email;
-          if(!draft.body) draft.body = (data.response || '').trim();
-          applyEmailDraft(draft, teammate);
-        }else{
-          const draft = {to: phone, body: (data.response || '').trim()};
-          applySmsDraft(draft, teammate);
-        }
+        const draft = data.email_draft || {to: email, subject: '', body: ''};
+        if(!draft.to) draft.to = email;
+        if(!draft.body) draft.body = (data.response || '').trim();
+        applyEmailDraft(draft, teammate);
         try{ await refreshThread(); }catch(e){}
       }catch(e){
         if(st) st.innerText = e && e.message ? e.message : 'Draft failed';
@@ -17681,15 +17554,6 @@ window.showModal = function showModal(title, body, imgUrl){
       }
     }
 
-    function showSMSConsoleModal(titleText='SMS Console'){
-      showModal();
-      try{ ensureModalMinSize(1100, 820); }catch(e){}
-      hideAllModalForms();
-      if($("modalBody")) $("modalBody").style.display = 'none';
-      if($("smsConsoleForm")) $("smsConsoleForm").style.display = 'block';
-      if($("modalTitle")) $("modalTitle").innerText = titleText;
-      if(window.saSetModalPin) window.saSetModalPin('sms_console');
-    }
 
 
     async function openEditForTeammate(name){
@@ -19741,7 +19605,6 @@ async function pollImageJob(jobId, seatName){
         growth_playbook:  { icon:'📈', label:'Playbook',          fn:'showGrowthPlaybookModal' },
         image_lib:        { icon:'🖼', label:'Image Lib',         fn:'showImageLibraryModal' },
         email_console:    { icon:'✉️', label:'Email',             fn:'showEmailConsoleModal' },
-        sms_console:      { icon:'💬', label:'SMS Console',       fn:'showSMSConsoleModal' },
         dashboard:        { icon:'📊', label:'Dashboard',         fn:'saOpenDashboard' },
         notepad:          { icon:'📝', label:'Notepad',           fn:'showNotepadModal' },
         site_analyzer:    { icon:'🌐', label:'Site Analyzer',     fn:'showSiteAnalyzerModal' },
@@ -20125,55 +19988,6 @@ $("draftWithSelected").onclick = async () => {
     };
 
 
-    if($("draftSmsWithSelected")) $("draftSmsWithSelected").onclick = async () => {
-      if(!selectedSeat){
-        showToast("⚠️ Select a teammate first");
-        return;
-      }
-      const toPhone = $("smsTo").value.trim();
-      const body = $("smsBody").value.trim();
-      const prompt =
-        "Draft a text message.\n\n" +
-        "Use the required structured format:\n" +
-        "```sms\n" +
-        "To: +15555550123\n" +
-        "Body: first line\n" +
-        "rest of body...\n" +
-        "```\n\n" +
-        `Existing fields:
-To: ${toPhone || "[empty]"}
-Body: ${body ? "[present]" : "[empty]"}
-`;
-      const res = await fetch('/api/followup', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: selectedSeat, message: prompt})});
-      const data = await res.json();
-      if(!data.ok){ showModal('Error', data.error || 'Draft failed'); return; }
-      const draft = {to: toPhone, body: (data.response || '').trim()};
-      applySmsDraft(draft, selectedSeat);
-      try{ await refreshThread(); }catch(e){}
-    };
-
-    if($("sendSmsBtn")) $("sendSmsBtn").onclick = async () => {
-      const toPhone = $("smsTo").value.trim();
-      const body = $("smsBody").value.trim();
-      if(!toPhone || !body){
-        showModal('Missing fields', 'To and Body are required to send a text.');
-        return;
-      }
-      const fromLabel = $("smsFrom").value || '';
-      const ok = confirm('Approve and send this text now?\n\nFrom: ' + fromLabel + '\nTo: ' + toPhone);
-      if(!ok) return;
-      const res = await fetch('/api/send_sms', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({to: toPhone, body, from_teammate: lastSmsDraftBy || selectedSeat || ''})
-      });
-      const data = await res.json();
-      if(!data.ok){
-        showModal('Text failed', data.error || 'Send failed');
-        return;
-      }
-      showModal('Text sent', 'Text sent successfully.');
-    };
 
     if($("leadHandoffCancel")) $("leadHandoffCancel").onclick = () => hideModal();
     if($("leadHandoffGenerate")) $("leadHandoffGenerate").onclick = generateLeadOutreachDraft;
@@ -21222,7 +21036,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewBroadcastSMS","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"]; 
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"];
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -21571,194 +21385,6 @@ Challenge weak assumptions. Surface risks.`;
         if(st) st.innerText = 'Failed: ' + (e && e.message ? e.message : 'Broadcast failed');
       }
     }
-
-    
-async function crmBroadcastSMS(dry_run=false){
-  const st = $("crmSmsStatus");
-  if(st) st.innerText = dry_run ? 'Running...' : 'Sending…';
-
-  const audience = ($("crmSmsAudience").value||'all');
-  const val = ($("crmSmsAudienceValue").value||'').trim();
-  const body = ($("crmSmsBody").value||'').trim();
-
-  if(!body){
-    if(st) st.innerText = 'Failed: message is required';
-    return;
-  }
-
-  const payload = {body, dry_run: !!dry_run};
-  if(audience==='tag') payload.tag = val;
-  if(audience==='stage') payload.stage = val;
-  if(audience==='status') payload.status = val;
-  if(audience==='selected') payload.client_ids = val.split(',').map(x=>x.trim()).filter(Boolean);
-
-  try{
-    const res = await fetch('/api/crm/broadcast/sms', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error||'sms failed');
-
-    if(dry_run){
-      if(st) st.innerText = `Dry run: would send to ${data.count||0} recipient(s).`;
-    } else {
-      if(st) st.innerText = `Done. Sent: ${data.sent||0}  Failed: ${data.failed||0}`;
-      // Show completion summary in the progress modal
-      if(typeof sa5OpenBcastModal === 'function'){
-        sa5OpenBcastModal('SMS Broadcast', data.count, null);
-        if(typeof sa5FinishBcastModal === 'function') sa5FinishBcastModal(data.sent||0, data.failed||0, data.count||0);
-      }
-      if(typeof showToast === 'function') showToast('SMS broadcast sent');
-    }
-  }catch(e){
-    if(st) st.innerText = 'Send failed: ' + (e&&e.message ? e.message : 'check SMS settings');
-  }
-}
-
-
-
-
-async function settingsLoadSmsSettings(){
-  const st = $("twilioStatus");
-  if(st) st.innerText = "Loading...";
-  try{
-    const res = await fetch("/api/settings/sms");
-    const data = await res.json();
-    if(!data.ok){
-      if(st) st.innerText = "Error: " + (data.error || "Could not load");
-      return;
-    }
-    const sms = data.sms || {};
-    if($("twilioSid")) $("twilioSid").value = (sms.twilio_sid || "");
-    if($("twilioFrom")) $("twilioFrom").value = (sms.twilio_from || "");
-    if($("twilioToken")) $("twilioToken").value = ""; // never prefill
-    if(st) st.innerText = "Loaded.";
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-async function settingsSaveSmsSettings(){
-  const st = $("twilioStatus");
-  if(st) st.innerText = "Saving...";
-  const payload = {
-    provider: "twilio",
-    twilio_sid: ($("twilioSid") ? $("twilioSid").value : "").trim(),
-    twilio_from: ($("twilioFrom") ? $("twilioFrom").value : "").trim(),
-    twilio_token: ($("twilioToken") ? $("twilioToken").value : "").trim(),
-  };
-  try{
-    const res = await fetch("/api/settings/sms", {
-      method:"POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error || "Save failed");
-    if($("twilioToken")) $("twilioToken").value = "";
-    if(st) st.innerText = "Saved.";
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-async function settingsTestSms(){
-  const st = $("twilioStatus");
-  if(st) st.innerText = "Sending test...";
-  const payload = {
-    to: ($("twilioTestTo") ? $("twilioTestTo").value : "").trim(),
-    body: ($("twilioTestBody") ? $("twilioTestBody").value : "").trim() || "Test SMS from Simply Agentic"
-  };
-  try{
-    const res = await fetch("/api/settings/sms/test", {
-      method:"POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok) throw new Error(data.error || "Test failed");
-    if(st) st.innerText = "Test sent.";
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-async function crmLoadSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = "Loading...";
-  try{
-    const res = await fetch("/api/crm/settings/sms");
-    const data = await res.json();
-    if(!data.ok){
-      if(st) st.innerText = "Error: " + (data.error || "Could not load");
-      return;
-    }
-    const sms = data.sms || {};
-    if($("crmSmsProvider")) $("crmSmsProvider").value = (sms.provider || "twilio");
-    if($("crmTwilioSid")) $("crmTwilioSid").value = (sms.twilio_sid || "");
-    if($("crmTwilioFrom")) $("crmTwilioFrom").value = (sms.twilio_from || "");
-    if($("crmTwilioToken")) $("crmTwilioToken").value = ""; // do not prefill token
-    if(st) st.innerText = "Loaded.";
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-async function crmSaveSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = "Saving...";
-  const payload = {
-    provider: ($("crmSmsProvider") ? $("crmSmsProvider").value : "twilio"),
-    twilio_sid: ($("crmTwilioSid") ? $("crmTwilioSid").value : ""),
-    twilio_from: ($("crmTwilioFrom") ? $("crmTwilioFrom").value : ""),
-    twilio_token: ($("crmTwilioToken") ? $("crmTwilioToken").value : "")
-  };
-  try{
-    const res = await fetch("/api/crm/settings/sms", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if(!data.ok){
-      if(st) st.innerText = "Error: " + (data.error || "Could not save");
-      return;
-    }
-    if($("crmTwilioToken")) $("crmTwilioToken").value = "";
-    if(st) st.innerText = "Saved.";
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
-async function crmTestSmsSettings(){
-  const st = $("crmSmsSettingsStatus");
-  if(st) st.innerText = "Sending test...";
-  const to = ($("crmTwilioTestTo") ? $("crmTwilioTestTo").value : "").trim();
-  const body = ($("crmTwilioTestBody") ? $("crmTwilioTestBody").value : "").trim() || "Test message from Simply Agentic AI";
-  if(!to){
-    if(st) st.innerText = "Enter a test To number.";
-    return;
-  }
-  try{
-    const res = await fetch("/api/crm/settings/sms/test", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({to, body})
-    });
-    const data = await res.json();
-    if(data.ok){
-      if(st) st.innerText = "Test sent.";
-    }else{
-      if(st) st.innerText = "Failed: " + (data.error || "Unknown error");
-    }
-  }catch(e){
-    if(st) st.innerText = "Error: " + (e && e.message ? e.message : String(e));
-  }
-}
-
 
 async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
@@ -22304,7 +21930,6 @@ async function crmFetchTasks(){
             ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
             ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}">📋 Copy phone</button>`:''}
             ${isVerifiedEmail?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
-            ${phone?`<button class="btn btnMini" data-ll-sms="${idx}">💬 Text</button>`:''}
             <button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>
           </div>
         </div>`;
@@ -22327,9 +21952,6 @@ async function crmFetchTasks(){
       });
       box.querySelectorAll('[data-ll-email]').forEach(btn=>{
         btn.onclick=()=>{ const it=_leadLabItems[+btn.dataset.llEmail]||{}; if(it.email) openLeadHandoff('email',it); };
-      });
-      box.querySelectorAll('[data-ll-sms]').forEach(btn=>{
-        btn.onclick=()=>{ const it=_leadLabItems[+btn.dataset.llSms]||{}; if(it.phone) openLeadHandoff('sms',it); };
       });
       box.querySelectorAll('[data-ll-add]').forEach(btn=>{
         btn.onclick=async()=>{
@@ -22700,15 +22322,6 @@ window.crmPipelineOpenClient = function(clientId){
       showToast('✉ Email console opened for ' + (c.name||c.email));
     };
 
-    window.crmPipelineText = function(clientId){
-      const c = (crmCache.clients||[]).find(x=>x.id===clientId);
-      if(!c || !c.phone) return;
-      if($("smsTo")) $("smsTo").value = c.phone;
-      if($("smsBody")) $("smsBody").value = '';
-      if(typeof showSMSConsoleModal === 'function') showSMSConsoleModal('SMS Console');
-      showToast('💬 SMS console opened for ' + (c.name||c.phone));
-    };
-
     // ── One-click AI outreach draft ────────────────────────────
     window.crmPipelineDraft = function(clientId){
       const c = (crmCache.clients||[]).find(x=>x.id===clientId);
@@ -22723,8 +22336,7 @@ window.crmPipelineOpenClient = function(clientId){
         <div style="font-size:12px;opacity:.6;margin-bottom:16px;">Our AI will write a personalised message for you to review before sending.</div>
         <div style="margin-bottom:10px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">Channel</label>
           <select id="draftChannel" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;">
-            ${hasEmail ? '<option value="email">Email — '+c.email+'</option>' : ''}
-            ${hasPhone ? '<option value="sms">SMS — '+c.phone+'</option>' : ''}
+            ${hasEmail ? '<option value="email">Email — '+c.email+'</option>' : '<option value="email">Email</option>'}
           </select></div>
         <div style="margin-bottom:16px;"><label style="font-size:12px;opacity:.7;display:block;margin-bottom:4px;">What is this outreach about?</label>
           <textarea id="draftContext" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;resize:none;height:80px;" placeholder="e.g. Following up on our last call, introducing our new service, checking in..."></textarea></div>
@@ -22737,7 +22349,7 @@ window.crmPipelineOpenClient = function(clientId){
       setTimeout(()=>{ const t=document.getElementById('draftContext'); if(t)t.focus(); },100);
       document.getElementById('draftCancel').onclick = ()=> overlay.remove();
       document.getElementById('draftGo').onclick = async ()=>{
-        const channel = (document.getElementById('draftChannel')||{}).value || (hasEmail?'email':'sms');
+        const channel = (document.getElementById('draftChannel')||{}).value || 'email';
         const context = (document.getElementById('draftContext')||{}).value||'';
         overlay.remove();
         const btn = document.getElementById('draftBtn-'+clientId);
@@ -22758,13 +22370,7 @@ window.crmPipelineOpenClient = function(clientId){
           return;
         }
 
-        if(d.channel === 'sms' && d.sms_draft){
-          const sd = d.sms_draft;
-          if($("smsTo"))   $("smsTo").value   = sd.to   || c.phone || '';
-          if($("smsBody")) $("smsBody").value = sd.body || '';
-          if(typeof showSMSConsoleModal === 'function') showSMSConsoleModal('SMS Console');
-          showToast('📝 SMS draft ready for ' + (c.name||'client'));
-        } else if(d.email_draft){
+        if(d.email_draft){
           if(typeof applyEmailDraft === 'function'){
             applyEmailDraft(d.email_draft, d.teammate || 'Sunshine');
           } else {
@@ -22788,7 +22394,6 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
-      b('crmTabBroadcastSMS', ()=>{ crmShowView('crmViewBroadcastSMS'); if($("crmSmsStatus")) $("crmSmsStatus").innerText=''; crmLoadSmsSettings(); });
       b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
       b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
@@ -22885,12 +22490,6 @@ window.crmPipelineOpenClient = function(clientId){
 
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
-
-      b('crmSmsDryRun', ()=>crmBroadcastSMS(true));
-      b('crmSmsSend', ()=>crmBroadcastSMS(false));
-    b('crmSmsLoadSettings', ()=>crmLoadSmsSettings());
-    b('crmSmsSaveSettings', ()=>crmSaveSmsSettings());
-    b('crmSmsTestSend', ()=>crmTestSmsSettings());
 
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
@@ -25730,8 +25329,6 @@ if($("lightboxCloseBtn")) $("lightboxCloseBtn").onclick = ()=> closeLightbox();
 if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id==="lightbox") closeLightbox(); };
 
 
-if($("twilioLoadBtn")) $("twilioLoadBtn").onclick = ()=> settingsLoadSmsSettings();
-if($("twilioSaveBtn")) $("twilioSaveBtn").onclick = ()=> settingsSaveSmsSettings();
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
 try{
@@ -34029,7 +33626,7 @@ window.sa5ToggleTmpl = function(formId){
 };
 
 function sa5FetchTmpls(formId, panel){
-  var ch = (formId.indexOf('SMS') >= 0 || formId.indexOf('Sms') >= 0) ? 'sms' : 'email';
+  var ch = 'email';
   fetch('/api/crm/broadcast/templates', {credentials:'same-origin'})
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -34056,16 +33653,10 @@ window.sa5ApplyTmpl = function(formId, tid){
     .then(function(d){
       var t = (d.templates||[]).find(function(x){ return x.id === tid; });
       if(!t) return;
-      var isEmail = formId.indexOf('SMS') < 0 && formId.indexOf('Sms') < 0;
-      if(isEmail){
-        var subj = document.getElementById('crmEmailSubject');
-        var body = document.getElementById('crmEmailBody');
-        if(subj) subj.value = t.subject || '';
-        if(body) body.value = t.body    || '';
-      } else {
-        var body2 = document.getElementById('crmSmsBody');
-        if(body2) body2.value = t.body || '';
-      }
+      var subj = document.getElementById('crmEmailSubject');
+      var body = document.getElementById('crmEmailBody');
+      if(subj) subj.value = t.subject || '';
+      if(body) body.value = t.body    || '';
       document.querySelectorAll('.sa5-tpanel').forEach(function(p){ p.classList.remove('sa5-open'); });
       if(typeof showToast === 'function') showToast('Template loaded');
     }).catch(function(){});
@@ -34085,14 +33676,9 @@ window.sa5SaveTmpl = function(formId, channel){
   var name = prompt('Name this template:');
   if(!name || !name.trim()) return;
   var payload = {name: name.trim(), channel: channel};
-  if(channel === 'email'){
-    payload.subject = (document.getElementById('crmEmailSubject')||{}).value || '';
-    payload.body    = (document.getElementById('crmEmailBody')||{}).value    || '';
-    if(!payload.subject && !payload.body){ alert('Nothing to save — fill in the subject and body first.'); return; }
-  } else {
-    payload.body = (document.getElementById('crmSmsBody')||{}).value || '';
-    if(!payload.body){ alert('Nothing to save — write your message first.'); return; }
-  }
+  payload.subject = (document.getElementById('crmEmailSubject')||{}).value || '';
+  payload.body    = (document.getElementById('crmEmailBody')||{}).value    || '';
+  if(!payload.subject && !payload.body){ alert('Nothing to save — fill in the subject and body first.'); return; }
   fetch('/api/crm/broadcast/templates', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)})
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -34102,8 +33688,7 @@ window.sa5SaveTmpl = function(formId, channel){
 };
 
 function sa5WireTemplates(){
-  sa5InjectTmplBar('crmViewBroadcast',    'email');
-  sa5InjectTmplBar('crmViewBroadcastSMS', 'sms');
+  sa5InjectTmplBar('crmViewBroadcast', 'email');
 }
 sa5WireTemplates();
 document.addEventListener('click', function(){ setTimeout(sa5WireTemplates, 250); });
@@ -34144,7 +33729,7 @@ var _sa5ActLoaded = false;
 var _actIcons = {
   broadcast_sent:'📣', broadcast_template_saved:'📄', login:'🔑', logout:'👋',
   settings_updated:'⚙️', password_changed:'🔒', api_key_created:'🗝', api_key_deleted:'🗑',
-  register:'🎉', account_deleted:'❌', broadcast_email:'📧', broadcast_sms:'💬'
+  register:'🎉', account_deleted:'❌', broadcast_email:'📧'
 };
 
 function sa5LoadActivity(){
@@ -34447,7 +34032,7 @@ def api_clients_delete(client_id):
 # This module extends Client Memory Profiles into a full CRM:
 # - Clients with pipeline stages, tags, custom fields
 # - Tasks + reminders
-# - Broadcast email (SMS placeholder)
+# - Broadcast email
 # - Sequences (nurture automation) driven by tick() without background workers
 # - Calendar event creation (Google Calendar OAuth)
 #
@@ -34476,9 +34061,7 @@ def _crm_default_state() -> Dict[str, Any]:
         "sequences": {},        # id -> sequence dict
         "enrollments": {},      # id -> enrollment dict
         "messages": [],         # recent message log (bounded)
-        "settings": {
-            "sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""},
-        },
+        "settings": {},
     }
 
 def _crm_load(username: str) -> Dict[str, Any]:
@@ -34492,7 +34075,7 @@ def _crm_load(username: str) -> Dict[str, Any]:
     data.setdefault("sequences", {})
     data.setdefault("enrollments", {})
     data.setdefault("messages", [])
-    data.setdefault("settings", {"sms": {"provider": "", "twilio_sid": "", "twilio_token": "", "twilio_from": ""}})
+    data.setdefault("settings", {})
     # self-heal pipeline
     if not isinstance(data.get("pipeline"), dict):
         data["pipeline"] = {"stages": _default_pipeline_stages()}
@@ -34620,98 +34203,6 @@ def _crm_send_email_to(u: Dict[str, Any], to_addr: str, subject: str, body: str,
     except Exception as e:
         return False, "email", str(e)
 
-def _crm_try_send_sms(username: str, to_phone: str, body: str) -> Tuple[bool, str]:
-    """SMS placeholder. Supports Twilio via env or CRM settings when provided."""
-    # No hard dependency. Only works if configured.
-    try:
-        crm = _crm_load(username)
-        sms = ((crm.get("settings") or {}).get("sms") or {})
-        provider = (sms.get("provider") or os.getenv("SMS_PROVIDER","")).strip().lower()
-        if provider != "twilio":
-            return False, "SMS not configured. Set provider to 'twilio' in CRM settings."
-        sid = (sms.get("twilio_sid") or os.getenv("TWILIO_SID","")).strip()
-        token = (sms.get("twilio_token") or os.getenv("TWILIO_TOKEN","")).strip()
-        from_num = (sms.get("twilio_from") or os.getenv("TWILIO_FROM","")).strip()
-        if not sid or not token or not from_num:
-            return False, "Twilio missing SID/TOKEN/FROM."
-        url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-        r = requests.post(url, data={"To": to_phone, "From": from_num, "Body": body}, auth=(sid, token), timeout=20)
-        if r.status_code >= 400:
-            return False, f"SMS delivery failed (Twilio HTTP {r.status_code}). Check your Twilio credentials and phone number."
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-
-
-@app.get("/api/crm/settings/sms")
-def api_crm_sms_settings_get():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    crm = _crm_load(uname)
-    sms = ((crm.get("settings") or {}).get("sms") or {})
-    safe = {
-        "provider": sms.get("provider", "twilio"),
-        "twilio_sid": sms.get("twilio_sid", ""),
-        "twilio_from": sms.get("twilio_from", ""),
-        "twilio_token": ""  # user can re-enter to update
-    }
-    return jsonify({"ok": True, "sms": safe})
-@app.get("/api/settings/sms")
-def api_settings_sms_get():
-    return api_crm_sms_settings_get()
-
-
-@app.post("/api/crm/settings/sms")
-def api_crm_sms_settings_set():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
-    provider = (payload.get("provider") or "twilio").strip().lower()
-    sid = (payload.get("twilio_sid") or "").strip()
-    token = (payload.get("twilio_token") or "").strip()
-    from_num = (payload.get("twilio_from") or "").strip()
-
-    crm = _crm_load(uname)
-    crm.setdefault("settings", {})
-    crm["settings"].setdefault("sms", {})
-    sms = crm["settings"]["sms"]
-    sms["provider"] = provider
-
-    if sid:
-        sms["twilio_sid"] = sid
-    if from_num:
-        sms["twilio_from"] = from_num
-    if token:
-        sms["twilio_token"] = token
-
-    _crm_save(uname, crm)
-    return jsonify({"ok": True})
-@app.post("/api/settings/sms")
-def api_settings_sms_set():
-    return api_crm_sms_settings_set()
-
-
-@app.post("/api/crm/settings/sms/test")
-def api_crm_sms_settings_test():
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    payload = request.get_json(silent=True) or {}
-    to_phone = (payload.get("to") or "").strip()
-    body = (payload.get("body") or "Test message from Simply Agentic AI").strip()
-    if not to_phone:
-        return jsonify({"ok": False, "error": "Missing 'to' phone"}), 400
-    ok_send, err = _crm_try_send_sms(uname, to_phone, body)
-    return jsonify({"ok": bool(ok_send), "error": err})
-
-
-
 def _crm_tick_once() -> None:
     """Run due CRM automations (tasks reminders, sequences enrollments). Safe, bounded work."""
     # Called by /api/action_stack_schedules/tick
@@ -34732,7 +34223,7 @@ def _crm_tick_once() -> None:
             clients = crm.get("clients") or {}
             changed = False
 
-            # Process due enrollments (email only; sms optional)
+            # Process due enrollments (email only)
             for eid, e in list(enroll.items()):
                 if sends_done >= max_sends:
                     break
@@ -34797,28 +34288,18 @@ def _crm_tick_once() -> None:
                 if not isinstance(urec, dict):
                     urec = current_user() if (current_user() and (current_user().get("username")==username)) else None
 
-                if channel == "sms":
-                    phone = (c.get("phone") or "").strip()
-                    if phone and body:
-                        ok_send, err = _crm_try_send_sms(username, phone, body)
-                        provider = "sms"
-                    else:
-                        ok_send = False
-                        err = "Missing phone/body."
-                        provider = "sms"
-                else:
-                    to_addr = (c.get("email") or "").strip()
-                    if to_addr and EMAIL_RE.match(to_addr) and body:
-                        if isinstance(urec, dict):
-                            ok_send, provider, err = _crm_send_email_to(urec, to_addr, subj or (seq.get("default_subject") or "Update"), body)
-                        else:
-                            ok_send = False
-                            provider = "email"
-                            err = "User record not available for email credentials."
+                to_addr = (c.get("email") or "").strip()
+                if to_addr and EMAIL_RE.match(to_addr) and body:
+                    if isinstance(urec, dict):
+                        ok_send, provider, err = _crm_send_email_to(urec, to_addr, subj or (seq.get("default_subject") or "Update"), body)
                     else:
                         ok_send = False
                         provider = "email"
-                        err = "Missing/invalid email or empty body."
+                        err = "User record not available for email credentials."
+                else:
+                    ok_send = False
+                    provider = "email"
+                    err = "Missing/invalid email or empty body."
 
                 # Log message
                 try:
@@ -34866,11 +34347,6 @@ def _crm_tick_once() -> None:
             continue
 
 # ---- CRM APIs ----
-@app.post("/api/settings/sms/test")
-def api_settings_sms_test():
-    return api_crm_sms_settings_test()
-
-
 @app.get("/api/crm/state")
 def api_crm_state():
     u = current_user()
@@ -35200,8 +34676,7 @@ def api_crm_draft_outreach(client_id: str):
     """
     One-click AI outreach draft for a pipeline client.
     Calls Sunshine with full client context + operator profile.
-    Returns email_draft {subject, body, to} for the email console,
-    or sms_draft {body, to} for SMS fallback.
+    Returns email_draft {subject, body, to} for the email console.
     """
     u = current_user()
     if not u:
@@ -35245,28 +34720,20 @@ def api_crm_draft_outreach(client_id: str):
     ]
     context = "\n".join(l for l in context_lines if l)
 
-    if channel == "sms":
-        prompt = (
-            f"Draft a short, warm, conversational SMS outreach for the following client. "
-            f"Under 160 characters. No subject line. Sound like a real person checking in. "
-            f"Sign off as {op_name}.\n\nClient context:\n{context}\n\n"
-            f"Write ONLY the SMS body, nothing else."
-        )
-    else:
-        prompt = (
-            f"Draft a warm, professional, concise outreach email for the following client. "
-            f"Match the tone and next step appropriate for their pipeline stage: \'{stage}\'. "
-            f"Lead with value — do NOT be pushy. Keep the body to 3-5 sentences max. "
-            f"Sign off as {op_name}{(' at ' + business) if business else ''}. "
-            f"Address the client as {first}.\n\n"
-            f"Client context:\n{context}\n\n"
-            f"Respond using EXACTLY this format and nothing else:\n"
-            f"```email\n"
-            f"to: {email}\n"
-            f"subject: <write subject here>\n"
-            f"body: <write email body here>\n"
-            f"```"
-        )
+    prompt = (
+        f"Draft a warm, professional, concise outreach email for the following client. "
+        f"Match the tone and next step appropriate for their pipeline stage: \'{stage}\'. "
+        f"Lead with value — do NOT be pushy. Keep the body to 3-5 sentences max. "
+        f"Sign off as {op_name}{(' at ' + business) if business else ''}. "
+        f"Address the client as {first}.\n\n"
+        f"Client context:\n{context}\n\n"
+        f"Respond using EXACTLY this format and nothing else:\n"
+        f"```email\n"
+        f"to: {email}\n"
+        f"subject: <write subject here>\n"
+        f"body: <write email body here>\n"
+        f"```"
+    )
 
     reg       = load_registry(_get_session_username())
     installed = reg.get("installed") or {}
@@ -35302,15 +34769,6 @@ def api_crm_draft_outreach(client_id: str):
             _crm_save(uname, crm2)
     except Exception:
         pass
-
-    if channel == "sms":
-        return jsonify({
-            "ok":          True,
-            "channel":     "sms",
-            "sms_draft":   {"body": raw[:500], "to": phone},
-            "teammate":    teammate,
-            "client_name": name,
-        })
 
     draft = extract_email_draft(raw)
     if not draft:
@@ -35445,85 +34903,6 @@ def api_crm_broadcast_email():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
 
-@app.post("/api/crm/broadcast/sms")
-def api_crm_broadcast_sms():
-    """Bulk SMS sender for CRM (Twilio only when configured)."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-
-    payload = request.get_json(silent=True) or {}
-    body_t = (payload.get("body") or "").strip()
-    dry_run = bool(payload.get("dry_run"))
-
-    if not body_t:
-        return jsonify({"ok": False, "error": "Missing body"}), 400
-
-    filt = payload.get("filter") or {}
-    if not isinstance(filt, dict):
-        filt = {}
-
-    if payload.get("tag"):
-        filt["tag"] = str(payload.get("tag") or "").strip()
-    if payload.get("stage"):
-        filt["stage"] = str(payload.get("stage") or "").strip()
-    if payload.get("status"):
-        filt["status"] = str(payload.get("status") or "").strip()
-    if payload.get("client_ids"):
-        ids = payload.get("client_ids") or []
-        if isinstance(ids, str):
-            ids = [x.strip() for x in ids.split(",") if x.strip()]
-        if isinstance(ids, list):
-            filt["ids"] = [str(x).strip() for x in ids if str(x).strip()]
-
-    try:
-        crm = _crm_load(uname)
-        clients = list((crm.get("clients") or {}).values())
-        recipients = [c for c in clients if _crm_client_matches_filter(c, filt)
-                      and not c.get("sms_unsubscribed")]
-
-        # Plan-based broadcast recipient limit
-        plan_key  = _get_user_plan(uname)
-        plan_info = PLANS.get(plan_key) or PLANS["starter"]
-        max_recipients = plan_info.get("broadcast_recipients")
-        if max_recipients is not None and len(recipients) > max_recipients:
-            plan_name  = plan_info.get("name", "your plan")
-            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
-            return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
-
-        if dry_run:
-            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
-
-        sent = 0
-        failed = 0
-        results = []
-
-        for c in recipients:
-            phone = (c.get("phone") or "").strip()
-            if not phone:
-                failed += 1
-                results.append({"client_id": c.get("id",""), "ok": False, "error": "Missing phone"})
-                continue
-
-            ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
-            body = _safe_render(body_t, ctx)
-
-            ok_send, err = _crm_try_send_sms(uname, phone, body)
-            if ok_send:
-                sent += 1
-            else:
-                failed += 1
-            results.append({"client_id": c.get("id",""), "ok": bool(ok_send), "error": err})
-
-        _crm_log_message(uname, {"type": "broadcast_sms", "filter": filt, "sent": sent, "failed": failed})
-        _notif_push(uname, "SMS broadcast complete", f"Sent {sent}, failed {failed}", "success")
-        return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
-
-    except Exception as e:
-        _capture_error(e, context="broadcast_sms")
-        return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
-
 
 # ── Broadcast job status (for async/threaded runs) ─────────────────────────
 @app.get("/api/crm/broadcast/job/<job_id>")
@@ -35584,8 +34963,8 @@ def api_broadcast_templates_save():
     channel = (payload.get("channel") or "email").strip()
     if not name:
         return jsonify({"ok": False, "error": "Template name is required"}), 400
-    if channel not in ("email", "sms"):
-        return jsonify({"ok": False, "error": "Channel must be 'email' or 'sms'"}), 400
+    if channel != "email":
+        return jsonify({"ok": False, "error": "Channel must be 'email'"}), 400
     crm = _crm_load(uname)
     crm.setdefault("broadcast_templates", {})
     tid = payload.get("id") or _crm_new_id("tmpl")
@@ -39379,8 +38758,6 @@ def api_os_error_explain():
         hints.append("Check email settings or reconnect Gmail.")
     if "calendar" in low:
         hints.append("Reconnect Google Calendar and try again.")
-    if "twilio" in low:
-        hints.append("Verify Twilio SID, token, and from number.")
     if not hints:
         hints.append("Check the relevant settings for the feature that failed and try once more.")
     return jsonify({"ok": True, "summary": err, "fixes": hints})
@@ -41306,7 +40683,7 @@ def api_user_export():
             profile = dict(u)
             profile.pop("password_hash", None)
             settings = dict(profile.get("settings") or {})
-            for k in ["openai_key", "claude_key", "smtp_pass", "twilio_auth_token"]:
+            for k in ["openai_key", "claude_key", "smtp_pass"]:
                 if k in settings:
                     settings[k] = "[redacted]"
             profile["settings"] = settings
@@ -43879,7 +43256,7 @@ var EPISODES = {
     steps:[
       {t:'Open <strong>Contacts</strong>', d:'Click Manage in the nav, then select Contacts from the dropdown.'},
       {t:'Click <strong>+ Add Contact</strong>', d:'Fill in the name, email, phone and any notes about this person.'},
-      {t:'Send a <strong>message</strong>', d:'Open any contact and hit Message to draft an email or SMS with AI help.'},
+      {t:'Send a <strong>message</strong>', d:'Open any contact and hit Message to draft a personalised email with AI help.'},
       {t:'Add <strong>tags & notes</strong>', d:'Tag contacts by type (Lead, Client, Partner) and write private notes.'},
       {t:'Filter & search', d:'Use the search bar or filter by tag to find exactly who you need instantly.'},
     ],
