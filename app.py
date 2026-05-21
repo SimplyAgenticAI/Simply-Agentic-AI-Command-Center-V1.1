@@ -14091,20 +14091,11 @@ label         { font-size: 14px !important; }
         </button>
 
         <!-- Notification Bell — after Community -->
-        <div style="position:relative;display:flex;align-items:center;">
+        <div style="display:flex;align-items:center;">
           <button class="saNavBtn" id="notifBellBtn" onclick="toggleNotifPanel()" title="Notifications" style="padding:6px 10px;font-size:16px;line-height:1;position:relative;">
             🔔
             <span id="notifBadge" style="display:none;position:absolute;top:2px;right:4px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;">0</span>
           </button>
-          <div id="notifPanel" style="display:none;position:fixed;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:99999;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
-              <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
-              <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
-            </div>
-            <div id="notifList" style="padding:8px 0;">
-              <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
-            </div>
-          </div>
         </div>
 
       </div>
@@ -34192,6 +34183,17 @@ window.toggleNotifPanel = function(){
   window.addEventListener('resize', _fixSideH);
 })();
 </script>
+
+<!-- Notification panel — direct body child so backdrop-filter on nav bar cannot trap it -->
+<div id="notifPanel" style="display:none;position:fixed;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:99999;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
+    <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
+    <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
+  </div>
+  <div id="notifList" style="padding:8px 0;">
+    <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
+  </div>
+</div>
 
 </body>
 </html>
