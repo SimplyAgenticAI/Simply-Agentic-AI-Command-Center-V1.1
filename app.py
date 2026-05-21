@@ -21301,7 +21301,7 @@ Challenge weak assumptions. Surface risks.`;
 
     // ── TELEPROMPTER ─────────────────────────────────────────────────────────
     (function(){
-      var _tpPlaying=false, _tpSpeed=4, _tpFontSize=36;
+      var _tpScrolling=false, _tpSpeed=4, _tpFontSize=36;
       var _tpScrollPos=0, _tpScrollRAF=null, _tpLastTs=null;
       var _tpWakeLock=null, _tpCamStream=null, _tpRecorder=null, _tpChunks=[];
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
@@ -21333,22 +21333,20 @@ Challenge weak assumptions. Surface risks.`;
         if(!script){ if(typeof showToast==='function') showToast('Paste your script first'); return; }
         _tpSpeed=parseInt((document.getElementById('tpSpeed')||{}).value||'4');
         _tpFontSize=parseInt((document.getElementById('tpFontSize')||{}).value||'36');
-        _tpPlaying=false; _tpScrollPos=0; _tpLastTs=null; _tpMirrored=true; _tpCamOn=true;
+        _tpScrolling=false; _tpScrollPos=0; _tpLastTs=null; _tpMirrored=true; _tpCamOn=true;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         var textEl=document.getElementById('tpText');
         if(textEl){ textEl.textContent=script; textEl.style.fontSize=_tpFontSize+'px'; }
         var wrap=document.getElementById('tpTextWrap');
         if(wrap) wrap.style.transform='translateY(0px)';
         _updateSpeedDisp();
-        var pb=document.getElementById('tpPlayBtn');
-        if(pb) pb.innerHTML='&#9654; Play';
+        // Reset record button to initial state
         var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.2)'; rb.onclick=window.tpStartRecording; }
+        if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.style.border='1px solid rgba(239,68,68,.5)'; rb.onclick=window.tpStartRecording; }
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
         var ri=document.getElementById('tpRecIndicator');
         if(ri) ri.style.display='none';
-        // Show controls immediately
         _showCtrl();
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
@@ -21357,17 +21355,16 @@ Challenge weak assumptions. Surface risks.`;
         if('wakeLock' in navigator){
           navigator.wakeLock.request('screen').then(function(wl){ _tpWakeLock=wl; }).catch(function(){});
         }
-        // Click on overlay body = show controls + toggle play/pause
+        // Tap/click body = show controls + pause/resume scroll
         if(ov) ov.onclick=function(e){
           _showCtrl();
           var t=e.target;
+          if(!t) return;
           if(t.closest && (t.closest('#tpControls')||t.closest('#tpDownloadBar')||t.closest('#tpRecIndicator'))) return;
           if(t.tagName==='BUTTON'||t.tagName==='A') return;
-          tpPlayPause();
+          _tpToggleScroll();
         };
-        // Desktop: mouse movement reveals controls
         if(ov){ ov.removeEventListener('mousemove',_showCtrl); ov.addEventListener('mousemove',_showCtrl); }
-        // Mobile: any touch reveals controls
         if(ov){ ov.removeEventListener('touchstart',_showCtrl); ov.addEventListener('touchstart',_showCtrl,{passive:true}); }
       };
 
@@ -21388,10 +21385,7 @@ Challenge weak assumptions. Surface risks.`;
       }
 
       function _tpStartCamera(){
-        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-          if(typeof showToast==='function') showToast('Camera not available in this browser');
-          return;
-        }
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return;
         navigator.mediaDevices.getUserMedia({
           video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},
           audio:true
@@ -21400,8 +21394,8 @@ Challenge weak assumptions. Surface risks.`;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-        }).catch(function(err){
-          if(typeof showToast==='function') showToast('Camera access denied — reading mode only');
+        }).catch(function(){
+          if(typeof showToast==='function') showToast('Camera access denied — tap Record to scroll without recording');
         });
       }
 
@@ -21427,7 +21421,7 @@ Challenge weak assumptions. Surface risks.`;
       function _pxPerSec(){ return _tpSpeed*30; }
 
       function _scrollStep(ts){
-        if(!_tpPlaying){ _tpScrollRAF=null; return; }
+        if(!_tpScrolling){ _tpScrollRAF=null; return; }
         if(_tpLastTs===null) _tpLastTs=ts;
         var dt=Math.min(ts-_tpLastTs,100);
         _tpLastTs=ts;
@@ -21439,9 +21433,8 @@ Challenge weak assumptions. Surface risks.`;
         if(_tpScrollPos>=maxScroll){
           _tpScrollPos=maxScroll;
           wrap.style.transform='translateY(-'+_tpScrollPos+'px)';
-          _tpPlaying=false; _tpScrollRAF=null;
-          var pb=document.getElementById('tpPlayBtn');
-          if(pb) pb.innerHTML='&#9654; Play';
+          _tpScrolling=false; _tpScrollRAF=null;
+          // Auto-stop recording when script ends
           if(_tpRecording) window.tpStopRecording();
           return;
         }
@@ -21449,22 +21442,21 @@ Challenge weak assumptions. Surface risks.`;
         _tpScrollRAF=requestAnimationFrame(_scrollStep);
       }
 
-      window.tpPlayPause = function(){
-        _tpPlaying=!_tpPlaying;
-        var pb=document.getElementById('tpPlayBtn');
-        if(pb) pb.innerHTML=_tpPlaying?'&#9646;&#9646; Pause':'&#9654; Play';
-        if(_tpPlaying){ _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep); }
+      // Internal: toggle scroll (used by tap-to-pause)
+      function _tpToggleScroll(){
+        _tpScrolling=!_tpScrolling;
+        if(_tpScrolling){ _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep); }
         else if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
-      };
+      }
 
       window.tpReset = function(){
-        _tpPlaying=false;
+        // If recording, stop it first
+        if(_tpRecording) window.tpStopRecording();
+        _tpScrolling=false;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         _tpScrollPos=0; _tpLastTs=null;
         var wrap=document.getElementById('tpTextWrap');
         if(wrap) wrap.style.transform='translateY(0px)';
-        var pb=document.getElementById('tpPlayBtn');
-        if(pb) pb.innerHTML='&#9654; Play';
       };
 
       window.tpAdjustSpeed = function(d){
@@ -21490,65 +21482,84 @@ Challenge weak assumptions. Surface risks.`;
           _tpStartCamera();
           if(cb){ cb.innerHTML='&#128247; Cam'; cb.style.background='rgba(255,255,255,.07)'; cb.style.color='#94a3b8'; }
         } else {
+          if(_tpRecording) window.tpStopRecording();
           _tpStopCamera();
           if(cb){ cb.innerHTML='&#128247; Off'; cb.style.background='rgba(239,68,68,.12)'; cb.style.color='#fca5a5'; }
         }
       };
 
+      // Record = start camera recording + start scrolling simultaneously
       window.tpStartRecording = function(){
         if(!_tpCamStream){
-          if(typeof showToast==='function') showToast('Camera must be on to record');
+          // No camera — just scroll
+          _tpScrolling=true; _tpLastTs=null;
+          _tpScrollRAF=requestAnimationFrame(_scrollStep);
+          if(typeof showToast==='function') showToast('No camera — scrolling script only');
           return;
         }
         _tpChunks=[];
         var mimeTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
         var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
         try{ _tpRecorder=mime?new MediaRecorder(_tpCamStream,{mimeType:mime}):new MediaRecorder(_tpCamStream); }
-        catch(e){ _tpRecorder=new MediaRecorder(_tpCamStream); }
+        catch(e){ try{ _tpRecorder=new MediaRecorder(_tpCamStream); }catch(e2){ if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; } }
         _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
         _tpRecorder.onstop=function(){
           _tpRecording=false;
-          var blob=new Blob(_tpChunks,{type:_tpRecorder.mimeType||'video/webm'});
+          var blob=new Blob(_tpChunks,{type:(_tpRecorder&&_tpRecorder.mimeType)||'video/webm'});
           if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
           _tpLastBlobUrl=URL.createObjectURL(blob);
           var rb=document.getElementById('tpRecBtn');
-          if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.18)'; rb.onclick=window.tpStartRecording; }
+          if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.style.border='1px solid rgba(239,68,68,.5)'; rb.onclick=window.tpStartRecording; }
           var dlBtn=document.getElementById('tpDownloadBtn');
-          if(dlBtn){ dlBtn.href=_tpLastBlobUrl; dlBtn.download='recording-'+Date.now()+'.webm'; }
+          var ext=blob.type.indexOf('mp4')>-1?'.mp4':'.webm';
+          if(dlBtn){ dlBtn.href=_tpLastBlobUrl; dlBtn.download='recording-'+Date.now()+ext; }
           var dlBar=document.getElementById('tpDownloadBar');
-          if(dlBar) dlBar.style.display='flex';
+          if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
           var ri=document.getElementById('tpRecIndicator');
           if(ri) ri.style.display='none';
-          if(typeof showToast==='function') showToast('Recording ready — tap Download below');
+          if(typeof showToast==='function') showToast('Done! Tap Download to save your recording');
         };
-        _tpRecorder.start(1000);
+        _tpRecorder.start(500);
         _tpRecording=true;
+        // Update button to Stop
         var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.innerHTML='&#9209; Stop Rec'; rb.style.background='rgba(239,68,68,.45)'; rb.onclick=window.tpStopRecording; }
+        if(rb){ rb.innerHTML='&#9209; Stop'; rb.style.background='rgba(239,68,68,.55)'; rb.style.border='1px solid rgba(239,68,68,.8)'; rb.onclick=window.tpStopRecording; }
         var ri=document.getElementById('tpRecIndicator');
         if(ri) ri.style.display='flex';
+        // Start scrolling
+        _tpScrolling=true; _tpLastTs=null;
+        _tpScrollRAF=requestAnimationFrame(_scrollStep);
       };
 
+      // Stop = stop recording + stop scrolling
       window.tpStopRecording = function(){
+        _tpScrolling=false;
+        if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpRecorder&&_tpRecording){
           try{ _tpRecorder.stop(); }catch(e){}
+        } else {
+          // Camera-less mode: just stopped scrolling
+          var rb=document.getElementById('tpRecBtn');
+          if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.onclick=window.tpStartRecording; }
+          var ri=document.getElementById('tpRecIndicator');
+          if(ri) ri.style.display='none';
         }
       };
 
       window.tpClose = function(){
         if(_tpRecording) window.tpStopRecording();
-        _tpPlaying=false;
+        _tpScrolling=false;
         clearTimeout(_tpCtrlTimer);
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
         _tpStopCamera();
         var ov=document.getElementById('tpOverlay');
         if(ov){
-          ov.style.display='none';
-          ov.onclick=null;
+          ov.style.display='none'; ov.onclick=null;
           ov.removeEventListener('mousemove',_showCtrl);
           ov.removeEventListener('touchstart',_showCtrl);
         }
+        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
         document.body.style.overflow='';
       };
     })();
@@ -34719,24 +34730,23 @@ window.toggleNotifPanel = function(){
   <!-- ALWAYS-VISIBLE exit button — never auto-hides -->
   <button onclick="tpClose()" style="position:fixed;top:10px;right:12px;z-index:40;padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.28);border:1px solid rgba(239,68,68,.55);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px);">&#10005; Exit</button>
 
-  <!-- Auto-hiding controls bar (excludes the exit button) -->
-  <div id="tpControls" style="position:fixed;top:0;left:0;right:90px;z-index:30;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);padding:9px 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
-    <button onclick="tpPlayPause()" id="tpPlayBtn" style="padding:7px 16px;border-radius:8px;background:rgba(124,58,237,.32);border:1px solid rgba(124,58,237,.55);color:#c4b5fd;font-size:13px;font-weight:700;cursor:pointer;">&#9654; Play</button>
-    <button onclick="tpReset()" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#94a3b8;font-size:13px;cursor:pointer;" title="Scroll back to top">&#8635; Reset</button>
-    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:8px;">
-      <span style="font-size:10px;color:#64748b;">SPD</span>
-      <button onclick="tpAdjustSpeed(-1)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">&#8722;</button>
+  <!-- Auto-hiding controls bar -->
+  <div id="tpControls" style="position:fixed;top:0;left:0;right:90px;z-index:30;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);padding:8px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
+    <button onclick="tpReset()" style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#94a3b8;font-size:13px;cursor:pointer;white-space:nowrap;">&#8635; Reset</button>
+    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:6px;">
+      <span style="font-size:10px;color:#64748b;letter-spacing:.04em;">SPD</span>
+      <button onclick="tpAdjustSpeed(-1)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:14px;cursor:pointer;line-height:1;">&#8722;</button>
       <span id="tpSpeedDisp" style="font-size:12px;color:#c4b5fd;min-width:18px;text-align:center;">4</span>
-      <button onclick="tpAdjustSpeed(1)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">+</button>
+      <button onclick="tpAdjustSpeed(1)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:14px;cursor:pointer;line-height:1;">+</button>
     </div>
-    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:8px;">
-      <span style="font-size:10px;color:#64748b;">SIZE</span>
-      <button onclick="tpAdjustFont(-4)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A&#8722;</button>
-      <button onclick="tpAdjustFont(4)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A+</button>
+    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:6px;">
+      <span style="font-size:10px;color:#64748b;letter-spacing:.04em;">SIZE</span>
+      <button onclick="tpAdjustFont(-4)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A&#8722;</button>
+      <button onclick="tpAdjustFont(4)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A+</button>
     </div>
-    <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;">&#8644; Flip</button>
-    <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;">&#128247; Cam</button>
-    <button onclick="tpStartRecording()" id="tpRecBtn" style="padding:7px 13px;border-radius:8px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);color:#fca5a5;font-size:12px;font-weight:600;cursor:pointer;">&#9679; Record</button>
+    <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#8644; Flip</button>
+    <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#128247; Cam</button>
+    <button onclick="tpStartRecording()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">&#9679; Record</button>
   </div>
 
   <!-- Recording badge (always on top) -->
@@ -34752,8 +34762,8 @@ window.toggleNotifPanel = function(){
     </div>
   </div>
 
-  <!-- Tap-to-reveal hint -->
-  <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.25);pointer-events:none;white-space:nowrap;">Move mouse or tap screen to show controls</div>
+  <!-- Hint -->
+  <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Move mouse / touch top to show controls</div>
 
   <!-- Download bar -->
   <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:35;background:rgba(6,14,36,.94);backdrop-filter:blur(10px);padding:12px 20px;align-items:center;gap:12px;border-top:1px solid rgba(16,185,129,.38);">
