@@ -21307,6 +21307,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
+      var _tpLastBlob=null, _tpAutoSaveClose=false;
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21347,7 +21348,9 @@ Challenge weak assumptions. Surface risks.`;
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
         _tpHideRecBar();
-        _tpPaused=false; _tpClosing=false;
+        _tpPaused=false; _tpClosing=false; _tpAutoSaveClose=false;
+        _tpLastBlob=null;
+        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
         _showCtrl();
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
@@ -21436,8 +21439,10 @@ Challenge weak assumptions. Surface risks.`;
           _tpScrollPos=maxScroll;
           wrap.style.transform='translateY(-'+_tpScrollPos+'px)';
           _tpScrolling=false; _tpScrollRAF=null;
-          // Auto-stop recording when script ends
-          if(_tpRecording) window.tpStopRecording();
+          // Script finished — stop scroll only; recording keeps going so creator can wrap up
+          var pb=document.getElementById('tpRecBarPause');
+          if(pb){ pb.innerHTML='&#10003; Script Done'; pb.style.color='#a3e635'; pb.style.background='rgba(163,230,53,.1)'; pb.style.border='1px solid rgba(163,230,53,.35)'; pb.style.pointerEvents='none'; }
+          if(typeof showToast==='function') showToast('Script finished — hit Stop & Save when ready');
           return;
         }
         wrap.style.transform='translateY(-'+_tpScrollPos+'px)';
@@ -21480,27 +21485,72 @@ Challenge weak assumptions. Surface risks.`;
         _tpToggleScroll();
       };
 
-      window.tpDownload = function(){
-        if(!_tpLastBlobUrl){ if(typeof showToast==='function') showToast('No recording found — make sure you hit Stop & Save first'); return; }
+      function _tpDoClose(){
+        _tpClosing=true;
+        _tpScrolling=false; _tpPaused=false;
+        _tpHideRecBar();
+        clearTimeout(_tpCtrlTimer);
+        if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
+        if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
+        _tpStopCamera();
+        var ov=document.getElementById('tpOverlay');
+        if(ov){
+          ov.style.display='none'; ov.onclick=null;
+          ov.removeEventListener('mousemove',_showCtrl);
+          ov.removeEventListener('touchstart',_showCtrl);
+        }
+        var dlBar=document.getElementById('tpDownloadBar');
+        if(dlBar) dlBar.style.display='none';
+        document.body.style.overflow='';
+        var prog=document.getElementById('tpProgress');
+        if(prog) prog.style.height='0%';
+      }
+
+      // Primary save function — uses Web Share API (camera roll) on mobile, anchor download on desktop
+      window.tpSave = window.tpDownload = function(){
+        if(!_tpLastBlob||_tpLastBlob.size===0){
+          if(typeof showToast==='function') showToast('No recording yet — hit Record then Stop & Save');
+          return;
+        }
         var ext=_tpBlobMime.indexOf('mp4')>-1?'.mp4':'.webm';
         var filename='recording-'+Date.now()+ext;
-        var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+        var mtype=_tpLastBlob.type||(_tpBlobMime||'video/webm');
+        // Web Share API: supported on Chrome 75+, Safari 15+ — saves to camera roll on mobile
+        if(typeof navigator.share==='function'&&typeof navigator.canShare==='function'){
+          try{
+            var file=new File([_tpLastBlob],filename,{type:mtype});
+            if(navigator.canShare({files:[file]})){
+              navigator.share({files:[file],title:'Teleprompter Recording'})
+                .then(function(){ if(typeof showToast==='function') showToast('Saved!'); })
+                .catch(function(e){ if(e&&e.name!=='AbortError') _tpAnchorDl(filename); });
+              return;
+            }
+          }catch(e){}
+        }
+        _tpAnchorDl(filename);
+      };
+
+      function _tpAnchorDl(filename){
+        if(!_tpLastBlob) return;
+        // Regenerate fresh URL (old one may have been revoked)
+        if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
+        _tpLastBlobUrl=URL.createObjectURL(_tpLastBlob);
+        var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
         if(isIOS){
-          // iOS Safari does not support the download attribute on blob URLs — open in new tab instead
-          var w=window.open(_tpLastBlobUrl,'_blank');
-          if(!w){ window.location.href=_tpLastBlobUrl; }
-          if(typeof showToast==='function') showToast('Video opened — tap the Share icon then Save to Camera Roll');
+          // iOS Safari ignores download attribute — open in browser tab, user taps Share to save
+          window.open(_tpLastBlobUrl,'_blank');
+          if(typeof showToast==='function') showToast('Tap the Share icon ↗ then "Save to Files" or "Save to Camera Roll"');
         } else {
           var a=document.createElement('a');
-          a.style.display='none';
+          a.style.cssText='position:fixed;top:-100px;left:-100px;';
           a.href=_tpLastBlobUrl;
           a.download=filename;
           document.body.appendChild(a);
           a.click();
-          setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} },1000);
-          if(typeof showToast==='function') showToast('Download started!');
+          setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} },2000);
+          if(typeof showToast==='function') showToast('Downloading — check your Downloads folder');
         }
-      };
+      }
 
       function _tpShowRecBar(scrollOnly){
         var bar=document.getElementById('tpRecBar');
@@ -21606,20 +21656,27 @@ Challenge weak assumptions. Surface risks.`;
         _tpRecorder.onstop=function(){
           _tpRecording=false;
           _tpHideRecBar();
-          if(_tpChunks.length===0){ if(typeof showToast==='function') showToast('Recording captured no data — try again'); return; }
           var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
-          if(blob.size===0){ if(typeof showToast==='function') showToast('Recording was empty — try again'); return; }
+          _tpLastBlob=blob;
           if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
-          _tpLastBlobUrl=URL.createObjectURL(blob);
+          _tpLastBlobUrl=blob.size>0?URL.createObjectURL(blob):null;
           var sizeMb=(blob.size/1048576).toFixed(1);
           var prog=document.getElementById('tpProgress');
           if(prog) prog.style.height='0%';
+          // Auto-save-close path: user hit Exit while recording
+          if(_tpAutoSaveClose){
+            _tpAutoSaveClose=false;
+            if(blob.size>0) window.tpSave();
+            _tpDoClose();
+            return;
+          }
           if(_tpClosing) return;
+          if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
           var szEl=document.getElementById('tpDlSize');
           if(szEl) szEl.textContent=sizeMb+' MB';
           var dlBar=document.getElementById('tpDownloadBar');
           if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
-          if(typeof showToast==='function') showToast('Take saved ('+sizeMb+' MB) — tap Download!');
+          if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
         };
         _tpRunCountdown(function(){
           try{
@@ -21651,24 +21708,14 @@ Challenge weak assumptions. Surface risks.`;
       };
 
       window.tpClose = function(){
-        _tpClosing=true;
-        if(_tpRecording) window.tpStopRecording();
-        _tpScrolling=false; _tpPaused=false;
-        _tpHideRecBar();
-        clearTimeout(_tpCtrlTimer);
-        if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
-        if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
-        _tpStopCamera();
-        var ov=document.getElementById('tpOverlay');
-        if(ov){
-          ov.style.display='none'; ov.onclick=null;
-          ov.removeEventListener('mousemove',_showCtrl);
-          ov.removeEventListener('touchstart',_showCtrl);
+        if(_tpRecording){
+          // Recording active — stop it, auto-save the take, then close
+          _tpAutoSaveClose=true;
+          _tpClosing=false;
+          window.tpStopRecording(); // onstop fires async → saves → calls _tpDoClose
+          return;
         }
-        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
-        document.body.style.overflow='';
-        var prog=document.getElementById('tpProgress');
-        if(prog) prog.style.height='0%';
+        _tpDoClose();
       };
 
       window.tpUpdateMeta = function(text){
@@ -34906,10 +34953,10 @@ window.toggleNotifPanel = function(){
       <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Take ready!</span>
       <span id="tpDlSize" style="font-size:11px;color:#475569;"></span>
     </div>
-    <button onclick="tpDownload()" style="flex:1;padding:12px 20px;border-radius:10px;background:linear-gradient(135deg,rgba(16,185,129,.4),rgba(16,185,129,.25));border:1px solid rgba(16,185,129,.65);color:#6ee7b7;font-size:15px;font-weight:700;cursor:pointer;min-width:140px;">&#8595; Download</button>
+    <button onclick="tpSave()" style="flex:1;padding:14px 20px;border-radius:10px;background:linear-gradient(135deg,rgba(16,185,129,.45),rgba(16,185,129,.28));border:1px solid rgba(16,185,129,.7);color:#6ee7b7;font-size:16px;font-weight:800;cursor:pointer;min-width:160px;letter-spacing:.01em;">&#128190; Save to Device</button>
     <div style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:#475569;">
-      <span>iPhone: tap &amp; hold → Save</span>
-      <span>Free MP4: cloudconvert.com</span>
+      <span>Mobile: saves to camera roll</span>
+      <span>Desktop: saves to Downloads</span>
     </div>
     <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="background:none;border:none;color:#64748b;font-size:22px;cursor:pointer;flex-shrink:0;padding:4px;">&#10005;</button>
   </div>
