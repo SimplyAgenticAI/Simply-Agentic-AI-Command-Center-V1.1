@@ -20126,13 +20126,11 @@ $("draftWithSelected").onclick = async () => {
       $("modalTitle").innerText = "✏️ Edit Teammates";
       hideAllModalForms();
       const mb = $("modalBody");
-      mb.style.display = "block";
-      mb.innerHTML = "";
       mb.style.cssText = "display:block;height:100%;overflow:hidden;padding:0;";
+      mb.innerHTML = "";
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
-      // Override modalScroll so each pane handles its own scroll
       const sc = $("modalScroll");
       if(sc) sc.style.overflow = "hidden";
       const modalMinimizedEl = $("modalWin");
@@ -20142,14 +20140,19 @@ $("draftWithSelected").onclick = async () => {
 
       const installedMap = (state && state.installed) ? state.installed : {};
       const order = (state && Array.isArray(state.installed_order) && state.installed_order.length)
-        ? state.installed_order.slice()
-        : Object.keys(installedMap);
+        ? state.installed_order.slice() : Object.keys(installedMap);
       if(!order.length){
-        mb.style.cssText = "display:block;padding:20px;";
+        mb.style.cssText = "display:block;padding:20px;color:#e2e8f0;";
         mb.innerText = "No teammates installed yet.";
         return;
       }
       const BUILTINS_ET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
+
+      // Shared field styles matching the app's dark theme
+      const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.8);border-radius:8px;color:#e2e8f0;padding:9px 12px;font-size:13px;font-family:inherit;outline:none;";
+      const TA_CSS     = INPUT_CSS + "resize:vertical;line-height:1.5;";
+      const SELECT_CSS = INPUT_CSS + "cursor:pointer;";
+      const LABEL_CSS  = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.65);margin-bottom:5px;letter-spacing:.07em;text-transform:uppercase;";
 
       // ── Outer 2-pane wrapper ──────────────────────────────────────────────────
       const pane = document.createElement("div");
@@ -20157,36 +20160,159 @@ $("draftWithSelected").onclick = async () => {
 
       // ── LEFT: roster ──────────────────────────────────────────────────────────
       const left = document.createElement("div");
-      left.style.cssText = "width:240px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:4px;background:rgba(8,13,32,.4);";
+      left.style.cssText = "width:220px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.45);overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:3px;background:rgba(6,10,26,.5);";
 
-      // ── RIGHT: editor ─────────────────────────────────────────────────────────
+      // ── RIGHT: editor (structure built once, values swapped per teammate) ──────
       const right = document.createElement("div");
-      right.style.cssText = "flex:1;overflow-y:auto;padding:28px 32px;";
-      right.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:rgba(148,163,184,.35);font-size:14px;">← Select a teammate to edit</div>';
+      right.style.cssText = "flex:1;overflow-y:auto;padding:28px 32px;background:rgba(10,15,36,.0);";
 
-      let activeCard = null;
+      // -- Right panel DOM structure (built once) --------------------------------
+      const rHdrCircle = document.createElement("div");
+      rHdrCircle.style.cssText = "width:50px;height:50px;border-radius:50%;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
+      const rHdrText = document.createElement("div");
+      const rHdrName = document.createElement("div");
+      rHdrName.style.cssText = "font-weight:800;font-size:20px;color:#e2e8f0;";
+      const rHdrRole = document.createElement("div");
+      rHdrRole.style.cssText = "font-size:13px;color:rgba(148,163,184,.55);margin-top:3px;";
+      rHdrText.appendChild(rHdrName); rHdrText.appendChild(rHdrRole);
+      const rHdr = document.createElement("div");
+      rHdr.style.cssText = "display:flex;align-items:center;gap:14px;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(42,58,106,.5);";
+      rHdr.appendChild(rHdrCircle); rHdr.appendChild(rHdrText);
+      right.appendChild(rHdr);
+
+      function mkLbl(txt){ const l=document.createElement("label"); l.style.cssText=LABEL_CSS; l.textContent=txt; return l; }
+      function mkInput(id, readonly){ const el=document.createElement("input"); el.type="text"; el.id=id; el.style.cssText=INPUT_CSS+(readonly?";opacity:.6;cursor:default":""); if(readonly) el.readOnly=true; return el; }
+      function mkTa(id, h){ const el=document.createElement("textarea"); el.id=id; el.style.cssText=TA_CSS+"min-height:"+(h||80)+"px;"; return el; }
+      function mkSel(id, choices){ const sel=document.createElement("select"); sel.id=id; sel.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; sel.appendChild(o); }); return sel; }
+      function fw(el){ const w=document.createElement("div"); w.appendChild(el); return w; }
+      function wrap(label, el){ const w=document.createElement("div"); w.appendChild(mkLbl(label)); w.appendChild(el); return w; }
+
+      // Row 1: Name | Job Title | Version
+      const r1 = document.createElement("div");
+      r1.style.cssText = "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
+      const fName = mkInput("_et_name", true);
+      const fJob  = mkInput("_et_job",  false);
+      const fVer  = mkInput("_et_ver",  false);
+      r1.appendChild(wrap("Name", fName));
+      r1.appendChild(wrap("Job Title", fJob));
+      r1.appendChild(wrap("Version", fVer));
+      right.appendChild(r1);
+
+      // Row 2: left col | right col
+      const r2 = document.createElement("div");
+      r2.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
+      const lcol = document.createElement("div"); lcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
+      const fMiss  = mkTa("_et_miss",  90);
+      const fGoal  = mkTa("_et_goal",  90);
+      const fThink = mkTa("_et_think", 80);
+      lcol.appendChild(wrap("Mission", fMiss));
+      lcol.appendChild(wrap("Goal", fGoal));
+      lcol.appendChild(wrap("Thinking Style", fThink));
+      const rcol = document.createElement("div"); rcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
+      const fResp = mkTa("_et_resp", 190);
+      const fWnd  = mkTa("_et_wnd",  110);
+      rcol.appendChild(wrap("Responsibilities (one per line)", fResp));
+      rcol.appendChild(wrap("Will Not Do (one per line)", fWnd));
+      r2.appendChild(lcol); r2.appendChild(rcol);
+      right.appendChild(r2);
+
+      // Row 3: Model | Voice
+      const r3 = document.createElement("div");
+      r3.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;";
+      const fModel = mkSel("_et_model",[
+        ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
+        ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
+        ["claude-opus-4-5","Claude Opus"],["claude-sonnet-4-5","Claude Sonnet"],["claude-haiku-4-5-20251001","Claude Haiku"]
+      ]);
+      const fVoice = mkSel("_et_voice",[
+        ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
+        ["onyx","Onyx — deep male"],["nova","Nova — female, bright"],["shimmer","Shimmer — soft female"]
+      ]);
+      r3.appendChild(wrap("AI Model", fModel));
+      r3.appendChild(wrap("TTS Voice", fVoice));
+      right.appendChild(r3);
+
+      // Footer
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "btn btnPrimary";
+      saveBtn.style.cssText = "padding:10px 26px;font-size:14px;";
+      saveBtn.textContent = "💾 Save Changes";
+      const statusEl = document.createElement("span");
+      statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:12px;";
+      const footer = document.createElement("div");
+      footer.style.cssText = "display:flex;align-items:center;";
+      footer.appendChild(saveBtn); footer.appendChild(statusEl);
+      right.appendChild(footer);
+
+      // -- Value-swap function (instant, no DOM rebuild, no flash) ---------------
       let currentEditName = "";
+      function swapValues(name, t){
+        currentEditName = name;
+        const av = t.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
+        rHdrCircle.style.background = av.bg;
+        rHdrCircle.style.color      = av.fg;
+        rHdrCircle.textContent      = av.sigil || name.slice(0,1).toUpperCase();
+        rHdrName.textContent = name;
+        rHdrRole.textContent = t.job_title || (!BUILTINS_ET.has(name) ? "Custom teammate" : "Built-in teammate");
+        fName.value  = name;
+        fJob.value   = t.job_title || "";
+        fVer.value   = t.version   || "";
+        fMiss.value  = t.mission   || "";
+        fGoal.value  = t.goal      || "";
+        fThink.value = t.thinking_style || "";
+        fResp.value  = Array.isArray(t.responsibilities) ? t.responsibilities.join("\n") : (t.responsibilities||"");
+        fWnd.value   = Array.isArray(t.will_not_do)      ? t.will_not_do.join("\n")      : (t.will_not_do||"");
+        fModel.value = t.preferred_model || "";
+        fVoice.value = t.tts_voice || "alloy";
+        statusEl.textContent = "";
+        right.scrollTop = 0;
+      }
+
+      // Save handler
+      saveBtn.addEventListener("click", async function(){
+        if(!currentEditName) return;
+        statusEl.textContent = "Saving…"; saveBtn.disabled = true;
+        try{
+          const res = await fetch("/api/teammate/"+encodeURIComponent(currentEditName),{
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              job_title:fJob.value, version:fVer.value, mission:fMiss.value,
+              goal:fGoal.value, thinking_style:fThink.value,
+              responsibilities:fResp.value, will_not_do:fWnd.value,
+              preferred_model:fModel.value, tts_voice:fVoice.value||"alloy"
+            })
+          });
+          const d = await res.json();
+          if(!d.ok){ statusEl.textContent = d.error||"Save failed"; saveBtn.disabled=false; return; }
+          statusEl.textContent = "✅ Saved!";
+          await loadState();
+          if(typeof showToast==="function") showToast("✅ "+currentEditName+" updated");
+          setTimeout(()=>{ statusEl.textContent=""; }, 2500);
+        }catch(e){ statusEl.textContent = "Error saving"; }
+        saveBtn.disabled = false;
+      });
 
       // ── Roster cards ──────────────────────────────────────────────────────────
+      let activeCard = null;
       order.forEach(function(name){
         const defn = installedMap[name] || {};
         const isCustom = !BUILTINS_ET.has(name);
         const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
 
         const card = document.createElement("div");
-        card.style.cssText = "display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s;";
+        card.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s;";
 
         const circle = document.createElement("div");
-        circle.style.cssText = "width:34px;height:34px;border-radius:50%;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
+        circle.style.cssText = "width:38px;height:38px;border-radius:50%;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
         circle.textContent = av.sigil || name.slice(0,1).toUpperCase();
 
         const info = document.createElement("div");
         info.style.cssText = "min-width:0;flex:1;";
         const nm = document.createElement("div");
-        nm.style.cssText = "font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+        nm.style.cssText = "font-weight:700;font-size:15px;color:#dde4f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
         nm.textContent = name;
         const role = document.createElement("div");
-        role.style.cssText = "font-size:11px;color:rgba(148,163,184,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;";
+        role.style.cssText = "font-size:11px;color:rgba(148,163,184,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;";
         role.textContent = defn.job_title || (isCustom ? "Custom" : "Built-in");
         info.appendChild(nm); info.appendChild(role);
         card.appendChild(circle); card.appendChild(info);
@@ -20194,148 +20320,21 @@ $("draftWithSelected").onclick = async () => {
         if(isCustom){
           const badge = document.createElement("div");
           badge.style.cssText = "font-size:9px;font-weight:700;color:rgba(196,181,253,.65);letter-spacing:.05em;flex-shrink:0;";
-          badge.textContent = "CUSTOM";
+          badge.textContent = "✦";
           card.appendChild(badge);
         }
 
-        card.addEventListener("mouseenter", function(){ if(card !== activeCard) card.style.background = "rgba(255,255,255,.04)"; });
-        card.addEventListener("mouseleave", function(){ if(card !== activeCard) card.style.background = ""; });
+        card.addEventListener("mouseenter", ()=>{ if(card!==activeCard) card.style.background="rgba(255,255,255,.05)"; });
+        card.addEventListener("mouseleave", ()=>{ if(card!==activeCard) card.style.background=""; });
         card.addEventListener("click", function(){
           if(activeCard){ activeCard.style.background=""; activeCard.style.borderColor="transparent"; }
           activeCard = card;
-          card.style.background = "rgba(124,58,237,.18)";
-          card.style.borderColor = "rgba(124,58,237,.45)";
-          loadTeammateEditor(name, defn, isCustom);
+          card.style.background   = "rgba(124,58,237,.2)";
+          card.style.borderColor  = "rgba(124,58,237,.5)";
+          swapValues(name, defn);
         });
         left.appendChild(card);
       });
-
-      // ── Right-panel editor builder ────────────────────────────────────────────
-      async function loadTeammateEditor(name, defnHint, isCustom){
-        currentEditName = name;
-        right.innerHTML = '<div style="text-align:center;color:rgba(148,163,184,.4);padding:60px 0;">Loading…</div>';
-        let t = defnHint || {};
-        try{
-          const res = await fetch("/api/teammate/" + encodeURIComponent(name));
-          const d = await res.json();
-          if(d.ok) t = d.teammate || t;
-        }catch(_){}
-
-        right.innerHTML = "";
-
-        // Header
-        const av = t.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
-        const hdr = document.createElement("div");
-        hdr.style.cssText = "display:flex;align-items:center;gap:14px;margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid rgba(42,58,106,.5);";
-        const hdrC = document.createElement("div");
-        hdrC.style.cssText = "width:48px;height:48px;border-radius:50%;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
-        hdrC.textContent = av.sigil || name.slice(0,1).toUpperCase();
-        const hdrT = document.createElement("div");
-        hdrT.innerHTML = '<div style="font-weight:800;font-size:18px;">'+name+'</div><div style="font-size:12px;color:rgba(148,163,184,.55);margin-top:2px;">'+(t.job_title || (isCustom?"Custom teammate":"Built-in teammate"))+'</div>';
-        hdr.appendChild(hdrC); hdr.appendChild(hdrT);
-        right.appendChild(hdr);
-
-        // Field factory
-        function mkField(label, id, type, val, h){
-          const w = document.createElement("div");
-          const lb = document.createElement("label");
-          lb.style.cssText = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.7);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;";
-          lb.textContent = label;
-          w.appendChild(lb);
-          const el = document.createElement(type === "textarea" ? "textarea" : "input");
-          el.id = id;
-          if(type !== "textarea"){ el.type = "text"; if(val === "__readonly") { el.readOnly = true; val = name; } }
-          else { el.style.minHeight = (h||80)+"px"; el.style.resize = "vertical"; }
-          el.style.width = "100%";
-          el.value = val || "";
-          w.appendChild(el);
-          return w;
-        }
-
-        // Row 1: Name | Job Title | Version
-        const r1 = document.createElement("div");
-        r1.style.cssText = "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
-        r1.appendChild(mkField("Name","_et_name","text","__readonly"));
-        r1.appendChild(mkField("Job Title","_et_job",  "text", t.job_title||""));
-        r1.appendChild(mkField("Version",  "_et_ver",  "text", t.version||""));
-        right.appendChild(r1);
-
-        // Row 2: left col (mission/goal/thinking) | right col (responsibilities/will-not-do)
-        const r2 = document.createElement("div");
-        r2.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
-        const lcol = document.createElement("div");
-        lcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
-        lcol.appendChild(mkField("Mission",       "_et_miss", "textarea", t.mission||"",         90));
-        lcol.appendChild(mkField("Goal",           "_et_goal", "textarea", t.goal||"",             90));
-        lcol.appendChild(mkField("Thinking Style", "_et_think","textarea", t.thinking_style||"",  80));
-        const rcol = document.createElement("div");
-        rcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
-        rcol.appendChild(mkField("Responsibilities (one per line)", "_et_resp", "textarea",
-          Array.isArray(t.responsibilities)?t.responsibilities.join("\n"):(t.responsibilities||""), 190));
-        rcol.appendChild(mkField("Will Not Do (one per line)", "_et_wnd", "textarea",
-          Array.isArray(t.will_not_do)?t.will_not_do.join("\n"):(t.will_not_do||""), 100));
-        r2.appendChild(lcol); r2.appendChild(rcol);
-        right.appendChild(r2);
-
-        // Row 3: Model + Voice selects
-        const r3 = document.createElement("div");
-        r3.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;";
-        function mkSelect(label, id, choices, cur){
-          const w = document.createElement("div");
-          const lb = document.createElement("label");
-          lb.style.cssText = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.7);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;";
-          lb.textContent = label;
-          const sel = document.createElement("select");
-          sel.id = id; sel.style.width="100%";
-          choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; if(v===cur) o.selected=true; sel.appendChild(o); });
-          w.appendChild(lb); w.appendChild(sel); return w;
-        }
-        r3.appendChild(mkSelect("AI Model","_et_model",[
-          ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
-          ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
-          ["claude-opus-4-5","Claude Opus"],["claude-sonnet-4-5","Claude Sonnet"],["claude-haiku-4-5-20251001","Claude Haiku"]
-        ], t.preferred_model||""));
-        r3.appendChild(mkSelect("TTS Voice","_et_voice",[
-          ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
-          ["onyx","Onyx — deep male"],["nova","Nova — female, bright"],["shimmer","Shimmer — soft female"]
-        ], t.tts_voice||"alloy"));
-        right.appendChild(r3);
-
-        // Footer: save button + status
-        const footer = document.createElement("div");
-        footer.style.cssText = "display:flex;align-items:center;gap:14px;";
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "btn btnPrimary";
-        saveBtn.style.cssText = "padding:10px 24px;font-size:14px;";
-        saveBtn.textContent = "💾 Save Changes";
-        const statusEl = document.createElement("span");
-        statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.65);";
-        footer.appendChild(saveBtn); footer.appendChild(statusEl);
-        right.appendChild(footer);
-
-        function g(id){ return (document.getElementById(id)||{}).value||""; }
-        saveBtn.addEventListener("click", async function(){
-          statusEl.textContent = "Saving…"; saveBtn.disabled = true;
-          try{
-            const res = await fetch("/api/teammate/"+encodeURIComponent(currentEditName),{
-              method:"POST", headers:{"Content-Type":"application/json"},
-              body: JSON.stringify({
-                job_title:g("_et_job"), version:g("_et_ver"), mission:g("_et_miss"),
-                goal:g("_et_goal"), thinking_style:g("_et_think"),
-                responsibilities:g("_et_resp"), will_not_do:g("_et_wnd"),
-                preferred_model:g("_et_model"), tts_voice:g("_et_voice")||"alloy"
-              })
-            });
-            const d = await res.json();
-            if(!d.ok){ statusEl.textContent = d.error||"Save failed"; saveBtn.disabled=false; return; }
-            statusEl.textContent = "✅ Saved!";
-            await loadState();
-            if(typeof showToast==="function") showToast("✅ "+currentEditName+" updated");
-            setTimeout(()=>{ statusEl.textContent=""; }, 2500);
-          }catch(e){ statusEl.textContent="Error saving"; }
-          saveBtn.disabled = false;
-        });
-      }
 
       pane.appendChild(left); pane.appendChild(right);
       mb.appendChild(pane);
