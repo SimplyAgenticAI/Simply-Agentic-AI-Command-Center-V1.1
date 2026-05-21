@@ -20123,51 +20123,225 @@ $("draftWithSelected").onclick = async () => {
     // ── Edit Teammates picker ──
     // Shows a list of all installed teammates; clicking one opens their edit modal.
     function showEditTeammatesModal(){
-      $("modalTitle").innerText = "Edit Teammates";
+      $("modalTitle").innerText = "✏️ Edit Teammates";
       hideAllModalForms();
-      $("modalBody").style.display = "block";
-      $("modalBody").innerText = "";
+      const mb = $("modalBody");
+      mb.style.display = "block";
+      mb.innerHTML = "";
+      mb.style.cssText = "display:block;height:100%;overflow:hidden;padding:0;";
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
+      // Override modalScroll so each pane handles its own scroll
+      const sc = $("modalScroll");
+      if(sc) sc.style.overflow = "hidden";
       const modalMinimizedEl = $("modalWin");
       if(modalMinimizedEl) modalMinimizedEl.classList.remove("minimized");
       if($("minModal")) $("minModal").style.display = "inline-block";
       if($("restoreModal")) $("restoreModal").style.display = "none";
 
       const installedMap = (state && state.installed) ? state.installed : {};
-      let order = (state && Array.isArray(state.installed_order) && state.installed_order.length)
+      const order = (state && Array.isArray(state.installed_order) && state.installed_order.length)
         ? state.installed_order.slice()
         : Object.keys(installedMap);
       if(!order.length){
-        $("modalBody").innerText = "No teammates installed yet.";
+        mb.style.cssText = "display:block;padding:20px;";
+        mb.innerText = "No teammates installed yet.";
         return;
       }
-      const wrap = document.createElement("div");
-      wrap.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+      const BUILTINS_ET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
+
+      // ── Outer 2-pane wrapper ──────────────────────────────────────────────────
+      const pane = document.createElement("div");
+      pane.style.cssText = "display:flex;height:100%;overflow:hidden;";
+
+      // ── LEFT: roster ──────────────────────────────────────────────────────────
+      const left = document.createElement("div");
+      left.style.cssText = "width:240px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:4px;background:rgba(8,13,32,.4);";
+
+      // ── RIGHT: editor ─────────────────────────────────────────────────────────
+      const right = document.createElement("div");
+      right.style.cssText = "flex:1;overflow-y:auto;padding:28px 32px;";
+      right.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:rgba(148,163,184,.35);font-size:14px;">← Select a teammate to edit</div>';
+
+      let activeCard = null;
+      let currentEditName = "";
+
+      // ── Roster cards ──────────────────────────────────────────────────────────
       order.forEach(function(name){
         const defn = installedMap[name] || {};
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid rgba(42,58,106,.6);border-radius:14px;background:rgba(14,22,48,.45);";
+        const isCustom = !BUILTINS_ET.has(name);
+        const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
+
+        const card = document.createElement("div");
+        card.style.cssText = "display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s;";
+
+        const circle = document.createElement("div");
+        circle.style.cssText = "width:34px;height:34px;border-radius:50%;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
+        circle.textContent = av.sigil || name.slice(0,1).toUpperCase();
+
         const info = document.createElement("div");
-        info.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+        info.style.cssText = "min-width:0;flex:1;";
         const nm = document.createElement("div");
-        nm.style.cssText = "font-weight:800;font-size:14px;";
-        nm.innerText = name;
+        nm.style.cssText = "font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+        nm.textContent = name;
         const role = document.createElement("div");
-        role.className = "tiny";
-        role.innerText = defn.job_title || "";
-        info.appendChild(nm);
-        info.appendChild(role);
-        const btn = document.createElement("button");
-        btn.className = "btn btnMini btnPrimary";
-        btn.innerText = "✏️ Edit";
-        btn.onclick = function(){ openEditForTeammate(name); };
-        row.appendChild(info);
-        row.appendChild(btn);
-        wrap.appendChild(row);
+        role.style.cssText = "font-size:11px;color:rgba(148,163,184,.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;";
+        role.textContent = defn.job_title || (isCustom ? "Custom" : "Built-in");
+        info.appendChild(nm); info.appendChild(role);
+        card.appendChild(circle); card.appendChild(info);
+
+        if(isCustom){
+          const badge = document.createElement("div");
+          badge.style.cssText = "font-size:9px;font-weight:700;color:rgba(196,181,253,.65);letter-spacing:.05em;flex-shrink:0;";
+          badge.textContent = "CUSTOM";
+          card.appendChild(badge);
+        }
+
+        card.addEventListener("mouseenter", function(){ if(card !== activeCard) card.style.background = "rgba(255,255,255,.04)"; });
+        card.addEventListener("mouseleave", function(){ if(card !== activeCard) card.style.background = ""; });
+        card.addEventListener("click", function(){
+          if(activeCard){ activeCard.style.background=""; activeCard.style.borderColor="transparent"; }
+          activeCard = card;
+          card.style.background = "rgba(124,58,237,.18)";
+          card.style.borderColor = "rgba(124,58,237,.45)";
+          loadTeammateEditor(name, defn, isCustom);
+        });
+        left.appendChild(card);
       });
-      $("modalBody").appendChild(wrap);
+
+      // ── Right-panel editor builder ────────────────────────────────────────────
+      async function loadTeammateEditor(name, defnHint, isCustom){
+        currentEditName = name;
+        right.innerHTML = '<div style="text-align:center;color:rgba(148,163,184,.4);padding:60px 0;">Loading…</div>';
+        let t = defnHint || {};
+        try{
+          const res = await fetch("/api/teammate/" + encodeURIComponent(name));
+          const d = await res.json();
+          if(d.ok) t = d.teammate || t;
+        }catch(_){}
+
+        right.innerHTML = "";
+
+        // Header
+        const av = t.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
+        const hdr = document.createElement("div");
+        hdr.style.cssText = "display:flex;align-items:center;gap:14px;margin-bottom:22px;padding-bottom:16px;border-bottom:1px solid rgba(42,58,106,.5);";
+        const hdrC = document.createElement("div");
+        hdrC.style.cssText = "width:48px;height:48px;border-radius:50%;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
+        hdrC.textContent = av.sigil || name.slice(0,1).toUpperCase();
+        const hdrT = document.createElement("div");
+        hdrT.innerHTML = '<div style="font-weight:800;font-size:18px;">'+name+'</div><div style="font-size:12px;color:rgba(148,163,184,.55);margin-top:2px;">'+(t.job_title || (isCustom?"Custom teammate":"Built-in teammate"))+'</div>';
+        hdr.appendChild(hdrC); hdr.appendChild(hdrT);
+        right.appendChild(hdr);
+
+        // Field factory
+        function mkField(label, id, type, val, h){
+          const w = document.createElement("div");
+          const lb = document.createElement("label");
+          lb.style.cssText = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.7);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;";
+          lb.textContent = label;
+          w.appendChild(lb);
+          const el = document.createElement(type === "textarea" ? "textarea" : "input");
+          el.id = id;
+          if(type !== "textarea"){ el.type = "text"; if(val === "__readonly") { el.readOnly = true; val = name; } }
+          else { el.style.minHeight = (h||80)+"px"; el.style.resize = "vertical"; }
+          el.style.width = "100%";
+          el.value = val || "";
+          w.appendChild(el);
+          return w;
+        }
+
+        // Row 1: Name | Job Title | Version
+        const r1 = document.createElement("div");
+        r1.style.cssText = "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
+        r1.appendChild(mkField("Name","_et_name","text","__readonly"));
+        r1.appendChild(mkField("Job Title","_et_job",  "text", t.job_title||""));
+        r1.appendChild(mkField("Version",  "_et_ver",  "text", t.version||""));
+        right.appendChild(r1);
+
+        // Row 2: left col (mission/goal/thinking) | right col (responsibilities/will-not-do)
+        const r2 = document.createElement("div");
+        r2.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
+        const lcol = document.createElement("div");
+        lcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
+        lcol.appendChild(mkField("Mission",       "_et_miss", "textarea", t.mission||"",         90));
+        lcol.appendChild(mkField("Goal",           "_et_goal", "textarea", t.goal||"",             90));
+        lcol.appendChild(mkField("Thinking Style", "_et_think","textarea", t.thinking_style||"",  80));
+        const rcol = document.createElement("div");
+        rcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
+        rcol.appendChild(mkField("Responsibilities (one per line)", "_et_resp", "textarea",
+          Array.isArray(t.responsibilities)?t.responsibilities.join("\n"):(t.responsibilities||""), 190));
+        rcol.appendChild(mkField("Will Not Do (one per line)", "_et_wnd", "textarea",
+          Array.isArray(t.will_not_do)?t.will_not_do.join("\n"):(t.will_not_do||""), 100));
+        r2.appendChild(lcol); r2.appendChild(rcol);
+        right.appendChild(r2);
+
+        // Row 3: Model + Voice selects
+        const r3 = document.createElement("div");
+        r3.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;";
+        function mkSelect(label, id, choices, cur){
+          const w = document.createElement("div");
+          const lb = document.createElement("label");
+          lb.style.cssText = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.7);margin-bottom:5px;letter-spacing:.06em;text-transform:uppercase;";
+          lb.textContent = label;
+          const sel = document.createElement("select");
+          sel.id = id; sel.style.width="100%";
+          choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; if(v===cur) o.selected=true; sel.appendChild(o); });
+          w.appendChild(lb); w.appendChild(sel); return w;
+        }
+        r3.appendChild(mkSelect("AI Model","_et_model",[
+          ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
+          ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
+          ["claude-opus-4-5","Claude Opus"],["claude-sonnet-4-5","Claude Sonnet"],["claude-haiku-4-5-20251001","Claude Haiku"]
+        ], t.preferred_model||""));
+        r3.appendChild(mkSelect("TTS Voice","_et_voice",[
+          ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
+          ["onyx","Onyx — deep male"],["nova","Nova — female, bright"],["shimmer","Shimmer — soft female"]
+        ], t.tts_voice||"alloy"));
+        right.appendChild(r3);
+
+        // Footer: save button + status
+        const footer = document.createElement("div");
+        footer.style.cssText = "display:flex;align-items:center;gap:14px;";
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "btn btnPrimary";
+        saveBtn.style.cssText = "padding:10px 24px;font-size:14px;";
+        saveBtn.textContent = "💾 Save Changes";
+        const statusEl = document.createElement("span");
+        statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.65);";
+        footer.appendChild(saveBtn); footer.appendChild(statusEl);
+        right.appendChild(footer);
+
+        function g(id){ return (document.getElementById(id)||{}).value||""; }
+        saveBtn.addEventListener("click", async function(){
+          statusEl.textContent = "Saving…"; saveBtn.disabled = true;
+          try{
+            const res = await fetch("/api/teammate/"+encodeURIComponent(currentEditName),{
+              method:"POST", headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({
+                job_title:g("_et_job"), version:g("_et_ver"), mission:g("_et_miss"),
+                goal:g("_et_goal"), thinking_style:g("_et_think"),
+                responsibilities:g("_et_resp"), will_not_do:g("_et_wnd"),
+                preferred_model:g("_et_model"), tts_voice:g("_et_voice")||"alloy"
+              })
+            });
+            const d = await res.json();
+            if(!d.ok){ statusEl.textContent = d.error||"Save failed"; saveBtn.disabled=false; return; }
+            statusEl.textContent = "✅ Saved!";
+            await loadState();
+            if(typeof showToast==="function") showToast("✅ "+currentEditName+" updated");
+            setTimeout(()=>{ statusEl.textContent=""; }, 2500);
+          }catch(e){ statusEl.textContent="Error saving"; }
+          saveBtn.disabled = false;
+        });
+      }
+
+      pane.appendChild(left); pane.appendChild(right);
+      mb.appendChild(pane);
+
+      // Auto-select first teammate
+      if(left.firstElementChild) left.firstElementChild.click();
     }
 
     if($("editTeammatesBtn")) $("editTeammatesBtn").onclick = async () => {
