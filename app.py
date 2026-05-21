@@ -29148,8 +29148,8 @@ document.addEventListener("click", function(e) {
       }, function(){});
     };
 
-    function saResCopyBar(contentId){
-      return '<div style="text-align:right;padding-bottom:10px;"><button onclick="saResearchCopy(this,\''+contentId+'\')" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:5px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📋 Copy</button></div>';
+    function saResCopyBar(contentId, extraBtns){
+      return '<div style="display:flex;justify-content:flex-end;gap:8px;padding-bottom:10px;flex-wrap:wrap;">'+(extraBtns||'')+'<button onclick="saResearchCopy(this,\''+contentId+'\')" style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:5px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">📋 Copy</button></div>';
     }
 
     window.runSiteAnalysis=async function(){
@@ -29183,6 +29183,40 @@ document.addEventListener("click", function(e) {
     if(window.saSetModalPin) window.saSetModalPin('prospect_dossier');
   };
 
+  var _pdLastBrief = null;
+
+  window.pdSaveToCRM = async function(btn){
+    if(!_pdLastBrief){ showToast('No dossier data to save','error'); return; }
+    var b = _pdLastBrief;
+    var notes = [
+      b.description||'',
+      (b.pain_points||[]).length ? 'Pain points: ' + b.pain_points.join('; ') : '',
+      b.outreach_angle ? 'Outreach angle: ' + b.outreach_angle : '',
+      b.tech_stack ? 'Tech: ' + b.tech_stack : ''
+    ].filter(Boolean).join('\n');
+    try{
+      btn.disabled = true; btn.textContent = 'Saving…';
+      var res2 = await fetch('/api/crm/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        name: b.company_name || b.website || 'Prospect',
+        company: b.company_name || '',
+        email: '',
+        phone: '',
+        website: b.website || '',
+        pipeline_stage: 'Lead',
+        status: 'lead',
+        tags: ['prospect-dossier', b.industry].filter(Boolean),
+        notes: notes
+      })});
+      var d2 = await res2.json();
+      if(!d2.ok) throw new Error(d2.error||'Save failed');
+      showToast('Saved to CRM');
+      btn.textContent = '✅ Saved to CRM';
+    }catch(e){
+      showToast('Could not save to CRM: '+(e.message||'error'),'error');
+      btn.disabled = false; btn.textContent = '💾 Save to CRM';
+    }
+  };
+
   window.runProspectDossier = async function(){
     var q = (($("pdQuery")||{}).value||"").trim();
     if(!q){ alert("Enter a company name or URL."); return; }
@@ -29194,6 +29228,7 @@ document.addEventListener("click", function(e) {
       var d = await r.json();
       if(!d.ok){ if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>"; return; }
       var b = d.brief;
+      _pdLastBrief = b;
       var row2 = function(label,val){ return val?`<tr><td style="font-size:12px;color:#64748b;padding:5px 10px 5px 0;white-space:nowrap;vertical-align:top;">${label}</td><td style="font-size:13px;color:#e2e8f0;padding:5px 0;">${escapeHtml(String(val))}</td></tr>`:''; };
       var section = function(title,icon,html){ return `<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;">${icon} ${title}</div>${html}</div>`; };
       var listHtml = function(arr,col){ return (arr||[]).map(function(s){ return `<div style="font-size:13px;color:${col||'#94a3b8'};margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(167,139,250,.3);">${escapeHtml(s)}</div>`; }).join(''); };
@@ -29205,7 +29240,8 @@ document.addEventListener("click", function(e) {
       if(b.tech_stack) html += section("Tech / Tools Used","🔧",`<div style="font-size:13px;color:#94a3b8;">${escapeHtml(b.tech_stack)}</div>`);
       if(b.outreach_angle) html += section("Suggested Outreach Angle","🎯",`<div style="font-size:14px;color:#c4b5fd;line-height:1.65;font-style:italic;">"${escapeHtml(b.outreach_angle)}"</div>`);
       if(b.talking_points&&b.talking_points.length) html += section("Talking Points","💬",listHtml(b.talking_points,"#7dd3fc"));
-      if(res) res.innerHTML = saResCopyBar('pdResultContent') + "<div id='pdResultContent'>" + (html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>") + "</div>";
+      var pdSaveBtn = '<button onclick="pdSaveToCRM(this)" style="background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);color:#86efac;padding:5px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">💾 Save to CRM</button>';
+      if(res) res.innerHTML = saResCopyBar('pdResultContent', pdSaveBtn) + "<div id='pdResultContent'>" + (html || "<div style='color:#64748b;padding:20px;'>No data returned.</div>") + "</div>";
     }catch(e){
       if(res) res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+escapeHtml(e.message)+"</div>";
     }finally{
