@@ -20148,11 +20148,11 @@ $("draftWithSelected").onclick = async () => {
       }
       const BUILTINS_ET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
 
-      // Shared field styles matching the app's dark theme
-      const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.8);border-radius:8px;color:#e2e8f0;padding:9px 12px;font-size:13px;font-family:inherit;outline:none;";
-      const TA_CSS     = INPUT_CSS + "resize:vertical;line-height:1.5;";
+      // Field styles — exactly matches .modalForm input/textarea/select in the stylesheet
+      const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(11,16,36,.92);border:1px solid rgba(42,58,106,.9);border-radius:12px;color:#e6edff;padding:13px 14px;font-size:15px;line-height:1.4;font-family:inherit;outline:none;";
+      const TA_CSS     = INPUT_CSS + "resize:vertical;";
       const SELECT_CSS = INPUT_CSS + "cursor:pointer;";
-      const LABEL_CSS  = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.65);margin-bottom:5px;letter-spacing:.07em;text-transform:uppercase;";
+      const LABEL_CSS  = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.65);margin-bottom:6px;letter-spacing:.07em;text-transform:uppercase;";
 
       // ── Outer 2-pane wrapper ──────────────────────────────────────────────────
       const pane = document.createElement("div");
@@ -20181,7 +20181,7 @@ $("draftWithSelected").onclick = async () => {
       right.appendChild(rHdr);
 
       function mkLbl(txt){ const l=document.createElement("label"); l.style.cssText=LABEL_CSS; l.textContent=txt; return l; }
-      function mkInput(id, readonly){ const el=document.createElement("input"); el.type="text"; el.id=id; el.style.cssText=INPUT_CSS+(readonly?";opacity:.6;cursor:default":""); if(readonly) el.readOnly=true; return el; }
+      function mkInput(id, readonly){ const el=document.createElement("input"); el.type="text"; el.id=id; el.style.cssText=INPUT_CSS+(readonly?";opacity:.55;cursor:default":""); if(readonly) el.readOnly=true; return el; }
       function mkTa(id, h){ const el=document.createElement("textarea"); el.id=id; el.style.cssText=TA_CSS+"min-height:"+(h||80)+"px;"; return el; }
       function mkSel(id, choices){ const sel=document.createElement("select"); sel.id=id; sel.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; sel.appendChild(o); }); return sel; }
       function fw(el){ const w=document.createElement("div"); w.appendChild(el); return w; }
