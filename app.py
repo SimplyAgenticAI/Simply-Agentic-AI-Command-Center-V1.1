@@ -17743,28 +17743,20 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else if(isCustom){
-        // Custom teammates: placed in the natural gaps between the 8 built-in slots.
-        // Gaps are at the midpoint angles between adjacent built-in positions on the SAME ellipse.
-        // Order: top-left gap, top-right gap, bottom-left gap, bottom-right gap,
-        //        then left gap, right gap, lower-left gap, lower-right gap.
-        const CUSTOM_GAP_ANGLES_DEG = [247.5, -67.5, 112.5, 67.5, 202.5, -22.5, 157.5, 22.5];
+        // Custom teammate: fixed position in lower-left area, never touches the ellipse
         seat.style.position = "absolute";
-        const cardW = 118, cardH = 150;
-        function _posCustomGap(){
+        function _posCustom(){
           const r = wrap.getBoundingClientRect();
           const w = r.width || wrap.offsetWidth || 800;
-          const h = r.height || wrap.offsetHeight || 520;
-          const cx = w / 2, cy = h / 2;
-          const rx = w * 0.43, ry = h * 0.35;
-          const angleDeg = CUSTOM_GAP_ANGLES_DEG[(overflowIdx || 0) % CUSTOM_GAP_ANGLES_DEG.length];
-          const angleRad = angleDeg * Math.PI / 180;
-          const posX = cx + rx * Math.cos(angleRad);
-          const posY = cy + ry * Math.sin(angleRad);
-          seat.style.left = Math.round(posX - cardW / 2) + "px";
-          seat.style.top  = Math.round(posY - cardH / 2) + "px";
+          const h = r.height || wrap.offsetHeight || 560;
+          const cardW = 118, cardH = 150;
+          const col = (overflowIdx || 0) % 3;
+          const row = Math.floor((overflowIdx || 0) / 3);
+          seat.style.left = Math.round(18 + col * (cardW + 14)) + "px";
+          seat.style.top  = Math.round(h - cardH - 14 - row * (cardH + 12)) + "px";
         }
-        if(wrap.offsetWidth > 0){ _posCustomGap(); }
-        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomGap); }); }
+        if(wrap.offsetWidth > 0){ _posCustom(); }
+        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustom); }); }
       } else {
         // Built-in: always use locked 8-slot ellipse — positions never shift
         seat.style.position = "absolute";
