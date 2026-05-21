@@ -21306,7 +21306,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpWakeLock=null, _tpCamStream=null, _tpRecorder=null, _tpChunks=[];
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
-      var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false;
+      var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21341,18 +21341,13 @@ Challenge weak assumptions. Surface risks.`;
         var wrap=document.getElementById('tpTextWrap');
         if(wrap) wrap.style.transform='translateY(0px)';
         _updateSpeedDisp();
-        // Reset record button to initial state
+        // Reset UI state
         var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.style.border='1px solid rgba(239,68,68,.5)'; rb.onclick=window.tpStartRecording; }
+        if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
-        var ri=document.getElementById('tpRecIndicator');
-        if(ri) ri.style.display='none';
-        var pb=document.getElementById('tpPauseBtn');
-        if(pb) pb.style.display='none';
+        _tpHideRecBar();
         _tpPaused=false; _tpClosing=false;
-        clearInterval(_tpRecTimer); _tpRecTimer=null; _tpRecSeconds=0;
-        var rt=document.getElementById('tpRecTimer'); if(rt) rt.textContent='';
         _showCtrl();
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
@@ -21393,16 +21388,19 @@ Challenge weak assumptions. Surface risks.`;
 
       function _tpStartCamera(){
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return;
+        _tpCamPending=true;
         navigator.mediaDevices.getUserMedia({
           video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},
           audio:true
         }).then(function(stream){
+          _tpCamPending=false;
           _tpCamStream=stream;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
         }).catch(function(){
-          if(typeof showToast==='function') showToast('Camera access denied — tap Record to scroll without recording');
+          _tpCamPending=false;
+          if(typeof showToast==='function') showToast('Camera denied — tap Record to scroll without recording');
         });
       }
 
@@ -21451,17 +21449,17 @@ Challenge weak assumptions. Surface risks.`;
         _tpScrollRAF=requestAnimationFrame(_scrollStep);
       }
 
-      // Internal: toggle scroll (tap-to-pause AND pause button)
+      // Internal: toggle scroll (tap-to-pause AND pause button in RecBar)
       function _tpToggleScroll(){
         _tpScrolling=!_tpScrolling;
         _tpPaused=!_tpScrolling;
-        var pb=document.getElementById('tpPauseBtn');
+        var pb=document.getElementById('tpRecBarPause');
         if(_tpScrolling){
           _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep);
-          if(pb&&pb.style.display!=='none'){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.4)'; pb.style.color='#fde68a'; }
+          if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; }
         } else {
           if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
-          if(pb&&pb.style.display!=='none'){ pb.innerHTML='&#9654; Resume'; pb.style.background='rgba(16,185,129,.25)'; pb.style.border='1px solid rgba(16,185,129,.5)'; pb.style.color='#6ee7b7'; }
+          if(pb){ pb.innerHTML='&#9654; Resume'; pb.style.background='rgba(16,185,129,.25)'; pb.style.border='1px solid rgba(16,185,129,.6)'; pb.style.color='#6ee7b7'; }
         }
       }
 
@@ -21496,6 +21494,35 @@ Challenge weak assumptions. Surface risks.`;
         a.click();
         setTimeout(function(){ document.body.removeChild(a); },300);
         if(typeof showToast==='function') showToast('Downloading your recording...');
+      };
+
+      function _tpShowRecBar(scrollOnly){
+        var bar=document.getElementById('tpRecBar');
+        if(bar) bar.style.display='flex';
+        var badge=document.getElementById('tpRecBarBadge');
+        if(badge) badge.style.display=scrollOnly?'none':'flex';
+        var stopBtn=document.getElementById('tpRecStopBtn');
+        if(stopBtn) stopBtn.innerHTML=scrollOnly?'&#9209; Stop':'&#9209; Stop &amp; Save';
+        var rb=document.getElementById('tpRecBtn');
+        if(rb){ rb.style.opacity='0.35'; rb.style.pointerEvents='none'; }
+      }
+
+      function _tpHideRecBar(){
+        _stopRecTimer();
+        var bar=document.getElementById('tpRecBar');
+        if(bar) bar.style.display='none';
+        var pb=document.getElementById('tpRecBarPause');
+        if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; }
+        var rb=document.getElementById('tpRecBtn');
+        if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
+        var rt=document.getElementById('tpRecTimer'); if(rt) rt.textContent='';
+        _tpPaused=false;
+      }
+
+      // State-based handler — no dynamic onclick swapping needed
+      window.tpRecBtnClick = function(){
+        if(_tpRecording||_tpScrolling){ window.tpStopRecording(); return; }
+        window.tpStartRecording();
       };
 
       window.tpReset = function(){
@@ -21551,18 +21578,19 @@ Challenge weak assumptions. Surface risks.`;
         },1000);
       }
 
-      // Record = 3-2-1 countdown → start camera recording + scrolling simultaneously
+      // Record = 3-2-1 countdown → camera recording + scroll
       window.tpStartRecording = function(){
+        if(_tpCamPending){
+          if(typeof showToast==='function') showToast('Camera connecting — wait a moment then try again');
+          return;
+        }
         if(!_tpCamStream){
-          // No camera — scroll after countdown
+          // No camera — scroll only
           _tpRunCountdown(function(){
             _tpScrolling=true; _tpPaused=false; _tpLastTs=null;
             _tpScrollRAF=requestAnimationFrame(_scrollStep);
-            var pb=document.getElementById('tpPauseBtn');
-            if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.4)'; pb.style.color='#fde68a'; pb.style.display='flex'; }
-            var rb=document.getElementById('tpRecBtn');
-            if(rb){ rb.innerHTML='&#9209; Stop Scroll'; rb.style.background='rgba(239,68,68,.55)'; rb.style.border='1px solid rgba(239,68,68,.8)'; rb.onclick=window.tpStopRecording; }
-            if(typeof showToast==='function') showToast('Scrolling — no camera connected');
+            _tpShowRecBar(true);
+            if(typeof showToast==='function') showToast('Scrolling only — no camera available');
           });
           return;
         }
@@ -21574,36 +21602,30 @@ Challenge weak assumptions. Surface risks.`;
         _tpBlobMime=(_tpRecorder&&_tpRecorder.mimeType)||'video/webm';
         _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
         _tpRecorder.onstop=function(){
-          _stopRecTimer();
           _tpRecording=false;
+          _tpHideRecBar();
           var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
           if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
           _tpLastBlobUrl=URL.createObjectURL(blob);
-          var rb=document.getElementById('tpRecBtn');
-          if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.style.border='1px solid rgba(239,68,68,.5)'; rb.onclick=window.tpStartRecording; }
-          var pb=document.getElementById('tpPauseBtn');
-          if(pb) pb.style.display='none';
-          var ri=document.getElementById('tpRecIndicator');
-          if(ri) ri.style.display='none';
           var prog=document.getElementById('tpProgress');
           if(prog) prog.style.height='0%';
-          if(_tpClosing) return; // overlay already closed — skip showing download bar
+          if(_tpClosing) return;
           var dlBar=document.getElementById('tpDownloadBar');
           if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
           if(typeof showToast==='function') showToast('Recording saved — tap Download!');
         };
         _tpRunCountdown(function(){
-          _tpRecorder.start(500);
-          _tpRecording=true; _tpPaused=false;
-          var rb=document.getElementById('tpRecBtn');
-          if(rb){ rb.innerHTML='&#9209; Stop REC'; rb.style.background='rgba(239,68,68,.55)'; rb.style.border='1px solid rgba(239,68,68,.8)'; rb.onclick=window.tpStopRecording; }
-          var pb=document.getElementById('tpPauseBtn');
-          if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.4)'; pb.style.color='#fde68a'; pb.style.display='flex'; }
-          var ri=document.getElementById('tpRecIndicator');
-          if(ri) ri.style.display='flex';
-          _startRecTimer();
-          _tpScrolling=true; _tpLastTs=null;
-          _tpScrollRAF=requestAnimationFrame(_scrollStep);
+          try{
+            _tpRecorder.start();
+            _tpRecording=true; _tpPaused=false;
+            _tpShowRecBar(false);
+            _startRecTimer();
+            _tpScrolling=true; _tpLastTs=null;
+            _tpScrollRAF=requestAnimationFrame(_scrollStep);
+          }catch(err){
+            _tpRecording=false;
+            if(typeof showToast==='function') showToast('Recording failed — '+(err.message||err));
+          }
         });
       };
 
@@ -21613,16 +21635,10 @@ Challenge weak assumptions. Surface risks.`;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpRecorder&&_tpRecording){
           try{ _tpRecorder.stop(); }catch(e){}
-          // onstop fires async and handles cleanup + download bar
+          // onstop fires async and handles recBar hide + download bar
         } else {
-          // Camera-less mode: just stopped scrolling
-          _stopRecTimer();
-          var rb=document.getElementById('tpRecBtn');
-          if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.25)'; rb.style.border='1px solid rgba(239,68,68,.5)'; rb.onclick=window.tpStartRecording; }
-          var pb=document.getElementById('tpPauseBtn');
-          if(pb) pb.style.display='none';
-          var ri=document.getElementById('tpRecIndicator');
-          if(ri) ri.style.display='none';
+          // Scroll-only mode: just stopped scrolling
+          _tpHideRecBar();
         }
       };
 
@@ -21630,7 +21646,7 @@ Challenge weak assumptions. Surface risks.`;
         _tpClosing=true;
         if(_tpRecording) window.tpStopRecording();
         _tpScrolling=false; _tpPaused=false;
-        _stopRecTimer();
+        _tpHideRecBar();
         clearTimeout(_tpCtrlTimer);
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
@@ -34840,15 +34856,7 @@ window.toggleNotifPanel = function(){
     </div>
     <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#8644; Flip</button>
     <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#128247; Cam</button>
-    <button id="tpPauseBtn" onclick="tpTogglePause()" style="display:none;padding:8px 14px;border-radius:8px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:#fde68a;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;align-items:center;">&#9646;&#9646; Pause</button>
-    <button onclick="tpStartRecording()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">&#9679; Record</button>
-  </div>
-
-  <!-- Recording badge (always on top) -->
-  <div id="tpRecIndicator" style="display:none;position:fixed;top:52px;left:12px;z-index:40;align-items:center;gap:5px;background:rgba(0,0,0,.75);padding:5px 12px;border-radius:20px;border:1px solid rgba(239,68,68,.55);">
-    <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;"></div>
-    <span style="font-size:11px;color:#fca5a5;font-weight:700;letter-spacing:.05em;">REC</span>
-    <span id="tpRecTimer" style="font-size:11px;color:#fca5a5;font-weight:600;min-width:36px;"></span>
+    <button onclick="tpRecBtnClick()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s;">&#9679; Record</button>
   </div>
 
   <!-- Reading zone line at 50vh -->
@@ -34872,7 +34880,18 @@ window.toggleNotifPanel = function(){
   </div>
 
   <!-- Hint -->
-  <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Move mouse / touch top to show controls</div>
+  <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Swipe up on controls to show them</div>
+
+  <!-- Recording control bar — always visible while recording, can't be missed -->
+  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:14px 16px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:10px;">
+    <button id="tpRecBarPause" onclick="tpTogglePause()" style="padding:12px 22px;border-radius:10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.5);color:#fde68a;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9646;&#9646; Pause</button>
+    <div id="tpRecBarBadge" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;">
+      <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;flex-shrink:0;"></div>
+      <span style="font-size:14px;color:#fca5a5;font-weight:700;letter-spacing:.06em;">REC</span>
+      <span id="tpRecTimer" style="font-size:14px;color:#fca5a5;font-weight:600;min-width:44px;"></span>
+    </div>
+    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:12px 22px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop &amp; Save</button>
+  </div>
 
   <!-- Download bar -->
   <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:35;background:rgba(6,14,36,.94);backdrop-filter:blur(10px);padding:12px 20px;align-items:center;gap:12px;border-top:1px solid rgba(16,185,129,.38);">
