@@ -17795,7 +17795,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const _bench = document.getElementById("customBench");
       const _benchRow = document.getElementById("customBenchRow");
       if(_benchRow) Array.from(_benchRow.querySelectorAll(".seat")).forEach(x => x.remove());
-      if(_bench) _bench.style.display = "none";
+      if(_bench) _bench.style.display = "none"; // always reset; shown later only on desktop
 
       const order = activeOrder();
       const installed = state.installed || {};
@@ -17826,6 +17826,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
 
       // Built-ins go on the fixed 8-slot ellipse; custom teammates go in the bench row below.
+      // On mobile the bench is skipped — custom seats join the flat tableWrap list instead.
+      const _isMobileRender = window.innerWidth <= 640;
       let ellipseSlot = 1;
       let overflowIdx = 0;
       seats.forEach((name) => {
@@ -17834,9 +17836,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(isCustom){
           const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
           overflowIdx++;
-          // Route to the bench, not the table
-          if(_benchRow) _benchRow.appendChild(seat);
-          if(_bench) _bench.style.display = "";
+          if(_isMobileRender){
+            // Mobile: add to tableWrap so _phoneFlatten handles it like any other seat
+            wrap.appendChild(seat);
+          } else {
+            // Desktop: bench row below the table
+            if(_benchRow) _benchRow.appendChild(seat);
+            if(_bench) _bench.style.display = "";
+          }
         } else {
           const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
           ellipseSlot++;
