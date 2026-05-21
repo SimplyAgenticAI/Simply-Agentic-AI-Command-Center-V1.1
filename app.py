@@ -310,14 +310,14 @@ PLANS: Dict[str, Any] = {
         "price_id":         STRIPE_PRICE_ID_FOUNDER,
         "badge":            "🔥 Founder",
         "tagline":          "Locked in forever at our lowest price — for the first believers.",
-        "custom_teammates": 3,
+        "custom_teammates": 7,
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
         "team_seats":       2,
         "founder":          True,
         "features": [
             "All 7 built-in AI teammates — GPT-4o & Claude",
-            "3 custom AI teammates — build your own bench",
+            "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
             "Lead Lab, Social Studio & Offer Builder",
@@ -355,13 +355,13 @@ PLANS: Dict[str, Any] = {
         "price_id":         STRIPE_PRICE_ID_GROWTH,
         "badge":            None,
         "tagline":          "Scale your pipeline, build your AI team, and bring in real humans too.",
-        "custom_teammates": 3,
+        "custom_teammates": 7,
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
         "team_seats":       3,
         "features": [
             "All 7 built-in AI teammates — GPT-4o & Claude",
-            "3 custom AI teammates — build your own bench",
+            "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
             "Lead Lab, Social Studio & Offer Builder",
@@ -6568,7 +6568,7 @@ def api_create_teammate():
             if max_custom == 0:
                 return jsonify({
                     "ok": False,
-                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 3 custom teammates, or Operator Pro for unlimited. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
+                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 7 custom teammates, or Operator Pro for unlimited. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
                 }), 403
             else:
                 return jsonify({
@@ -20209,6 +20209,15 @@ $("draftWithSelected").onclick = async () => {
     $("cancelCreate").onclick = () => hideModal();
 
     $("saveCreate").onclick = async () => {
+      // Enforce 7-custom-teammate cap on the frontend before hitting the server
+      const _BUILTINS_SET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
+      const _inst = (state && state.installed) ? state.installed : {};
+      const _customCount = Object.keys(_inst).filter(n => !_BUILTINS_SET.has(n)).length;
+      if (_customCount >= 7) {
+        $("createStatus").innerHTML = "You've reached the 7 custom teammate limit on your plan. <a href='/stripe/manage' style='color:#c4b5fd;'>Upgrade to Operator Pro</a> for unlimited.";
+        return;
+      }
+
       $("createStatus").innerText = "Creating...";
 
       const payload = {
