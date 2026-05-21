@@ -14049,7 +14049,7 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saCreateDrop">
             <button class="saDropItem" id="visualCreatorBtn">✨ Visual Creator</button>
-            <button class="saDropItem" id="teleprompterBtn">🎙 Teleprompter</button>
+            <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
@@ -21296,9 +21296,6 @@ Challenge weak assumptions. Surface risks.`;
 
     if(document.getElementById('visualCreatorBtn')){
       document.getElementById('visualCreatorBtn').onclick = showVisualCreatorModal;
-    }
-    if(document.getElementById('teleprompterBtn')){
-      document.getElementById('teleprompterBtn').onclick = showTeleprompterModal;
     }
     // End Visual Creator
 
