@@ -17651,8 +17651,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
 
 
-function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
-      const isCustom = false; // all seats use the ellipse now
+function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const wrap = $("tableWrap");
       const wrapRect = wrap.getBoundingClientRect();
 
@@ -17743,6 +17742,29 @@ function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
         seat.style.width = "100%";
         seat.style.height = "auto";
         seat.style.transform = "none";
+      } else if(isCustom){
+        // Custom teammates: placed in the natural gaps between the 8 built-in slots.
+        // Gaps are at the midpoint angles between adjacent built-in positions on the SAME ellipse.
+        // Order: top-left gap, top-right gap, bottom-left gap, bottom-right gap,
+        //        then left gap, right gap, lower-left gap, lower-right gap.
+        const CUSTOM_GAP_ANGLES_DEG = [247.5, -67.5, 112.5, 67.5, 202.5, -22.5, 157.5, 22.5];
+        seat.style.position = "absolute";
+        const cardW = 118, cardH = 150;
+        function _posCustomGap(){
+          const r = wrap.getBoundingClientRect();
+          const w = r.width || wrap.offsetWidth || 800;
+          const h = r.height || wrap.offsetHeight || 520;
+          const cx = w / 2, cy = h / 2;
+          const rx = w * 0.43, ry = h * 0.35;
+          const angleDeg = CUSTOM_GAP_ANGLES_DEG[(overflowIdx || 0) % CUSTOM_GAP_ANGLES_DEG.length];
+          const angleRad = angleDeg * Math.PI / 180;
+          const posX = cx + rx * Math.cos(angleRad);
+          const posY = cy + ry * Math.sin(angleRad);
+          seat.style.left = Math.round(posX - cardW / 2) + "px";
+          seat.style.top  = Math.round(posY - cardH / 2) + "px";
+        }
+        if(wrap.offsetWidth > 0){ _posCustomGap(); }
+        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomGap); }); }
       } else {
         // Built-in: always use locked 8-slot ellipse — positions never shift
         seat.style.position = "absolute";
@@ -17755,7 +17777,7 @@ function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
           const cy = h / 2;
           const rx = w * 0.43;
           const ry = h * 0.35;
-          const pos = computeEllipsePos(idx, totalSeats, cx, cy, rx, ry);
+          const pos = computeEllipsePos(idx, 8, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
         }
@@ -17780,14 +17802,14 @@ function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
       const installed = state.installed || {};
       const seats = order.filter(n => installed[n]);
 
-      // Dynamic ellipse: Operator at slot 0, every active teammate gets a numbered slot 1..N.
-      // totalSlots = 1 (Operator) + seats.length.  Capped at 10 to keep cards readable.
-      // All seats — built-in or custom — are placed on the same ellipse. No overflow grid.
-      const totalSlots = Math.min(10, Math.max(3, 1 + seats.length));
+      // Fixed 8-slot ellipse — built-ins always occupy their original positions.
+      // Custom teammates are placed in gap angles between built-in slots.
+      const ELLIPSE_SLOTS = 8;
+      const BUILTINS = ["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"];
 
       // Operator always at slot 0, 12 o'clock
       try{
-        wrap.appendChild(makeOperatorSeat(totalSlots));
+        wrap.appendChild(makeOperatorSeat(ELLIPSE_SLOTS));
       }catch(err){
         console.error("Operator seat failed to render:", err);
       }
@@ -17804,13 +17826,21 @@ function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
         return;
       }
 
-      // All seats on the ellipse — slot 1 through N
+      // Built-ins go on the fixed 8-slot ellipse; custom teammates fill the gap angles.
       let ellipseSlot = 1;
+      let overflowIdx = 0;
       seats.forEach((name) => {
         const defn = installed[name];
-        const seat = makeSeat(defn, ellipseSlot, totalSlots, false, 0);
-        ellipseSlot++;
-        wrap.appendChild(seat);
+        const isCustom = BUILTINS.indexOf(name) === -1;
+        if(isCustom){
+          const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
+          overflowIdx++;
+          wrap.appendChild(seat);
+        } else {
+          const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
+          ellipseSlot++;
+          wrap.appendChild(seat);
+        }
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
 
@@ -17961,7 +17991,7 @@ function makeSeat(defn, idx, totalSeats, _unused_isCustom, _unused_overflowIdx){
           const cy = h / 2;
           const rx = w * 0.43;
           const ry = h * 0.35;
-          const pos = computeEllipsePos(0, totalSeats, cx, cy, rx, ry);
+          const pos = computeEllipsePos(0, 8, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
         }
