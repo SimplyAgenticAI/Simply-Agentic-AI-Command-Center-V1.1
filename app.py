@@ -21378,6 +21378,7 @@ Challenge weak assumptions. Surface risks.`;
       function _scheduleHideCtrl(){
         clearTimeout(_tpCtrlTimer);
         _tpCtrlTimer=setTimeout(function(){
+          if(_tpRecording) return;
           var c=document.getElementById('tpControls');
           if(c){ c.style.opacity='0'; c.style.pointerEvents='none'; }
           _tpCtrlVisible=false;
@@ -34802,7 +34803,7 @@ window.toggleNotifPanel = function(){
 
   <!-- Scrolling text -->
   <div id="tpViewport" style="position:absolute;inset:0;overflow:hidden;">
-    <div id="tpTextWrap" style="width:100%;padding:100vh 8% 50vh;box-sizing:border-box;will-change:transform;">
+    <div id="tpTextWrap" style="width:100%;padding:50vh 8% 50vh;box-sizing:border-box;will-change:transform;">
       <div id="tpText" style="font-size:36px;line-height:1.8;color:#fff;text-align:center;white-space:pre-wrap;word-break:break-word;text-shadow:0 2px 18px rgba(0,0,0,.98),0 0 40px rgba(0,0,0,.85);font-family:Georgia,serif;font-weight:600;"></div>
     </div>
   </div>
