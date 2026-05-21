@@ -15676,6 +15676,7 @@ label         { font-size: 14px !important; }
           <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">↻ Regenerate</button>
           <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ HTML</button>
           <button onclick="vcDownloadVideo()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;cursor:pointer;">🎬 Video</button>
+          <button id="vcGifBtn" onclick="vcDownloadGif()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);color:#fde68a;cursor:pointer;">🎞 GIF</button>
           <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;">📋 Copy code</button>
         </div>
       </div>
@@ -21193,55 +21194,79 @@ Challenge weak assumptions. Surface risks.`;
       showToast('HTML downloaded!');
     }
 
-    function vcDownloadVideo(){
-      var frame = document.getElementById('vcFrame');
-      if(!frame || !_vcCurrentHtml){ showToast('Generate a visual first'); return; }
+    async function vcDownloadVideo(){
+      if(!_vcCurrentHtml){ showToast('Generate a visual first'); return; }
       var btn = document.querySelector('[onclick="vcDownloadVideo()"]');
-      var orig = btn ? btn.textContent : '🎬 Video';
       try{
-        var ifrDoc = frame.contentDocument || frame.contentWindow.document;
-        var recordScript = ifrDoc.createElement('script');
-        recordScript.textContent = '(function(){'
-          + 'if(window._saRecording)return; window._saRecording=true;'
-          + 'var cvs=document.createElement("canvas");'
-          + 'cvs.width=Math.max(document.documentElement.scrollWidth,800);'
-          + 'cvs.height=Math.max(document.documentElement.scrollHeight,600);'
-          + 'var ctx=cvs.getContext("2d");'
-          + 'var stream=cvs.captureStream(30);'
-          + 'var mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";'
-          + 'var recorder=new MediaRecorder(stream,{mimeType:mime});'
-          + 'var chunks=[];'
-          + 'recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};'
-          + 'recorder.onstop=function(){'
-          +   'var blob=new Blob(chunks,{type:"video/webm"});'
-          +   'var url=URL.createObjectURL(blob);'
-          +   'var a=document.createElement("a");'
-          +   'a.href=url;a.download="visual-animation.webm";a.click();'
-          +   'setTimeout(function(){URL.revokeObjectURL(url);},3000);'
-          +   'window._saRecording=false;'
-          + '};'
-          + 'recorder.start();'
-          + 'var svgs=document.querySelectorAll("svg");'
-          + 'function drawFrame(){'
-          +   'if(!window._saRecording)return;'
-          +   'try{if(svgs.length){'
-          +     'var s=new XMLSerializer().serializeToString(svgs[0]);'
-          +     'var img=new Image();'
-          +     'img.onload=function(){ctx.clearRect(0,0,cvs.width,cvs.height);ctx.drawImage(img,0,0,cvs.width,cvs.height);};'
-          +     'img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(s)));'
-          +   '}}catch(e){}'
-          +   'if(window._saRecording)requestAnimationFrame(drawFrame);'
-          + '}'
-          + 'if(svgs.length)requestAnimationFrame(drawFrame);'
-          + 'setTimeout(function(){if(recorder.state!=="inactive")recorder.stop();},8000);'
-          + '})();';
-        ifrDoc.head.appendChild(recordScript);
-        if(btn){ btn.textContent='⏺ Recording…'; btn.disabled=true; }
-        showToast('Recording 8 seconds — download starts automatically');
-        setTimeout(function(){ if(btn){ btn.textContent=orig; btn.disabled=false; } }, 9500);
-      } catch(e){
-        showToast('Video recording requires Chrome or Edge');
-        if(btn){ btn.textContent=orig; btn.disabled=false; }
+        showToast('📹 Select the preview pane in the browser dialog — recording runs 10 s');
+        var stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
+        var mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(function(m){return MediaRecorder.isTypeSupported(m);})||'video/webm';
+        var recorder = new MediaRecorder(stream,{mimeType:mime});
+        var chunks = [];
+        recorder.ondataavailable = function(e){ if(e.data.size) chunks.push(e.data); };
+        recorder.onstop = function(){
+          stream.getTracks().forEach(function(t){t.stop();});
+          var blob = new Blob(chunks,{type:'video/webm'});
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url; a.download = 'visual-'+Date.now()+'.webm'; a.click();
+          setTimeout(function(){URL.revokeObjectURL(url);},5000);
+          showToast('✅ Saved as .webm — convert free at cloudconvert.com/webm-to-mp4');
+          if(btn){btn.textContent='🎬 Video';btn.disabled=false;}
+        };
+        if(btn){btn.textContent='⏹ Stop';btn.disabled=false;}
+        btn && (btn.onclick = function(){ if(recorder.state!=='inactive') recorder.stop(); btn.onclick=function(){vcDownloadVideo();}; });
+        recorder.start();
+        setTimeout(function(){if(recorder.state!=='inactive')recorder.stop();},10000);
+      }catch(e){
+        if(e.name!=='AbortError') showToast('Recording cancelled or not supported in this browser');
+        if(btn){btn.textContent='🎬 Video';btn.disabled=false;}
+      }
+    }
+
+    async function vcDownloadGif(){
+      if(!_vcCurrentHtml){ showToast('Generate a visual first'); return; }
+      var frame = document.getElementById('vcFrame');
+      var btn = document.getElementById('vcGifBtn');
+      if(btn){btn.disabled=true;btn.textContent='⏳ Capturing…';}
+      showToast('Capturing 3 s of frames for GIF…');
+      try{
+        var ifrWin = frame.contentWindow;
+        var ifrDoc = frame.contentDocument||ifrWin.document;
+        if(!ifrWin.html2canvas){
+          await new Promise(function(res,rej){
+            var s=ifrDoc.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            s.onload=res; s.onerror=rej; ifrDoc.head.appendChild(s);
+          });
+        }
+        var w=frame.offsetWidth||800, h=frame.offsetHeight||600, frames=[];
+        for(var i=0;i<15;i++){
+          var cvs=await ifrWin.html2canvas(ifrDoc.body,{width:w,height:h,scale:1,useCORS:true,allowTaint:true,logging:false});
+          frames.push(cvs);
+          if(i<14) await new Promise(function(r){setTimeout(r,200);});
+        }
+        if(btn) btn.textContent='⏳ Encoding…';
+        if(!window.GIF){
+          await new Promise(function(res,rej){
+            var s=document.createElement('script');
+            s.src='https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
+            s.onload=res; s.onerror=rej; document.head.appendChild(s);
+          });
+        }
+        var gif=new GIF({workers:2,quality:8,width:w,height:h,workerScript:'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'});
+        frames.forEach(function(c){gif.addFrame(c,{delay:200,copy:true});});
+        gif.on('finished',function(blob){
+          var url=URL.createObjectURL(blob);
+          var a=document.createElement('a'); a.href=url; a.download='visual-'+Date.now()+'.gif'; a.click();
+          setTimeout(function(){URL.revokeObjectURL(url);},5000);
+          showToast('✅ GIF downloaded!');
+          if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}
+        });
+        gif.render();
+      }catch(e){
+        showToast('GIF capture failed — try again');
+        if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}
       }
     }
 
@@ -37446,22 +37471,86 @@ def api_visual_creator():
             return jsonify({"ok": False,
                 "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...)."}), 400
 
-        brand_note = f" Brand: {brand}." if brand else ""
+        brand_note = f" Brand name: {brand}." if brand else ""
+
+        # Per-type structural rules — enforced in addition to the base system prompt
+        _type_rules = {
+            "slideshow": (
+                "SLIDESHOW REQUIREMENTS (mandatory): "
+                "Build exactly 4 slides. Each slide fills 100vw × 100vh. "
+                "Include: left/right arrow buttons (positioned center-left and center-right, always visible), "
+                "a slide counter (e.g. '2 / 4') centered at bottom, dot navigation row below counter, "
+                "keyboard arrow-key support, auto-advance every 5 seconds that pauses on hover. "
+                "Slides transition with a smooth CSS fade or horizontal slide animation. "
+                "Each slide has a bold headline, 2-3 lines of body text, and a distinct background or illustration. "
+            ),
+            "carousel": (
+                "CAROUSEL REQUIREMENTS (mandatory): "
+                "Build a horizontal card carousel. Show 3 cards at once on desktop, 1 on mobile. "
+                "Left/right arrow buttons always visible outside the cards. "
+                "Dot/indicator row below. Smooth CSS transform slide animation. "
+                "Each card has an icon (emoji or CSS shape), bold title, and 1-2 lines of description. "
+                "Cards must have consistent height. Touch swipe support via touchstart/touchend events. "
+            ),
+            "presentation": (
+                "PRESENTATION REQUIREMENTS (mandatory): "
+                "Build exactly 5 full-screen slides styled like a professional PowerPoint deck. "
+                "Slide 1: Title + subtitle. Slides 2-4: content with bullet points or visual. Slide 5: closing CTA. "
+                "Slide number shown top-right (e.g. '3 / 5'). Previous/next buttons and keyboard arrow navigation. "
+                "Dramatic slide transitions (scale, fade, or 3D flip). No auto-advance. "
+            ),
+            "animation": (
+                "ANIMATION REQUIREMENTS (mandatory): "
+                "Create a looping visual animation — no slides, no navigation controls, no pagination. "
+                "Use @keyframes, CSS transforms, SVG paths, or JS canvas/requestAnimationFrame. "
+                "The animation must loop seamlessly. Make it visually impressive: particles, morphing shapes, "
+                "flowing gradients, or a cinematic reveal sequence. "
+            ),
+            "infographic": (
+                "INFOGRAPHIC REQUIREMENTS (mandatory): "
+                "Build a tall, scrollable infographic (min-height 200vh). "
+                "Use IntersectionObserver to trigger animations when sections enter the viewport. "
+                "Include: animated number counters (count from 0 to final value over 1.5s), "
+                "progress/bar charts, icon+stat blocks, and a clear visual hierarchy with section headings. "
+                "No navigation controls needed — scroll is the interaction. "
+            ),
+            "landing section": (
+                "LANDING SECTION REQUIREMENTS (mandatory): "
+                "Build: (1) a hero section with animated headline reveal, subheading, and a glowing CTA button; "
+                "(2) a 3-column features/benefits grid with icon, title, and description per card; "
+                "(3) a social proof / stats bar with 3-4 animated counters. "
+                "Each section animates in when scrolled into view (IntersectionObserver + CSS classes). "
+                "Full-page layout, vertically stacked. "
+            ),
+        }
+        type_rule = _type_rules.get(vtype, "")
+
         system = (
             "You are an elite creative HTML/CSS/JavaScript developer. "
             "Output ONLY a single complete self-contained HTML file. "
             "No explanation, no markdown fences, no commentary. "
             "Start with <!DOCTYPE html> and end with </html>. "
-            "Requirements: all CSS/JS inline; only Google Fonts external; "
+            "Base requirements: all CSS/JS inline; only Google Fonts external; "
             "real @keyframes animations; fully interactive; mobile responsive; "
-            "dark backgrounds (#07091a, #060c1e) with purple/blue accents (#7c3aed, #a78bfa); "
             "beautiful typography; smooth cubic-bezier transitions; production quality. "
+            + (type_rule if type_rule else "") +
             "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
         )
+
+        theme_map = {
+            "dark purple": "dark background (#07091a) with purple/violet accents (#7c3aed, #a78bfa, #c4b5fd)",
+            "dark blue":   "dark background (#060c1e) with electric blue accents (#3b82f6, #60a5fa, #93c5fd)",
+            "light clean": "clean white/light-grey background (#f8fafc, #f1f5f9) with dark text and minimal accents",
+            "dark minimal": "near-black background (#09090b) with white text and single muted accent (#52525b)",
+            "vibrant gradient": "vivid gradient backgrounds (purple→blue→teal) with bright, saturated accents",
+        }
+        theme_desc = theme_map.get(theme, f"{theme} color theme")
+
         user_msg = (
-            f"Create a {vtype} with a {theme} color theme.{brand_note} "
+            f"Create a {vtype}.{brand_note} "
+            f"Color theme: {theme_desc}. "
             f"Request: {prompt} "
-            f"Make it genuinely beautiful and impressive. Real animations, fully interactive. "
+            f"Make it genuinely beautiful, impressive, and production-ready. "
             f"Output only the complete HTML file starting with <!DOCTYPE html>."
         )
 
