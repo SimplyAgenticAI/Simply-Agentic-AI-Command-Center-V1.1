@@ -21361,7 +21361,7 @@ Challenge weak assumptions. Surface risks.`;
           _showCtrl();
           var t=e.target;
           if(!t) return;
-          if(t.closest && (t.closest('#tpControls')||t.closest('#tpDownloadBar')||t.closest('#tpRecIndicator'))) return;
+          if(t.closest && (t.closest('#tpControls')||t.closest('#tpDownloadBar')||t.closest('#tpRecBar'))) return;
           if(t.tagName==='BUTTON'||t.tagName==='A') return;
           _tpToggleScroll();
         };
@@ -21412,10 +21412,7 @@ Challenge weak assumptions. Surface risks.`;
 
       function _applyMirror(){
         var vid=document.getElementById('tpCamVideo');
-        if(vid) vid.style.transform=_tpMirrored?'scaleX(-1)':'scaleX(1)';
-        var mb=document.getElementById('tpMirrorBtn');
-        if(mb){ mb.style.background=_tpMirrored?'rgba(124,58,237,.3)':'rgba(255,255,255,.07)';
-          mb.style.color=_tpMirrored?'#c4b5fd':'#94a3b8'; }
+        if(vid) vid.style.transform='scaleX(-1)'; // always mirror — selfie view
       }
 
       function _updateSpeedDisp(){
@@ -21484,16 +21481,25 @@ Challenge weak assumptions. Surface risks.`;
       };
 
       window.tpDownload = function(){
-        if(!_tpLastBlobUrl){ if(typeof showToast==='function') showToast('No recording saved yet'); return; }
+        if(!_tpLastBlobUrl){ if(typeof showToast==='function') showToast('No recording found — make sure you hit Stop & Save first'); return; }
         var ext=_tpBlobMime.indexOf('mp4')>-1?'.mp4':'.webm';
-        var a=document.createElement('a');
-        a.style.display='none';
-        a.href=_tpLastBlobUrl;
-        a.download='recording-'+Date.now()+ext;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function(){ document.body.removeChild(a); },300);
-        if(typeof showToast==='function') showToast('Downloading your recording...');
+        var filename='recording-'+Date.now()+ext;
+        var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+        if(isIOS){
+          // iOS Safari does not support the download attribute on blob URLs — open in new tab instead
+          var w=window.open(_tpLastBlobUrl,'_blank');
+          if(!w){ window.location.href=_tpLastBlobUrl; }
+          if(typeof showToast==='function') showToast('Video opened — tap the Share icon then Save to Camera Roll');
+        } else {
+          var a=document.createElement('a');
+          a.style.display='none';
+          a.href=_tpLastBlobUrl;
+          a.download=filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} },1000);
+          if(typeof showToast==='function') showToast('Download started!');
+        }
       };
 
       function _tpShowRecBar(scrollOnly){
@@ -21546,10 +21552,6 @@ Challenge weak assumptions. Surface risks.`;
         if(textEl) textEl.style.fontSize=_tpFontSize+'px';
       };
 
-      window.tpMirror = function(){
-        _tpMirrored=!_tpMirrored;
-        _applyMirror();
-      };
 
       window.tpToggleCamera = function(){
         _tpCamOn=!_tpCamOn;
@@ -21604,19 +21606,24 @@ Challenge weak assumptions. Surface risks.`;
         _tpRecorder.onstop=function(){
           _tpRecording=false;
           _tpHideRecBar();
+          if(_tpChunks.length===0){ if(typeof showToast==='function') showToast('Recording captured no data — try again'); return; }
           var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
+          if(blob.size===0){ if(typeof showToast==='function') showToast('Recording was empty — try again'); return; }
           if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
           _tpLastBlobUrl=URL.createObjectURL(blob);
+          var sizeMb=(blob.size/1048576).toFixed(1);
           var prog=document.getElementById('tpProgress');
           if(prog) prog.style.height='0%';
           if(_tpClosing) return;
+          var szEl=document.getElementById('tpDlSize');
+          if(szEl) szEl.textContent=sizeMb+' MB';
           var dlBar=document.getElementById('tpDownloadBar');
           if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
-          if(typeof showToast==='function') showToast('Recording saved — tap Download!');
+          if(typeof showToast==='function') showToast('Take saved ('+sizeMb+' MB) — tap Download!');
         };
         _tpRunCountdown(function(){
           try{
-            _tpRecorder.start();
+            try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); } // 1s chunks; fallback no-timeslice
             _tpRecording=true; _tpPaused=false;
             _tpShowRecBar(false);
             _startRecTimer();
@@ -21634,8 +21641,9 @@ Challenge weak assumptions. Surface risks.`;
         _tpScrolling=false; _tpPaused=false;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpRecorder&&_tpRecording){
+          try{ if(typeof _tpRecorder.requestData==='function') _tpRecorder.requestData(); }catch(e){}
           try{ _tpRecorder.stop(); }catch(e){}
-          // onstop fires async and handles recBar hide + download bar
+          // onstop fires async: hides recBar, creates blob, shows download bar
         } else {
           // Scroll-only mode: just stopped scrolling
           _tpHideRecBar();
@@ -34854,7 +34862,6 @@ window.toggleNotifPanel = function(){
       <button onclick="tpAdjustFont(-4)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A&#8722;</button>
       <button onclick="tpAdjustFont(4)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A+</button>
     </div>
-    <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#8644; Flip</button>
     <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;white-space:nowrap;">&#128247; Cam</button>
     <button onclick="tpRecBtnClick()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s;">&#9679; Record</button>
   </div>
@@ -34894,11 +34901,17 @@ window.toggleNotifPanel = function(){
   </div>
 
   <!-- Download bar -->
-  <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:35;background:rgba(6,14,36,.94);backdrop-filter:blur(10px);padding:12px 20px;align-items:center;gap:12px;border-top:1px solid rgba(16,185,129,.38);">
-    <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Take saved!</span>
-    <button onclick="tpDownload()" style="padding:10px 24px;border-radius:8px;background:rgba(16,185,129,.3);border:1px solid rgba(16,185,129,.6);color:#6ee7b7;font-size:14px;font-weight:700;cursor:pointer;">&#8595; Download Recording</button>
-    <span style="font-size:11px;color:#475569;white-space:nowrap;">Free MP4: cloudconvert.com</span>
-    <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;flex-shrink:0;">&#10005;</button>
+  <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:46;background:rgba(4,10,26,.97);backdrop-filter:blur(14px);padding:14px 16px;align-items:center;gap:10px;flex-wrap:wrap;border-top:2px solid rgba(16,185,129,.5);">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+      <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Take ready!</span>
+      <span id="tpDlSize" style="font-size:11px;color:#475569;"></span>
+    </div>
+    <button onclick="tpDownload()" style="flex:1;padding:12px 20px;border-radius:10px;background:linear-gradient(135deg,rgba(16,185,129,.4),rgba(16,185,129,.25));border:1px solid rgba(16,185,129,.65);color:#6ee7b7;font-size:15px;font-weight:700;cursor:pointer;min-width:140px;">&#8595; Download</button>
+    <div style="display:flex;flex-direction:column;gap:3px;font-size:10px;color:#475569;">
+      <span>iPhone: tap &amp; hold → Save</span>
+      <span>Free MP4: cloudconvert.com</span>
+    </div>
+    <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="background:none;border:none;color:#64748b;font-size:22px;cursor:pointer;flex-shrink:0;padding:4px;">&#10005;</button>
   </div>
 </div>
 
