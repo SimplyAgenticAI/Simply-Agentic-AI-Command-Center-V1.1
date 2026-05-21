@@ -12075,6 +12075,18 @@ HTML = r"""
     }
 
     
+    /* Custom bench seats — flow in a flex row, not on the absolute ellipse */
+    #customBenchRow .seat{
+      position: relative !important;
+      left: auto !important;
+      top: auto !important;
+      flex-shrink: 0;
+      border-color: rgba(196,181,253,.6) !important;
+    }
+    #customBenchRow .seat::before{
+      background: rgba(196,181,253,.7) !important;
+    }
+
     .seatOperator{
       border-color: rgba(34,211,238,.55) !important;
       background: rgba(8,20,48,.96) !important;
@@ -16504,6 +16516,16 @@ input[type="range"]::-moz-range-progress {
 </div>
       </div>
 
+      <!-- Custom Teammates Bench — appears below the table when user-created teammates are active -->
+      <div id="customBench" style="display:none;width:min(1100px,95vw);margin:12px auto 0;padding:0 12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="flex:1;height:1px;background:rgba(124,58,237,.22);"></div>
+          <span style="font-size:10px;font-weight:700;color:rgba(196,181,253,.45);letter-spacing:.12em;text-transform:uppercase;">Custom Teammates</span>
+          <div style="flex:1;height:1px;background:rgba(124,58,237,.22);"></div>
+        </div>
+        <div id="customBenchRow" style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;"></div>
+      </div>
+
       <div class="underTable">
         <div class="groupCard">
           <div class="sideHead">
@@ -17743,29 +17765,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else if(isCustom){
-        // Custom teammate: placed in the open gaps between built-in slots on the same ellipse.
-        // The 8 built-in slots sit at 45° intervals. The gaps (midpoints) are at 22.5° offsets.
-        // Order chosen so first 4 use the widest visual gaps (top-left, top-right, bottom-left, bottom-right).
-        const CUSTOM_GAP_ANGLES_DEG = [247.5, -67.5, 112.5, 67.5, 202.5, -22.5, 157.5, 22.5];
-        seat.style.position = "absolute";
-        // Purple border to visually distinguish custom seats from built-ins
-        seat.style.borderColor = "rgba(196,181,253,.65)";
-        const cardW = 118, cardH = 150;
-        function _posCustomGap(){
-          const r = wrap.getBoundingClientRect();
-          const w = r.width || wrap.offsetWidth || 800;
-          const h = r.height || wrap.offsetHeight || 520;
-          const cx = w / 2, cy = h / 2;
-          const rx = w * 0.43, ry = h * 0.35;
-          const angleDeg = CUSTOM_GAP_ANGLES_DEG[(overflowIdx || 0) % CUSTOM_GAP_ANGLES_DEG.length];
-          const angleRad = angleDeg * Math.PI / 180;
-          const posX = cx + rx * Math.cos(angleRad);
-          const posY = cy + ry * Math.sin(angleRad);
-          seat.style.left = Math.round(posX - cardW / 2) + "px";
-          seat.style.top  = Math.round(posY - cardH / 2) + "px";
-        }
-        if(wrap.offsetWidth > 0){ _posCustomGap(); }
-        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomGap); }); }
+        // Custom teammate: rendered in #customBenchRow (a flex row below the table).
+        // CSS on #customBenchRow .seat handles position:relative and purple border.
+        // No absolute positioning needed here.
       } else {
         // Built-in: always use locked 8-slot ellipse — positions never shift
         seat.style.position = "absolute";
@@ -17798,6 +17800,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     function renderTable(){
       const wrap = $("tableWrap");
       Array.from(wrap.querySelectorAll(".seat")).forEach(x => x.remove());
+      // Also clear the custom bench
+      const _bench = document.getElementById("customBench");
+      const _benchRow = document.getElementById("customBenchRow");
+      if(_benchRow) Array.from(_benchRow.querySelectorAll(".seat")).forEach(x => x.remove());
+      if(_bench) _bench.style.display = "none";
 
       const order = activeOrder();
       const installed = state.installed || {};
@@ -17827,7 +17834,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
 
-      // Built-ins go on the fixed 8-slot ellipse; custom teammates fill the gap angles between built-in slots.
+      // Built-ins go on the fixed 8-slot ellipse; custom teammates go in the bench row below.
       let ellipseSlot = 1;
       let overflowIdx = 0;
       seats.forEach((name) => {
@@ -17836,7 +17843,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(isCustom){
           const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
           overflowIdx++;
-          wrap.appendChild(seat);
+          // Route to the bench, not the table
+          if(_benchRow) _benchRow.appendChild(seat);
+          if(_bench) _bench.style.display = "";
         } else {
           const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
           ellipseSlot++;
