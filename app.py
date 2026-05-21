@@ -12110,6 +12110,7 @@ HTML = r"""
 
 .seatPulse{
       animation: seatPulse 1.9s ease-in-out infinite;
+      animation-delay: -0.95s;
       border-color: rgba(124,58,237,.95) !important;
       background: rgba(22,18,70,.96) !important;
       box-shadow:
@@ -21059,7 +21060,7 @@ Challenge weak assumptions. Surface risks.`;
 
     // ===== VISUAL CREATOR =====
     var _vcCurrentHtml = '';
-    var _vcHistory = [];
+    var _vcHistory = (function(){ try{ return JSON.parse(localStorage.getItem('vc_history')||'[]'); }catch(_){ return []; } })();
 
     var _vcPresets = [
       {label:'3-slide intro', prompt:'A 3-slide animated presentation introducing my business with fade transitions. Each slide has a title and 2-3 bullet points.'},
@@ -21080,6 +21081,7 @@ Challenge weak assumptions. Surface risks.`;
       m.style.display='flex';
       // Render presets
       var presetsEl = document.getElementById('vcPresets');
+      vcRenderHistory();
       if(presetsEl && !presetsEl.children.length){
         _vcPresets.forEach(function(p){
           var btn = document.createElement('button');
@@ -21132,19 +21134,35 @@ Challenge weak assumptions. Surface risks.`;
       },1400);
 
       try{
+        // Step 1: start async job
         var res = await fetch('/api/visual_creator', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
+          method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({prompt:prompt, theme:theme, type:type, brand:brand})
         });
         var data = await res.json();
-        clearInterval(ticker);
         if(!data.ok) throw new Error(data.error||'Generation failed');
-        _vcCurrentHtml = data.html || '';
+        var jobId = data.job_id;
+        if(!jobId) throw new Error('Server did not return a job ID');
+
+        // Step 2: poll status until done (2 min max)
+        var html = '';
+        for(var attempt=0; attempt<60; attempt++){
+          await new Promise(function(r){ setTimeout(r,2000); });
+          var sr = await fetch('/api/visual_creator/status/'+jobId);
+          var sd = await sr.json();
+          if(sd.status==='done'){ html=sd.html||''; break; }
+          if(sd.status==='error'||!sd.ok) throw new Error(sd.error||'Generation failed');
+        }
+        if(!html) throw new Error('Generation timed out — please try again');
+
+        clearInterval(ticker);
+        _vcCurrentHtml = html;
         vcRenderFrame(_vcCurrentHtml);
-        // Add to history
+
+        // Save to history and persist across sessions
         _vcHistory.unshift({prompt:prompt.slice(0,60)+(prompt.length>60?'…':''), html:_vcCurrentHtml, ts:Date.now()});
         if(_vcHistory.length>10) _vcHistory.pop();
+        try{ localStorage.setItem('vc_history', JSON.stringify(_vcHistory)); }catch(_){}
         vcRenderHistory();
         if(status) status.textContent='';
       }catch(e){
