@@ -21335,46 +21335,46 @@ Challenge weak assumptions. Surface risks.`;
         _tpFontSize=parseInt((document.getElementById('tpFontSize')||{}).value||'36');
         _tpPlaying=false; _tpScrollPos=0; _tpLastTs=null; _tpMirrored=true; _tpCamOn=true;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
-        // Populate text
         var textEl=document.getElementById('tpText');
         if(textEl){ textEl.textContent=script; textEl.style.fontSize=_tpFontSize+'px'; }
         var wrap=document.getElementById('tpTextWrap');
         if(wrap) wrap.style.transform='translateY(0px)';
         _updateSpeedDisp();
         var pb=document.getElementById('tpPlayBtn');
-        if(pb) pb.textContent='&#9654; Play';
-        // Reset record button
+        if(pb) pb.innerHTML='&#9654; Play';
         var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.18)'; rb.onclick=window.tpStartRecording; }
-        // Hide download bar
+        if(rb){ rb.innerHTML='&#9679; Record'; rb.style.background='rgba(239,68,68,.2)'; rb.onclick=window.tpStartRecording; }
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
         var ri=document.getElementById('tpRecIndicator');
         if(ri) ri.style.display='none';
-        // Show overlay
+        // Show controls immediately
+        _showCtrl();
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
         if(ov) ov.style.display='block';
-        // Start camera
         _tpStartCamera();
-        // Wake lock
         if('wakeLock' in navigator){
           navigator.wakeLock.request('screen').then(function(wl){ _tpWakeLock=wl; }).catch(function(){});
         }
-        // Tap overlay to pause (not on controls or download bar)
+        // Click on overlay body = show controls + toggle play/pause
         if(ov) ov.onclick=function(e){
-          if(e.target.closest && (e.target.closest('#tpControls')||e.target.closest('#tpDownloadBar'))) return;
+          _showCtrl();
+          var t=e.target;
+          if(t.closest && (t.closest('#tpControls')||t.closest('#tpDownloadBar')||t.closest('#tpRecIndicator'))) return;
+          if(t.tagName==='BUTTON'||t.tagName==='A') return;
           tpPlayPause();
         };
-        // Auto-hide controls + touch reveal
-        _tpCtrlVisible=true;
-        _scheduleHideCtrl();
-        if(ov){ ov.removeEventListener('touchstart',_tpTouchReveal); ov.addEventListener('touchstart',_tpTouchReveal,{passive:true}); }
+        // Desktop: mouse movement reveals controls
+        if(ov){ ov.removeEventListener('mousemove',_showCtrl); ov.addEventListener('mousemove',_showCtrl); }
+        // Mobile: any touch reveals controls
+        if(ov){ ov.removeEventListener('touchstart',_showCtrl); ov.addEventListener('touchstart',_showCtrl,{passive:true}); }
       };
 
-      function _tpTouchReveal(){
+      function _showCtrl(){
         var c=document.getElementById('tpControls');
-        if(!_tpCtrlVisible && c){ c.style.opacity='1'; _tpCtrlVisible=true; }
+        if(c){ c.style.opacity='1'; c.style.pointerEvents='auto'; }
+        _tpCtrlVisible=true;
         _scheduleHideCtrl();
       }
 
@@ -21382,9 +21382,9 @@ Challenge weak assumptions. Surface risks.`;
         clearTimeout(_tpCtrlTimer);
         _tpCtrlTimer=setTimeout(function(){
           var c=document.getElementById('tpControls');
-          if(c) c.style.opacity='0';
+          if(c){ c.style.opacity='0'; c.style.pointerEvents='none'; }
           _tpCtrlVisible=false;
-        },4500);
+        },5000);
       }
 
       function _tpStartCamera(){
@@ -21538,11 +21538,17 @@ Challenge weak assumptions. Surface risks.`;
       window.tpClose = function(){
         if(_tpRecording) window.tpStopRecording();
         _tpPlaying=false;
+        clearTimeout(_tpCtrlTimer);
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
         _tpStopCamera();
         var ov=document.getElementById('tpOverlay');
-        if(ov){ ov.style.display='none'; ov.onclick=null; }
+        if(ov){
+          ov.style.display='none';
+          ov.onclick=null;
+          ov.removeEventListener('mousemove',_showCtrl);
+          ov.removeEventListener('touchstart',_showCtrl);
+        }
         document.body.style.overflow='';
       };
     })();
@@ -34707,53 +34713,55 @@ window.toggleNotifPanel = function(){
   <!-- Camera background -->
   <video id="tpCamVideo" autoplay muted playsinline style="display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;"></video>
 
-  <!-- Gradient overlay so text stays readable over camera -->
-  <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.35) 0%,rgba(0,0,0,.58) 30%,rgba(0,0,0,.58) 70%,rgba(0,0,0,.35) 100%);pointer-events:none;"></div>
+  <!-- Gradient so text stays readable -->
+  <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.38) 0%,rgba(0,0,0,.6) 30%,rgba(0,0,0,.6) 70%,rgba(0,0,0,.38) 100%);pointer-events:none;"></div>
 
-  <!-- Controls bar -->
-  <div id="tpControls" style="position:fixed;top:0;left:0;right:0;z-index:20;background:rgba(0,0,0,.78);backdrop-filter:blur(10px);padding:8px 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;transition:opacity .4s;">
-    <button onclick="tpPlayPause()" id="tpPlayBtn" style="padding:7px 15px;border-radius:8px;background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;font-size:13px;font-weight:700;cursor:pointer;">&#9654; Play</button>
-    <button onclick="tpReset()" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:13px;cursor:pointer;" title="Reset to top">&#8635;</button>
-    <div style="display:flex;align-items:center;gap:3px;">
-      <span style="font-size:10px;color:#64748b;margin-right:2px;">SPD</span>
-      <button onclick="tpAdjustSpeed(-1)" style="padding:4px 8px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">&#8722;</button>
-      <span id="tpSpeedDisp" style="font-size:11px;color:#c4b5fd;min-width:16px;text-align:center;">4</span>
-      <button onclick="tpAdjustSpeed(1)" style="padding:4px 8px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">+</button>
+  <!-- ALWAYS-VISIBLE exit button — never auto-hides -->
+  <button onclick="tpClose()" style="position:fixed;top:10px;right:12px;z-index:40;padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.28);border:1px solid rgba(239,68,68,.55);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px);">&#10005; Exit</button>
+
+  <!-- Auto-hiding controls bar (excludes the exit button) -->
+  <div id="tpControls" style="position:fixed;top:0;left:0;right:90px;z-index:30;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);padding:9px 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
+    <button onclick="tpPlayPause()" id="tpPlayBtn" style="padding:7px 16px;border-radius:8px;background:rgba(124,58,237,.32);border:1px solid rgba(124,58,237,.55);color:#c4b5fd;font-size:13px;font-weight:700;cursor:pointer;">&#9654; Play</button>
+    <button onclick="tpReset()" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#94a3b8;font-size:13px;cursor:pointer;" title="Scroll back to top">&#8635; Reset</button>
+    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:8px;">
+      <span style="font-size:10px;color:#64748b;">SPD</span>
+      <button onclick="tpAdjustSpeed(-1)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">&#8722;</button>
+      <span id="tpSpeedDisp" style="font-size:12px;color:#c4b5fd;min-width:18px;text-align:center;">4</span>
+      <button onclick="tpAdjustSpeed(1)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;cursor:pointer;">+</button>
     </div>
-    <div style="display:flex;align-items:center;gap:3px;">
-      <span style="font-size:10px;color:#64748b;margin-right:2px;">TXT</span>
-      <button onclick="tpAdjustFont(-4)" style="padding:4px 8px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A&#8722;</button>
-      <button onclick="tpAdjustFont(4)" style="padding:4px 8px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A+</button>
+    <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:8px;">
+      <span style="font-size:10px;color:#64748b;">SIZE</span>
+      <button onclick="tpAdjustFont(-4)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A&#8722;</button>
+      <button onclick="tpAdjustFont(4)" style="padding:4px 9px;border-radius:5px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:12px;cursor:pointer;">A+</button>
     </div>
-    <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;" title="Flip camera">&#8644; Flip</button>
+    <button onclick="tpMirror()" id="tpMirrorBtn" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;">&#8644; Flip</button>
     <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:7px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;font-size:12px;cursor:pointer;">&#128247; Cam</button>
-    <button onclick="tpStartRecording()" id="tpRecBtn" style="padding:7px 12px;border-radius:8px;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.35);color:#fca5a5;font-size:12px;font-weight:600;cursor:pointer;">&#9679; Record</button>
-    <button onclick="tpClose()" style="margin-left:auto;padding:7px 13px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">&#10005;</button>
+    <button onclick="tpStartRecording()" id="tpRecBtn" style="padding:7px 13px;border-radius:8px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.4);color:#fca5a5;font-size:12px;font-weight:600;cursor:pointer;">&#9679; Record</button>
   </div>
 
-  <!-- Recording badge -->
-  <div id="tpRecIndicator" style="display:none;position:fixed;top:52px;right:14px;z-index:20;align-items:center;gap:5px;background:rgba(0,0,0,.7);padding:5px 11px;border-radius:20px;border:1px solid rgba(239,68,68,.5);">
-    <div style="width:7px;height:7px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;"></div>
+  <!-- Recording badge (always on top) -->
+  <div id="tpRecIndicator" style="display:none;position:fixed;top:52px;left:12px;z-index:40;align-items:center;gap:5px;background:rgba(0,0,0,.75);padding:5px 12px;border-radius:20px;border:1px solid rgba(239,68,68,.55);">
+    <div style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;"></div>
     <span style="font-size:11px;color:#fca5a5;font-weight:700;letter-spacing:.05em;">REC</span>
   </div>
 
   <!-- Scrolling text -->
   <div id="tpViewport" style="position:absolute;inset:0;overflow:hidden;">
     <div id="tpTextWrap" style="width:100%;padding:80px 6% 100vh;box-sizing:border-box;will-change:transform;">
-      <div id="tpText" style="font-size:36px;line-height:1.8;color:#fff;text-align:center;white-space:pre-wrap;word-break:break-word;text-shadow:0 2px 16px rgba(0,0,0,.95),0 0 40px rgba(0,0,0,.8);font-family:Georgia,serif;font-weight:600;"></div>
+      <div id="tpText" style="font-size:36px;line-height:1.8;color:#fff;text-align:center;white-space:pre-wrap;word-break:break-word;text-shadow:0 2px 18px rgba(0,0,0,.98),0 0 40px rgba(0,0,0,.85);font-family:Georgia,serif;font-weight:600;"></div>
     </div>
   </div>
 
-  <!-- Download bar (appears after recording stops) -->
-  <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(6,14,36,.92);backdrop-filter:blur(10px);padding:12px 20px;align-items:center;gap:12px;border-top:1px solid rgba(16,185,129,.35);">
-    <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Recording ready!</span>
-    <a id="tpDownloadBtn" href="#" download="recording.webm" style="padding:8px 18px;border-radius:8px;background:rgba(16,185,129,.22);border:1px solid rgba(16,185,129,.45);color:#6ee7b7;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;">&#8595; Download</a>
-    <span style="font-size:11px;color:#475569;">Convert to MP4 free at cloudconvert.com</span>
-    <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#64748b;font-size:16px;cursor:pointer;line-height:1;">&#10005;</button>
-  </div>
+  <!-- Tap-to-reveal hint -->
+  <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.25);pointer-events:none;white-space:nowrap;">Move mouse or tap screen to show controls</div>
 
-  <!-- Tap hint -->
-  <div id="tpHint" style="position:fixed;bottom:52px;left:50%;transform:translateX(-50%);font-size:11px;color:rgba(255,255,255,.22);pointer-events:none;transition:opacity 1s;white-space:nowrap;">Tap to pause &#183; Tap top to show controls</div>
+  <!-- Download bar -->
+  <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:35;background:rgba(6,14,36,.94);backdrop-filter:blur(10px);padding:12px 20px;align-items:center;gap:12px;border-top:1px solid rgba(16,185,129,.38);">
+    <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Recording ready!</span>
+    <a id="tpDownloadBtn" href="#" download="recording.webm" style="padding:8px 20px;border-radius:8px;background:rgba(16,185,129,.25);border:1px solid rgba(16,185,129,.5);color:#6ee7b7;font-size:13px;font-weight:700;text-decoration:none;cursor:pointer;">&#8595; Download</a>
+    <span style="font-size:11px;color:#475569;">Free MP4 convert: cloudconvert.com</span>
+    <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="margin-left:auto;background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;">&#10005;</button>
+  </div>
 </div>
 
 <!-- Notification panel — direct body child so backdrop-filter on nav bar cannot trap it -->
