@@ -17743,10 +17743,29 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         seat.style.height = "auto";
         seat.style.transform = "none";
       } else if(isCustom){
-        // Custom teammate: renderTable positions these in a centered row — just mark absolute here.
+        // Custom teammate: placed in the open gaps between built-in slots on the same ellipse.
+        // The 8 built-in slots sit at 45° intervals. The gaps (midpoints) are at 22.5° offsets.
+        // Order chosen so first 4 use the widest visual gaps (top-left, top-right, bottom-left, bottom-right).
+        const CUSTOM_GAP_ANGLES_DEG = [247.5, -67.5, 112.5, 67.5, 202.5, -22.5, 157.5, 22.5];
         seat.style.position = "absolute";
-        seat.style.left = "-9999px";
-        seat.style.top  = "-9999px";
+        // Purple border to visually distinguish custom seats from built-ins
+        seat.style.borderColor = "rgba(196,181,253,.65)";
+        const cardW = 118, cardH = 150;
+        function _posCustomGap(){
+          const r = wrap.getBoundingClientRect();
+          const w = r.width || wrap.offsetWidth || 800;
+          const h = r.height || wrap.offsetHeight || 520;
+          const cx = w / 2, cy = h / 2;
+          const rx = w * 0.43, ry = h * 0.35;
+          const angleDeg = CUSTOM_GAP_ANGLES_DEG[(overflowIdx || 0) % CUSTOM_GAP_ANGLES_DEG.length];
+          const angleRad = angleDeg * Math.PI / 180;
+          const posX = cx + rx * Math.cos(angleRad);
+          const posY = cy + ry * Math.sin(angleRad);
+          seat.style.left = Math.round(posX - cardW / 2) + "px";
+          seat.style.top  = Math.round(posY - cardH / 2) + "px";
+        }
+        if(wrap.offsetWidth > 0){ _posCustomGap(); }
+        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomGap); }); }
       } else {
         // Built-in: always use locked 8-slot ellipse — positions never shift
         seat.style.position = "absolute";
@@ -17808,10 +17827,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
 
-      // Built-ins go on the fixed 8-slot ellipse; custom teammates go in a centered row in the middle of the table.
+      // Built-ins go on the fixed 8-slot ellipse; custom teammates fill the gap angles between built-in slots.
       let ellipseSlot = 1;
       let overflowIdx = 0;
-      const customSeatEls = [];
       seats.forEach((name) => {
         const defn = installed[name];
         const isCustom = BUILTINS.indexOf(name) === -1;
@@ -17819,7 +17837,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
           overflowIdx++;
           wrap.appendChild(seat);
-          customSeatEls.push(seat);
         } else {
           const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
           ellipseSlot++;
@@ -17827,28 +17844,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
-
-      // Center custom seats in a horizontal row at the vertical midpoint of the table.
-      // This space is always clear of built-in cards (Operator is above, Luna is below).
-      if(customSeatEls.length > 0){
-        function _posCustomRow(){
-          const r = wrap.getBoundingClientRect();
-          const w = r.width || wrap.offsetWidth || 800;
-          const h = r.height || wrap.offsetHeight || 520;
-          const cx = w / 2, cy = h / 2;
-          const cardW = 118, cardH = 150;
-          const spacing = cardW + 14;
-          const n = customSeatEls.length;
-          const totalW = n * cardW + (n - 1) * 14;
-          const startX = cx - totalW / 2;
-          customSeatEls.forEach(function(seat, i){
-            seat.style.left = Math.round(startX + i * spacing) + "px";
-            seat.style.top  = Math.round(cy - cardH / 2) + "px";
-          });
-        }
-        if(wrap.offsetWidth > 0){ _posCustomRow(); }
-        else { requestAnimationFrame(function(){ requestAnimationFrame(_posCustomRow); }); }
-      }
 
       // ── NUCLEAR MOBILE FIX ──────────────────────────────────────────────────
       // Three-layer defence for phones ≤640px:
