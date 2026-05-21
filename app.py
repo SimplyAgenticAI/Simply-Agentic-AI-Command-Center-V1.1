@@ -15327,6 +15327,7 @@ label         { font-size: 14px !important; }
         <div><label>Tags (comma separated)</label><input id="crmTags" placeholder="realtor, vip" /></div>
         <div><label>Last contacted</label><input id="crmLastContact" type="date" /></div>
         <div><label>Follow-up date</label><input id="crmNextFollowup" type="date" /></div>
+        <div><label>Deal value ($)</label><input id="crmDealValue" type="number" min="0" step="0.01" placeholder="0" /></div>
       </div>
       <div style="margin-top:10px;">
         <label>Notes</label>
@@ -15375,7 +15376,13 @@ label         { font-size: 14px !important; }
       <label style="margin-top:12px;">Message</label>
       <textarea id="crmEmailBody" style="height:340px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
       <div class="tiny" style="margin-top:6px;opacity:.7;">Use {name} or {first_name} for personalisation.</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap;">
+        <label style="margin:0;white-space:nowrap;">Schedule send</label>
+        <input id="crmBroadcastSchedule" type="datetime-local" style="flex:1;min-width:180px;" />
+        <button class="btn" id="crmBroadcastScheduleBtn" title="Save for future delivery">📅 Schedule</button>
+      </div>
       <div class="toolRunBar">
+        <button class="btn" id="crmBroadcastTestMe" title="Send a test email to yourself">✉ Test to me</button>
         <button class="btn" id="crmBroadcastDryRun">Dry run</button>
         <button class="btn btnPrimary" id="crmBroadcastSend">Send broadcast</button>
       </div>
@@ -15439,6 +15446,12 @@ label         { font-size: 14px !important; }
       <div class="tiny" style="margin-bottom:8px;">Create sequence</div>
       <label>Name</label>
       <input id="crmSeqName" placeholder="Monthly Value Drop" />
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="crmSeqPauseOnReply" style="width:16px;height:16px;accent-color:#7c3aed;" />
+          <span>Pause sequence when contact replies</span>
+        </label>
+      </div>
       <label style="margin-top:10px;">Steps (JSON array)</label>
       <textarea id="crmSeqSteps" style="height:300px" placeholder='[{"after_days":0,"channel":"email","subject":"Welcome","body":"Hi {name}..."}]'></textarea>
       <div class="tiny" style="margin-top:8px; opacity:.85;">Each step: after_days, channel=email, subject, body. (This UI is minimal but fully operational.)</div>
@@ -16568,7 +16581,16 @@ input[type="range"]::-moz-range-progress {
                 <button id="streamToggleBtn"    class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
               </div>
             </div>
+            <button class="btn btnMini" id="chatClientCtxBtn" title="Attach client context to messages" onclick="saToggleChatClientPicker()">🔗 Client</button>
             <button class="btn btnPrimary" id="sendFollow" style="flex:1;min-width:80px;justify-content:center;">Send ↵</button>
+          </div>
+          <div id="chatClientCtxBar" style="display:none;margin-top:5px;padding:6px 8px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;display:none;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:11px;font-weight:700;color:#c4b5fd;">Client context:</span>
+            <select id="chatClientCtxSel" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:4px 8px;font-size:12px;color:#e2e8f0;" onchange="saSetChatClientCtx(this.value)">
+              <option value="">-- None --</option>
+            </select>
+            <span id="chatClientCtxBadge" style="font-size:11px;color:#6ee7b7;font-weight:600;"></span>
+            <button onclick="saSetChatClientCtx('')" style="font-size:11px;padding:1px 7px;border-radius:6px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;">Clear</button>
           </div>
           <div id="dmAttachList" class="pillRow" style="margin-top:4px;"></div>
           <div class="tiny" id="micStatusDm" style="margin-top:3px;">Mic: idle</div>
@@ -20353,6 +20375,7 @@ Challenge weak assumptions. Surface risks.`;
                 : `<button class="plUseBtn" onclick="plUse('${p.id}','${escapeHtml(tm)}',event)">Use →</button>`
               }
               ${!locked ? `<button class="plCopyBtn" onclick="plCopy('${p.id}',event)">📋 Copy</button>` : ""}
+              ${!locked ? `<button class="plCopyBtn" style="color:#a5b4fc;" onclick="plSendGroup('${p.id}',event)" title="Send to all teammates in Group Console">→ Group</button>` : ""}
               ${delBtn}
             </div>
           </div>`;
@@ -20425,6 +20448,20 @@ Challenge weak assumptions. Surface risks.`;
       }catch(_){
         showToast("Could not copy — try manually selecting the text.");
       }
+    };
+
+    window.plSendGroup = function(id, e){
+      if(e) e.stopPropagation();
+      const p = plFindPrompt(id);
+      if(!p) return;
+      const op = $("opPrompt");
+      if(!op){ showToast('Group console not found','error'); return; }
+      op.value = p.prompt;
+      op.focus();
+      hideModal();
+      if(typeof window.conveneAll === 'function') window.conveneAll();
+      showToast('Sent to all teammates');
+      try{ fetch("/api/prompts/"+encodeURIComponent(id)+"/use",{method:"POST"}); }catch(_){}
     };
 
     window.plDelete = async function(id, e){
@@ -21258,7 +21295,21 @@ Challenge weak assumptions. Surface risks.`;
       $("crmNotes").value = c.notes || '';
       $("crmLastContact").value = c.last_contact || '';
       $("crmNextFollowup").value = c.next_followup || '';
+      $("crmDealValue").value = (c.deal_value != null ? c.deal_value : '');
       $("crmEditStatus").innerText = '';
+    }
+
+    async function crmMarkReplied(id){
+      if(!id) return;
+      const c = (crmCache.clients||[]).find(x=>x.id===id);
+      if(!c) return;
+      const payload = Object.assign({}, c, {seq_replied: !c.seq_replied});
+      try{
+        await fetch('/api/crm/clients/' + encodeURIComponent(id), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        await crmFetchClients();
+        crmRenderPipelineBoard();
+        showToast(payload.seq_replied ? 'Marked as replied — sequences paused' : 'Reply flag cleared');
+      }catch(e){ showToast('Update failed','error'); }
     }
 
     async function crmDeleteClient(id){
@@ -21290,6 +21341,7 @@ Challenge weak assumptions. Surface risks.`;
         notes: ($("crmNotes").value||'').trim(),
         last_contact: ($("crmLastContact").value||'').trim(),
         next_followup: ($("crmNextFollowup").value||'').trim(),
+        deal_value: parseFloat($("crmDealValue").value||'0')||0,
       };
       try{
         let url = '/api/crm/clients';
@@ -21408,7 +21460,43 @@ Challenge weak assumptions. Surface risks.`;
       }
     }
 
-async function crmFetchTasks(){
+    async function crmBroadcastTestToMe(){
+      const st = $("crmBroadcastStatus");
+      if(st) st.innerText = 'Sending test...';
+      const subject = ($("crmEmailSubject").value||'').trim();
+      const body = ($("crmEmailBody").value||'').trim();
+      if(!subject||!body){ if(st) st.innerText='Subject and body required'; return; }
+      try{
+        const r = await fetch('/api/crm/broadcast/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({subject, body})});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'Test failed');
+        if(st) st.innerText = 'Test email sent to you';
+        showToast('Test email sent to you');
+      }catch(e){ if(st) st.innerText='Failed: '+(e&&e.message?e.message:'error'); }
+    }
+
+    async function crmBroadcastSchedule(){
+      const st = $("crmBroadcastStatus");
+      const dt = ($("crmBroadcastSchedule").value||'').trim();
+      if(!dt){ if(st) st.innerText='Pick a send date/time first'; return; }
+      const subject = ($("crmEmailSubject").value||'').trim();
+      const body = ($("crmEmailBody").value||'').trim();
+      const audience = ($("crmAudience").value||'all');
+      const val = ($("crmAudienceValue").value||'').trim();
+      if(!subject||!body){ if(st) st.innerText='Subject and body required'; return; }
+      if(st) st.innerText='Scheduling...';
+      const bPayload = {subject, body, audience, audience_val: val};
+      const payload = {send_at: new Date(dt).toISOString(), payload: bPayload};
+      try{
+        const r = await fetch('/api/crm/broadcast/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'Schedule failed');
+        if(st) st.innerText='Scheduled for '+dt;
+        showToast('Broadcast scheduled');
+      }catch(e){ if(st) st.innerText='Failed: '+(e&&e.message?e.message:'error'); }
+    }
+
+    async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
       const data = await res.json();
       if(!data.ok) throw new Error(data.error||'tasks load failed');
@@ -21536,11 +21624,12 @@ async function crmFetchTasks(){
         const id = escapeHtml(s.id||'');
         const name = escapeHtml(s.name||'');
         const steps = Array.isArray(s.steps) ? s.steps.length : 0;
+        const por = s.pause_on_reply ? '<span class="pill" style="font-size:10px;background:rgba(16,185,129,.15);color:#6ee7b7;">Pauses on reply</span>' : '';
         return `
           <div class="diagCard" style="padding:10px;">
-            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;align-items:flex-start;">
               <div>
-                <div style="font-weight:700;">${name}</div>
+                <div style="font-weight:700;display:flex;gap:6px;align-items:center;">${name} ${por}</div>
                 <div class="tiny" style="opacity:.9;">Steps: ${steps}</div>
                 <div class="tiny" style="opacity:.75; margin-top:6px;">ID: ${id}</div>
               </div>
@@ -21554,9 +21643,10 @@ async function crmFetchTasks(){
       const st = $("crmSeqStatus"); if(st) st.innerText='Saving...';
       const name = ($("crmSeqName").value||'').trim();
       const raw = ($("crmSeqSteps").value||'').trim();
+      const pause_on_reply = !!($("crmSeqPauseOnReply") && $("crmSeqPauseOnReply").checked);
       try{
         const steps = raw ? JSON.parse(raw) : [];
-        const res = await fetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps})});
+        const res = await fetch('/api/crm/sequences', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, steps, pause_on_reply})});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText='Saved';
@@ -21910,13 +22000,20 @@ async function crmFetchTasks(){
       const estimatedNote = hasEstimated ? `<div style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#fbbf24;margin-bottom:10px;">⚠ Some leads have no verified public email. Pattern estimates are shown in amber — always verify before outreach.</div>` : '';
       const exportBar = `<div style="display:flex;justify-content:flex-end;padding:8px 0 4px;">
         <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (${items.length})</button></div>`;
+      const _crmClients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
+      const _crmEmails = new Set(_crmClients.map(c=>(c.email||'').trim().toLowerCase()).filter(Boolean));
+      const _crmNames = new Set(_crmClients.map(c=>(c.company||c.name||'').trim().toLowerCase()).filter(Boolean));
       box.innerHTML = exportBar + estimatedNote + items.map((item, idx)=>{
         const email = item.email || '';
         const isVerifiedEmail = email && item.confidence !== 'low';
         const isEstimatedEmail = email && item.confidence === 'low';
         const phone = item.phone || '';
         const rating = item.google_rating ? `${item.google_rating}★${item.review_count?' ('+item.review_count+')':''}` : '';
+        const inCRM = (email && _crmEmails.has(email.trim().toLowerCase())) ||
+                      ((item.company||'').trim() && _crmNames.has((item.company||'').trim().toLowerCase()));
+        const crmBadge = inCRM ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;font-size:10px;font-weight:700;">✓ In CRM</span>` : '';
         const badges = [
+          crmBadge,
           isVerifiedEmail ? _llBadge('Email verified','green') : isEstimatedEmail ? _llBadge('Email estimated','amber') : '',
           _llBizBadge(item.business_type||''),
           _llActivityBadge(item.activity||''),
@@ -22103,6 +22200,32 @@ async function crmFetchTasks(){
         const output = data.output || '';
         if(box){
           box.innerHTML = crmRenderRichBlocks(output);
+          // Add "Generate →" button to each playbook step card
+          if(statusId === 'playbookStatus'){
+            box.querySelectorAll('div[style*="border-radius:12px"]').forEach(function(card){
+              var titleEl = card.querySelector('div[style*="text-transform:uppercase"]');
+              var stepText = titleEl ? titleEl.textContent : '';
+              if(!stepText) return;
+              var hRow = card.querySelector('div[style*="justify-content:space-between"]');
+              var genBtn = document.createElement('button');
+              genBtn.textContent = '✦ Generate';
+              genBtn.title = 'Have your AI teammates produce a deliverable for this step';
+              genBtn.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fcd34d;cursor:pointer;flex-shrink:0;white-space:nowrap;';
+              genBtn.addEventListener('click', function(){
+                var fullText = toPlain ? toPlain(card.innerText) : card.innerText;
+                var op = $("opPrompt");
+                if(op){
+                  op.value = 'For this growth playbook step, produce a ready-to-use deliverable (copy, template, or action plan):\n\n' + stepText + '\n\n' + fullText.slice(0,600);
+                  op.focus();
+                }
+                hideModal();
+                if(typeof window.conveneAll === 'function') window.conveneAll();
+                showToast('Generating deliverable for: ' + stepText);
+              });
+              if(hRow) hRow.insertBefore(genBtn, hRow.firstChild);
+              else card.insertBefore(genBtn, card.firstChild);
+            });
+          }
           if(output.trim()){
             const saveBtn = document.createElement('button');
             saveBtn.className = 'btn';
@@ -22129,10 +22252,12 @@ async function crmFetchTasks(){
       const clients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
       box.innerHTML = stages.map(stage=>{
         const cards = clients.filter(c => (c.pipeline_stage||'Lead') === stage);
+        const stageVal = cards.reduce((s,c)=>s+(parseFloat(c.deal_value)||0),0);
+        const stageValStr = stageVal>0 ? `<span style="font-size:11px;opacity:.7;font-weight:600;">$${stageVal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</span>` : '';
         return `<div class="diagCard" data-stage="${escapeHtml(stage)}" style="padding:10px;min-height:180px;">
           <div style="font-weight:800;margin-bottom:8px;display:flex;justify-content:space-between;gap:8px;align-items:center;">
             <span>${escapeHtml(stage)}</span>
-            <span class="pill" style="font-size:12px;">${cards.length}</span>
+            <span style="display:flex;align-items:center;gap:5px;">${stageValStr}<span class="pill" style="font-size:12px;">${cards.length}</span></span>
           </div>
           <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px;display:flex;flex-direction:column;gap:6px;">
             ${cards.map(c=>{
@@ -22181,12 +22306,22 @@ async function crmFetchTasks(){
                   ${hasPhone?`<button onclick="crmPipelineText('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">📱</button>`:''}
                   ${(hasEmail||hasPhone||fbUrl)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">✦ Draft</button>`:''}
                   <button onclick="crmCreateTaskForContact('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;cursor:pointer;" title="Add calendar task for this contact">+ Task</button>
+                  ${c.seq_replied?`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(16,185,129,.15);color:#6ee7b7;font-weight:700;">Replied ✓</span>`:`<button onclick="crmMarkReplied('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;" title="Mark as replied — pauses sequences">↩ Replied</button>`}
                 </div>
               </div>`;
             }).join('')}
           </div>
         </div>`;
       }).join('');
+
+      // Grand total pipeline value
+      const _grandTotal = clients.reduce((s,c)=>s+(parseFloat(c.deal_value)||0),0);
+      if(_grandTotal > 0){
+        const _gt = document.createElement('div');
+        _gt.style.cssText = 'text-align:right;margin-top:10px;font-size:13px;font-weight:700;opacity:.8;';
+        _gt.textContent = 'Total pipeline value: $' + _grandTotal.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+        box.appendChild(_gt);
+      }
 
       // Wire drag-and-drop with auto-scroll for mobile
       let _dragScrollTimer = null;
@@ -22512,6 +22647,8 @@ window.crmPipelineOpenClient = function(clientId){
 
       b('crmBroadcastDryRun', ()=>crmBroadcastEmail(true));
       b('crmBroadcastSend', ()=>crmBroadcastEmail(false));
+      b('crmBroadcastTestMe', crmBroadcastTestToMe);
+      b('crmBroadcastScheduleBtn', crmBroadcastSchedule);
 
       b('crmRefreshTasks', async()=>{ try{ await crmFetchTasks(); crmRenderTasks(); }catch(e){} });
       b('crmNewTaskBtn', ()=> crmOpenTaskEditor(null));
@@ -27864,15 +28001,16 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const act = s.activity || {}; const crm  = s.crm  || {};
       const rag   = s.rag  || {};
       const smem= s.shared_memory || {};
+      const fmtVal = v => v>=1000 ? '$'+(v/1000).toFixed(1)+'k' : '$'+Math.round(v||0);
       body.innerHTML = `
         <div class="sa-stat-grid">
           <div class="sa-stat-card"><div class="sa-stat-num">${act.total_actions||0}</div><div class="sa-stat-lbl">AI Actions</div></div>
           <div class="sa-stat-card"><div class="sa-stat-num">${crm.total_clients||0}</div><div class="sa-stat-lbl">CRM Contacts</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${crm.leads_this_week||0}</div><div class="sa-stat-lbl">New Leads (7d)</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${fmtVal(crm.pipeline_value||0)}</div><div class="sa-stat-lbl">Pipeline Value</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${crm.emails_sent||0}</div><div class="sa-stat-lbl">Emails Sent</div></div>
+          <div class="sa-stat-card"><div class="sa-stat-num">${crm.active_enrollments||0}</div><div class="sa-stat-lbl">Active Sequences</div></div>
           <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_docs||0}</div><div class="sa-stat-lbl">Knowledge Docs</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_chunks||0}</div><div class="sa-stat-lbl">Knowledge Chunks</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${smem.facts||0}</div><div class="sa-stat-lbl">Shared Facts</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${smem.decisions||0}</div><div class="sa-stat-lbl">Decisions</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${smem.open_loops||0}</div><div class="sa-stat-lbl">Open Loops</div></div>
           <div class="sa-stat-card"><div class="sa-stat-num">${act.error_count||0}</div><div class="sa-stat-lbl">Errors</div></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
@@ -27881,8 +28019,9 @@ if(typeof maybeAutoShowOnboarding === "function"){
             ${(act.top_teammates||[]).map(t=>`<div class="sa-dash-row"><span>${_e(t.name)}</span><span style="color:#c4b5fd;font-weight:600;">${t.count} actions</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No activity yet.</div>'}
           </div>
           <div class="sa-dash-section">
-            <h3>CRM PIPELINE</h3>
-            ${Object.entries(crm.stages||{}).map(([st,cnt])=>`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No CRM data.</div>'}
+            <h3>PIPELINE BY STAGE</h3>
+            ${Object.entries(crm.stages||{}).map(([st,cnt])=>{const sv=(crm.stage_values||{})[st]||0;return`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt} contact${cnt!==1?'s':''}${sv>0?' · '+fmtVal(sv):''}</span></div>`;}).join("")||'<div class="tiny" style="opacity:.4;">No CRM data.</div>'}
+            ${(crm.pipeline_value||0)>0?`<div class="sa-dash-row" style="border-color:rgba(124,58,237,.4);margin-top:6px;"><span style="font-weight:700;">Total</span><span style="color:#c4b5fd;font-weight:700;">${fmtVal(crm.pipeline_value)}</span></div>`:''}
           </div>
           <div class="sa-dash-section">
             <h3>KNOWLEDGE BASE (RAG)</h3>
@@ -29169,10 +29308,81 @@ document.addEventListener("click", function(e) {
         if(a.seo_summary) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>SEO Signals</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.seo_summary)+"</div></div>";
         if(a.target_audience) intelH+="<div style='margin-bottom:12px;'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;'>Target Audience</div><div style='font-size:13px;color:#94a3b8;'>"+escapeHtml(a.target_audience)+"</div></div>";
         var competeH=a.how_to_compete?"<div style='margin-top:20px;padding:14px 16px;background:rgba(124,58,237,.09);border-radius:10px;border-left:3px solid rgba(124,58,237,.5);'><div style='font-size:11px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;'>How to Win Against Them</div><div style='font-size:14px;color:#c4b5fd;line-height:1.65;'>"+escapeHtml(a.how_to_compete)+"</div></div>":"";
-        if(res)res.innerHTML=saResCopyBar('saResultContent')+"<div id='saResultContent'><div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>"+(intelH?"<div style='margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);'>"+intelH+"</div>":"")+competeH+"</div>";
+        window._saLastReport = {url: url, ts: new Date().toISOString(), analysis: a};
+        if(res)res.innerHTML=saResCopyBar('saResultContent', '<button class="btn btnMini" onclick="saSaveReport(this)" style="color:#a5b4fc;">💾 Save Report</button><button class="btn btnMini" onclick="saViewSavedReports()" style="color:#94a3b8;">📂 Saved</button>')+"<div id='saResultContent'><div style='display:grid;grid-template-columns:150px 1fr;gap:24px;margin-bottom:20px;'><div style='text-align:center;padding:20px 0;'><div style='font-size:64px;font-weight:800;color:"+sc+";line-height:1;'>"+a.score+"</div><div style='font-size:28px;font-weight:700;color:"+sc+";'>"+a.grade+"</div><div style='font-size:11px;color:#64748b;margin-top:4px;'>Overall</div></div><div><div style='font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:14px;'>"+a.summary+"</div>"+catH+"</div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;'><div><div style='font-size:12px;font-weight:600;color:#22c55e;margin-bottom:8px;'>Strengths</div>"+(a.strengths||[]).map(function(s){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(34,197,94,.3);'>"+s+"</div>";}).join("")+"</div><div><div style='font-size:12px;font-weight:600;color:#ef4444;margin-bottom:8px;'>Weaknesses</div>"+(a.weaknesses||[]).map(function(w){return "<div style='font-size:13px;color:#94a3b8;margin-bottom:6px;padding-left:10px;border-left:2px solid rgba(239,68,68,.3);'>"+w+"</div>";}).join("")+"</div></div><div><div style='font-size:12px;font-weight:600;color:#c4b5fd;margin-bottom:8px;'>Quick wins</div>"+qwH+"</div>"+(intelH?"<div style='margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);'>"+intelH+"</div>":"")+competeH+"</div>";
       }catch(e){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>Error: "+e.message+"</div>";}
       if(btn){btn.disabled=false;btn.textContent="Analyze";}
     };
+
+  window.saSaveReport = async function(btn){
+    if(!window._saLastReport){ showToast('No report to save','error'); return; }
+    try{
+      if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+      var r = await fetch('/api/analyze/reports', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(window._saLastReport)});
+      var d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Save failed');
+      showToast('Report saved');
+      if(btn){ btn.textContent='✅ Saved'; }
+    }catch(e){
+      showToast('Could not save: '+(e.message||'error'),'error');
+      if(btn){ btn.disabled=false; btn.textContent='💾 Save Report'; }
+    }
+  };
+
+  window.saViewSavedReports = async function(){
+    var res = $("saResults");
+    if(!res) return;
+    res.innerHTML = '<div style="padding:16px;color:#94a3b8;font-size:13px;">Loading saved reports…</div>';
+    try{
+      var r = await fetch('/api/analyze/reports'); var d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Load failed');
+      var reports = d.reports || [];
+      if(!reports.length){ res.innerHTML='<div style="padding:20px;color:#64748b;font-size:13px;">No saved reports yet. Analyze a site and click 💾 Save Report.</div>'; return; }
+      res.innerHTML = '<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;"><span style="font-size:13px;font-weight:700;color:#c4b5fd;">Saved Reports</span><button class="btn btnMini" onclick="saCompareReports()" style="color:#a5b4fc;" id="saCompareBtn">Compare two</button></div>'
+        + reports.map(function(rp,i){
+          var sc = (rp.analysis||{}).score||0;
+          var col = sc>=80?"#22c55e":sc>=60?"#f59e0b":"#ef4444";
+          return '<div class="diagCard" style="padding:10px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
+            +'<input type="checkbox" class="saReportCk" data-idx="'+i+'" style="width:16px;height:16px;accent-color:#7c3aed;" />'
+            +'<div style="flex:1;">'
+            +'<div style="font-weight:700;font-size:13px;">'+escapeHtml(rp.url||'')+'</div>'
+            +'<div class="tiny" style="opacity:.7;">'+escapeHtml((rp.ts||'').slice(0,16).replace('T',' '))+' · Score: <span style="color:'+col+';">'+sc+'</span></div>'
+            +'</div>'
+            +'<button class="btn btnMini" onclick="saDeleteReport(\''+escapeHtml(rp.id||'')+'\',this)" style="color:#fca5a5;">✕ Delete</button>'
+            +'</div>';
+        }).join('');
+      window._saSavedReports = reports;
+    }catch(e){ res.innerHTML='<div style="color:#f87171;padding:16px;">'+escapeHtml(e.message)+'</div>'; }
+  };
+
+  window.saDeleteReport = async function(id, btn){
+    if(!id||!confirm('Delete this report?')) return;
+    try{
+      var r = await fetch('/api/analyze/reports/'+encodeURIComponent(id), {method:'DELETE'}); var d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Delete failed');
+      showToast('Report deleted'); saViewSavedReports();
+    }catch(e){ showToast('Delete failed: '+(e.message||''),'error'); }
+  };
+
+  window.saCompareReports = function(){
+    var checked = Array.from(document.querySelectorAll('.saReportCk:checked'));
+    if(checked.length !== 2){ showToast('Check exactly 2 reports to compare','error'); return; }
+    var a = window._saSavedReports[parseInt(checked[0].getAttribute('data-idx'))];
+    var b = window._saSavedReports[parseInt(checked[1].getAttribute('data-idx'))];
+    var res = $("saResults"); if(!res) return;
+    var fmtScore = function(rp){ var sc=(rp.analysis||{}).score||0; var col=sc>=80?"#22c55e":sc>=60?"#f59e0b":"#ef4444"; return '<span style="font-size:32px;font-weight:800;color:'+col+';">'+sc+'</span>'; };
+    var fmtList = function(arr){ return (arr||[]).map(function(s){ return '<div style="font-size:12px;color:#94a3b8;margin-bottom:4px;padding-left:8px;border-left:2px solid rgba(167,139,250,.3);">'+escapeHtml(s)+'</div>'; }).join(''); };
+    res.innerHTML = '<button class="btn btnMini" onclick="saViewSavedReports()" style="margin-bottom:12px;">← Back to saved reports</button>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">'
+      +['A','B'].map(function(lbl, idx){ var rp=[a,b][idx]; var an=rp.analysis||{}; return '<div class="diagCard" style="padding:14px;">'
+        +'<div style="font-weight:700;font-size:12px;color:#c4b5fd;margin-bottom:4px;">Report '+lbl+'</div>'
+        +'<div style="font-size:13px;margin-bottom:8px;">'+escapeHtml(rp.url||'')+'</div>'
+        +fmtScore(rp)+'<div style="font-size:11px;color:#64748b;margin-bottom:10px;">'+an.grade+'</div>'
+        +'<div style="font-size:11px;font-weight:700;color:#22c55e;margin-bottom:4px;">Strengths</div>'+fmtList(an.strengths)
+        +'<div style="font-size:11px;font-weight:700;color:#ef4444;margin:8px 0 4px;">Weaknesses</div>'+fmtList(an.weaknesses)
+        +'</div>'; }).join('')
+      +'</div>';
+  };
 
   // ══ PROSPECT DOSSIER ══════════════════════════════════════════════════════
   window.showProspectDossierModal = function(){
@@ -32447,6 +32657,56 @@ document.addEventListener('click',e=>{
   window.saToggleGcTools   = function(){ openDrop('gcToolsDrop',   'gcToolsBtn');   };
   window.saToggleDmAttach  = function(){ openDrop('dmAttachDrop',  'dmAttachBtn');  };
 
+  // ── Chat client context ───────────────────────────────────────────────────
+  var _chatClientCtxId = '';
+  window.saToggleChatClientPicker = function(){
+    var bar = document.getElementById('chatClientCtxBar');
+    if(!bar) return;
+    var showing = bar.style.display === 'flex';
+    bar.style.display = showing ? 'none' : 'flex';
+    if(!showing){
+      var sel = document.getElementById('chatClientCtxSel');
+      if(sel){
+        var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
+        sel.innerHTML = '<option value="">-- None --</option>' +
+          clients.map(function(c){ return '<option value="'+escapeHtml(c.id||'')+'"'+(c.id===_chatClientCtxId?' selected':'')+'>'+escapeHtml(c.name||c.email||c.id)+'</option>'; }).join('');
+        sel.value = _chatClientCtxId || '';
+      }
+    }
+  };
+  window.saSetChatClientCtx = function(id){
+    _chatClientCtxId = id || '';
+    var badge = document.getElementById('chatClientCtxBadge');
+    var bar = document.getElementById('chatClientCtxBar');
+    if(!_chatClientCtxId){
+      if(badge) badge.textContent = '';
+      if(bar) bar.style.display = 'none';
+      return;
+    }
+    var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
+    var c = clients.find(function(x){ return x.id === _chatClientCtxId; });
+    if(badge && c) badge.textContent = '→ ' + (c.name||c.email||'selected');
+  };
+  // Prepend client context to outgoing messages
+  (function patchSendFollow(){
+    var sf = document.getElementById('sendFollow');
+    var fm = document.getElementById('followMsg');
+    if(!sf || !fm){ setTimeout(patchSendFollow, 500); return; }
+    sf.addEventListener('click', function(e){
+      if(!_chatClientCtxId) return;
+      var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
+      var c = clients.find(function(x){ return x.id === _chatClientCtxId; });
+      if(!c) return;
+      var ctx = '[Client context: Name='+escapeHtml(c.name||'')
+        +(c.company?' | Company='+escapeHtml(c.company):'')
+        +(c.email?' | Email='+escapeHtml(c.email):'')
+        +(c.pipeline_stage?' | Stage='+escapeHtml(c.pipeline_stage):'')
+        +(c.notes?' | Notes='+escapeHtml((c.notes||'').slice(0,200)):'')
+        +']\n\n';
+      if(fm.value && !fm.value.startsWith('[Client context:')) fm.value = ctx + fm.value;
+    }, true);
+  })();
+
   // ── Close when clicking outside any dropdown ──────────────────────────────
   document.addEventListener('click', function(e){
     var wraps = ['moreMenuWrap','gcToolsWrap','dmAttachWrap'];
@@ -34352,6 +34612,10 @@ def _crm_tick_once() -> None:
                     changed = True
                     continue
 
+                # Pause on reply check
+                if seq.get("pause_on_reply") and c.get("seq_replied"):
+                    continue  # skip this enrollment until reply flag cleared
+
                 steps = seq.get("steps") or []
                 if not isinstance(steps, list) or step_i >= len(steps):
                     e["status"] = "complete"
@@ -35000,6 +35264,25 @@ def api_crm_broadcast_email():
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
+
+
+@app.post("/api/crm/broadcast/test")
+def api_crm_broadcast_test():
+    """Send a test email to the current operator's own email address."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p = request.get_json(force=True, silent=True) or {}
+    subject = (p.get("subject") or "").strip()
+    body = (p.get("body") or "").strip()
+    if not subject or not body:
+        return jsonify({"ok": False, "error": "subject and body required"}), 400
+    to_addr = (u.get("email") or "").strip()
+    if not to_addr or not EMAIL_RE.match(to_addr):
+        return jsonify({"ok": False, "error": "No email address on your account"}), 400
+    ok_send, provider, err = _crm_send_email_to(u, to_addr, "[TEST] " + subject, body)
+    if not ok_send:
+        return jsonify({"ok": False, "error": err or "Send failed"}), 500
+    return jsonify({"ok": True, "sent_to": to_addr})
 
 
 # ── Broadcast job status (for async/threaded runs) ─────────────────────────
@@ -39481,6 +39764,43 @@ Website content:
         _, msg = _classify_openai_error(e)
         return jsonify({"ok": False, "error": msg}), 500
 
+def _analyze_reports_path(uname: str) -> Path:
+    return DATA_DIR / "analyze_reports" / f"{uname}.json"
+
+@app.post("/api/analyze/reports")
+def api_analyze_reports_save():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    p = request.get_json(force=True, silent=True) or {}
+    path = _analyze_reports_path(uname)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    reports = load_json(path, [])
+    report = {"id": secrets.token_hex(8), "url": p.get("url",""), "ts": p.get("ts", now_iso()), "analysis": p.get("analysis",{})}
+    reports.insert(0, report)
+    reports = reports[:50]  # keep last 50
+    save_json(path, reports)
+    return jsonify({"ok": True, "report": report})
+
+@app.get("/api/analyze/reports")
+def api_analyze_reports_list():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    reports = load_json(_analyze_reports_path(uname), [])
+    return jsonify({"ok": True, "reports": reports})
+
+@app.delete("/api/analyze/reports/<report_id>")
+def api_analyze_reports_delete(report_id: str):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    path = _analyze_reports_path(uname)
+    reports = [r for r in load_json(path, []) if r.get("id") != report_id]
+    save_json(path, reports)
+    return jsonify({"ok": True})
+
+
 @app.post("/api/research/prospect")
 def api_research_prospect():
     """Build a full prospect intelligence brief for a company/URL."""
@@ -39806,13 +40126,37 @@ def api_dashboard():
         crm     = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         stages: Dict[str, int] = {}
+        stage_values: Dict[str, float] = {}
+        total_pipeline_value = 0.0
+        week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+        leads_this_week = 0
         for c in clients:
             if isinstance(c, dict):
                 s = (c.get("pipeline_stage") or "No stage").strip() or "No stage"
                 stages[s] = stages.get(s, 0) + 1
-        stats["crm"] = {"total_clients": len(clients), "stages": stages}
+                dv = float(c.get("deal_value") or 0)
+                stage_values[s] = stage_values.get(s, 0.0) + dv
+                total_pipeline_value += dv
+                created = (c.get("created_at") or "")[:10]
+                if created >= week_ago:
+                    leads_this_week += 1
+        # emails sent from messages log
+        messages = crm.get("messages") or []
+        emails_sent = sum(1 for m in messages if isinstance(m, dict) and m.get("ok") and m.get("channel","email")=="email")
+        # active enrollments
+        enrollments = crm.get("enrollments") or {}
+        active_enrollments = sum(1 for e in (enrollments.values() if isinstance(enrollments, dict) else enrollments) if isinstance(e, dict) and (e.get("status") or "active")=="active")
+        stats["crm"] = {
+            "total_clients": len(clients),
+            "stages": stages,
+            "stage_values": stage_values,
+            "pipeline_value": total_pipeline_value,
+            "leads_this_week": leads_this_week,
+            "emails_sent": emails_sent,
+            "active_enrollments": active_enrollments,
+        }
     except Exception:
-        stats["crm"] = {"total_clients": 0, "stages": {}}
+        stats["crm"] = {"total_clients": 0, "stages": {}, "stage_values": {}, "pipeline_value": 0, "leads_this_week": 0, "emails_sent": 0, "active_enrollments": 0}
 
     try:
         runs_data = _load_runs(uname)
