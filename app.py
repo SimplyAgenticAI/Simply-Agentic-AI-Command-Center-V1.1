@@ -21301,7 +21301,7 @@ Challenge weak assumptions. Surface risks.`;
 
     // ── TELEPROMPTER ─────────────────────────────────────────────────────────
     (function(){
-      var _tpScrolling=false, _tpSpeed=4, _tpFontSize=36;
+      var _tpScrolling=false, _tpSpeed=2, _tpFontSize=36;
       var _tpScrollPos=0, _tpScrollRAF=null, _tpLastTs=null;
       var _tpWakeLock=null, _tpCamStream=null, _tpRecorder=null, _tpChunks=[];
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
@@ -21312,7 +21312,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!m) return;
         var ta=document.getElementById('tpScript');
         if(ta){
-          try{ var saved=localStorage.getItem('tp_script'); if(saved&&!ta.value) ta.value=saved; }catch(e){}
+          try{ var saved=localStorage.getItem('tp_script'); if(saved&&!ta.value){ ta.value=saved; if(typeof window.tpUpdateMeta==='function') window.tpUpdateMeta(saved); } }catch(e){}
           if(!ta._tpWired){
             ta._tpWired=true;
             ta.addEventListener('input',function(){ try{localStorage.setItem('tp_script',ta.value);}catch(e){} });
@@ -21418,7 +21418,7 @@ Challenge weak assumptions. Surface risks.`;
         if(d) d.textContent=_tpSpeed;
       }
 
-      function _pxPerSec(){ return _tpSpeed*30; }
+      function _pxPerSec(){ return _tpSpeed*15; }
 
       function _scrollStep(ts){
         if(!_tpScrolling){ _tpScrollRAF=null; return; }
@@ -21439,6 +21439,8 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         wrap.style.transform='translateY(-'+_tpScrollPos+'px)';
+        var _prog=document.getElementById('tpProgress');
+        if(_prog) _prog.style.height=((_tpScrollPos/maxScroll)*100)+'%';
         _tpScrollRAF=requestAnimationFrame(_scrollStep);
       }
 
@@ -21488,13 +21490,29 @@ Challenge weak assumptions. Surface risks.`;
         }
       };
 
-      // Record = start camera recording + start scrolling simultaneously
+      function _tpRunCountdown(cb){
+        var ov=document.getElementById('tpCountdown');
+        var num=document.getElementById('tpCountNum');
+        if(!ov||!num){ cb(); return; }
+        var n=3;
+        ov.style.display='flex';
+        num.textContent=n;
+        var iv=setInterval(function(){
+          n--;
+          if(n<=0){ clearInterval(iv); ov.style.display='none'; cb(); }
+          else num.textContent=n;
+        },1000);
+      }
+
+      // Record = 3-2-1 countdown → start camera recording + scrolling simultaneously
       window.tpStartRecording = function(){
         if(!_tpCamStream){
-          // No camera — just scroll
-          _tpScrolling=true; _tpLastTs=null;
-          _tpScrollRAF=requestAnimationFrame(_scrollStep);
-          if(typeof showToast==='function') showToast('No camera — scrolling script only');
+          // No camera — scroll after countdown
+          _tpRunCountdown(function(){
+            _tpScrolling=true; _tpLastTs=null;
+            _tpScrollRAF=requestAnimationFrame(_scrollStep);
+            if(typeof showToast==='function') showToast('No camera — scrolling script only');
+          });
           return;
         }
         _tpChunks=[];
@@ -21517,18 +21535,20 @@ Challenge weak assumptions. Surface risks.`;
           if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
           var ri=document.getElementById('tpRecIndicator');
           if(ri) ri.style.display='none';
+          var prog=document.getElementById('tpProgress');
+          if(prog) prog.style.height='0%';
           if(typeof showToast==='function') showToast('Done! Tap Download to save your recording');
         };
-        _tpRecorder.start(500);
-        _tpRecording=true;
-        // Update button to Stop
-        var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.innerHTML='&#9209; Stop'; rb.style.background='rgba(239,68,68,.55)'; rb.style.border='1px solid rgba(239,68,68,.8)'; rb.onclick=window.tpStopRecording; }
-        var ri=document.getElementById('tpRecIndicator');
-        if(ri) ri.style.display='flex';
-        // Start scrolling
-        _tpScrolling=true; _tpLastTs=null;
-        _tpScrollRAF=requestAnimationFrame(_scrollStep);
+        _tpRunCountdown(function(){
+          _tpRecorder.start(500);
+          _tpRecording=true;
+          var rb=document.getElementById('tpRecBtn');
+          if(rb){ rb.innerHTML='&#9209; Stop'; rb.style.background='rgba(239,68,68,.55)'; rb.style.border='1px solid rgba(239,68,68,.8)'; rb.onclick=window.tpStopRecording; }
+          var ri=document.getElementById('tpRecIndicator');
+          if(ri) ri.style.display='flex';
+          _tpScrolling=true; _tpLastTs=null;
+          _tpScrollRAF=requestAnimationFrame(_scrollStep);
+        });
       };
 
       // Stop = stop recording + stop scrolling
@@ -21561,6 +21581,15 @@ Challenge weak assumptions. Surface risks.`;
         }
         if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
         document.body.style.overflow='';
+        var prog=document.getElementById('tpProgress');
+        if(prog) prog.style.height='0%';
+      };
+
+      window.tpUpdateMeta = function(text){
+        var words=(text||'').trim().split(/\s+/).filter(Boolean).length;
+        var mins=Math.ceil(words/130);
+        var el=document.getElementById('tpMeta');
+        if(el) el.textContent=words>0?(words+' words · ~'+mins+' min read · '):'';
       };
     })();
     // ── End Teleprompter ─────────────────────────────────────────────────────
@@ -34692,12 +34721,15 @@ window.toggleNotifPanel = function(){
       <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Your Script</div>
       <button onclick="document.getElementById('tpScript').value='';try{localStorage.removeItem('tp_script');}catch(e){}" style="font-size:11px;color:#475569;background:none;border:none;cursor:pointer;padding:2px 6px;">Clear</button>
     </div>
-    <textarea id="tpScript" placeholder="Paste or type your script here..." style="width:100%;height:220px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:12px 14px;font-size:14px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;line-height:1.7;"></textarea>
-    <div style="font-size:10px;color:#334155;margin-top:4px;text-align:right;">Script auto-saved in browser</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;">
+    <textarea id="tpScript" placeholder="Paste or type your script here..." style="width:100%;height:220px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:12px 14px;font-size:14px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;line-height:1.7;" oninput="tpUpdateMeta(this.value)"></textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
+      <span id="tpMeta" style="font-size:11px;color:#475569;"></span>
+      <span style="font-size:10px;color:#334155;">Auto-saved</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;">
       <div>
         <div style="font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Scroll Speed</div>
-        <input type="range" id="tpSpeed" min="1" max="10" value="4" style="width:100%;accent-color:#7c3aed;">
+        <input type="range" id="tpSpeed" min="1" max="10" value="2" style="width:100%;accent-color:#7c3aed;">
         <div style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:2px;"><span>Slow</span><span>Fast</span></div>
       </div>
       <div>
@@ -34711,9 +34743,9 @@ window.toggleNotifPanel = function(){
         </select>
       </div>
     </div>
-    <button onclick="tpLaunch()" style="margin-top:28px;width:100%;padding:16px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.02em;">🚀 Launch Teleprompter</button>
-    <div style="margin-top:16px;padding:14px 16px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#94a3b8;line-height:1.7;">
-      <strong style="color:#c4b5fd;">How it works:</strong> Your camera appears in the background so you can see yourself while reading. Hit <strong style="color:#c4b5fd;">🔴 Record</strong> to capture yourself on camera, then download when done. Tap anywhere on screen to pause/resume. All controls are in the top bar — it auto-hides after 4 seconds, tap the top to bring it back.
+    <button onclick="tpLaunch()" style="margin-top:24px;width:100%;padding:16px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.02em;">&#128640; Launch Teleprompter</button>
+    <div style="margin-top:14px;padding:14px 16px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#94a3b8;line-height:1.7;">
+      <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. A 3-second countdown gives you a moment before scroll begins. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> to start — it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop</strong> when done and download your take.
     </div>
   </div>
 </div>
@@ -34755,9 +34787,22 @@ window.toggleNotifPanel = function(){
     <span style="font-size:11px;color:#fca5a5;font-weight:700;letter-spacing:.05em;">REC</span>
   </div>
 
+  <!-- Reading zone line at 50vh -->
+  <div style="position:fixed;top:50%;left:0;right:0;height:2px;background:linear-gradient(to right,transparent,rgba(124,58,237,.5),transparent);pointer-events:none;z-index:10;transform:translateY(-1px);"></div>
+
+  <!-- Progress bar — right edge -->
+  <div style="position:fixed;top:0;right:0;width:3px;height:100%;background:rgba(255,255,255,.06);z-index:10;pointer-events:none;">
+    <div id="tpProgress" style="width:100%;height:0%;background:linear-gradient(to bottom,#7c3aed,#10b981);transition:height .15s linear;border-radius:0 0 2px 2px;"></div>
+  </div>
+
+  <!-- Countdown overlay -->
+  <div id="tpCountdown" style="display:none;position:fixed;inset:0;z-index:50;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);">
+    <div id="tpCountNum" style="font-size:140px;font-weight:900;color:#fff;text-shadow:0 0 80px rgba(124,58,237,.9),0 0 120px rgba(124,58,237,.5);font-family:system-ui,sans-serif;line-height:1;animation:tpBlink 1s ease-in-out infinite;"></div>
+  </div>
+
   <!-- Scrolling text -->
   <div id="tpViewport" style="position:absolute;inset:0;overflow:hidden;">
-    <div id="tpTextWrap" style="width:100%;padding:80px 6% 100vh;box-sizing:border-box;will-change:transform;">
+    <div id="tpTextWrap" style="width:100%;padding:50vh 8% 50vh;box-sizing:border-box;will-change:transform;">
       <div id="tpText" style="font-size:36px;line-height:1.8;color:#fff;text-align:center;white-space:pre-wrap;word-break:break-word;text-shadow:0 2px 18px rgba(0,0,0,.98),0 0 40px rgba(0,0,0,.85);font-family:Georgia,serif;font-weight:600;"></div>
     </div>
   </div>
