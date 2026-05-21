@@ -21558,7 +21558,7 @@ Challenge weak assumptions. Surface risks.`;
         var badge=document.getElementById('tpRecBarBadge');
         if(badge) badge.style.display=scrollOnly?'none':'flex';
         var stopBtn=document.getElementById('tpRecStopBtn');
-        if(stopBtn) stopBtn.innerHTML=scrollOnly?'&#9209; Stop':'&#9209; Stop &amp; Save';
+        if(stopBtn) stopBtn.innerHTML='&#9209; Stop Recording';
         var rb=document.getElementById('tpRecBtn');
         if(rb){ rb.style.opacity='0.35'; rb.style.pointerEvents='none'; }
       }
@@ -21632,6 +21632,8 @@ Challenge weak assumptions. Surface risks.`;
 
       // Record = 3-2-1 countdown → camera recording + scroll
       window.tpStartRecording = function(){
+        var dlBar=document.getElementById('tpDownloadBar');
+        if(dlBar) dlBar.style.display='none';
         if(_tpCamPending){
           if(typeof showToast==='function') showToast('Camera connecting — wait a moment then try again');
           return;
@@ -34944,7 +34946,7 @@ window.toggleNotifPanel = function(){
       <span style="font-size:14px;color:#fca5a5;font-weight:700;letter-spacing:.06em;">REC</span>
       <span id="tpRecTimer" style="font-size:14px;color:#fca5a5;font-weight:600;min-width:44px;"></span>
     </div>
-    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:12px 22px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop &amp; Save</button>
+    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:12px 22px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop Recording</button>
   </div>
 
   <!-- Download bar -->
