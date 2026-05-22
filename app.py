@@ -8735,21 +8735,20 @@ footer a{color:var(--pl);text-decoration:none;}
     <p class="sub">Operator at the head of the table, 7 AI specialists seated around the oval. Gold-bordered Group Console in the center. Press 1–7 to switch teammates instantly — or click any seat to open their thread.</p>
   </div>
   <div class="rt-shell a4">
-    <!-- Exact nav bar replica -->
+    <!-- Current nav bar replica -->
     <div class="rt-nav">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:rgba(196,181,253,.9);"><div style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;"></div>Simply Agentic AI v1.11</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:800;color:rgba(196,181,253,.9);"><div style="width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;"></div>Simply Agentic AI</div>
         <div class="rnb">Team <span style="font-size:9px;opacity:.5;">&#9660;</span></div>
         <div class="rnb">Tools <span style="font-size:9px;opacity:.5;">&#9660;</span></div>
-        <div class="rnb">Settings <span style="font-size:9px;opacity:.5;">&#9660;</span></div>
+        <div class="rnb hi">Research <span style="font-size:9px;opacity:.5;">&#9660;</span></div>
         <div class="rnb">&#128202; Dashboard</div>
         <div class="rnb hi">&#127942; Community</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;"><span>&#127987;</span><span style="font-size:13px;font-weight:600;color:#fff;opacity:.9;">Scale &amp; Freedom</span></div>
       <div style="display:flex;gap:5px;align-items:center;">
         <span style="font-size:11px;color:rgba(148,163,184,.6);">Model: gpt-4o</span>
-        <div class="rnb hi">&#128641; Support</div>
-        <div class="rnb">&#128682; Logout</div>
+        <div class="rnb hi" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.5);color:#c4b5fd;">&#9881; Account &#9660;</div>
       </div>
     </div>
     <div class="rt-body">
@@ -8786,7 +8785,7 @@ footer a{color:var(--pl);text-decoration:none;}
           <div class="rmsg u"><div class="rmsg-who">You</div>What scoring criteria should I use?</div>
           <div class="rmsg a"><div class="rmsg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
         </div>
-        <div class="rinp"><div class="rinp-box">Message selected teammate...</div><div class="rinp-btns"><div class="rbn">&#128206; Files</div><div class="rbn">&#128247; Screen</div><div class="rbn">&#128266; Speak</div><div class="rbn">&#127897; Voice</div><div class="rbs">Send</div></div></div>
+        <div class="rinp"><div class="rinp-box">Message Alex...</div><div class="rinp-btns"><div class="rbn">&#127897; Voice</div><div class="rbn">&#128247; Screen</div><div class="rbn">&#128206; Files</div><div class="rbs">Send</div></div></div>
       </div>
     </div>
     <div class="rt-below">
@@ -14224,6 +14223,7 @@ label         { font-size: 14px !important; }
             <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting Started</a>
             <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
             <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
+            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="display:none;color:#818cf8;">📱 Install App</button>
             <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <!-- Admin / Debug -->
@@ -35277,6 +35277,79 @@ window.toggleNotifPanel = function(){
     <div style="padding:20px;text-align:center;font-size:13px;color:#64748b;">No notifications</div>
   </div>
 </div>
+
+<script>
+(function(){
+  // Service worker registration — enables PWA install
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(function(){});
+    });
+  }
+
+  var _pwaPrompt = null;
+  var _isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  if(!_isStandalone){
+    // iOS Safari: always show button (no beforeinstallprompt — uses Add to Home Screen)
+    if(_isIOS){
+      var b = document.getElementById('pwaInstallBtn');
+      if(b) b.style.display = '';
+    }
+    // Chrome/Edge/Android: show when browser offers install prompt
+    window.addEventListener('beforeinstallprompt', function(e){
+      e.preventDefault();
+      _pwaPrompt = e;
+      var b = document.getElementById('pwaInstallBtn');
+      if(b) b.style.display = '';
+    });
+  }
+
+  // Hide after successful install
+  window.addEventListener('appinstalled', function(){
+    _pwaPrompt = null;
+    var b = document.getElementById('pwaInstallBtn');
+    if(b) b.style.display = 'none';
+  });
+
+  window.installPWA = function(){
+    if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
+    if(_pwaPrompt){
+      // Native install dialog (Chrome / Edge / Android)
+      _pwaPrompt.prompt();
+      _pwaPrompt.userChoice.then(function(c){
+        if(c.outcome === 'accepted'){
+          if(typeof showToast === 'function') showToast('Installing Simply Agentic...');
+          _pwaPrompt = null;
+          var b = document.getElementById('pwaInstallBtn');
+          if(b) b.style.display = 'none';
+        }
+      });
+    } else if(_isIOS){
+      // iOS instructions modal
+      var dlg = document.createElement('div');
+      dlg.style.cssText = 'position:fixed;inset:0;z-index:9999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,10,.78);font-family:system-ui,sans-serif;';
+      dlg.innerHTML = '<div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(124,58,237,.45);border-radius:16px;padding:28px 24px;width:92%;max-width:380px;">'
+        + '<div style="font-size:32px;text-align:center;margin-bottom:12px;">📱</div>'
+        + '<div style="font-size:18px;font-weight:800;color:#f3e8ff;text-align:center;margin-bottom:8px;">Install Simply Agentic</div>'
+        + '<div style="font-size:13px;color:#94a3b8;line-height:1.7;text-align:center;margin-bottom:16px;">Add this app to your home screen for a native app experience — no App Store needed.</div>'
+        + '<div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px;margin-bottom:20px;">'
+        + '<div style="color:#e2e8f0;font-size:14px;line-height:2;">'
+        + '1&nbsp; Tap the <strong style="color:#60a5fa;">Share</strong> button &#x1F4E4; in Safari<br>'
+        + '2&nbsp; Scroll down &amp; tap <strong style="color:#60a5fa;">Add to Home Screen</strong><br>'
+        + '3&nbsp; Tap <strong style="color:#60a5fa;">Add</strong> in the top right'
+        + '</div></div>'
+        + '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="width:100%;padding:13px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;">Got it!</button>'
+        + '</div>';
+      document.body.appendChild(dlg);
+      dlg.addEventListener('click', function(e){ if(e.target===dlg) dlg.remove(); });
+    } else {
+      if(typeof showToast === 'function') showToast('Open your browser menu → "Install app" or "Add to Home Screen"');
+    }
+  };
+})();
+</script>
 
 </body>
 </html>
