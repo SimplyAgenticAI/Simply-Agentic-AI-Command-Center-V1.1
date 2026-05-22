@@ -15696,7 +15696,7 @@ label         { font-size: 14px !important; }
     </div>
 
     <!-- Body: two panes side by side on desktop, stacked on mobile -->
-    <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+    <div id="vcPanes" style="display:flex;flex:1;overflow:hidden;min-height:0;">
 
       <!-- Left: prompt panel -->
       <div id="vcPromptPanel" style="width:460px;min-width:360px;max-width:520px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
@@ -15776,7 +15776,16 @@ label         { font-size: 14px !important; }
       </div>
     </div>
   </div>
-  <style>@keyframes vcSpin{to{transform:rotate(360deg)}}@keyframes tpBlink{0%,100%{opacity:1}50%{opacity:.2}}</style>
+  <style>
+    @keyframes vcSpin{to{transform:rotate(360deg)}}
+    @keyframes tpBlink{0%,100%{opacity:1}50%{opacity:.2}}
+    @media(max-width:700px){
+      #vcPanes{flex-direction:column!important;overflow-y:auto!important;}
+      #vcPromptPanel{width:100%!important;min-width:0!important;max-width:100%!important;flex-shrink:0!important;border-right:none!important;border-bottom:1px solid rgba(42,58,106,.4);max-height:55vh;}
+      #vcPanes>div:last-child{min-height:45vh;flex-shrink:0;}
+      #vcFrame,#vcEmptyState,#vcLoadingState{min-height:40vh;}
+    }
+  </style>
 
   <div id="crmViewSocialStudio" style="display:none;">
     <div class="modalInner">
@@ -19970,18 +19979,35 @@ async function pollImageJob(jobId, seatName){
     };
 
     // Save Round Table output to Playbooks
-    window.wcalSaveToPlaybooks = async function(text, titleHint){
-      var title = prompt('Name this playbook:', titleHint || 'Round Table Playbook');
-      if(!title) return;
-      try{
-        var res = await fetch('/api/playbooks/save', {
-          method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ title: title.trim(), content: text.trim() })
-        });
-        var data = await res.json();
-        if(!data.ok) throw new Error(data.error || 'Save failed');
-        showToast('Playbook saved: ' + title);
-      }catch(err){ showToast('Could not save: '+(err.message||'error')); }
+    window.wcalSaveToPlaybooks = function(text, titleHint){
+      var prev = document.getElementById('_pbNameDlg'); if(prev) prev.remove();
+      var dlg = document.createElement('div');
+      dlg.id = '_pbNameDlg';
+      dlg.style.cssText = 'position:fixed;inset:0;z-index:9999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,10,.78);font-family:system-ui,sans-serif;';
+      dlg.innerHTML = '<div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(124,58,237,.45);border-radius:16px;padding:28px 24px;width:92%;max-width:420px;box-shadow:0 24px 64px rgba(0,0,0,.65);">'
+        +'<div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:5px;">&#128203; Save Playbook</div>'
+        +'<div style="font-size:13px;color:#64748b;margin-bottom:16px;">Give this playbook a name to save it.</div>'
+        +'<input id="_pbNameInp" type="text" placeholder="e.g. Client Acquisition Plan" value="'+((titleHint||'').replace(/"/g,'&quot;'))+'" '
+        +'style="width:100%;box-sizing:border-box;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:10px;padding:11px 13px;color:#e2e8f0;font-size:14px;outline:none;margin-bottom:16px;"/>'
+        +'<div style="display:flex;gap:10px;justify-content:flex-end;">'
+        +'<button id="_pbCancel" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#94a3b8;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>'
+        +'<button id="_pbSave" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:none;color:#fff;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;">&#128190; Save</button>'
+        +'</div></div>';
+      document.body.appendChild(dlg);
+      var inp = document.getElementById('_pbNameInp'); inp.focus(); inp.select();
+      async function doSave(){
+        var title = (inp.value||'').trim(); dlg.remove();
+        if(!title) return;
+        try{
+          var res = await fetch('/api/playbooks/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,content:text.trim()})});
+          var data = await res.json();
+          if(!data.ok) throw new Error(data.error||'Save failed');
+          showToast('Playbook saved: '+title);
+        }catch(err){ showToast('Could not save: '+(err.message||'error')); }
+      }
+      document.getElementById('_pbSave').onclick = doSave;
+      document.getElementById('_pbCancel').onclick = function(){ dlg.remove(); };
+      inp.addEventListener('keydown',function(e){ if(e.key==='Enter') doSave(); if(e.key==='Escape') dlg.remove(); });
     };
 
     // Wire the Group Replies Save to Playbooks button
@@ -20265,17 +20291,44 @@ $("draftWithSelected").onclick = async () => {
       const SELECT_CSS = INPUT_CSS + "cursor:pointer;";
       const LABEL_CSS  = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.65);margin-bottom:6px;letter-spacing:.07em;text-transform:uppercase;";
 
+      const isMobile = window.innerWidth < 700;
+
       // ── Outer 2-pane wrapper ──────────────────────────────────────────────────
       const pane = document.createElement("div");
-      pane.style.cssText = "display:flex;height:100%;overflow:hidden;";
+      pane.style.cssText = isMobile
+        ? "display:flex;flex-direction:column;height:100%;overflow:hidden;"
+        : "display:flex;height:100%;overflow:hidden;";
 
-      // ── LEFT: roster ──────────────────────────────────────────────────────────
+      // ── LEFT: roster (hidden on mobile — replaced by select dropdown) ──────────
       const left = document.createElement("div");
-      left.style.cssText = "width:220px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.45);overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:3px;background:rgba(6,10,26,.5);";
+      left.style.cssText = isMobile
+        ? "display:none;"
+        : "width:220px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.45);overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:3px;background:rgba(6,10,26,.5);";
 
-      // ── RIGHT: editor (structure built once, values swapped per teammate) ──────
+      // ── RIGHT: editor ─────────────────────────────────────────────────────────
       const right = document.createElement("div");
-      right.style.cssText = "flex:1;overflow-y:auto;padding:28px 32px;background:rgba(10,15,36,.0);";
+      right.style.cssText = isMobile
+        ? "flex:1;overflow-y:auto;padding:16px 14px;background:rgba(10,15,36,.0);"
+        : "flex:1;overflow-y:auto;padding:28px 32px;background:rgba(10,15,36,.0);";
+
+      // Mobile teammate selector (replaces hidden left roster on small screens)
+      let mobSel = null;
+      if(isMobile){
+        const mobSelWrap = document.createElement("div");
+        mobSelWrap.style.cssText = "margin-bottom:16px;";
+        const mobSelLbl = document.createElement("label");
+        mobSelLbl.style.cssText = LABEL_CSS;
+        mobSelLbl.textContent = "Select Teammate";
+        mobSel = document.createElement("select");
+        mobSel.style.cssText = SELECT_CSS;
+        mobSel.addEventListener("change", function(){
+          const nm = this.value;
+          swapValues(nm, installedMap[nm]||{});
+        });
+        mobSelWrap.appendChild(mobSelLbl);
+        mobSelWrap.appendChild(mobSel);
+        right.appendChild(mobSelWrap);
+      }
 
       // -- Right panel DOM structure (built once) --------------------------------
       const rHdrCircle = document.createElement("div");
@@ -20300,7 +20353,9 @@ $("draftWithSelected").onclick = async () => {
 
       // Row 1: Name | Job Title | Version
       const r1 = document.createElement("div");
-      r1.style.cssText = "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
+      r1.style.cssText = isMobile
+        ? "display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;"
+        : "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
       const fName = mkInput("_et_name", true);
       const fJob  = mkInput("_et_job",  false);
       const fVer  = mkInput("_et_ver",  false);
@@ -20311,7 +20366,9 @@ $("draftWithSelected").onclick = async () => {
 
       // Row 2: left col | right col
       const r2 = document.createElement("div");
-      r2.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
+      r2.style.cssText = isMobile
+        ? "display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"
+        : "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
       const lcol = document.createElement("div"); lcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
       const fMiss  = mkTa("_et_miss",  90);
       const fGoal  = mkTa("_et_goal",  90);
@@ -20329,7 +20386,9 @@ $("draftWithSelected").onclick = async () => {
 
       // Row 3: Model | Voice
       const r3 = document.createElement("div");
-      r3.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;";
+      r3.style.cssText = isMobile
+        ? "display:flex;flex-direction:column;gap:12px;margin-bottom:18px;"
+        : "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;";
       const fModel = mkSel("_et_model",[
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
@@ -20445,13 +20504,23 @@ $("draftWithSelected").onclick = async () => {
           swapValues(name, defn);
         });
         left.appendChild(card);
+        if(mobSel){
+          const opt = document.createElement("option");
+          opt.value = name;
+          opt.textContent = name + (defn.job_title ? " — " + defn.job_title : "");
+          mobSel.appendChild(opt);
+        }
       });
 
       pane.appendChild(left); pane.appendChild(right);
       mb.appendChild(pane);
 
       // Auto-select first teammate
-      if(left.firstElementChild) left.firstElementChild.click();
+      if(isMobile){
+        if(order.length) swapValues(order[0], installedMap[order[0]]||{});
+      } else {
+        if(left.firstElementChild) left.firstElementChild.click();
+      }
     }
 
     if($("editTeammatesBtn")) $("editTeammatesBtn").onclick = async () => {
@@ -41018,40 +41087,51 @@ def api_research_market():
     except Exception:
         op_context = ""
 
-    # Web search for market intelligence
+    # Web search for market intelligence — broad coverage
     search_snippets: list = []
-    for q in [f"top companies {niche}", f"{niche} pricing market 2024 2025", f"{niche} customer complaints reviews problems"]:
+    for q in [
+        f"top {niche} companies",
+        f"{niche} pricing cost 2024 2025",
+        f"{niche} reviews complaints Reddit",
+        f"{niche} trends news 2025",
+        f"best {niche} tools software services",
+    ]:
         try:
-            rows = _crm_ddg_search(q, max_results=5)
+            rows = _crm_ddg_search(q, max_results=4)
             for r in rows:
                 if r.get("snippet"):
                     search_snippets.append(f"{r.get('title','')}: {r.get('snippet','')}")
         except Exception:
             pass
 
-    web_context = "\n".join(search_snippets[:12]) if search_snippets else "No web results found."
+    web_context = "\n".join(search_snippets[:20]) if search_snippets else ""
 
     system = (
-        "You are an expert market intelligence analyst and business strategist. "
-        "Analyze the market and return a comprehensive intelligence brief. "
-        "Respond ONLY with valid JSON, no markdown fences."
+        "You are a world-class market intelligence analyst with deep expertise across B2B and B2C markets. "
+        "You combine live web research with your expert knowledge to produce sharp, specific, actionable intelligence briefs. "
+        "NEVER give generic advice — every field must contain SPECIFIC names, numbers, prices, or platforms. "
+        "NEVER say you lack data — use your expert training knowledge to fill any gaps. "
+        "Respond ONLY with valid JSON, no markdown fences, no commentary."
     )
-    prompt = f"""Conduct a market intelligence scan for: {niche}
+    prompt = f"""Conduct a deep market intelligence scan for: {niche}
 {('Operator context: ' + op_context) if op_context else ''}
 
-Web research gathered:
-{web_context}
+Web research gathered (use this PLUS your expert knowledge):
+{web_context if web_context else "(Use your expert knowledge of this market)"}
+
+Be SPECIFIC: name actual companies, real price ranges, specific platforms, concrete differentiators.
+No vague statements like "vary widely" — give real numbers and real names.
 
 Return JSON in exactly this format:
 {{
-  "summary": "<2-3 sentence executive summary of this market>",
-  "top_players": ["<company 1>", "<company 2>", "<company 3>", "<company 4>", "<company 5>"],
-  "pricing_landscape": "<describe common pricing models and typical price ranges in this market>",
-  "customer_loves": ["<what customers consistently praise>", "<what they praise>", "<what they praise>"],
-  "customer_hates": ["<common complaint/pain point>", "<common complaint>", "<common complaint>"],
-  "market_gaps": ["<underserved need or gap>", "<gap>", "<gap>"],
-  "best_channels": ["<best channel to reach this market>", "<channel>", "<channel>"],
-  "positioning_advice": "<specific 1-2 sentence advice on how the operator should position their offer to stand out in this market>"
+  "summary": "<3 sentence executive summary naming the SIZE of this market, who the dominant players are, and the single biggest opportunity right now>",
+  "top_players": ["<Company name + what they charge or what they do differently>", "<Company + detail>", "<Company + detail>", "<Company + detail>", "<Company + detail>"],
+  "pricing_landscape": "<Specific price ranges with examples: e.g. entry-level $X/mo, mid-market $Y/mo, enterprise $Z+. Name real products where possible.>",
+  "customer_loves": ["<specific thing customers rave about — with an example>", "<specific thing>", "<specific thing>"],
+  "customer_hates": ["<specific frustration with examples from reviews>", "<frustration>", "<frustration>"],
+  "market_gaps": ["<specific underserved segment or missing feature — describe WHO is underserved>", "<gap>", "<gap>"],
+  "best_channels": ["<specific channel with tactic: e.g. LinkedIn outreach to X role, Reddit community r/Y>", "<channel + tactic>", "<channel + tactic>"],
+  "positioning_advice": "<2 sentence differentiation strategy specifically for this operator against the named competitors — what angle wins>"
 }}"""
 
     try:
@@ -41075,47 +41155,54 @@ def api_research_intent():
     offer = (data.get("offer") or "").strip()
     if not offer: return jsonify({"ok": False, "error": "Offer description required"}), 400
 
-    # Web search for intent signals
+    # Web search for intent signals — multiple angles to maximise signal coverage
     search_snippets: list = []
     for q in [
-        f"looking for {offer} site:reddit.com OR site:quora.com",
-        f"need help with {offer}",
-        f"hiring {offer} job posting",
-        f"{offer} alternatives frustrated",
+        f"{offer} help",
+        f"{offer} recommendations",
+        f"best {offer} 2024 2025",
+        f"{offer} frustration problem",
+        f"{offer} alternatives",
+        f"looking to hire {offer}",
     ]:
         try:
-            rows = _crm_ddg_search(q, max_results=5)
+            rows = _crm_ddg_search(q, max_results=4)
             for r in rows:
                 if r.get("snippet"):
                     search_snippets.append(f"[{r.get('title','')}] {r.get('snippet','')} (source: {r.get('domain','')})")
         except Exception:
             pass
 
-    web_context = "\n".join(search_snippets[:14]) if search_snippets else "No web results found."
+    web_context = "\n".join(search_snippets[:20]) if search_snippets else ""
 
     system = (
-        "You are an expert demand generation strategist who specializes in finding high-intent buying signals. "
-        "Analyze search results to identify real buyer intent signals and return structured JSON. "
-        "Respond ONLY with valid JSON, no markdown fences."
+        "You are an elite demand-generation strategist who finds high-intent buyer signals. "
+        "You have deep knowledge of online buyer behaviour, social listening, and sales triggers. "
+        "Use the web research provided AND your expert training-data knowledge of where buyers gather online. "
+        "NEVER say you lack data — always deliver 5 specific, actionable signals. "
+        "Respond ONLY with valid JSON, no markdown fences, no commentary."
     )
     prompt = f"""Find active buyer intent signals for this offer: {offer}
 
-Web search results gathered:
-{web_context}
+Web research gathered (use this plus your own knowledge):
+{web_context if web_context else "(Use your expert knowledge of this market to identify real buyer signals)"}
+
+Deliver exactly 5 SPECIFIC, ACTIONABLE signals — real patterns, real platforms, real language buyers use.
+Each signal must name a SPECIFIC platform, community, or behaviour (e.g. "LinkedIn posts asking for X", "Reddit r/Y threads", "job postings for Z role").
 
 Return JSON in exactly this format:
 {{
-  "summary": "<2-3 sentence summary of the intent signal landscape — how warm is the market right now>",
+  "summary": "<2-3 sentence assessment of HOW ACTIVE this market is right now and WHERE the warmest buyers are — be specific>",
   "signals": [
-    {{"signal": "<specific signal or pattern found>", "source": "<where it was found>", "why": "<why this matters for outreach>"}},
+    {{"signal": "<specific signal — name the exact platform/community/behaviour>", "source": "<exact URL, subreddit, hashtag, or platform>", "why": "<why this proves buying intent and how to use it>"}},
     {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
     {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
     {{"signal": "<signal>", "source": "<source>", "why": "<why>"}},
     {{"signal": "<signal>", "source": "<source>", "why": "<why>"}}
   ],
-  "trigger_keywords": ["<keyword someone uses when they are ready to buy>", "<keyword>", "<keyword>", "<keyword>", "<keyword>"],
-  "where_to_look": ["<specific place or platform to find these buyers>", "<place>", "<place>", "<place>"],
-  "outreach_hook": "<1 sentence opening line that speaks directly to the pain signals found — designed to immediately grab attention>"
+  "trigger_keywords": ["<exact phrase a buyer types when ready>", "<phrase>", "<phrase>", "<phrase>", "<phrase>"],
+  "where_to_look": ["<specific URL, group, hashtag, or search query to find buyers TODAY>", "<place>", "<place>", "<place>"],
+  "outreach_hook": "<1 punchy sentence that references the exact pain these buyers are feeling — makes them stop scrolling>"
 }}"""
 
     try:
