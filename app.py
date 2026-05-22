@@ -13,6 +13,7 @@ import threading
 import shutil
 import tempfile
 import gzip
+import zlib
 import io
 from pathlib import Path
 from datetime import datetime, timedelta
