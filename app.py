@@ -21402,7 +21402,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
-      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false;
+      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null;
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21487,31 +21487,19 @@ Challenge weak assumptions. Surface risks.`;
       function _tpStartCamera(){
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return;
         _tpCamPending=true;
-        // Maximum quality constraints — browser will use the best it can support
+        // Video-only for the preview — mic is grabbed only when Record is pressed
         navigator.mediaDevices.getUserMedia({
-          video:{
-            facingMode:'user',
-            width:{ideal:1920,min:1280},
-            height:{ideal:1080,min:720},
-            frameRate:{ideal:30,min:24}
-          },
-          audio:{
-            echoCancellation:false,
-            noiseSuppression:false,
-            autoGainControl:false,
-            sampleRate:{ideal:48000},
-            sampleSize:16,
-            channelCount:{ideal:2}
-          }
+          video:{facingMode:'user',width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,min:24}},
+          audio:false
         }).then(function(stream){
           _tpCamPending=false;
           _tpCamStream=stream;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-        }).catch(function(err){
-          // Fall back to default constraints if device rejects the ideal ones
-          navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true})
+        }).catch(function(){
+          // Fall back without ideal constraints
+          navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false})
             .then(function(stream){
               _tpCamPending=false;
               _tpCamStream=stream;
@@ -21648,6 +21636,7 @@ Challenge weak assumptions. Surface risks.`;
         clearTimeout(_tpCtrlTimer);
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
+        _tpStopMic(); // always free mic on close
         _tpStopCamera();
         var ov=document.getElementById('tpOverlay');
         if(ov){
@@ -21786,7 +21775,11 @@ Challenge weak assumptions. Surface risks.`;
         },1000);
       }
 
-      // Record = 3-2-1 countdown → camera recording + scroll
+      function _tpStopMic(){
+        if(_tpMicStream){ _tpMicStream.getTracks().forEach(function(t){t.stop();}); _tpMicStream=null; }
+      }
+
+      // Record = grab mic → 3-2-1 countdown → combined stream recording + scroll
       window.tpStartRecording = function(){
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
@@ -21795,7 +21788,7 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         if(!_tpCamStream){
-          // No camera — scroll only
+          // No camera — scroll only, no recording
           _tpRunCountdown(function(){
             _tpScrolling=true; _tpPaused=false; _tpLastTs=null;
             _tpScrollRAF=requestAnimationFrame(_scrollStep);
@@ -21805,58 +21798,78 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         _tpChunks=[]; _tpClosing=false;
-        // Prefer vp9+opus (best quality/size); fall back through vp8, plain webm, mp4
-        var mimeTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
-        var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
-        // High bitrates: 8 Mbps video + 192 kbps audio — comparable to a phone camera recording
-        var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:192000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:192000};
-        try{ _tpRecorder=new MediaRecorder(_tpCamStream,recOpts); }
-        catch(e){
-          try{ _tpRecorder=mime?new MediaRecorder(_tpCamStream,{mimeType:mime}):new MediaRecorder(_tpCamStream); }
-          catch(e2){ if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; }
-        }
-        _tpBlobMime=(_tpRecorder&&_tpRecorder.mimeType)||'video/webm';
-        _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
-        _tpRecorder.onstop=function(){
-          _tpRecording=false;
-          _tpHideRecBar();
-          var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
-          _tpLastBlob=blob;
-          if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
-          _tpLastBlobUrl=blob.size>0?URL.createObjectURL(blob):null;
-          var sizeMb=(blob.size/1048576).toFixed(1);
-          var prog=document.getElementById('tpProgress');
-          if(prog) prog.style.height='0%';
-          // Auto-save-close path: user hit Exit while recording
-          if(_tpAutoSaveClose){
-            _tpAutoSaveClose=false;
-            if(blob.size>0) window.tpSave();
-            _tpDoClose();
-            return;
+        // Inner function — builds recorder once we have (or don't have) a mic stream
+        function _setupAndRecord(micStream){
+          _tpMicStream=micStream||null;
+          // Combine camera video tracks + dedicated mic audio tracks
+          var tracks=[];
+          if(_tpCamStream) _tpCamStream.getVideoTracks().forEach(function(t){tracks.push(t);});
+          if(_tpMicStream) _tpMicStream.getAudioTracks().forEach(function(t){tracks.push(t);});
+          var recStream=tracks.length>0?new MediaStream(tracks):_tpCamStream;
+          var mimeTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+          var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
+          var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:256000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:256000};
+          try{ _tpRecorder=new MediaRecorder(recStream,recOpts); }
+          catch(e){
+            try{ _tpRecorder=mime?new MediaRecorder(recStream,{mimeType:mime}):new MediaRecorder(recStream); }
+            catch(e2){ _tpStopMic(); if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; }
           }
-          // Restart path: user hit Restart while recording — discard take, start fresh
-          if(_tpRestarting){ _tpDoRestart(); return; }
-          if(_tpClosing) return;
-          if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
-          var szEl=document.getElementById('tpDlSize');
-          if(szEl) szEl.textContent=sizeMb+' MB';
-          var dlBar=document.getElementById('tpDownloadBar');
-          if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
-          if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
-        };
-        _tpRunCountdown(function(){
-          try{
-            try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); } // 1s chunks; fallback no-timeslice
-            _tpRecording=true; _tpPaused=false;
-            _tpShowRecBar(false);
-            _startRecTimer();
-            _tpScrolling=true; _tpLastTs=null;
-            _tpScrollRAF=requestAnimationFrame(_scrollStep);
-          }catch(err){
+          _tpBlobMime=(_tpRecorder&&_tpRecorder.mimeType)||'video/webm';
+          _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
+          _tpRecorder.onstop=function(){
             _tpRecording=false;
-            if(typeof showToast==='function') showToast('Recording failed — '+(err.message||err));
-          }
-        });
+            _tpHideRecBar();
+            _tpStopMic(); // release mic immediately so other apps can use it
+            var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
+            _tpLastBlob=blob;
+            if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
+            _tpLastBlobUrl=blob.size>0?URL.createObjectURL(blob):null;
+            var sizeMb=(blob.size/1048576).toFixed(1);
+            var prog=document.getElementById('tpProgress');
+            if(prog) prog.style.height='0%';
+            if(_tpAutoSaveClose){
+              _tpAutoSaveClose=false;
+              if(blob.size>0) window.tpSave();
+              _tpDoClose();
+              return;
+            }
+            if(_tpRestarting){ _tpDoRestart(); return; }
+            if(_tpClosing) return;
+            if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
+            var szEl=document.getElementById('tpDlSize');
+            if(szEl) szEl.textContent=sizeMb+' MB';
+            var dlBar=document.getElementById('tpDownloadBar');
+            if(dlBar){ dlBar.style.display='flex'; _showCtrl(); }
+            if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
+          };
+          _tpRunCountdown(function(){
+            try{
+              try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); }
+              _tpRecording=true; _tpPaused=false;
+              _tpShowRecBar(false);
+              _startRecTimer();
+              _tpScrolling=true; _tpLastTs=null;
+              _tpScrollRAF=requestAnimationFrame(_scrollStep);
+            }catch(err){
+              _tpRecording=false;
+              _tpStopMic();
+              if(typeof showToast==='function') showToast('Recording failed — '+(err.message||err));
+            }
+          });
+        }
+        // Grab mic only now — released the moment recording stops
+        if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+          navigator.mediaDevices.getUserMedia({
+            audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false,sampleRate:{ideal:48000},sampleSize:16,channelCount:1}
+          }).then(function(micStream){
+            _setupAndRecord(micStream);
+          }).catch(function(){
+            if(typeof showToast==='function') showToast('Mic access denied — recording video only');
+            _setupAndRecord(null);
+          });
+        } else {
+          _setupAndRecord(null);
+        }
       };
 
       // Stop = stop recording + stop scrolling
