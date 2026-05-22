@@ -21311,7 +21311,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
-      var _tpLastBlob=null, _tpAutoSaveClose=false;
+      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false;
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21487,6 +21487,37 @@ Challenge weak assumptions. Surface risks.`;
 
       window.tpTogglePause = function(){
         _tpToggleScroll();
+      };
+
+      function _tpDoRestart(){
+        // Reset scroll to very beginning
+        _tpScrollPos=0;
+        _tpScrolling=false; _tpPaused=false;
+        if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
+        var wrap=document.getElementById('tpTextWrap');
+        if(wrap) wrap.style.transform='translateY(0px)';
+        var prog=document.getElementById('tpProgress');
+        if(prog) prog.style.height='0%';
+        // Reset pause button label
+        var pb=document.getElementById('tpRecBarPause');
+        if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; pb.style.pointerEvents='auto'; }
+        _tpHideRecBar();
+        _tpClosing=false; _tpRestarting=false;
+        if(typeof showToast==='function') showToast('Restarting — get ready…');
+        window.tpStartRecording(); // handles countdown + fresh recorder + rec bar
+      }
+
+      window.tpRestartRecording = function(){
+        _tpScrolling=false; _tpPaused=false;
+        if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
+        if(_tpRecorder&&_tpRecording){
+          _tpRestarting=true;
+          try{ if(typeof _tpRecorder.requestData==='function') _tpRecorder.requestData(); }catch(e){}
+          try{ _tpRecorder.stop(); }catch(e){}
+          // onstop fires async → sees _tpRestarting=true → calls _tpDoRestart()
+        } else {
+          _tpDoRestart(); // scroll-only mode: restart immediately
+        }
       };
 
       function _tpDoClose(){
@@ -21676,6 +21707,8 @@ Challenge weak assumptions. Surface risks.`;
             _tpDoClose();
             return;
           }
+          // Restart path: user hit Restart while recording — discard take, start fresh
+          if(_tpRestarting){ _tpDoRestart(); return; }
           if(_tpClosing) return;
           if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
           var szEl=document.getElementById('tpDlSize');
@@ -34943,14 +34976,15 @@ window.toggleNotifPanel = function(){
   <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Swipe up on controls to show them</div>
 
   <!-- Recording control bar — always visible while recording, can't be missed -->
-  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:14px 16px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:10px;">
-    <button id="tpRecBarPause" onclick="tpTogglePause()" style="padding:12px 22px;border-radius:10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.5);color:#fde68a;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9646;&#9646; Pause</button>
-    <div id="tpRecBarBadge" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;flex-shrink:0;"></div>
-      <span style="font-size:14px;color:#fca5a5;font-weight:700;letter-spacing:.06em;">REC</span>
-      <span id="tpRecTimer" style="font-size:14px;color:#fca5a5;font-weight:600;min-width:44px;"></span>
+  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:12px 10px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:7px;">
+    <button id="tpRecBarPause" onclick="tpTogglePause()" style="padding:11px 14px;border-radius:10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.5);color:#fde68a;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9646;&#9646; Pause</button>
+    <button id="tpRecBarRestart" onclick="tpRestartRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.55);color:#a5b4fc;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#8635; Restart</button>
+    <div id="tpRecBarBadge" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+      <div style="width:9px;height:9px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;flex-shrink:0;"></div>
+      <span style="font-size:13px;color:#fca5a5;font-weight:700;letter-spacing:.06em;">REC</span>
+      <span id="tpRecTimer" style="font-size:13px;color:#fca5a5;font-weight:600;min-width:38px;"></span>
     </div>
-    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:12px 22px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop Recording</button>
+    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop</button>
   </div>
 
   <!-- Download bar -->
