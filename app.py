@@ -21403,6 +21403,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
       var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null;
+      var _tpIsIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21597,6 +21598,19 @@ Challenge weak assumptions. Surface risks.`;
       window.tpTogglePause = function(){
         _tpToggleScroll();
       };
+
+      // When the user switches to another app, immediately release the camera+mic.
+      // When they return, restore the video-only preview (if not recording).
+      // This is what prevents "microphone already in use" in the keyboard and other apps.
+      document.addEventListener('visibilitychange', function(){
+        var ov=document.getElementById('tpOverlay');
+        if(!ov||ov.style.display==='none') return; // teleprompter not open — ignore
+        if(document.hidden){
+          if(!_tpRecording) _tpStopCamera(); // free mic for other apps immediately
+        } else {
+          if(!_tpCamStream&&_tpCamOn&&!_tpRecording) _tpStartCamera(); // restore preview
+        }
+      });
 
       function _tpDoRestart(){
         // Reset scroll to very beginning
@@ -21802,9 +21816,12 @@ Challenge weak assumptions. Surface risks.`;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-          var mimeTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+          // iOS needs mp4 first; Android/desktop prefer vp9+opus
+          var mimeTypes=_tpIsIOS
+            ?['video/mp4','video/webm;codecs=vp9,opus','video/webm']
+            :['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
           var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
-          var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:256000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:256000};
+          var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:192000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:192000};
           try{ _tpRecorder=new MediaRecorder(stream,recOpts); }
           catch(e){
             try{ _tpRecorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
@@ -21815,8 +21832,7 @@ Challenge weak assumptions. Surface risks.`;
           _tpRecorder.onstop=function(){
             _tpRecording=false;
             _tpHideRecBar();
-            // Stop ALL tracks — releases mic AND camera, clears iOS audio session completely
-            _tpStopCamera();
+            _tpStopCamera(); // releases mic + camera + iOS audio session
             var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
             _tpLastBlob=blob;
             if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
@@ -21833,8 +21849,7 @@ Challenge weak assumptions. Surface risks.`;
             if(_tpRestarting){ _tpDoRestart(); return; }
             if(_tpClosing) return;
             if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
-            // Restart video-only preview now that recording is done
-            _tpStartCamera();
+            _tpStartCamera(); // restart video-only preview
             var szEl=document.getElementById('tpDlSize');
             if(szEl) szEl.textContent=sizeMb+' MB';
             var dlBar2=document.getElementById('tpDownloadBar');
@@ -21843,7 +21858,9 @@ Challenge weak assumptions. Surface risks.`;
           };
           _tpRunCountdown(function(){
             try{
-              try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); }
+              // iOS MediaRecorder bugs out with a timeslice — use no-timeslice + requestData on stop
+              if(_tpIsIOS){ _tpRecorder.start(); }
+              else { try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); } }
               _tpRecording=true; _tpPaused=false;
               _tpShowRecBar(false);
               _startRecTimer();
@@ -21857,8 +21874,12 @@ Challenge weak assumptions. Surface risks.`;
           });
         }
 
-        // Raw audio — no browser processing = no robotic artifacts
-        var audConstraints={echoCancellation:false,noiseSuppression:false,autoGainControl:false,sampleRate:{ideal:48000},sampleSize:16,channelCount:1};
+        // iOS: pass minimal constraints and let Apple's audio pipeline handle the rest —
+        //       iOS ignores echoCancellation:false etc. and its own processing sounds far better than the browser's.
+        // Android/desktop: raw audio with no browser processing (browser EC/NS sounds robotic).
+        var audConstraints=_tpIsIOS
+          ?{autoGainControl:false}
+          :{echoCancellation:false,noiseSuppression:false,autoGainControl:false,sampleRate:{ideal:48000},sampleSize:16,channelCount:1};
         var vidConstraints={facingMode:'user',width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,min:24}};
         navigator.mediaDevices.getUserMedia({video:vidConstraints,audio:audConstraints})
           .then(function(stream){ _buildRecorder(stream); })
