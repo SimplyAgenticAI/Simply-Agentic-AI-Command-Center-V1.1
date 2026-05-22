@@ -19462,6 +19462,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();
       else{stopAlwaysListening();startAlwaysListening("dm");}
     };
+    // Release the mic when the user switches to another app — prevents "mic already in use" conflicts
+    document.addEventListener('visibilitychange', function(){
+      if(document.hidden && alwaysOn){ stopAlwaysListening(); }
+    });
 
     // ===== NAV BAR DROPDOWN JS =====
 
@@ -21451,7 +21455,9 @@ Challenge weak assumptions. Surface risks.`;
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
         if(ov) ov.style.display='block';
-        _tpStartCamera();
+        // Camera opens only when Record is pressed — not on launch.
+        // This keeps the iOS audio session completely clear so other apps can use the mic freely.
+        _tpCamStream=null; _tpCamPending=false;
         if('wakeLock' in navigator){
           navigator.wakeLock.request('screen').then(function(wl){ _tpWakeLock=wl; }).catch(function(){});
         }
@@ -21797,18 +21803,18 @@ Challenge weak assumptions. Surface risks.`;
           if(typeof showToast==='function') showToast('Camera connecting — wait a moment then try again');
           return;
         }
-        if(!_tpCamStream){
-          // No camera — scroll only, no recording
+        if(!_tpCamOn){
+          // Camera explicitly disabled by user — scroll only
           _tpRunCountdown(function(){
             _tpScrolling=true; _tpPaused=false; _tpLastTs=null;
             _tpScrollRAF=requestAnimationFrame(_scrollStep);
             _tpShowRecBar(true);
-            if(typeof showToast==='function') showToast('Scrolling only — no camera available');
+            if(typeof showToast==='function') showToast('Scrolling only — camera is off');
           });
           return;
         }
         _tpChunks=[]; _tpClosing=false;
-        // Drop the video-only preview stream — we'll replace it with the recording stream
+        // Stop any existing camera stream before requesting a fresh combined one
         _tpStopCamera();
 
         function _buildRecorder(stream){
