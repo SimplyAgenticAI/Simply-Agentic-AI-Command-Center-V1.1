@@ -21406,7 +21406,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
-      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null;
+      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null, _tpSaveBarTimer=null;
       var _tpIsIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 
       window.showTeleprompterModal = function(){
@@ -21670,6 +21670,7 @@ Challenge weak assumptions. Surface risks.`;
         }
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
+        clearTimeout(_tpSaveBarTimer); _tpSaveBarTimer=null;
         document.body.style.overflow='';
         var prog=document.getElementById('tpProgress');
         if(prog) prog.style.height='0%';
@@ -21681,6 +21682,8 @@ Challenge weak assumptions. Surface risks.`;
           if(typeof showToast==='function') showToast('No recording yet — hit Record then Stop & Save');
           return;
         }
+        var sb=document.getElementById('tpSaveBar'); if(sb) sb.style.display='none';
+        clearTimeout(_tpSaveBarTimer); _tpSaveBarTimer=null;
         var ext=_tpBlobMime.indexOf('mp4')>-1?'.mp4':'.webm';
         var filename='recording-'+Date.now()+ext;
         var mtype=_tpLastBlob.type||(_tpBlobMime||'video/webm');
@@ -21861,11 +21864,15 @@ Challenge weak assumptions. Surface risks.`;
             if(_tpRestarting){ _tpDoRestart(); return; }
             if(_tpClosing) return;
             if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
-            var szEl=document.getElementById('tpDlSize');
-            if(szEl) szEl.textContent=sizeMb+' MB';
-            var dlBar2=document.getElementById('tpDownloadBar');
-            if(dlBar2){ dlBar2.style.display='flex'; _showCtrl(); }
-            if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
+            // Close the overlay so iOS fully releases the audio session immediately
+            if(!_tpClosing) _tpDoClose();
+            var sbSize=document.getElementById('tpSaveBarSize');
+            if(sbSize) sbSize.textContent=sizeMb+' MB — tap Save to keep it';
+            var sb=document.getElementById('tpSaveBar');
+            if(sb) sb.style.display='block';
+            clearTimeout(_tpSaveBarTimer);
+            _tpSaveBarTimer=setTimeout(function(){ var s=document.getElementById('tpSaveBar'); if(s) s.style.display='none'; },60000);
+            if(typeof showToast==='function') showToast('Recording ready — tap Save!');
           };
           _tpRunCountdown(function(){
             try{
@@ -35173,6 +35180,20 @@ window.toggleNotifPanel = function(){
       <span>Desktop: saves to Downloads</span>
     </div>
     <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="background:none;border:none;color:#64748b;font-size:22px;cursor:pointer;flex-shrink:0;padding:4px;">&#10005;</button>
+  </div>
+</div>
+
+<!-- Teleprompter save bar — lives OUTSIDE the overlay so iOS releases the audio session when shown -->
+<div id="tpSaveBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999950;background:linear-gradient(135deg,#1e293b,#0f172a);border-top:2px solid rgba(139,92,246,.5);padding:14px 16px;font-family:system-ui,sans-serif;box-shadow:0 -8px 32px rgba(0,0,0,.6);">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:600px;margin:0 auto;">
+    <div>
+      <div style="color:#e2e8f0;font-size:15px;font-weight:700;">&#127909; Recording ready</div>
+      <div style="color:#94a3b8;font-size:13px;margin-top:2px;"><span id="tpSaveBarSize"></span></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button onclick="window.tpSave()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;">&#128190; Save</button>
+      <button onclick="document.getElementById('tpSaveBar').style.display='none'" style="background:rgba(255,255,255,.08);color:#94a3b8;border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 14px;font-size:14px;cursor:pointer;">&#10005;</button>
+    </div>
   </div>
 </div>
 
