@@ -21524,7 +21524,7 @@ Challenge weak assumptions. Surface risks.`;
       function _tpStopCamera(){
         if(_tpCamStream){ _tpCamStream.getTracks().forEach(function(t){t.stop();}); _tpCamStream=null; }
         var vid=document.getElementById('tpCamVideo');
-        if(vid){ vid.srcObject=null; vid.style.display='none'; }
+        if(vid){ try{vid.pause();}catch(e){} vid.srcObject=null; vid.style.display='none'; }
       }
 
       function _applyMirror(){
@@ -21846,18 +21846,20 @@ Challenge weak assumptions. Surface risks.`;
             if(prog) prog.style.height='0%';
             if(_tpAutoSaveClose){
               _tpAutoSaveClose=false;
+              _tpRecorder=null;
               if(blob.size>0) window.tpSave();
               _tpDoClose();
               return;
             }
-            if(_tpRestarting){ _tpDoRestart(); return; }
-            if(_tpClosing) return;
-            if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
+            if(_tpRestarting){ _tpRecorder=null; _tpDoRestart(); return; }
+            if(_tpClosing){ _tpRecorder=null; return; }
+            if(blob.size===0){ _tpRecorder=null; if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
             var szEl=document.getElementById('tpDlSize');
             if(szEl) szEl.textContent=sizeMb+' MB';
             var dlBar2=document.getElementById('tpDownloadBar');
             if(dlBar2){ dlBar2.style.display='flex'; _showCtrl(); }
             if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
+            _tpRecorder=null; // drop MediaRecorder — releases its internal stream ref so iOS frees audio session
           };
           _tpRunCountdown(function(){
             try{
@@ -21904,6 +21906,7 @@ Challenge weak assumptions. Surface risks.`;
         if(_tpRecorder&&_tpRecording){
           try{ if(typeof _tpRecorder.requestData==='function') _tpRecorder.requestData(); }catch(e){}
           try{ _tpRecorder.stop(); }catch(e){}
+          _tpStopCamera(); // release mic+camera hardware NOW — don't wait for async onstop
           // onstop fires async: hides recBar, creates blob, shows download bar
         } else {
           // Scroll-only mode: just stopped scrolling
