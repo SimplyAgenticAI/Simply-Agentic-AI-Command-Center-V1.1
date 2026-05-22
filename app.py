@@ -18142,9 +18142,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
-      // Ensure chat scrolls to the latest message after switching teammates
+      // Extra scroll pass after teammate switch — catches cases where renderThread fires before panel is sized
       var _th = $("thread");
-      if(_th) setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 120);
+      if(_th){ setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 250); setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 600); }
     }
     window.selectSeat = selectSeat;  // expose for prompt library and other cross-scope callers
 
@@ -18412,8 +18412,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(content);
         box.appendChild(div);
       });
-      // Defer scroll so browser computes layout before measuring scrollHeight
-      setTimeout(function(){ box.scrollTop = box.scrollHeight; }, 60);
+      // Scroll to latest message — three attempts to handle slow layouts, images, and mobile transitions
+      function _scrollToBottom(el){ el.scrollTop = el.scrollHeight; }
+      _scrollToBottom(box);
+      requestAnimationFrame(function(){ _scrollToBottom(box); });
+      setTimeout(function(){ _scrollToBottom(box); }, 150);
+      setTimeout(function(){ _scrollToBottom(box); }, 400);
     }
     function renderOperatorProfile(p){
       const box = $("thread");
