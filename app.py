@@ -21396,18 +21396,42 @@ Challenge weak assumptions. Surface risks.`;
       function _tpStartCamera(){
         if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return;
         _tpCamPending=true;
+        // Maximum quality constraints — browser will use the best it can support
         navigator.mediaDevices.getUserMedia({
-          video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},
-          audio:true
+          video:{
+            facingMode:'user',
+            width:{ideal:1920,min:1280},
+            height:{ideal:1080,min:720},
+            frameRate:{ideal:30,min:24}
+          },
+          audio:{
+            echoCancellation:false,
+            noiseSuppression:false,
+            autoGainControl:false,
+            sampleRate:{ideal:48000},
+            sampleSize:16,
+            channelCount:{ideal:2}
+          }
         }).then(function(stream){
           _tpCamPending=false;
           _tpCamStream=stream;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-        }).catch(function(){
-          _tpCamPending=false;
-          if(typeof showToast==='function') showToast('Camera denied — tap Record to scroll without recording');
+        }).catch(function(err){
+          // Fall back to default constraints if device rejects the ideal ones
+          navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true})
+            .then(function(stream){
+              _tpCamPending=false;
+              _tpCamStream=stream;
+              var vid=document.getElementById('tpCamVideo');
+              if(vid){ vid.srcObject=stream; vid.style.display='block'; }
+              _applyMirror();
+            })
+            .catch(function(){
+              _tpCamPending=false;
+              if(typeof showToast==='function') showToast('Camera denied — tap Record to scroll without recording');
+            });
         });
       }
 
@@ -21461,11 +21485,17 @@ Challenge weak assumptions. Surface risks.`;
         _tpPaused=!_tpScrolling;
         var pb=document.getElementById('tpRecBarPause');
         if(_tpScrolling){
+          // Resume scroll
           _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep);
-          if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; }
+          // Resume recording if it was paused
+          if(_tpRecorder&&_tpRecorder.state==='paused'){ try{_tpRecorder.resume();}catch(e){} }
+          if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; pb.style.pointerEvents='auto'; }
         } else {
+          // Pause scroll
           if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
-          if(pb){ pb.innerHTML='&#9654; Resume'; pb.style.background='rgba(16,185,129,.25)'; pb.style.border='1px solid rgba(16,185,129,.6)'; pb.style.color='#6ee7b7'; }
+          // Pause recording so no dead audio is captured during the pause
+          if(_tpRecorder&&_tpRecorder.state==='recording'){ try{_tpRecorder.pause();}catch(e){} }
+          if(pb){ pb.innerHTML='&#9654; Resume'; pb.style.background='rgba(16,185,129,.25)'; pb.style.border='1px solid rgba(16,185,129,.6)'; pb.style.color='#6ee7b7'; pb.style.pointerEvents='auto'; }
         }
       }
 
@@ -21684,10 +21714,16 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         _tpChunks=[]; _tpClosing=false;
+        // Prefer vp9+opus (best quality/size); fall back through vp8, plain webm, mp4
         var mimeTypes=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
         var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
-        try{ _tpRecorder=mime?new MediaRecorder(_tpCamStream,{mimeType:mime}):new MediaRecorder(_tpCamStream); }
-        catch(e){ try{ _tpRecorder=new MediaRecorder(_tpCamStream); }catch(e2){ if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; } }
+        // High bitrates: 8 Mbps video + 192 kbps audio — comparable to a phone camera recording
+        var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:192000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:192000};
+        try{ _tpRecorder=new MediaRecorder(_tpCamStream,recOpts); }
+        catch(e){
+          try{ _tpRecorder=mime?new MediaRecorder(_tpCamStream,{mimeType:mime}):new MediaRecorder(_tpCamStream); }
+          catch(e2){ if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; }
+        }
         _tpBlobMime=(_tpRecorder&&_tpRecorder.mimeType)||'video/webm';
         _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
         _tpRecorder.onstop=function(){
