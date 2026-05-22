@@ -21613,8 +21613,6 @@ Challenge weak assumptions. Surface risks.`;
         if(!ov||ov.style.display==='none') return; // teleprompter not open — ignore
         if(document.hidden){
           if(!_tpRecording) _tpStopCamera(); // free mic for other apps immediately
-        } else {
-          if(!_tpCamStream&&_tpCamOn&&!_tpRecording) _tpStartCamera(); // restore preview
         }
       });
 
@@ -21831,7 +21829,7 @@ Challenge weak assumptions. Surface risks.`;
           try{ _tpRecorder=new MediaRecorder(stream,recOpts); }
           catch(e){
             try{ _tpRecorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
-            catch(e2){ _tpStopCamera(); _tpStartCamera(); if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; }
+            catch(e2){ _tpStopCamera(); if(typeof showToast==='function') showToast('Recording not supported on this browser'); return; }
           }
           _tpBlobMime=(_tpRecorder&&_tpRecorder.mimeType)||'video/webm';
           _tpRecorder.ondataavailable=function(e){ if(e.data&&e.data.size) _tpChunks.push(e.data); };
@@ -21855,7 +21853,6 @@ Challenge weak assumptions. Surface risks.`;
             if(_tpRestarting){ _tpDoRestart(); return; }
             if(_tpClosing) return;
             if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
-            _tpStartCamera(); // restart video-only preview
             var szEl=document.getElementById('tpDlSize');
             if(szEl) szEl.textContent=sizeMb+' MB';
             var dlBar2=document.getElementById('tpDownloadBar');
@@ -21874,7 +21871,7 @@ Challenge weak assumptions. Surface risks.`;
               _tpScrollRAF=requestAnimationFrame(_scrollStep);
             }catch(err){
               _tpRecording=false;
-              _tpStopCamera(); _tpStartCamera();
+              _tpStopCamera();
               if(typeof showToast==='function') showToast('Recording failed — '+(err.message||err));
             }
           });
@@ -21894,7 +21891,7 @@ Challenge weak assumptions. Surface risks.`;
             navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:audConstraints})
               .then(function(stream){ _buildRecorder(stream); })
               .catch(function(){
-                _tpStartCamera();
+                _tpStopCamera();
                 if(typeof showToast==='function') showToast('Camera or mic was denied — check permissions in your browser settings');
               });
           });
