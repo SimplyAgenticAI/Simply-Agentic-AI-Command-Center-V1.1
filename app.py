@@ -21433,6 +21433,8 @@ Challenge weak assumptions. Surface risks.`;
       window.tpLaunch = function(){
         var script=((document.getElementById('tpScript')||{}).value||'').trim();
         if(!script){ if(typeof showToast==='function') showToast('Paste your script first'); return; }
+        // Kill Voice Mode before teleprompter takes over audio — two mic users = static + conflicts
+        try{ if(alwaysOn && typeof stopAlwaysListening==='function') stopAlwaysListening(); }catch(_){}
         _tpSpeed=parseInt((document.getElementById('tpSpeed')||{}).value||'4');
         _tpFontSize=parseInt((document.getElementById('tpFontSize')||{}).value||'36');
         _tpScrolling=false; _tpScrollPos=0; _tpLastTs=null; _tpMirrored=true; _tpCamOn=true;
@@ -21524,7 +21526,12 @@ Challenge weak assumptions. Surface risks.`;
       function _tpStopCamera(){
         if(_tpCamStream){ _tpCamStream.getTracks().forEach(function(t){t.stop();}); _tpCamStream=null; }
         var vid=document.getElementById('tpCamVideo');
-        if(vid){ try{vid.pause();}catch(e){} vid.srcObject=null; vid.style.display='none'; }
+        if(vid){
+          try{vid.pause();}catch(e){}
+          vid.srcObject=null;
+          try{vid.load();}catch(e){} // resets the element so iOS releases AVCaptureSession immediately
+          vid.style.display='none';
+        }
       }
 
       function _applyMirror(){
@@ -21837,6 +21844,7 @@ Challenge weak assumptions. Surface risks.`;
             _tpRecording=false;
             _tpHideRecBar();
             _tpStopCamera(); // releases mic + camera + iOS audio session
+            _tpRecorder=null; // drop MediaRecorder NOW — removes internal stream ref before any blob work
             var blob=new Blob(_tpChunks,{type:_tpBlobMime||'video/webm'});
             _tpLastBlob=blob;
             if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
@@ -21846,20 +21854,18 @@ Challenge weak assumptions. Surface risks.`;
             if(prog) prog.style.height='0%';
             if(_tpAutoSaveClose){
               _tpAutoSaveClose=false;
-              _tpRecorder=null;
               if(blob.size>0) window.tpSave();
               _tpDoClose();
               return;
             }
-            if(_tpRestarting){ _tpRecorder=null; _tpDoRestart(); return; }
-            if(_tpClosing){ _tpRecorder=null; return; }
-            if(blob.size===0){ _tpRecorder=null; if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
+            if(_tpRestarting){ _tpDoRestart(); return; }
+            if(_tpClosing) return;
+            if(blob.size===0){ if(typeof showToast==='function') showToast('No recording data — check camera/mic permissions and try again'); return; }
             var szEl=document.getElementById('tpDlSize');
             if(szEl) szEl.textContent=sizeMb+' MB';
             var dlBar2=document.getElementById('tpDownloadBar');
             if(dlBar2){ dlBar2.style.display='flex'; _showCtrl(); }
             if(typeof showToast==='function') showToast('Take ready ('+sizeMb+' MB)!');
-            _tpRecorder=null; // drop MediaRecorder — releases its internal stream ref so iOS frees audio session
           };
           _tpRunCountdown(function(){
             try{
