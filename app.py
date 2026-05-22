@@ -1982,6 +1982,89 @@ def sitemap_xml():
     return xml, 200, {"Content-Type": "application/xml; charset=utf-8"}
 
 
+# ── PWA icons ──────────────────────────────────────────────────────────────────
+# Generated at runtime so no static files are needed on Render.
+def _pwa_icon_png(size: int) -> bytes:
+    """Return a minimal branded PNG icon (dark bg + purple circle) for any size."""
+    W = H = size
+    bg = (9, 13, 25)       # #090d19
+    ac = (109, 40, 217)    # #6d28d9 purple
+    hi = (167, 139, 250)   # #a78bfa light purple
+    cx = cy = W / 2.0
+    r_outer_sq = (W * 0.42) ** 2
+    r_inner_sq = (W * 0.20) ** 2
+    rows = bytearray()
+    for y in range(H):
+        rows.append(0)  # PNG filter None
+        for x in range(W):
+            d2 = (x - cx) ** 2 + (y - cy) ** 2
+            if d2 <= r_inner_sq:
+                rows.extend(hi)
+            elif d2 <= r_outer_sq:
+                rows.extend(ac)
+            else:
+                rows.extend(bg)
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xffffffff
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+    ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)  # 8-bit RGB
+    idat = zlib.compress(bytes(rows), 6)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+# Cache icons at module level so they're only generated once per process
+_PWA_ICON_180 = _pwa_icon_png(180)
+_PWA_ICON_192 = _pwa_icon_png(192)
+_PWA_ICON_512 = _pwa_icon_png(512)
+
+@app.get("/pwa-icon-180.png")
+def pwa_icon_180():
+    resp = make_response(_PWA_ICON_180)
+    resp.headers["Content-Type"] = "image/png"
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+@app.get("/pwa-icon-192.png")
+def pwa_icon_192():
+    resp = make_response(_PWA_ICON_192)
+    resp.headers["Content-Type"] = "image/png"
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+@app.get("/pwa-icon-512.png")
+def pwa_icon_512():
+    resp = make_response(_PWA_ICON_512)
+    resp.headers["Content-Type"] = "image/png"
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+@app.get("/sw.js")
+def service_worker():
+    """Minimal service worker — enables PWA install prompt on all browsers."""
+    js = r"""
+const CACHE = 'sa-shell-v1';
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.add('/')).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+self.addEventListener('fetch', e => {
+  if (e.request.mode === 'navigate') {
+    e.respondWith(fetch(e.request).catch(() => caches.match('/')));
+  }
+});
+""".strip()
+    resp = make_response(js)
+    resp.headers["Content-Type"] = "application/javascript"
+    # SW must not be cached aggressively or updates won't roll out
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
 @app.get("/manifest.json")
 def pwa_manifest():
     """PWA Web App Manifest — enables install to home screen."""
@@ -1995,8 +2078,8 @@ def pwa_manifest():
         "theme_color": "#0f1629",
         "orientation": "any",
         "icons": [
-            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/pwa-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
         ],
         "categories": ["productivity", "business"],
         "shortcuts": [
@@ -5793,6 +5876,13 @@ a.back:hover{color:#c4b5fd;}
 
   loadSeats();
 })();
+</script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(function(){});
+  });
+}
 </script>
 </body>
 </html>"""
@@ -11821,6 +11911,7 @@ HTML = r"""
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="Simply Agentic"/>
+  <link rel="apple-touch-icon" href="/pwa-icon-180.png"/>
   <link rel="manifest" href="/manifest.json"/>
   <meta property="og:type"        content="website"/>
   <meta property="og:title"       content="{{app_title}}"/>
