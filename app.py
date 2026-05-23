@@ -2120,11 +2120,11 @@ def pwa_icon_svg():
 
 @app.get("/sw.js")
 def service_worker():
-    """Minimal service worker — enables PWA install prompt on all browsers."""
+    """Service worker — required for PWA installability (Chrome needs fetch handler)."""
     js = r"""
-const CACHE = 'sa-shell-v3';
+const CACHE = 'sa-shell-v5';
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.add('/')).then(() => self.skipWaiting()));
+  e.waitUntil(self.skipWaiting());
 });
 self.addEventListener('activate', e => {
   e.waitUntil(
@@ -2135,7 +2135,9 @@ self.addEventListener('activate', e => {
 });
 self.addEventListener('fetch', e => {
   if (e.request.mode === 'navigate') {
-    e.respondWith(fetch(e.request).catch(() => caches.match('/')));
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(e.request))
+    );
   }
 });
 """.strip()
@@ -11997,14 +11999,19 @@ HTML = r"""
   <link rel="apple-touch-icon" href="/pwa-icon-180.png"/>
   <link rel="manifest" href="/manifest.json"/>
   <script>
-  /* PWA: capture beforeinstallprompt as early as possible so it is never missed */
+  /* PWA: capture beforeinstallprompt as early as possible so it is never missed.
+     When it fires, schedule the auto-banner so users see it without hunting for a button. */
   window._pwaPrompt = null;
   window.addEventListener('beforeinstallprompt', function(e){
     e.preventDefault();
     window._pwaPrompt = e;
+    setTimeout(function(){
+      if(typeof window._showPwaBanner === 'function') window._showPwaBanner();
+    }, 2500);
   });
-  /* When Chrome confirms install (via any method), show "where to find it" */
+  /* When Chrome actually confirms the install, show "where is my icon" instructions */
   window.addEventListener('appinstalled', function(){
+    if(document.getElementById('_pwaBanner')) document.getElementById('_pwaBanner').remove();
     setTimeout(function(){
       if(typeof window._pwaAfterInstall === 'function') window._pwaAfterInstall();
     }, 700);
@@ -35388,7 +35395,7 @@ window.toggleNotifPanel = function(){
   var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
              || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  // ── Shared helpers ────────────────────────────────────────────────────────
+  // ── Shared CSS ────────────────────────────────────────────────────────────
   var C = {
     wrap : 'position:fixed;inset:0;z-index:9999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,10,.88);font-family:system-ui,sans-serif;padding:16px;overflow-y:auto;',
     card : 'background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:28px 22px;width:100%;max-width:400px;',
@@ -35408,30 +35415,58 @@ window.toggleNotifPanel = function(){
     d.addEventListener('click', function(e){ if(e.target===d) d.remove(); });
     return d;
   }
-  function _close(el){ var d=el.closest('[style*="position:fixed"]'); if(d) d.remove(); }
+  function _close(el){ var d = el.closest('[style*="position:fixed"]'); if(d) d.remove(); }
 
-  // ── Shown automatically when Chrome confirms the install (appinstalled event) ──
+  // ── Auto-banner: pops up when Chrome gives us the install prompt ──────────
+  // Called from the <head> listener 2.5s after beforeinstallprompt fires.
+  window._showPwaBanner = function(){
+    if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) return;
+    if(document.getElementById('_pwaBanner')) return;
+    var b = document.createElement('div');
+    b.id = '_pwaBanner';
+    b.style.cssText = 'position:fixed;bottom:76px;left:12px;right:12px;z-index:9999990;'
+      +'background:linear-gradient(135deg,#7c3aed,#4338ca);border-radius:18px;'
+      +'padding:14px 14px 14px 16px;display:flex;align-items:center;gap:12px;'
+      +'box-shadow:0 8px 32px rgba(124,58,237,.7);animation:_pwaBannerIn .35s ease;';
+    b.innerHTML = '<style>@keyframes _pwaBannerIn{from{transform:translateY(120px);opacity:0}to{transform:translateY(0);opacity:1}}</style>'
+      +'<div style="font-size:26px;flex-shrink:0;">📲</div>'
+      +'<div style="flex:1;min-width:0;">'
+      +'<div style="color:#fff;font-weight:800;font-size:15px;line-height:1.2;">Install Simply Agentic</div>'
+      +'<div style="color:#c4b5fd;font-size:12px;margin-top:2px;">Add to your home screen — one tap!</div>'
+      +'</div>'
+      +'<button id="_pwaBannerInstall" style="background:#fff;color:#7c3aed;border:none;border-radius:10px;'
+      +'padding:9px 14px;font-weight:900;font-size:14px;cursor:pointer;flex-shrink:0;white-space:nowrap;">Install</button>'
+      +'<button onclick="document.getElementById(\'_pwaBanner\').remove();" style="background:none;border:none;'
+      +'color:#c4b5fd;font-size:20px;cursor:pointer;padding:2px 4px;flex-shrink:0;line-height:1;">✕</button>';
+    document.body.appendChild(b);
+    document.getElementById('_pwaBannerInstall').addEventListener('click', function(){
+      b.remove();
+      window.installPWA();
+    });
+  };
+
+  // ── Shown automatically after Chrome confirms install (appinstalled event) ─
   window._pwaAfterInstall = function(){
     _dlg(
       '<div style="'+C.card+'">'
       +'<div style="font-size:42px;text-align:center;margin-bottom:8px;">🎉</div>'
       +'<div style="font-size:21px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Simply Agentic is Installed!</div>'
-      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Chrome just added your icon. Here\'s exactly where it went:</div>'
+      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Chrome just placed the icon on your phone. Here\'s where to find it:</div>'
       +'<div style="'+C.box+'">'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Press your <strong style="'+C.hl+'">Home button</strong> to go to your home screen</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Press your <strong style="'+C.hl+'">Home button</strong></div>'
       +'</div>'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Swipe left or right</strong> through your pages — the Simply Agentic icon was placed on the first open spot</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Swipe left or right</strong> through your home screen pages — it was placed on the first open spot</div>'
       +'</div>'
       +'<div style="display:flex;align-items:flex-start;gap:12px;">'
       +'<div style="'+C.num+'">3</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Still can\'t find it? <strong style="'+C.hl+'">Swipe up</strong> from your home screen (app drawer) → search <strong style="'+C.hl+'">"Simply Agentic"</strong> → long-press → <strong style="'+C.hl+'">"Add to Home screen"</strong></div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Still can\'t see it? <strong style="'+C.hl+'">Swipe up</strong> from the home screen to open all apps → search <strong style="'+C.hl+'">"Simply Agentic"</strong></div>'
       +'</div>'
       +'</div>'
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it — going to find it!</button>'
+      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
       +'</div>'
     );
   };
@@ -35442,7 +35477,7 @@ window.toggleNotifPanel = function(){
       '<div style="'+C.card+'">'
       +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
       +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Add to Home Screen</div>'
-      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">iPhone: open this page in <strong style="color:#fff;">Safari</strong> (not Chrome), then:</div>'
+      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">iPhone: open this page in <strong style="color:#fff;">Safari</strong> (not Chrome), then follow these 3 steps:</div>'
       +'<div style="'+C.box+'">'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">1</div>'
@@ -35454,7 +35489,7 @@ window.toggleNotifPanel = function(){
       +'</div>'
       +'<div style="display:flex;align-items:flex-start;gap:12px;">'
       +'<div style="'+C.num+'">3</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> — the icon appears on your home screen right away</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> in the top-right — the icon appears on your home screen immediately</div>'
       +'</div>'
       +'</div>'
       +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
@@ -35462,27 +35497,19 @@ window.toggleNotifPanel = function(){
     );
   }
 
-  // ── Android / Chrome — guide to use the download icon ────────────────────
-  function _showAndroidModal(){
+  // ── Android: prompt not ready yet ─────────────────────────────────────────
+  function _showAndroidWaitModal(){
     _dlg(
       '<div style="'+C.card+'">'
       +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
-      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Add to Your Home Screen</div>'
-      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Two quick taps in Chrome and the icon lands on your home screen:</div>'
-      +'<div style="'+C.box+'">'
-      +'<div style="'+C.step+'">'
-      +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Look at Chrome\'s address bar — tap the <strong style="'+C.hl+'">⬇ install icon</strong> on the right side of it<br><span style="color:#64748b;font-size:13px;">Don\'t see it? Open <strong style="color:#94a3b8;">⋮</strong> (top-right of Chrome) — the install icon appears there too</span></div>'
+      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Install Simply Agentic</div>'
+      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:20px;line-height:1.65;">Everything is set up on our end! Chrome needs a moment to offer the install — it usually happens within a minute or two of using the app.</div>'
+      +'<div style="'+C.box+' text-align:center;">'
+      +'<div style="font-size:30px;margin-bottom:8px;">⏳</div>'
+      +'<div style="color:#c4b5fd;font-weight:700;font-size:15px;margin-bottom:6px;">A purple Install banner will pop up automatically at the bottom of this screen.</div>'
+      +'<div style="color:#64748b;font-size:13px;line-height:1.6;">Just use Simply Agentic normally and it\'ll appear. Tap the banner → tap "Add" → done. The icon goes straight to your home screen.</div>'
       +'</div>'
-      +'<div style="display:flex;align-items:flex-start;gap:12px;">'
-      +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> or <strong style="'+C.hl+'">"Install"</strong> when Chrome asks<br><span style="color:#64748b;font-size:13px;">A popup in this app will then tell you exactly where the icon went</span></div>'
-      +'</div>'
-      +'</div>'
-      +'<div style="background:rgba(250,204,21,.07);border:1px solid rgba(250,204,21,.25);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#fde68a;line-height:1.6;">'
-      +'<strong>No install icon visible?</strong> Reload this page once — Chrome shows the icon after the page fully loads, or after your second visit.'
-      +'</div>'
-      +'<button style="'+C.btn2+'" onclick="_close(this)">Close</button>'
+      +'<button style="'+C.btn+'" onclick="_close(this)">Got it — I\'ll watch for the banner</button>'
       +'</div>'
     );
   }
@@ -35491,24 +35518,25 @@ window.toggleNotifPanel = function(){
   window.installPWA = function(){
     if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
 
+    // Already installed
     if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true){
       if(typeof showToast === 'function') showToast('Simply Agentic is already installed on your device!');
       return;
     }
 
-    // If Chrome gave us the native prompt, use it — this reliably places icon on home screen
+    // Chrome gave us the native install prompt — one tap, icon goes to home screen
     if(window._pwaPrompt){
-      window._pwaPrompt.prompt();
-      window._pwaPrompt.userChoice.then(function(c){
-        if(c.outcome === 'accepted') window._pwaPrompt = null;
-        // _pwaAfterInstall fires automatically via the appinstalled event listener in <head>
-      });
+      var p = window._pwaPrompt;
+      window._pwaPrompt = null;
+      p.prompt();
+      // _pwaAfterInstall fires via the appinstalled event in <head>
       return;
     }
 
     if(_isIOS){ _showIOSModal(); return; }
 
-    _showAndroidModal();
+    // Android but Chrome hasn't given us the prompt yet
+    _showAndroidWaitModal();
   };
 })();
 </script>
