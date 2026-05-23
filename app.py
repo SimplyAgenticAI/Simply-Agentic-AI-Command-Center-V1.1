@@ -34579,8 +34579,8 @@ document.addEventListener('click',e=>{
     position:relative!important;
     overflow:hidden!important;
     flex-shrink:0!important;
-    min-height:52px!important;
-    max-height:92px!important;
+    min-height:100px!important;
+    max-height:180px!important;
   }
   #mobStripPreview::after{
     content:'';
@@ -34599,7 +34599,7 @@ document.addEventListener('click',e=>{
     flex:1!important; background:rgba(14,22,48,.85)!important;
     border:1px solid rgba(42,58,106,.7)!important; border-radius:10px!important;
     padding:8px 12px!important; font-size:15px!important; color:#e2e8f0!important;
-    resize:none!important; min-height:36px!important; max-height:88px!important;
+    resize:none!important; min-height:44px!important; max-height:120px!important;
     font-family:inherit!important; outline:none!important; line-height:1.4!important;
   }
   #mobStripMsg::placeholder{ color:rgba(100,116,139,.5)!important; }
@@ -34637,7 +34637,7 @@ document.addEventListener('click',e=>{
     align-items:stretch!important; width:100%!important; max-width:100%!important;
     height:auto!important; min-height:0!important; overflow:visible!important;
     padding-left:12px!important; padding-right:12px!important;
-    padding-bottom:calc(100px + env(safe-area-inset-bottom))!important;
+    padding-bottom:calc(72px + env(safe-area-inset-bottom))!important;
     gap:10px!important; box-sizing:border-box!important; transform:none!important;
   }
   #tableWrap .table,.tableWrap .table{ display:none!important; }
@@ -34704,23 +34704,31 @@ function setPreview(){
   if(!thread||!_nm){pv.style.display='none';return;}
   var msgs=thread.querySelectorAll('.msg');
   if(!msgs.length){pv.style.display='none';return;}
-  // Find the last assistant message
-  var lastMsg=null;
-  for(var i=msgs.length-1;i>=0;i--){
-    if(!msgs[i].classList.contains('user')){lastMsg=msgs[i];break;}
-  }
-  if(!lastMsg)lastMsg=msgs[msgs.length-1];
-  var bodyEl=lastMsg.querySelector('.msg-body')||lastMsg.querySelector('[class*="content"]');
-  var whoEl=lastMsg.querySelector('.who');
-  var text=(bodyEl?bodyEl.innerText||bodyEl.textContent:'').trim().replace(/\s+/g,' ');
-  if(!text){pv.style.display='none';return;}
-  var whoName=whoEl?whoEl.textContent.trim():'';
   var safe=function(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');};
+  // Show last 4 messages as a mini chat thread
+  var show=[];
+  var limit=Math.min(msgs.length,4);
+  for(var i=msgs.length-limit;i<msgs.length;i++){
+    var m=msgs[i];
+    var isUser=m.classList.contains('user');
+    var bodyEl=m.querySelector('.msg-body')||m.querySelector('[class*="content"]')||m;
+    var text=(bodyEl?bodyEl.innerText||bodyEl.textContent:'').trim().replace(/\s+/g,' ');
+    var whoEl=m.querySelector('.who');
+    var who=whoEl?whoEl.textContent.trim():(isUser?'You':'');
+    if(text) show.push({text:text,isUser:isUser,who:who});
+  }
+  if(!show.length){pv.style.display='none';return;}
+  var html='<div style="display:flex;flex-direction:column;gap:5px;">';
+  show.forEach(function(m){
+    html+='<div style="display:flex;flex-direction:column;align-items:'+(m.isUser?'flex-end':'flex-start')+';gap:1px;">';
+    if(m.who) html+='<div style="font-size:9px;color:'+(m.isUser?'#7c3aed':'#64748b')+';font-weight:700;padding:0 4px;">'+safe(m.who)+'</div>';
+    html+='<div style="font-size:12px;color:'+(m.isUser?'#c4b5fd':'#94a3b8')+';line-height:1.4;background:'+(m.isUser?'rgba(124,58,237,.15)':'rgba(14,22,48,.9)')+';border:1px solid '+(m.isUser?'rgba(124,58,237,.3)':'rgba(42,58,106,.5)')+';border-radius:8px;padding:4px 9px;max-width:88%;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">'+safe(m.text.slice(0,180))+'</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='<div style="font-size:9px;color:#475569;text-align:center;margin-top:5px;padding-top:4px;border-top:1px solid rgba(42,58,106,.3);">Tap to open full chat ▸</div>';
   pv.style.display='block';
-  pv.innerHTML=
-    (whoName?'<div style="font-size:10px;color:#64748b;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-bottom:3px;">'+safe(whoName)+'</div>':'')+
-    '<div style="font-size:13px;color:#94a3b8;line-height:1.45;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;">'+safe(text.slice(0,320))+'</div>'+
-    '<div style="font-size:10px;color:#475569;margin-top:5px;">Tap to open full chat ▸</div>';
+  pv.innerHTML=html;
   _updateStripPad();
 }
 
@@ -34730,7 +34738,7 @@ function _updateStripPad(){
   var tw=document.getElementById('tableWrap')||document.querySelector('.tableWrap');
   if(!s||!tw||window.innerWidth>960)return;
   var h=Math.ceil(s.getBoundingClientRect().height);
-  if(h>0)tw.style.setProperty('padding-bottom',(h+12)+'px','important');
+  if(h>0)tw.style.setProperty('padding-bottom',(h+4)+'px','important');
 }
 window.addEventListener('resize',_updateStripPad);
 
