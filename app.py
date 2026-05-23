@@ -2082,40 +2082,123 @@ def pwa_icon_512():
 
 @app.get("/pwa-icon.svg")
 def pwa_icon_svg():
-    """Scalable SVG icon — perfect at any resolution, preferred by modern Android Chrome."""
+    """Neural Orb SVG icon — glowing network sphere above SA. Premium/luxury look."""
     svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1e0b4a"/>
-      <stop offset="100%" stop-color="#08091a"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="38%" r="65%">
-      <stop offset="0%" stop-color="#8b3fff" stop-opacity="0.9"/>
-      <stop offset="48%" stop-color="#5829c8" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#08091a" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="dotGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#e2d9fe"/>
-      <stop offset="100%" stop-color="#a78bfa"/>
-    </radialGradient>
-  </defs>
-  <!-- Dark gradient background -->
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <!-- Purple glow orb behind text -->
-  <ellipse cx="256" cy="200" rx="250" ry="220" fill="url(#glow)"/>
-  <!-- SA lettering -->
-  <text x="254" y="368"
-    font-family="system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
-    font-size="228" font-weight="900" fill="white"
-    text-anchor="middle" opacity="0.97" letter-spacing="-6">SA</text>
-  <!-- Accent underline bar -->
-  <rect x="138" y="388" width="236" height="9" rx="4.5" fill="#a78bfa" opacity="0.75"/>
-  <!-- Logo dot (top-right accent matching nav bar branding) -->
-  <circle cx="352" cy="110" r="22" fill="url(#dotGlow)"/>
+<defs>
+  <radialGradient id="bg" cx="50%" cy="38%" r="78%">
+    <stop offset="0%" stop-color="#180430"/>
+    <stop offset="100%" stop-color="#03000a"/>
+  </radialGradient>
+  <radialGradient id="aura" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.65"/>
+    <stop offset="52%" stop-color="#5b21b6" stop-opacity="0.2"/>
+    <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="core" cx="42%" cy="36%" r="58%">
+    <stop offset="0%" stop-color="#ede9fe" stop-opacity="0.2"/>
+    <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="ng" x="-150%" y="-150%" width="400%" height="400%">
+    <feGaussianBlur stdDeviation="4.5" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="rg" x="-30%" y="-30%" width="160%" height="160%">
+    <feGaussianBlur stdDeviation="3" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="tg" x="-15%" y="-15%" width="130%" height="130%">
+    <feGaussianBlur stdDeviation="7" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <clipPath id="oc"><circle cx="256" cy="193" r="148"/></clipPath>
+</defs>
+<!-- Background -->
+<rect width="512" height="512" fill="url(#bg)"/>
+<!-- Wide aura glow behind orb -->
+<circle cx="256" cy="193" r="215" fill="url(#aura)"/>
+<!-- Orb rim with subtle glow -->
+<circle cx="256" cy="193" r="148" fill="url(#core)" stroke="#a855f7" stroke-width="1.5" stroke-opacity="0.5" filter="url(#rg)"/>
+<!-- Neural network (clipped to orb circle) -->
+<g clip-path="url(#oc)">
+  <!-- Connection lines -->
+  <g stroke="#c4b5fd" stroke-opacity="0.3" stroke-width="1.2" fill="none">
+    <!-- Outer ring -->
+    <line x1="256" y1="68" x2="344" y2="105"/>
+    <line x1="344" y1="105" x2="381" y2="193"/>
+    <line x1="381" y2="193" x1="381" y2="193" x2="344" y2="281"/>
+    <line x1="344" y1="281" x2="256" y2="318"/>
+    <line x1="256" y1="318" x2="168" y2="281"/>
+    <line x1="168" y1="281" x2="131" y2="193"/>
+    <line x1="131" y1="193" x2="168" y2="105"/>
+    <line x1="168" y1="105" x2="256" y2="68"/>
+    <!-- Outer to inner -->
+    <line x1="256" y1="68"  x2="256" y2="123"/>
+    <line x1="344" y1="105" x2="317" y2="158"/>
+    <line x1="381" y1="193" x2="317" y2="158"/>
+    <line x1="381" y1="193" x2="317" y2="228"/>
+    <line x1="344" y1="281" x2="317" y2="228"/>
+    <line x1="256" y1="318" x2="256" y2="263"/>
+    <line x1="168" y1="281" x2="195" y2="228"/>
+    <line x1="131" y1="193" x2="195" y2="228"/>
+    <line x1="131" y1="193" x2="195" y2="158"/>
+    <line x1="168" y1="105" x2="195" y2="158"/>
+    <!-- Inner ring -->
+    <line x1="256" y1="123" x2="317" y2="158"/>
+    <line x1="317" y1="158" x2="317" y2="228"/>
+    <line x1="317" y1="228" x2="256" y2="263"/>
+    <line x1="256" y1="263" x2="195" y2="228"/>
+    <line x1="195" y1="228" x2="195" y2="158"/>
+    <line x1="195" y1="158" x2="256" y2="123"/>
+    <!-- Inner to center -->
+    <line x1="256" y1="123" x2="256" y2="193"/>
+    <line x1="317" y1="158" x2="256" y2="193"/>
+    <line x1="317" y1="228" x2="256" y2="193"/>
+    <line x1="256" y1="263" x2="256" y2="193"/>
+    <line x1="195" y1="228" x2="256" y2="193"/>
+    <line x1="195" y1="158" x2="256" y2="193"/>
+  </g>
+  <!-- Nodes -->
+  <g filter="url(#ng)">
+    <!-- Outer ring: large bright nodes -->
+    <circle cx="256" cy="68"  r="5.5" fill="#ede9fe"/>
+    <circle cx="344" cy="105" r="5"   fill="#d8b4fe"/>
+    <circle cx="381" cy="193" r="5"   fill="#d8b4fe"/>
+    <circle cx="344" cy="281" r="5"   fill="#d8b4fe"/>
+    <circle cx="256" cy="318" r="5.5" fill="#ede9fe"/>
+    <circle cx="168" cy="281" r="5"   fill="#d8b4fe"/>
+    <circle cx="131" cy="193" r="5"   fill="#d8b4fe"/>
+    <circle cx="168" cy="105" r="5"   fill="#d8b4fe"/>
+    <!-- Inner ring: medium nodes -->
+    <circle cx="256" cy="123" r="4" fill="#c4b5fd"/>
+    <circle cx="317" cy="158" r="4" fill="#c4b5fd"/>
+    <circle cx="317" cy="228" r="4" fill="#c4b5fd"/>
+    <circle cx="256" cy="263" r="4" fill="#c4b5fd"/>
+    <circle cx="195" cy="228" r="4" fill="#c4b5fd"/>
+    <circle cx="195" cy="158" r="4" fill="#c4b5fd"/>
+    <!-- Center: brightest node -->
+    <circle cx="256" cy="193" r="9"  fill="white"/>
+  </g>
+  <!-- Glass highlight (top-left of orb) -->
+  <ellipse cx="213" cy="140" rx="44" ry="26" fill="white" fill-opacity="0.055" transform="rotate(-22 213 140)"/>
+</g>
+<!-- SA text: purple glow layer -->
+<text x="256" y="447"
+  font-family="system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+  font-size="108" font-weight="900" fill="#a855f7"
+  text-anchor="middle" letter-spacing="-3"
+  filter="url(#tg)" opacity="0.5">SA</text>
+<!-- SA text: crisp white layer -->
+<text x="256" y="447"
+  font-family="system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+  font-size="108" font-weight="900" fill="white"
+  text-anchor="middle" letter-spacing="-3"
+  opacity="0.97">SA</text>
+<!-- Accent bar -->
+<rect x="184" y="462" width="144" height="5" rx="2.5" fill="#9333ea" opacity="0.7"/>
 </svg>"""
     resp = make_response(svg)
     resp.headers["Content-Type"] = "image/svg+xml"
-    resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
 
 @app.get("/sw.js")
