@@ -14190,10 +14190,7 @@ label         { font-size: 14px !important; }
 .saMoreItem:hover{background:rgba(255,255,255,.07);}
 /* More button: CSS fallback so clearing inline style doesn't expose browser-default white */
 #moreMenuBtn{background:rgba(255,255,255,.07);}
-/* Install App buttons are mobile-only — hidden on desktop */
-@media(min-width:961px){
-  #pwaInstallBtn,#settingsPwaSection{display:none!important;}
-}
+/* Install App — visible on all devices (desktop uses Chrome/Edge PWA install) */
 
 /* ── Tooltip system ──────────────────────────────────────────────────── */
 [data-tip]{position:relative;}
@@ -14417,7 +14414,7 @@ label         { font-size: 14px !important; }
             <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting Started</a>
             <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
             <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
-            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="color:#818cf8;">📱 Install App</button>
+            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="color:#818cf8;">⬇ Install App</button>
             <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <!-- Admin / Debug -->
@@ -14813,18 +14810,28 @@ label         { font-size: 14px !important; }
                   </div>
                 </div>
 
-                <!-- ── Get the App (mobile only) ──────────────────────────── -->
+                <!-- ── Get the App (mobile + desktop) ─────────────────────── -->
                 <div id="settingsPwaSection" style="margin-bottom:18px;padding:14px 16px;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);border-radius:14px;">
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                     <div>
-                      <div style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">📱 Get the App</div>
-                      <div style="font-size:12px;color:#64748b;line-height:1.5;">Add Simply Agentic to your phone's home screen — tap the icon to open it just like any other app.</div>
+                      <div id="pwaSettingsTitle" style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">📱 Get the App</div>
+                      <div id="pwaSettingsDesc" style="font-size:12px;color:#64748b;line-height:1.5;">Add Simply Agentic to your phone's home screen — tap the icon to open it just like any other app.</div>
                     </div>
                     <button class="btn" onclick="window.installPWA();" style="flex-shrink:0;font-size:13px;font-weight:700;padding:8px 18px;border-color:rgba(124,58,237,.5);color:#c4b5fd;white-space:nowrap;">
-                      Download App →
+                      Install App →
                     </button>
                   </div>
                 </div>
+                <script>
+                (function(){
+                  if(!window._isMobile){
+                    var t=document.getElementById('pwaSettingsTitle');
+                    var d=document.getElementById('pwaSettingsDesc');
+                    if(t) t.innerHTML='💻 Install on Desktop';
+                    if(d) d.textContent='Install Simply Agentic as a desktop app — opens in its own window on your taskbar or dock. Works on Chrome and Edge.';
+                  }
+                })();
+                </script>
 
                 <div class="formGrid2">
                   <div style="display:flex;flex-direction:column;gap:12px;">
@@ -35640,15 +35647,9 @@ window.toggleNotifPanel = function(){
   window.installPWA = function(){
     if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
 
-    // Desktop: install-to-home-screen is a phone feature only
-    if(!window._isMobile){
-      if(typeof showToast === 'function') showToast('Open Simply Agentic on your phone to install it to your home screen.');
-      return;
-    }
-
-    // Already installed
+    // Already installed (any device)
     if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true){
-      if(typeof showToast === 'function') showToast('Simply Agentic is already installed on your device!');
+      if(typeof showToast === 'function') showToast('Simply Agentic is already installed on this device!');
       return;
     }
 
@@ -35663,9 +35664,37 @@ window.toggleNotifPanel = function(){
 
     if(_isIOS){ _showIOSModal(); return; }
 
-    // Android — show direct share-sheet instructions that work immediately
-    _showAndroidShareModal();
+    // Android mobile — show share-sheet instructions
+    if(window._isMobile){ _showAndroidShareModal(); return; }
+
+    // Desktop (Chrome/Edge without prompt yet, or unsupported browser)
+    _showDesktopInstallModal();
   };
+
+  function _showDesktopInstallModal(){
+    _dlg(
+      '<div style="'+C.card+'">'
+      +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">💻</div>'
+      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Install on Desktop</div>'
+      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Add Simply Agentic as a desktop app — opens in its own window, no browser needed:</div>'
+      +'<div style="'+C.box+'">'
+      +'<div style="'+C.step+'">'
+      +'<div style="'+C.num+'">1</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Chrome:</strong> Click the <strong style="'+C.hl+'">install icon ⊕</strong> in the address bar, or open <strong style="'+C.hl+'">⋮ → Install Simply Agentic…</strong></div>'
+      +'</div>'
+      +'<div style="'+C.step+'">'
+      +'<div style="'+C.num+'">2</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Edge:</strong> Click the <strong style="'+C.hl+'">⊕ icon</strong> in the address bar, or go to <strong style="'+C.hl+'">… → Apps → Install this site as an app</strong></div>'
+      +'</div>'
+      +'<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0 0;">'
+      +'<div style="'+C.num+'">✓</div>'
+      +'<div style="color:#64748b;font-size:13px;line-height:1.5;">Once installed it appears on your taskbar/dock and launches like any other desktop application. Firefox and Safari don\'t support desktop install — use Chrome or Edge for the best experience.</div>'
+      +'</div>'
+      +'</div>'
+      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Got it!</button>'
+      +'</div>'
+    );
+  }
 })();
 </script>
 
