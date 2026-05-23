@@ -35497,19 +35497,28 @@ window.toggleNotifPanel = function(){
     );
   }
 
-  // ── Android: prompt not ready yet ─────────────────────────────────────────
-  function _showAndroidWaitModal(){
+  // ── Android: manual share-sheet install (works immediately, no waiting) ───
+  function _showAndroidShareModal(){
     _dlg(
       '<div style="'+C.card+'">'
       +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
-      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Install Simply Agentic</div>'
-      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:20px;line-height:1.65;">Everything is set up on our end! Chrome needs a moment to offer the install — it usually happens within a minute or two of using the app.</div>'
-      +'<div style="'+C.box+' text-align:center;">'
-      +'<div style="font-size:30px;margin-bottom:8px;">⏳</div>'
-      +'<div style="color:#c4b5fd;font-weight:700;font-size:15px;margin-bottom:6px;">A purple Install banner will pop up automatically at the bottom of this screen.</div>'
-      +'<div style="color:#64748b;font-size:13px;line-height:1.6;">Just use Simply Agentic normally and it\'ll appear. Tap the banner → tap "Add" → done. The icon goes straight to your home screen.</div>'
+      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Add to Your Home Screen</div>'
+      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Works right now — takes 10 seconds in Chrome:</div>'
+      +'<div style="'+C.box+'">'
+      +'<div style="'+C.step+'">'
+      +'<div style="'+C.num+'">1</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="'+C.hl+'">⋮ menu</strong> in the top-right corner of Chrome</div>'
       +'</div>'
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it — I\'ll watch for the banner</button>'
+      +'<div style="'+C.step+'">'
+      +'<div style="'+C.num+'">2</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add to Home screen"</strong><br><span style="color:#64748b;font-size:13px;">Don\'t see it? Tap <strong style="color:#94a3b8;">"Share…"</strong> instead, then scroll down and tap <strong style="color:#94a3b8;">"Add to Home screen"</strong></span></div>'
+      +'</div>'
+      +'<div style="display:flex;align-items:flex-start;gap:12px;">'
+      +'<div style="'+C.num+'">3</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> — Simply Agentic icon goes straight to your home screen</div>'
+      +'</div>'
+      +'</div>'
+      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
       +'</div>'
     );
   }
@@ -35535,8 +35544,8 @@ window.toggleNotifPanel = function(){
 
     if(_isIOS){ _showIOSModal(); return; }
 
-    // Android but Chrome hasn't given us the prompt yet
-    _showAndroidWaitModal();
+    // Android — show direct share-sheet instructions that work immediately
+    _showAndroidShareModal();
   };
 })();
 </script>
