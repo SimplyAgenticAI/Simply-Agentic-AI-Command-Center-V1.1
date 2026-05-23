@@ -35423,13 +35423,14 @@ window.toggleNotifPanel = function(){
   function _dlg(html){
     var d = document.createElement('div');
     d.style.cssText = C.wrap;
+    d.setAttribute('data-pwa-dlg','1');
     d.innerHTML = html;
     document.body.appendChild(d);
     d.addEventListener('click', function(e){ if(e.target===d) d.remove(); });
     return d;
   }
   // Exposed globally so inline onclick="window._pwaClose(this)" works from innerHTML
-  window._pwaClose = function(el){ var d = el.closest('[style*="position:fixed"]'); if(d) d.remove(); };
+  window._pwaClose = function(el){ var d = el.closest('[data-pwa-dlg]'); if(d) d.remove(); };
 
   // ── Auto-banner: pops up when Chrome gives us the install prompt ──────────
   // Called from the <head> listener 2.5s after beforeinstallprompt fires.
