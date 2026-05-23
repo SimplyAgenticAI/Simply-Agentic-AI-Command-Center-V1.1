@@ -2063,28 +2063,66 @@ _PWA_ICON_512 = _pwa_icon_png(512)
 def pwa_icon_180():
     resp = make_response(_PWA_ICON_180)
     resp.headers["Content-Type"] = "image/png"
-    resp.headers["Cache-Control"] = "public, max-age=604800"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 @app.get("/pwa-icon-192.png")
 def pwa_icon_192():
     resp = make_response(_PWA_ICON_192)
     resp.headers["Content-Type"] = "image/png"
-    resp.headers["Cache-Control"] = "public, max-age=604800"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 @app.get("/pwa-icon-512.png")
 def pwa_icon_512():
     resp = make_response(_PWA_ICON_512)
     resp.headers["Content-Type"] = "image/png"
-    resp.headers["Cache-Control"] = "public, max-age=604800"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
+
+@app.get("/pwa-icon.svg")
+def pwa_icon_svg():
+    """Scalable SVG icon — perfect at any resolution, preferred by modern Android Chrome."""
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e0b4a"/>
+      <stop offset="100%" stop-color="#08091a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#8b3fff" stop-opacity="0.9"/>
+      <stop offset="48%" stop-color="#5829c8" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#08091a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="dotGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e2d9fe"/>
+      <stop offset="100%" stop-color="#a78bfa"/>
+    </radialGradient>
+  </defs>
+  <!-- Dark gradient background -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- Purple glow orb behind text -->
+  <ellipse cx="256" cy="200" rx="250" ry="220" fill="url(#glow)"/>
+  <!-- SA lettering -->
+  <text x="254" y="368"
+    font-family="system-ui,-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif"
+    font-size="228" font-weight="900" fill="white"
+    text-anchor="middle" opacity="0.97" letter-spacing="-6">SA</text>
+  <!-- Accent underline bar -->
+  <rect x="138" y="388" width="236" height="9" rx="4.5" fill="#a78bfa" opacity="0.75"/>
+  <!-- Logo dot (top-right accent matching nav bar branding) -->
+  <circle cx="352" cy="110" r="22" fill="url(#dotGlow)"/>
+</svg>"""
+    resp = make_response(svg)
+    resp.headers["Content-Type"] = "image/svg+xml"
+    resp.headers["Cache-Control"] = "public, max-age=3600"
     return resp
 
 @app.get("/sw.js")
 def service_worker():
     """Minimal service worker — enables PWA install prompt on all browsers."""
     js = r"""
-const CACHE = 'sa-shell-v1';
+const CACHE = 'sa-shell-v3';
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.add('/')).then(() => self.skipWaiting()));
 });
@@ -2112,22 +2150,25 @@ self.addEventListener('fetch', e => {
 def pwa_manifest():
     """PWA Web App Manifest — enables install to home screen."""
     manifest = {
+        "id": "/",
         "name": APP_TITLE,
         "short_name": "Simply Agentic",
-        "description": "Your AI-powered business command centre",
+        "description": "Your AI-powered business command centre — 7 AI teammates, CRM, Lead Lab, and more.",
         "start_url": "/",
+        "scope": "/",
         "display": "standalone",
-        "background_color": "#090d19",
-        "theme_color": "#0f1629",
+        "background_color": "#08091a",
+        "theme_color": "#7c3aed",
         "orientation": "any",
         "icons": [
-            {"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
-            {"src": "/pwa-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/pwa-icon.svg",     "sizes": "any",     "type": "image/svg+xml", "purpose": "any"},
+            {"src": "/pwa-icon-512.png", "sizes": "512x512", "type": "image/png",     "purpose": "any maskable"},
+            {"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png",     "purpose": "any maskable"},
         ],
         "categories": ["productivity", "business"],
         "shortcuts": [
-            {"name": "Round Table", "url": "/", "description": "Open your AI team"},
-            {"name": "CRM", "url": "/?tool=crm", "description": "Open your CRM"},
+            {"name": "Round Table", "url": "/",          "description": "Open your AI team"},
+            {"name": "CRM",         "url": "/?tool=crm", "description": "Open your CRM"},
         ]
     }
     resp = make_response(json.dumps(manifest))
@@ -35357,7 +35398,25 @@ window.toggleNotifPanel = function(){
       _pwaPrompt.userChoice.then(function(c){
         if(c.outcome === 'accepted'){
           _pwaPrompt = null;
-          if(typeof showToast === 'function') showToast('Simply Agentic is being installed — check your home screen!');
+          // Show a clear "where to find it" modal so user knows the icon was created
+          _showInstallModal(
+            '<div style="background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:32px 24px;width:100%;max-width:390px;text-align:center;">'
+            + '<div style="font-size:48px;margin-bottom:10px;">🎉</div>'
+            + '<div style="font-size:22px;font-weight:900;color:#f3e8ff;margin-bottom:8px;">App Installed!</div>'
+            + '<div style="font-size:15px;color:#94a3b8;line-height:1.6;margin-bottom:24px;">Simply Agentic was added to your home screen. Here\'s how to find it:</div>'
+            + '<div style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.4);border-radius:14px;padding:18px;margin-bottom:24px;text-align:left;">'
+            + '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">'
+            + '<div style="font-size:20px;flex-shrink:0;">👉</div>'
+            + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="color:#c4b5fd;">Swipe right</strong> through your home screen pages — the icon was added to a new page</div>'
+            + '</div>'
+            + '<div style="display:flex;align-items:flex-start;gap:12px;">'
+            + '<div style="font-size:20px;flex-shrink:0;">🔍</div>'
+            + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Or search your phone for <strong style="color:#c4b5fd;">"Simply Agentic"</strong></div>'
+            + '</div>'
+            + '</div>'
+            + '<button onclick="this.closest(\'[style*=fixed]\').remove()" style="width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5);">Got it — find my icon!</button>'
+            + '</div>'
+          );
         }
       });
       return;
@@ -35397,16 +35456,19 @@ window.toggleNotifPanel = function(){
       '<div style="background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:28px 22px;width:100%;max-width:390px;">'
       + '<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
       + '<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Install Simply Agentic</div>'
-      + '<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:20px;">In Chrome or Edge, tap the browser menu:</div>'
-      + '<div style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.4);border-radius:14px;padding:18px;margin-bottom:16px;">'
+      + '<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:20px;">Two quick steps in your browser:</div>'
+      + '<div style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.4);border-radius:14px;padding:18px;margin-bottom:14px;">'
       + '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">'
       + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">1</div>'
-      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="color:#60a5fa;">⋮ menu</strong> (three dots) in the top-right of your browser</div>'
+      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="color:#60a5fa;">⋮ three-dot menu</strong> in the top-right corner of Chrome</div>'
       + '</div>'
       + '<div style="display:flex;align-items:flex-start;gap:12px;">'
       + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">2</div>'
-      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="color:#60a5fa;">"Add to Home Screen"</strong> or <strong style="color:#60a5fa;">"Install App"</strong></div>'
+      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="color:#60a5fa;">"Add to Home Screen"</strong> or <strong style="color:#60a5fa;">"Install App"</strong> and confirm</div>'
       + '</div>'
+      + '</div>'
+      + '<div style="background:rgba(255,255,255,.05);border-radius:10px;padding:12px 14px;margin-bottom:16px;">'
+      + '<div style="font-size:13px;color:#94a3b8;line-height:1.6;">After installing, <strong style="color:#c4b5fd;">swipe right</strong> through your home screen pages to find the <strong style="color:#c4b5fd;">Simply Agentic</strong> icon — it may have been added to a new page.</div>'
       + '</div>'
       + '<button onclick="this.closest(\'[style*=fixed]\').remove()" style="width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5);">Got it!</button>'
       + '</div>'
