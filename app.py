@@ -1986,30 +1986,72 @@ def sitemap_xml():
 # ── PWA icons ──────────────────────────────────────────────────────────────────
 # Generated at runtime so no static files are needed on Render.
 def _pwa_icon_png(size: int) -> bytes:
-    """Return a minimal branded PNG icon (dark bg + purple circle) for any size."""
+    """Branded Simply Agentic icon: dark gradient bg + purple glow orb + 'SA' pixel text."""
     W = H = size
-    bg = (9, 13, 25)       # #090d19
-    ac = (109, 40, 217)    # #6d28d9 purple
-    hi = (167, 139, 250)   # #a78bfa light purple
-    cx = cy = W / 2.0
-    r_outer_sq = (W * 0.42) ** 2
-    r_inner_sq = (W * 0.20) ** 2
-    rows = bytearray()
+    # 7-row × 5-col pixel bitmaps (MSB = leftmost column)
+    S_ROWS = [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110]
+    A_ROWS = [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]
+
+    unit = max(2, W * 66 // 1000)       # cell size ~6.6% of icon width
+    gap  = max(1, W * 38 // 1000)       # gap between S and A
+    lh   = 7 * unit                     # letter height
+    lw   = 5 * unit + gap + 5 * unit    # total SA width
+    py0  = (H - lh) // 2               # vertical center
+    px0  = (W - lw) // 2               # horizontal center
+
+    # Build flat text mask (1 = draw text pixel)
+    mask = bytearray(W * H)
+    for row in range(7):
+        y0 = py0 + row * unit
+        if y0 < 0 or y0 + unit > H:
+            continue
+        for col in range(5):
+            bit = 1 << (4 - col)
+            # S letter
+            if S_ROWS[row] & bit:
+                x0 = px0 + col * unit
+                for dy in range(unit):
+                    base = (y0 + dy) * W + x0
+                    for dx in range(unit):
+                        if 0 <= x0 + dx < W:
+                            mask[base + dx] = 1
+            # A letter
+            if A_ROWS[row] & bit:
+                x0 = px0 + 5 * unit + gap + col * unit
+                for dy in range(unit):
+                    base = (y0 + dy) * W + x0
+                    for dx in range(unit):
+                        if 0 <= x0 + dx < W:
+                            mask[base + dx] = 1
+
+    cx2 = cy2 = (W - 1) / 2.0
+    orb_R2 = (W * 0.54) ** 2   # squared orb radius
+    rows_out = bytearray()
     for y in range(H):
-        rows.append(0)  # PNG filter None
+        rows_out.append(0)      # PNG filter byte
+        dy2 = (y - cy2) ** 2
+        ty  = y / H
+        bg_r = 10 + int(8 * ty)
+        bg_g = 7  + int(6 * ty)
+        bg_b = 24 + int(6 * ty)
         for x in range(W):
-            d2 = (x - cx) ** 2 + (y - cy) ** 2
-            if d2 <= r_inner_sq:
-                rows.extend(hi)
-            elif d2 <= r_outer_sq:
-                rows.extend(ac)
+            if mask[y * W + x]:
+                rows_out.extend((230, 215, 255))   # near-white lavender text
             else:
-                rows.extend(bg)
+                d2   = (x - cx2) ** 2 + dy2
+                r, g, b = bg_r, bg_g, bg_b
+                if d2 < orb_R2:
+                    glow = (1.0 - d2 / orb_R2) ** 1.5
+                    r = min(255, r + int(100 * glow))
+                    g = min(255, g + int(12  * glow))
+                    b = min(255, b + int(195 * glow))
+                rows_out.extend((r, g, b))
+
     def _chunk(tag: bytes, data: bytes) -> bytes:
         crc = zlib.crc32(tag + data) & 0xffffffff
         return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
     ihdr = struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)  # 8-bit RGB
-    idat = zlib.compress(bytes(rows), 6)
+    idat = zlib.compress(bytes(rows_out), 6)
     return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
 # Cache icons at module level so they're only generated once per process
@@ -35281,7 +35323,7 @@ window.toggleNotifPanel = function(){
 
 <script>
 (function(){
-  // Service worker registration — enables PWA install
+  // Service worker — required for PWA install prompt
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(function(){});
@@ -35289,65 +35331,86 @@ window.toggleNotifPanel = function(){
   }
 
   var _pwaPrompt = null;
-  var _isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+             || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  // Capture native install prompt when browser offers it (Chrome/Edge/Android)
+  // Capture Chrome/Android native install prompt
   window.addEventListener('beforeinstallprompt', function(e){
     e.preventDefault();
     _pwaPrompt = e;
   });
 
-  function _pwaHideBtns(){
-    ['pwaInstallBtn','mobileInstallAppBtn'].forEach(function(id){
-      var b = document.getElementById(id);
-      if(b) b.style.display = 'none';
-    });
+  function _showInstallModal(html){
+    var dlg = document.createElement('div');
+    dlg.style.cssText = 'position:fixed;inset:0;z-index:9999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,10,.82);font-family:system-ui,sans-serif;padding:16px;';
+    dlg.innerHTML = html;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', function(e){ if(e.target===dlg) dlg.remove(); });
   }
-
-  // Hide buttons if already running as installed PWA
-  if(_isStandalone) _pwaHideBtns();
-
-  // Hide after user installs
-  window.addEventListener('appinstalled', function(){
-    _pwaPrompt = null;
-    _pwaHideBtns();
-  });
 
   window.installPWA = function(){
     if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
+
     if(_pwaPrompt){
-      // Native install dialog (Chrome / Edge / Android)
+      // Chrome / Edge / Android — native one-tap install
       _pwaPrompt.prompt();
       _pwaPrompt.userChoice.then(function(c){
         if(c.outcome === 'accepted'){
-          if(typeof showToast === 'function') showToast('Installing Simply Agentic...');
           _pwaPrompt = null;
-          var b = document.getElementById('pwaInstallBtn');
-          if(b) b.style.display = 'none';
+          if(typeof showToast === 'function') showToast('Simply Agentic is being installed — check your home screen!');
         }
       });
-    } else if(_isIOS){
-      // iOS instructions modal
-      var dlg = document.createElement('div');
-      dlg.style.cssText = 'position:fixed;inset:0;z-index:9999999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,10,.78);font-family:system-ui,sans-serif;';
-      dlg.innerHTML = '<div style="background:linear-gradient(135deg,#0f172a,#1e293b);border:1px solid rgba(124,58,237,.45);border-radius:16px;padding:28px 24px;width:92%;max-width:380px;">'
-        + '<div style="font-size:32px;text-align:center;margin-bottom:12px;">📱</div>'
-        + '<div style="font-size:18px;font-weight:800;color:#f3e8ff;text-align:center;margin-bottom:8px;">Install Simply Agentic</div>'
-        + '<div style="font-size:13px;color:#94a3b8;line-height:1.7;text-align:center;margin-bottom:16px;">Add this app to your home screen for a native app experience — no App Store needed.</div>'
-        + '<div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px;margin-bottom:20px;">'
-        + '<div style="color:#e2e8f0;font-size:14px;line-height:2;">'
-        + '1&nbsp; Tap the <strong style="color:#60a5fa;">Share</strong> button &#x1F4E4; in Safari<br>'
-        + '2&nbsp; Scroll down &amp; tap <strong style="color:#60a5fa;">Add to Home Screen</strong><br>'
-        + '3&nbsp; Tap <strong style="color:#60a5fa;">Add</strong> in the top right'
-        + '</div></div>'
-        + '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="width:100%;padding:13px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;">Got it!</button>'
-        + '</div>';
-      document.body.appendChild(dlg);
-      dlg.addEventListener('click', function(e){ if(e.target===dlg) dlg.remove(); });
-    } else {
-      if(typeof showToast === 'function') showToast('Open your browser menu → "Install app" or "Add to Home Screen"');
+      return;
     }
+
+    if(_isIOS){
+      // iPhone / iPad — must use Safari Share sheet
+      _showInstallModal(
+        '<div style="background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:28px 22px;width:100%;max-width:390px;">'
+        + '<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
+        + '<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Install Simply Agentic</div>'
+        + '<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:20px;line-height:1.6;">Adds a real app icon to your home screen — no App Store needed.</div>'
+        + '<div style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.4);border-radius:14px;padding:18px;margin-bottom:8px;">'
+        + '<div style="font-size:12px;font-weight:800;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">You must be in Safari (not Chrome)</div>'
+        + '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">'
+        + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">1</div>'
+        + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="color:#60a5fa;">Share button</strong> <span style="font-size:18px;">⬆</span> at the <strong style="color:#60a5fa;">bottom</strong> of your screen</div>'
+        + '</div>'
+        + '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">'
+        + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">2</div>'
+        + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Scroll the menu and tap <strong style="color:#60a5fa;">"Add to Home Screen"</strong></div>'
+        + '</div>'
+        + '<div style="display:flex;align-items:flex-start;gap:12px;">'
+        + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">3</div>'
+        + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="color:#60a5fa;">"Add"</strong> in the top-right corner — done!</div>'
+        + '</div>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#475569;text-align:center;margin:10px 0 16px;">The app icon will appear on your home screen in seconds.</div>'
+        + '<button onclick="this.closest(\'[style*=fixed]\').remove()" style="width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5);">Got it, opening Safari now!</button>'
+        + '</div>'
+      );
+      return;
+    }
+
+    // Chrome on desktop or Android without auto-prompt — show manual steps
+    _showInstallModal(
+      '<div style="background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:28px 22px;width:100%;max-width:390px;">'
+      + '<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
+      + '<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Install Simply Agentic</div>'
+      + '<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:20px;">In Chrome or Edge, tap the browser menu:</div>'
+      + '<div style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.4);border-radius:14px;padding:18px;margin-bottom:16px;">'
+      + '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;">'
+      + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">1</div>'
+      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="color:#60a5fa;">⋮ menu</strong> (three dots) in the top-right of your browser</div>'
+      + '</div>'
+      + '<div style="display:flex;align-items:flex-start;gap:12px;">'
+      + '<div style="width:28px;height:28px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;">2</div>'
+      + '<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="color:#60a5fa;">"Add to Home Screen"</strong> or <strong style="color:#60a5fa;">"Install App"</strong></div>'
+      + '</div>'
+      + '</div>'
+      + '<button onclick="this.closest(\'[style*=fixed]\').remove()" style="width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5);">Got it!</button>'
+      + '</div>'
+    );
   };
 })();
 </script>
