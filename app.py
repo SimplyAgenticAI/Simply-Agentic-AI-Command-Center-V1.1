@@ -12083,11 +12083,14 @@ HTML = r"""
   <link rel="manifest" href="/manifest.json"/>
   <script>
   /* PWA: capture beforeinstallprompt as early as possible so it is never missed.
-     When it fires, schedule the auto-banner so users see it without hunting for a button. */
+     When it fires, schedule the auto-banner (mobile only). */
   window._pwaPrompt = null;
+  window._isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+                     || (navigator.maxTouchPoints > 1 && window.outerWidth < 1025);
   window.addEventListener('beforeinstallprompt', function(e){
     e.preventDefault();
     window._pwaPrompt = e;
+    if(!window._isMobile) return; // desktop: capture prompt but don't show anything
     setTimeout(function(){
       if(typeof window._showPwaBanner === 'function') window._showPwaBanner();
     }, 2500);
@@ -14187,6 +14190,10 @@ label         { font-size: 14px !important; }
 .saMoreItem:hover{background:rgba(255,255,255,.07);}
 /* More button: CSS fallback so clearing inline style doesn't expose browser-default white */
 #moreMenuBtn{background:rgba(255,255,255,.07);}
+/* Install App buttons are mobile-only — hidden on desktop */
+@media(min-width:961px){
+  #pwaInstallBtn,#settingsPwaSection{display:none!important;}
+}
 
 /* ── Tooltip system ──────────────────────────────────────────────────── */
 [data-tip]{position:relative;}
@@ -14806,8 +14813,8 @@ label         { font-size: 14px !important; }
                   </div>
                 </div>
 
-                <!-- ── Get the App ─────────────────────────────────────────── -->
-                <div style="margin-bottom:18px;padding:14px 16px;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);border-radius:14px;">
+                <!-- ── Get the App (mobile only) ──────────────────────────── -->
+                <div id="settingsPwaSection" style="margin-bottom:18px;padding:14px 16px;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);border-radius:14px;">
                   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
                     <div>
                       <div style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">📱 Get the App</div>
@@ -35624,6 +35631,12 @@ window.toggleNotifPanel = function(){
   // ── Main entry point ──────────────────────────────────────────────────────
   window.installPWA = function(){
     if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
+
+    // Desktop: install-to-home-screen is a phone feature only
+    if(!window._isMobile){
+      if(typeof showToast === 'function') showToast('Open Simply Agentic on your phone to install it to your home screen.');
+      return;
+    }
 
     // Already installed
     if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true){
