@@ -5028,36 +5028,38 @@ def is_visual_request(prompt: str) -> bool:
     if not p:
         return False
 
+    # Exclusion keywords — help/fix/code/explain requests are never visual
+    _EXCLUSIONS = [
+        "fix", "debug", "prompt", "code", "write", "explain", "help",
+        "how do", "how to", "how can", "issue", "error", "problem",
+        "troubleshoot", "what is", "what are", "improve",
+        "optimize", "review", "check", "update", "change", "edit",
+        "refactor", "remove", "delete", "why ", "when ", "who ",
+    ]
+    if any(ex in p for ex in _EXCLUSIONS):
+        return False
+
     # Visual output nouns — things that require a live rendered output
     _VISUAL_NOUNS = [
         "animation", "animations", "animated",
         "slideshow", "slide show", "slides",
         "carousel", "carousels",
-        "presentation", "presentations",
-        "interactive", "visualisation", "visualization",
+        "visualisation", "visualization",
         "infographic", "infographics",
         "countdown", "counter animation",
-        "demo", "preview", "landing page",
         "hero section", "stats animation",
     ]
 
-    # Action verbs that signal generation
+    # Action verbs that signal deliberate creative generation
     _ACTION_VERBS = [
         r"creat[e|ing]",
         r"mak[e|ing]",
         r"build|builds|building",
         r"generat[e|ing]",
         r"render|renders|rendering",
-        r"show me",
         r"animat[e|ing]",
         r"visuali[sz][e|ing]",
         r"design",
-        r"give me",
-        r"can you",
-        r"please",
-        r"i want",
-        r"i need",
-        r"i'd like",
     ]
 
     # Direct single-word triggers
@@ -5166,12 +5168,24 @@ def is_image_request(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
     if not p:
         return False
+    # Exclusion keywords — never treat help/fix/code requests as image generation
+    _img_excl = [
+        "fix", "debug", "prompt", "code", "write", "explain", "help",
+        "how do", "how to", "how can", "issue", "error", "problem",
+        "troubleshoot", "what is", "what are", "improve", "optimize",
+        "review", "check", "update", "change", "edit", "refactor",
+        "remove", "delete", "why ", "font", "color", "style",
+    ]
+    if any(ex in p for ex in _img_excl):
+        return False
     # Strong triggers
     for t in _IMAGE_TRIGGERS:
         if t in p:
             return True
-    # Heuristic: user explicitly asks for a "graphic" or "image"
-    if ("graphic" in p or "image" in p or "picture" in p) and ("prompt" not in p):
+    # Heuristic: explicit creative ask for image/graphic/picture (not discussion about one)
+    if ("create a graphic" in p or "make a graphic" in p or "generate a graphic" in p
+            or "create an image" in p or "make an image" in p or "generate an image" in p
+            or "create a picture" in p or "make a picture" in p):
         return True
     return False
 
@@ -31525,8 +31539,10 @@ window._streamTtsFired = false;
     // ── Visual request: detect on the frontend and call dedicated endpoint ──
     function _isVisualMsg(m){
       const p = m.toLowerCase();
-      const nouns = ["animation","animated","slideshow","carousel","presentation","interactive","infographic","countdown","visual","demo","preview"];
-      const verbs = ["create","make","build","generate","show me","animate","visualize","visualise","render","give me","can you","please","i want","i need"];
+      const excl = ["fix","debug","prompt","code","write","explain","help","how do","how to","how can","issue","error","problem","troubleshoot","what is","what are","improve","optimize","review","check","update","change","edit","refactor","remove","delete"];
+      if(excl.some(e=>p.includes(e))) return false;
+      const nouns = ["animation","animated","slideshow","carousel","infographic","countdown","visualization","visualisation"];
+      const verbs = ["create","make","build","generate","animate","visualize","visualise","render","design"];
       if(nouns.some(n=>p.includes(n)) && verbs.some(v=>p.includes(v))) return true;
       if(p.includes("animate ") || p.includes("animation of") || p.includes("animated ")) return true;
       return false;
