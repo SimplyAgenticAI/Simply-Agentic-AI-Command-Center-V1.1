@@ -14723,6 +14723,19 @@ label         { font-size: 14px !important; }
                   </div>
                 </div>
 
+                <!-- ── Get the App ─────────────────────────────────────────── -->
+                <div style="margin-bottom:18px;padding:14px 16px;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.25);border-radius:14px;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                    <div>
+                      <div style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">📱 Get the App</div>
+                      <div style="font-size:12px;color:#64748b;line-height:1.5;">Add Simply Agentic to your phone's home screen — tap the icon to open it just like any other app.</div>
+                    </div>
+                    <button class="btn" onclick="saCloseMoreMenu();closeModal();setTimeout(window.installPWA,200);" style="flex-shrink:0;font-size:13px;font-weight:700;padding:8px 18px;border-color:rgba(124,58,237,.5);color:#c4b5fd;white-space:nowrap;">
+                      Download App →
+                    </button>
+                  </div>
+                </div>
+
                 <div class="formGrid2">
                   <div style="display:flex;flex-direction:column;gap:12px;">
                     <div>
@@ -35415,7 +35428,8 @@ window.toggleNotifPanel = function(){
     d.addEventListener('click', function(e){ if(e.target===d) d.remove(); });
     return d;
   }
-  function _close(el){ var d = el.closest('[style*="position:fixed"]'); if(d) d.remove(); }
+  // Exposed globally so inline onclick="window._pwaClose(this)" works from innerHTML
+  window._pwaClose = function(el){ var d = el.closest('[style*="position:fixed"]'); if(d) d.remove(); };
 
   // ── Auto-banner: pops up when Chrome gives us the install prompt ──────────
   // Called from the <head> listener 2.5s after beforeinstallprompt fires.
@@ -35466,7 +35480,7 @@ window.toggleNotifPanel = function(){
       +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Still can\'t see it? <strong style="'+C.hl+'">Swipe up</strong> from the home screen to open all apps → search <strong style="'+C.hl+'">"Simply Agentic"</strong></div>'
       +'</div>'
       +'</div>'
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
+      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Got it!</button>'
       +'</div>'
     );
   };
@@ -35492,7 +35506,7 @@ window.toggleNotifPanel = function(){
       +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> in the top-right — the icon appears on your home screen immediately</div>'
       +'</div>'
       +'</div>'
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
+      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Got it!</button>'
       +'</div>'
     );
   }
@@ -35518,7 +35532,7 @@ window.toggleNotifPanel = function(){
       +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> — Simply Agentic icon goes straight to your home screen</div>'
       +'</div>'
       +'</div>'
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
+      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Got it!</button>'
       +'</div>'
     );
   }
