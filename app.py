@@ -14223,7 +14223,7 @@ label         { font-size: 14px !important; }
             <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting Started</a>
             <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
             <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
-            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="display:none;color:#818cf8;">📱 Install App</button>
+            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="color:#818cf8;">📱 Install App</button>
             <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <!-- Admin / Debug -->
@@ -14353,6 +14353,7 @@ label         { font-size: 14px !important; }
             <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openExtensionPanel,200);">🔌 Chrome Extension</button>
+            <button class="btn" id="mobileInstallAppBtn" onclick="closeMobileDrawer();setTimeout(window.installPWA,200);">📱 Install App</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openHumanHelpModal,200);">✉ Get Human Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openBugReportModal,200);" style="color:#fca5a5;">🐛 Report Bug</button>
             <button class="btn" onclick="if(confirm('Are you sure you want to log out?'))window.location.href='/logout';" style="color:#94a3b8;">🚪 Logout</button>
@@ -35291,26 +35292,26 @@ window.toggleNotifPanel = function(){
   var _isStandalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   var _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  if(!_isStandalone){
-    // iOS Safari: always show button (no beforeinstallprompt — uses Add to Home Screen)
-    if(_isIOS){
-      var b = document.getElementById('pwaInstallBtn');
-      if(b) b.style.display = '';
-    }
-    // Chrome/Edge/Android: show when browser offers install prompt
-    window.addEventListener('beforeinstallprompt', function(e){
-      e.preventDefault();
-      _pwaPrompt = e;
-      var b = document.getElementById('pwaInstallBtn');
-      if(b) b.style.display = '';
+  // Capture native install prompt when browser offers it (Chrome/Edge/Android)
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    _pwaPrompt = e;
+  });
+
+  function _pwaHideBtns(){
+    ['pwaInstallBtn','mobileInstallAppBtn'].forEach(function(id){
+      var b = document.getElementById(id);
+      if(b) b.style.display = 'none';
     });
   }
 
-  // Hide after successful install
+  // Hide buttons if already running as installed PWA
+  if(_isStandalone) _pwaHideBtns();
+
+  // Hide after user installs
   window.addEventListener('appinstalled', function(){
     _pwaPrompt = null;
-    var b = document.getElementById('pwaInstallBtn');
-    if(b) b.style.display = 'none';
+    _pwaHideBtns();
   });
 
   window.installPWA = function(){
