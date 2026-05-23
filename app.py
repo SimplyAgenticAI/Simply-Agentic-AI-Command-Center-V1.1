@@ -14730,7 +14730,7 @@ label         { font-size: 14px !important; }
                       <div style="font-size:12px;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">📱 Get the App</div>
                       <div style="font-size:12px;color:#64748b;line-height:1.5;">Add Simply Agentic to your phone's home screen — tap the icon to open it just like any other app.</div>
                     </div>
-                    <button class="btn" onclick="saCloseMoreMenu();closeModal();setTimeout(window.installPWA,200);" style="flex-shrink:0;font-size:13px;font-weight:700;padding:8px 18px;border-color:rgba(124,58,237,.5);color:#c4b5fd;white-space:nowrap;">
+                    <button class="btn" onclick="window.installPWA();" style="flex-shrink:0;font-size:13px;font-weight:700;padding:8px 18px;border-color:rgba(124,58,237,.5);color:#c4b5fd;white-space:nowrap;">
                       Download App →
                     </button>
                   </div>
