@@ -4831,36 +4831,64 @@ import urllib.request as _urllib_req
 
 def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     """Fetch and extract text content from a URL. Returns (text, error)."""
+    import ssl, gzip as _gzip
     try:
         url = url.strip()
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
+        # SSL context — verify certs but allow slightly older configs
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        # Browser-realistic headers so sites don't block the request
         req = _urllib_req.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; SimplyAgentic/1.0)",
-            "Accept": "text/html,application/xhtml+xml,*/*",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Upgrade-Insecure-Requests": "1",
         })
-        with _urllib_req.urlopen(req, timeout=12) as resp:
-            raw = resp.read(200_000)
+        with _urllib_req.urlopen(req, timeout=20, context=ctx) as resp:
+            raw = resp.read(400_000)
             content_type = resp.headers.get("Content-Type", "")
+            encoding_hdr = resp.headers.get("Content-Encoding", "")
+        # Decompress gzip if server sent it
+        if encoding_hdr == "gzip" or raw[:2] == b'\x1f\x8b':
+            try:
+                raw = _gzip.decompress(raw)
+            except Exception:
+                pass
         # Decode
         charset = "utf-8"
         if "charset=" in content_type:
             charset = content_type.split("charset=")[-1].split(";")[0].strip() or "utf-8"
         html = raw.decode(charset, errors="replace")
-        # Strip tags if BeautifulSoup available, else basic strip
-        text = ""
+        # Strip tags — BeautifulSoup gives cleaner output
         if BeautifulSoup:
             soup = BeautifulSoup(html, "html.parser")
-            for tag in soup(["script","style","nav","footer","header","aside","noscript"]):
+            for tag in soup(["script", "style", "nav", "footer", "header",
+                              "aside", "noscript", "svg", "img", "form"]):
                 tag.decompose()
             text = soup.get_text(separator=" ", strip=True)
         else:
             text = re.sub(r"<[^>]+>", " ", html)
             text = re.sub(r"\s+", " ", text).strip()
-        # Truncate
+        if not text.strip():
+            return "", "The page loaded but returned no readable text content (may require JavaScript)."
         if len(text) > max_chars:
-            text = text[:max_chars] + f"\n\n[Content truncated at {max_chars} chars]"
+            text = text[:max_chars] + f"\n\n[Content truncated at {max_chars:,} chars]"
         return text, ""
+    except ssl.SSLError as e:
+        return "", f"SSL error fetching that URL — the site may have an expired or invalid certificate. ({e})"
+    except _urllib_req.HTTPError as e:
+        return "", f"The site returned HTTP {e.code} ({e.reason}). It may block automated requests."
+    except _urllib_req.URLError as e:
+        return "", f"Could not reach that URL — check the address is correct and the site is live. ({e.reason})"
     except Exception as e:
         return "", f"Could not fetch URL: {e}"
 
