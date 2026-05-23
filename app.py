@@ -35364,7 +35364,7 @@ window.toggleNotifPanel = function(){
 
 <script>
 (function(){
-  // ── Service worker (required for PWA installability) ──────────────────────
+  // ── Service worker ────────────────────────────────────────────────────────
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
       navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(function(){});
@@ -35386,12 +35386,10 @@ window.toggleNotifPanel = function(){
     card : 'background:linear-gradient(160deg,#0f172a,#1a0d3d);border:1px solid rgba(124,58,237,.55);border-radius:20px;padding:28px 22px;width:100%;max-width:400px;',
     btn  : 'width:100%;padding:14px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.5);margin-top:4px;',
     btn2 : 'width:100%;padding:12px;background:rgba(255,255,255,.07);color:#94a3b8;border:1px solid rgba(255,255,255,.12);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;',
-    step : 'display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;',
-    num  : 'width:30px;height:30px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0;',
+    step : 'display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;',
+    num  : 'min-width:32px;height:32px;border-radius:50%;background:#7c3aed;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff;flex-shrink:0;',
     box  : 'background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.38);border-radius:14px;padding:18px;margin-bottom:14px;',
-    tip  : 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#94a3b8;line-height:1.65;',
-    hl   : 'color:#60a5fa;font-weight:700;',
-    hv   : 'color:#c4b5fd;font-weight:700;'
+    hl   : 'color:#a78bfa;font-weight:700;'
   };
 
   function _dlg(html){
@@ -35404,93 +35402,52 @@ window.toggleNotifPanel = function(){
   }
   function _close(el){ var d=el.closest('[style*="position:fixed"]'); if(d) d.remove(); }
 
-  // ── "Where to find the app" — shown after any install completes ───────────
-  function _showFindModal(){
-    _dlg(
-      '<div style="'+C.card+'">'
-      +'<div style="font-size:42px;text-align:center;margin-bottom:10px;">🎉</div>'
-      +'<div style="font-size:21px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">It\'s Installing!</div>'
-      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">The Simply Agentic icon is being added to your device. Here\'s exactly where to find it:</div>'
-
-      +'<div style="'+C.box+'">'
-      +'<div style="font-size:11px;font-weight:800;color:#a78bfa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;">Option A — App Drawer (most common)</div>'
-      +'<div style="'+C.step+'">'
-      +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Swipe UP</strong> from the bottom of your home screen to open your full app list</div>'
-      +'</div>'
-      +'<div style="'+C.step+'">'
-      +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Find <strong style="'+C.hl+'">"Simply Agentic"</strong> in the list</div>'
-      +'</div>'
-      +'<div style="display:flex;align-items:flex-start;gap:12px;">'
-      +'<div style="'+C.num+'">3</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Long-press</strong> the icon → tap <strong style="'+C.hl+'">"Add to Home screen"</strong> to pin it</div>'
-      +'</div>'
-      +'</div>'
-
-      +'<div style="'+C.tip+'">'
-      +'<strong style="'+C.hv+'">Option B — Search your phone:</strong> Swipe <strong>down</strong> on your home screen and type <strong style="'+C.hl+'">"Simply Agentic"</strong>'
-      +'</div>'
-
-      +'<div style="'+C.tip+'">'
-      +'<strong style="'+C.hv+'">Option C — New home screen page:</strong> Some phones add the icon to a new page to the <strong>right</strong> of your home screen. Swipe right to check.'
-      +'</div>'
-
-      +'<button style="'+C.btn+'" onclick="_close(this)">Got it — going to find it now!</button>'
-      +'</div>'
-    );
-  }
-  window._showFindModal = _showFindModal;
-
   // ── iOS / Safari instructions ─────────────────────────────────────────────
   function _showIOSModal(){
     _dlg(
       '<div style="'+C.card+'">'
       +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
-      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Install Simply Agentic</div>'
-      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Adds a real icon to your home screen — no App Store.</div>'
-
+      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Add to Home Screen</div>'
+      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">iPhone: open this page in <strong style="color:#fff;">Safari</strong> (not Chrome), then:</div>'
       +'<div style="'+C.box+'">'
-      +'<div style="font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;">⚠ Must be in Safari, not Chrome</div>'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="'+C.hl+'">Share button ⬆</strong> at the <strong style="'+C.hl+'">very bottom</strong> of the Safari browser</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="'+C.hl+'">Share ⬆</strong> button at the bottom of Safari</div>'
       +'</div>'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Scroll down in the share sheet and tap <strong style="'+C.hl+'">"Add to Home Screen"</strong></div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Scroll down and tap <strong style="'+C.hl+'">"Add to Home Screen"</strong></div>'
       +'</div>'
       +'<div style="display:flex;align-items:flex-start;gap:12px;">'
       +'<div style="'+C.num+'">3</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> in the top-right — the icon lands on your home screen immediately</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> — the icon appears on your home screen right away</div>'
       +'</div>'
       +'</div>'
-
-      +'<button style="'+C.btn+'" onclick="_close(this)">Done — go check my home screen</button>'
+      +'<button style="'+C.btn+'" onclick="_close(this)">Got it!</button>'
       +'</div>'
     );
   }
 
-  // ── Android / Chrome manual steps ────────────────────────────────────────
+  // ── Android / Chrome — download icon in address bar ───────────────────────
   function _showAndroidModal(){
     _dlg(
       '<div style="'+C.card+'">'
       +'<div style="font-size:36px;text-align:center;margin-bottom:10px;">📲</div>'
-      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Install Simply Agentic</div>'
-      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Two quick steps in Chrome, then we\'ll show you exactly where to find the icon:</div>'
-
+      +'<div style="font-size:20px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:4px;">Add to Home Screen</div>'
+      +'<div style="font-size:13px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Android: look in Chrome\'s address bar for a <strong style="color:#a78bfa;">⬇ download icon</strong> on the right side:</div>'
       +'<div style="'+C.box+'">'
       +'<div style="'+C.step+'">'
       +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="'+C.hl+'">⋮ three-dot menu</strong> in the <strong style="'+C.hl+'">top-right</strong> corner of Chrome</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap the <strong style="'+C.hl+'">⬇ download icon</strong> in Chrome\'s address bar<br><span style="color:#64748b;font-size:13px;">Don\'t see it? Tap <strong style="color:#94a3b8;">⋮</strong> (top-right) — the download icon is also in that menu</span></div>'
       +'</div>'
       +'<div style="display:flex;align-items:flex-start;gap:12px;">'
       +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add to Home screen"</strong> or <strong style="'+C.hl+'">"Install app"</strong> — then tap <strong style="'+C.hl+'">"Add"</strong> or <strong style="'+C.hl+'">"Install"</strong> to confirm</div>'
+      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Tap <strong style="'+C.hl+'">"Add"</strong> or <strong style="'+C.hl+'">"Install"</strong> when Chrome asks — the Simply Agentic icon will appear on your home screen</div>'
       +'</div>'
       +'</div>'
-
-      +'<button style="'+C.btn+'" onclick="_close(this);_showFindModal();">Done — show me where my icon is!</button>'
+      +'<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#86efac;line-height:1.6;">'
+      +'<strong>Can\'t find the download icon?</strong> Reload this page once, then tap <strong>⋮</strong> — Chrome shows the install icon after the page fully loads.'
+      +'</div>'
       +'<button style="'+C.btn2+'" onclick="_close(this)">Close</button>'
       +'</div>'
     );
@@ -35500,17 +35457,18 @@ window.toggleNotifPanel = function(){
   window.installPWA = function(){
     if(typeof saCloseMoreMenu === 'function') saCloseMoreMenu();
 
-    // Already running as an installed app
     if(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true){
       if(typeof showToast === 'function') showToast('Simply Agentic is already installed on your device!');
       return;
     }
 
     if(_pwaPrompt){
-      // Chrome fires beforeinstallprompt — one-tap native install
       _pwaPrompt.prompt();
       _pwaPrompt.userChoice.then(function(c){
-        if(c.outcome === 'accepted'){ _pwaPrompt = null; _showFindModal(); }
+        if(c.outcome === 'accepted'){
+          _pwaPrompt = null;
+          if(typeof showToast === 'function') showToast('Simply Agentic added to your home screen!');
+        }
       });
       return;
     }
