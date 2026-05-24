@@ -7245,8 +7245,7 @@ def _api_convene_impl(data):
 
         sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
-        thread = load_thread(name, uname)
-        thread = thread[-12:] if len(thread) > 12 else thread
+        thread = _truncate_thread_with_note(load_thread(name, uname), max_messages=14)
 
         msgs: List[Dict[str, Any]] = []
         msgs.extend(thread)
@@ -7568,6 +7567,40 @@ def api_thread_clear(name: str) -> Any:
     save_thread(name, [], uname)
     append_log("thread_cleared", {"teammate": name, "by": uname})
     return jsonify({"ok": True, "teammate": name})
+
+@app.get("/api/search_threads")
+def api_search_threads():
+    """Full-text search across all of the user's saved teammate threads."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    q = (request.args.get("q") or "").strip().lower()
+    if not q or len(q) < 2:
+        return jsonify({"ok": True, "results": []})
+    reg   = load_registry(uname)
+    installed = reg.get("installed") or {}
+    results: List[Dict[str, Any]] = []
+    for tm_name in installed:
+        thread = load_thread(tm_name, uname)
+        for i, m in enumerate(thread):
+            content = (m.get("content") or "")
+            if isinstance(content, list):
+                content = " ".join(str(c) for c in content)
+            if q in content.lower():
+                snippet = content[:300].replace("\n", " ")
+                results.append({
+                    "teammate": tm_name,
+                    "role": m.get("role", "user"),
+                    "snippet": snippet,
+                    "msg_index": i,
+                })
+                if len(results) >= 40:
+                    break
+        if len(results) >= 40:
+            break
+    return jsonify({"ok": True, "results": results, "query": q})
+
 
 @app.get("/api/teammates/<name>/image_state")
 def api_teammate_image_state(name: str):
@@ -15694,6 +15727,16 @@ label         { font-size: 14px !important; }
         <button class="btn btnPrimary" id="crmSaveClientExit">Save &amp; Exit</button>
       </div>
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
+
+      <!-- Activity Timeline (shown when editing existing contact) -->
+      <div id="crmActivityPanel" style="display:none;margin-top:14px;border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
+        <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Activity Timeline</div>
+        <div id="crmActivityList" style="max-height:180px;overflow-y:auto;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:6px;">
+          <input id="crmActivityNote" type="text" placeholder="Add a note or log a call…" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:12px;" />
+          <button onclick="crmAddActivityNote()" class="btn btnMini" style="padding:6px 12px;font-size:12px;">+ Log</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -16920,6 +16963,15 @@ input[type="range"]::-moz-range-progress {
             <div class="h2" id="seatSub">Click any teammate for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+          <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
+        </div>
+        <!-- Conversation history search bar (hidden by default) -->
+        <div id="threadSearchBar" style="display:none;flex-shrink:0;padding:6px 0;border-bottom:1px solid rgba(42,58,106,.4);">
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input id="threadSearchInput" type="text" placeholder="Search all conversations…" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:7px 12px;color:#e2e8f0;font-size:13px;" />
+            <button onclick="saRunThreadSearch()" class="btn btnPrimary" style="padding:6px 12px;font-size:12px;">Search</button>
+          </div>
+          <div id="threadSearchResults" style="max-height:220px;overflow-y:auto;margin-top:6px;"></div>
         </div>
         <!-- Thread actions toolbar (hidden) -->
         <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
@@ -18759,8 +18811,40 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
             };
 
+            // Pin to Knowledge Base button
+            const pinBtn = document.createElement("button");
+            pinBtn.className = "btn btnMini";
+            pinBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+            pinBtn.innerText = "📌 Save to KB";
+            pinBtn.title = "Save this response to your Knowledge Base";
+            pinBtn.onclick = async (e) => {
+              e.stopPropagation();
+              pinBtn.innerText = "⏳ Saving…";
+              try{
+                const label = (selectedSeat || "Teammate") + " — " + new Date().toISOString().slice(0,10);
+                const res = await fetch("/api/rag/pin_response", {
+                  method: "POST",
+                  headers: {"Content-Type": "application/json"},
+                  body: JSON.stringify({text: raw, label: label})
+                });
+                const d = await res.json();
+                if(d.ok){
+                  pinBtn.innerText = "✅ Saved";
+                  pinBtn.style.opacity = "1";
+                  if(window.showToast) showToast("📌 Response saved to Knowledge Base");
+                } else {
+                  pinBtn.innerText = "📌 Save to KB";
+                  if(window.showToast) showToast("⚠️ " + (d.error || "Save failed"));
+                }
+              }catch(err){
+                pinBtn.innerText = "📌 Save to KB";
+                if(window.showToast) showToast("⚠️ Save failed");
+              }
+            };
+
             actRow.appendChild(copyBtn);
             actRow.appendChild(speakBtn);
+            actRow.appendChild(pinBtn);
             content.appendChild(actRow);
           }
         }
@@ -19964,10 +20048,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 async function pollImageJob(jobId, seatName){
   const maxMs = 120000;
   const start = Date.now();
+  const targetSeat = seatName || selectedSeat;
   while(true){
     if(Date.now() - start > maxMs){
       setOpStatus("Queued");
-      setSeatLive(seatName || selectedSeat, "waiting");
+      setSeatLive(targetSeat, "waiting");
+      _saJobNotify(targetSeat, "timeout");
       return;
     }
     try{
@@ -19976,10 +20062,10 @@ async function pollImageJob(jobId, seatName){
       if(data && data.ok && data.job){
         const st = data.job.status;
         if(st === "done" || st === "error"){
-          // thread will have been updated server-side
           await refreshThread();
-          setSeatLive(seatName || selectedSeat, (st==="done") ? "done" : "waiting");
+          setSeatLive(targetSeat, (st==="done") ? "done" : "waiting");
           setOpStatus((st==="done") ? "Complete" : "Error");
+          _saJobNotify(targetSeat, st);
           if(st === "error"){
             try{
               const msg = ((data.job && data.job.error) ? String(data.job.error) : "Image generation failed");
@@ -19994,6 +20080,30 @@ async function pollImageJob(jobId, seatName){
   }
 }
 
+// Show a prominent notification when a background job finishes
+// (especially when the user has navigated away from that seat)
+function _saJobNotify(seatName, status){
+  try{
+    const isActive = (selectedSeat === seatName);
+    const emoji = status === "done" ? "✅" : "⚠️";
+    const label = status === "done" ? "Image ready" : (status === "timeout" ? "Still generating..." : "Image failed");
+    const msg = emoji + " " + (seatName || "Teammate") + " — " + label;
+    if(window.showToast) window.showToast(msg);
+    // If not active seat, also show browser notification if permitted
+    if(!isActive && status === "done" && window.Notification && Notification.permission === "granted"){
+      try{ new Notification("Simply Agentic", { body: (seatName||"Teammate") + " finished generating an image", icon: "/static/icon-192.png" }); }catch(e){}
+    }
+    // Badge a nav dot if feature is available
+    const navDot = document.getElementById('saImgJobDot');
+    if(navDot && !isActive && status === "done"){
+      navDot.style.display = "inline-block";
+      // auto-clear when user clicks into the seat
+      const clear = function(){ navDot.style.display = "none"; document.removeEventListener("click", clear); };
+      document.addEventListener("click", clear);
+    }
+  }catch(e){}
+}
+
 
     // ===== EXPAND MESSAGE MODAL =====
     window.saOpenMsgModal = function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
@@ -20003,6 +20113,53 @@ async function pollImageJob(jobId, seatName){
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
     (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
+
+    // ===== CONVERSATION HISTORY SEARCH =====
+    window.saToggleThreadSearch = function(){
+      const bar = document.getElementById("threadSearchBar");
+      if(!bar) return;
+      const visible = bar.style.display !== "none";
+      bar.style.display = visible ? "none" : "block";
+      if(!visible){ const inp = document.getElementById("threadSearchInput"); if(inp) inp.focus(); }
+    };
+
+    window.saRunThreadSearch = async function(){
+      const inp = document.getElementById("threadSearchInput");
+      const res = document.getElementById("threadSearchResults");
+      const q = (inp ? inp.value : "").trim();
+      if(!q || !res) return;
+      res.innerHTML = '<div style="color:#64748b;font-size:12px;padding:4px 0;">Searching…</div>';
+      try{
+        const r = await fetch("/api/search_threads?q=" + encodeURIComponent(q));
+        const d = await r.json();
+        if(!d.ok || !d.results || !d.results.length){
+          res.innerHTML = '<div style="color:#64748b;font-size:12px;padding:4px 0;">No matches found.</div>';
+          return;
+        }
+        res.innerHTML = d.results.map(function(item){
+          const who = item.role === "user" ? "You" : item.teammate;
+          const badge = item.role === "user"
+            ? '<span style="font-size:10px;background:rgba(99,102,241,.2);color:#a5b4fc;padding:1px 6px;border-radius:10px;margin-right:6px;">You</span>'
+            : '<span style="font-size:10px;background:rgba(124,58,237,.2);color:#c4b5fd;padding:1px 6px;border-radius:10px;margin-right:6px;">' + escapeHtml(item.teammate) + '</span>';
+          return '<div onclick="saSearchJumpTo(\''+escapeHtml(item.teammate)+'\')" style="padding:7px 8px;border-radius:8px;cursor:pointer;border:1px solid rgba(42,58,106,.4);margin-bottom:4px;font-size:12px;background:rgba(11,16,36,.7);">'
+            + badge + escapeHtml(item.snippet.slice(0,120)) + '…</div>';
+        }).join("");
+      }catch(e){
+        res.innerHTML = '<div style="color:#f87171;font-size:12px;">Search failed</div>';
+      }
+    };
+
+    window.saSearchJumpTo = async function(tmName){
+      if(typeof selectSeat === "function") await selectSeat(tmName);
+      const bar = document.getElementById("threadSearchBar");
+      if(bar) bar.style.display = "none";
+    };
+
+    // Allow Enter key in search box
+    (function(){
+      const inp = document.getElementById("threadSearchInput");
+      if(inp) inp.addEventListener("keydown", function(e){ if(e.key === "Enter") saRunThreadSearch(); });
+    })();
 
     // ===== PINNED FEATURE SHORTCUTS =====
     (function(){
@@ -20161,44 +20318,91 @@ async function pollImageJob(jobId, seatName){
 
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
+      $("followMsg").value = "";
 
-      const res = await fetch("/api/followup", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
-      });
-      const data = await res.json();
+      // ── Optimistic user bubble ──
+      const threadBox = document.getElementById("thread");
+      const userDiv = document.createElement("div");
+      userDiv.className = "msg user";
+      const userWho = document.createElement("div"); userWho.className = "who"; userWho.innerText = "You";
+      const userBody = document.createElement("div"); userBody.className = "msg-body"; userBody.innerText = msg;
+      userDiv.appendChild(userWho); userDiv.appendChild(userBody);
+      if(threadBox) threadBox.appendChild(userDiv);
 
-      if(!data.ok){
-        setSeatLive(selectedSeat, "waiting");
-        setOpStatus("Error");
-        showModal("Error", data.error || "Send failed");
-        return;
+      // ── Streaming assistant bubble ──
+      const aDiv = document.createElement("div"); aDiv.className = "msg assistant";
+      const aWho = document.createElement("div"); aWho.className = "who"; aWho.innerText = selectedSeat;
+      const aBody = document.createElement("div"); aBody.className = "msg-body";
+      aBody.style.cssText = "white-space:pre-wrap;min-height:18px;";
+      const cursor = document.createElement("span"); cursor.style.cssText = "display:inline-block;width:2px;height:1em;background:#c4b5fd;vertical-align:text-bottom;animation:saTypingCursor .6s steps(1) infinite;";
+      aBody.appendChild(cursor);
+      aDiv.appendChild(aWho); aDiv.appendChild(aBody);
+      if(threadBox){ threadBox.appendChild(aDiv); threadBox.scrollTop = threadBox.scrollHeight; }
+
+      // Inject cursor animation once
+      if(!document.getElementById("sa-cursor-style")){
+        const cs = document.createElement("style"); cs.id = "sa-cursor-style";
+        cs.textContent = "@keyframes saTypingCursor{0%,100%{opacity:1}50%{opacity:0}}";
+        document.head.appendChild(cs);
       }
 
-      if(data.job_id){
-        // Image generation runs in background to avoid request timeouts.
-        setSeatLive(selectedSeat, "thinking");
-        setOpStatus("Generating image");
-        $("followMsg").value = "";
-        await refreshThread();
-        pollImageJob(data.job_id, selectedSeat);
-      }else{
-        setSeatLive(selectedSeat, "done");
-        setOpStatus("Complete");
-        $("followMsg").value = "";
-        await refreshThread();
-        // Mark first AI interaction for onboarding value moment tracking
-        try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
+      try{
+        const res = await fetch("/api/followup/stream", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
+        });
+
+        if(!res.ok || !res.body){
+          // Fallback: non-streaming on stream failure
+          const errData = await res.json().catch(()=>({}));
+          aBody.innerText = errData.error || "Send failed";
+          setSeatLive(selectedSeat, "waiting"); setOpStatus("Error");
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "", fullText = "", emailDraft = null, jobId = null;
+
+        while(true){
+          const {done, value} = await reader.read();
+          if(done) break;
+          buf += decoder.decode(value, {stream: true});
+          const lines = buf.split("\n");
+          buf = lines.pop();
+          for(const line of lines){
+            if(!line.startsWith("data:")) continue;
+            try{
+              const ev = JSON.parse(line.slice(5).trim());
+              if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
+              if(ev.token){ fullText += ev.token; aBody.innerText = fullText; cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
+              if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
+            }catch(e){}
+          }
+        }
+
+        cursor.remove();
+
+        if(jobId){
+          setSeatLive(selectedSeat,"thinking"); setOpStatus("Generating image");
+          await refreshThread(); pollImageJob(jobId, selectedSeat);
+        } else {
+          setSeatLive(selectedSeat,"done"); setOpStatus("Complete");
+          await refreshThread();
+          try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
+          if(emailDraft) applyEmailDraft(emailDraft, selectedSeat);
+        }
+
+      }catch(err){
+        cursor.remove();
+        aBody.innerText = "Error: " + (err.message || "Send failed");
+        setSeatLive(selectedSeat, "waiting"); setOpStatus("Error");
       }
+
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
-
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
-
-      if(data.email_draft){
-        applyEmailDraft(data.email_draft, selectedSeat);
-      }
     }
 
     $("sendFollow").onclick = sendFollow;
@@ -21735,6 +21939,9 @@ Challenge weak assumptions. Surface risks.`;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
       var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null, _tpSaveBarTimer=null;
       var _tpIsIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+      // Voice-activated scroll pause state
+      var _tpVoiceEnabled=false, _tpVoicePaused=false;
+      var _tpVoiceAudioCtx=null, _tpVoiceAnalyser=null, _tpVoiceStream=null, _tpVoicePollActive=false;
 
       window.showTeleprompterModal = function(){
         var m=document.getElementById('teleprompterModal');
@@ -21755,6 +21962,9 @@ Challenge weak assumptions. Surface risks.`;
         var m=document.getElementById('teleprompterModal');
         if(m) m.style.display='none';
         document.body.style.overflow='';
+        _tpStopVoiceDetect();
+        var vb=document.getElementById('tpVoiceBtn');
+        if(vb){ vb.style.background='rgba(30,42,74,.6)'; vb.style.borderColor='rgba(42,58,106,.6)'; vb.style.color='#94a3b8'; vb.innerText='\u{1F3A4} Voice Scroll'; }
       };
 
       window.tpLaunch = function(){
@@ -21875,6 +22085,8 @@ Challenge weak assumptions. Surface risks.`;
 
       function _scrollStep(ts){
         if(!_tpScrolling){ _tpScrollRAF=null; return; }
+        // Voice-pause: keep the RAF alive but don't advance position
+        if(_tpVoicePaused){ _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep); return; }
         if(_tpLastTs===null) _tpLastTs=ts;
         var dt=Math.min(ts-_tpLastTs,100);
         _tpLastTs=ts;
@@ -21937,6 +22149,76 @@ Challenge weak assumptions. Surface risks.`;
 
       window.tpTogglePause = function(){
         _tpToggleScroll();
+      };
+
+      // ── Voice-activated scroll: pause when silent, resume when speaking ──
+      function _tpStartVoiceDetect(){
+        if(!navigator.mediaDevices || !window.AudioContext && !window.webkitAudioContext) return;
+        navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(function(stream){
+          _tpVoiceStream=stream;
+          _tpVoiceAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+          var source=_tpVoiceAudioCtx.createMediaStreamSource(stream);
+          _tpVoiceAnalyser=_tpVoiceAudioCtx.createAnalyser();
+          _tpVoiceAnalyser.fftSize=256;
+          source.connect(_tpVoiceAnalyser);
+          var buf=new Uint8Array(_tpVoiceAnalyser.frequencyBinCount);
+          var THRESHOLD=10, PAUSE_AFTER_MS=1500, RESUME_AFTER_MS=250;
+          var silenceStart=null, soundStart=null;
+          _tpVoicePollActive=true;
+          function poll(){
+            if(!_tpVoicePollActive) return;
+            _tpVoiceAnalyser.getByteFrequencyData(buf);
+            var avg=0; for(var i=0;i<buf.length;i++) avg+=buf[i]; avg/=buf.length;
+            if(avg<THRESHOLD){
+              if(!silenceStart) silenceStart=Date.now();
+              soundStart=null;
+              if(!_tpVoicePaused && Date.now()-silenceStart>PAUSE_AFTER_MS){
+                _tpVoicePaused=true;
+                _tpVoiceBadge(true);
+              }
+            } else {
+              silenceStart=null;
+              if(!soundStart) soundStart=Date.now();
+              if(_tpVoicePaused && Date.now()-soundStart>RESUME_AFTER_MS){
+                _tpVoicePaused=false;
+                _tpVoiceBadge(false);
+                // re-fire RAF if it collapsed (shouldn't, but safety net)
+                if(!_tpScrollRAF && _tpScrolling){ _tpLastTs=null; _tpScrollRAF=requestAnimationFrame(_scrollStep); }
+              }
+            }
+            setTimeout(poll,80);
+          }
+          poll();
+        }).catch(function(){ _tpVoiceEnabled=false; _tpVoiceBadge(null); });
+      }
+
+      function _tpStopVoiceDetect(){
+        _tpVoicePollActive=false; _tpVoiceEnabled=false; _tpVoicePaused=false;
+        if(_tpVoiceStream){ _tpVoiceStream.getTracks().forEach(function(t){t.stop();}); _tpVoiceStream=null; }
+        if(_tpVoiceAudioCtx){ try{_tpVoiceAudioCtx.close();}catch(e){} _tpVoiceAudioCtx=null; }
+      }
+
+      function _tpVoiceBadge(paused){
+        var badge=document.getElementById('tpVoiceBadge');
+        if(!badge) return;
+        if(paused===null){ badge.innerText='🎤 Mic unavailable'; badge.style.color='#f87171'; badge.style.opacity='1'; }
+        else if(paused){ badge.innerText='🎤 Paused (silence)'; badge.style.color='#fcd34d'; badge.style.opacity='1'; }
+        else { badge.innerText='🎤 Listening…'; badge.style.color='#6ee7b7'; badge.style.opacity='.8'; }
+      }
+
+      window.tpToggleVoiceScroll=function(){
+        _tpVoiceEnabled=!_tpVoiceEnabled;
+        var btn=document.getElementById('tpVoiceBtn');
+        if(_tpVoiceEnabled){
+          _tpVoicePollActive=false; // will be re-set by startVoiceDetect
+          _tpStartVoiceDetect();
+          if(btn){ btn.style.background='rgba(16,185,129,.25)'; btn.style.borderColor='rgba(16,185,129,.6)'; btn.style.color='#6ee7b7'; btn.innerText='🎤 Voice ON'; }
+        } else {
+          _tpStopVoiceDetect();
+          _tpVoicePaused=false;
+          if(btn){ btn.style.background='rgba(30,42,74,.6)'; btn.style.borderColor='rgba(42,58,106,.6)'; btn.style.color='#94a3b8'; btn.innerText='🎤 Voice Scroll'; }
+          var badge=document.getElementById('tpVoiceBadge'); if(badge) badge.innerText='';
+        }
       };
 
       // When the user switches to another app, immediately release the camera+mic.
@@ -22429,6 +22711,9 @@ Challenge weak assumptions. Surface risks.`;
         return;
       }
 
+      // Bulk selection state
+      if(!window._crmSelectedIds) window._crmSelectedIds = new Set();
+
       const rows = list.map(c=>{
         const tags = (c.tags||[]).map(t=>`<span class="pill" style="margin-right:6px;">${escapeHtml(t)}</span>`).join('');
         const id = escapeHtml(c.id||'');
@@ -22462,8 +22747,10 @@ Challenge weak assumptions. Surface risks.`;
           ? `<span style="opacity:.6;">Last contact: ${lastContact}</span>`
           : '';
         return `
-          <div class="diagCard" style="padding:10px;${isOverdue?'border-left:3px solid #f87171;':''}${isDueToday?'border-left:3px solid #fbbf24;':''}">
+          <div class="diagCard" style="padding:10px;${isOverdue?'border-left:3px solid #f87171;':''}${isDueToday?'border-left:3px solid #fbbf24;':''}" data-crm-id="${id}">
             <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+              <div style="display:flex;align-items:flex-start;gap:8px;">
+                <input type="checkbox" class="crmBulkCheck" data-crm-check="${id}" style="margin-top:3px;accent-color:#7c3aed;cursor:pointer;" />
               <div>
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                   ${(()=>{ const pp=((c.custom_fields||{}).profile_photo_url||''); return pp?`<img src="${escapeHtml(pp)}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1.5px solid rgba(124,58,237,.35);flex-shrink:0;" onerror="this.style.display='none'">`:'' ; })()}
@@ -22475,7 +22762,7 @@ Challenge weak assumptions. Surface risks.`;
                 <div class="tiny" style="opacity:.9;">${email} ${stage ? '• ' + stage : ''}</div>
                 ${followupLabel?`<div class="tiny" style="margin-top:5px;">${followupLabel}</div>`:''}
                 <div style="margin-top:6px;">${tags}</div>
-              </div>
+              </div></div>
               <div style="display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end;">
                 ${(()=>{ const fbUrl = ((c.custom_fields||{}).facebook_url||'').trim(); const msgrSlug = fbUrl ? fbUrl.replace(/.*facebook\.com\//,'').replace(/\//,'') : ''; return fbUrl ? `<a href="https://m.me/${escapeHtml(msgrSlug)}" target="_blank" rel="noopener" title="Message on Facebook" style="display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;border-radius:6px;background:rgba(24,119,242,.15);border:1px solid rgba(24,119,242,.35);color:#93c5fd;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;">💬 Message</a><a href="${escapeHtml(fbUrl)}" target="_blank" rel="noopener" title="View Facebook profile" style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:6px;background:rgba(24,119,242,.12);border:1px solid rgba(24,119,242,.3);color:#60a5fa;font-size:12px;font-weight:700;text-decoration:none;">f</a>` : ''; })()}
                 <button class="btn btnTiny" data-crm-edit="${id}">Edit</button>
@@ -22488,6 +22775,17 @@ Challenge weak assumptions. Surface risks.`;
 
       box.innerHTML = rows;
 
+      // Wire checkboxes for bulk selection
+      box.querySelectorAll('.crmBulkCheck').forEach(cb=>{
+        const cid = cb.getAttribute('data-crm-check');
+        cb.checked = window._crmSelectedIds.has(cid);
+        cb.addEventListener('change', function(){
+          if(cb.checked) window._crmSelectedIds.add(cid);
+          else window._crmSelectedIds.delete(cid);
+          crmUpdateBulkBar();
+        });
+      });
+
       // bind
       box.querySelectorAll('[data-crm-edit]').forEach(btn=>{
         btn.addEventListener('click', ()=> crmOpenClientEditor(btn.getAttribute('data-crm-edit')));
@@ -22495,6 +22793,7 @@ Challenge weak assumptions. Surface risks.`;
       box.querySelectorAll('[data-crm-del]').forEach(btn=>{
         btn.addEventListener('click', ()=> crmDeleteClient(btn.getAttribute('data-crm-del')));
       });
+      crmUpdateBulkBar();
     }
 
     function crmOpenClientEditor(id){
@@ -22515,6 +22814,46 @@ Challenge weak assumptions. Surface risks.`;
       $("crmNextFollowup").value = c.next_followup || '';
       $("crmDealValue").value = (c.deal_value != null ? c.deal_value : '');
       $("crmEditStatus").innerText = '';
+      // Load activity timeline if editing an existing contact
+      const atPanel = $("crmActivityPanel");
+      if(atPanel) atPanel.style.display = id ? 'block' : 'none';
+      if(id) crmLoadActivity(id);
+    }
+
+    async function crmLoadActivity(id){
+      const list = $("crmActivityList");
+      if(!list) return;
+      list.innerHTML = '<div style="opacity:.4;font-size:12px;">Loading…</div>';
+      try{
+        const r = await fetch('/api/crm/clients/' + encodeURIComponent(id) + '/activity');
+        const d = await r.json();
+        const events = (d.activity || []).slice().reverse();
+        if(!events.length){ list.innerHTML = '<div style="opacity:.4;font-size:12px;">No activity yet.</div>'; return; }
+        const typeIcon = {stage_change:'🔀', note:'📝', email:'✉️', call:'📞', created:'🆕'};
+        list.innerHTML = events.map(function(ev){
+          const icon = typeIcon[ev.type] || '📌';
+          const when = (ev.at||'').slice(0,16).replace('T',' ');
+          return '<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(42,58,106,.3);font-size:12px;">'
+            + '<span style="flex-shrink:0;">' + icon + '</span>'
+            + '<div><div style="color:#e2e8f0;">' + escapeHtml(ev.detail||'') + '</div>'
+            + '<div style="opacity:.4;font-size:10px;">' + escapeHtml(when) + '</div></div></div>';
+        }).join('');
+      }catch(e){ list.innerHTML = '<div style="color:#f87171;font-size:12px;">Failed to load.</div>'; }
+    }
+
+    async function crmAddActivityNote(){
+      const noteEl = $("crmActivityNote");
+      const note = (noteEl ? noteEl.value : '').trim();
+      if(!note || !crmEditingClientId) return;
+      try{
+        await fetch('/api/crm/clients/' + encodeURIComponent(crmEditingClientId) + '/activity', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({type:'note', detail:note})
+        });
+        noteEl.value = '';
+        crmLoadActivity(crmEditingClientId);
+        if(window.showToast) showToast('Note added');
+      }catch(e){ if(window.showToast) showToast('Failed to save note','error'); }
     }
 
     async function crmMarkReplied(id){
@@ -22544,6 +22883,58 @@ Challenge weak assumptions. Surface risks.`;
       }catch(e){
         showToast('Delete failed');
       }
+    }
+
+    function crmUpdateBulkBar(){
+      const n = window._crmSelectedIds ? window._crmSelectedIds.size : 0;
+      let bar = document.getElementById('crmBulkBar');
+      if(!bar){
+        bar = document.createElement('div');
+        bar.id = 'crmBulkBar';
+        bar.style.cssText = 'display:none;position:sticky;bottom:0;z-index:20;background:rgba(10,14,30,.98);border-top:2px solid rgba(124,58,237,.5);padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+        const clientsList = document.getElementById('crmClientsList');
+        if(clientsList && clientsList.parentElement) clientsList.parentElement.appendChild(bar);
+      }
+      if(!n){ bar.style.display = 'none'; return; }
+      const stages = (crmCache.pipeline||[]).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      bar.style.display = 'flex';
+      bar.innerHTML = `<span style="font-size:12px;color:#c4b5fd;font-weight:700;">${n} selected</span>`
+        + `<select id="crmBulkStage" style="background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:12px;"><option value="">— Move to stage —</option>${stages}</select>`
+        + `<button onclick="crmBulkAction('stage')" class="btn btnMini" style="font-size:12px;">Apply Stage</button>`
+        + `<input id="crmBulkTag" type="text" placeholder="Add tag…" style="background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:7px;padding:5px 8px;color:#e2e8f0;font-size:12px;width:110px;" />`
+        + `<button onclick="crmBulkAction('tag')" class="btn btnMini" style="font-size:12px;">Add Tag</button>`
+        + `<button onclick="crmBulkAction('delete')" class="btn btnMini" style="font-size:12px;background:rgba(180,30,60,.3);border-color:rgba(239,68,68,.4);color:#fca5a5;">Delete Selected</button>`
+        + `<button onclick="window._crmSelectedIds=new Set();crmRenderClients();" class="btn btnMini" style="font-size:12px;opacity:.6;">Clear</button>`;
+    }
+
+    async function crmBulkAction(action){
+      const ids = Array.from(window._crmSelectedIds || []);
+      if(!ids.length) return;
+      let value = '';
+      if(action === 'stage'){
+        const sel = document.getElementById('crmBulkStage');
+        value = sel ? sel.value : '';
+        if(!value){ showToast('Select a stage first'); return; }
+      } else if(action === 'tag'){
+        const inp = document.getElementById('crmBulkTag');
+        value = inp ? inp.value.trim() : '';
+        if(!value){ showToast('Enter a tag first'); return; }
+      } else if(action === 'delete'){
+        if(!confirm(`Delete ${ids.length} contacts? This cannot be undone.`)) return;
+      }
+      try{
+        const res = await fetch('/api/crm/clients/bulk', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ids, action, value})
+        });
+        const d = await res.json();
+        if(!d.ok){ showToast('Bulk action failed: '+(d.error||''),'error'); return; }
+        window._crmSelectedIds = new Set();
+        await crmFetchClients();
+        crmRenderClients();
+        crmRenderPipelineBoard();
+        showToast(`Done — ${d.changed} contact${d.changed!==1?'s':''} updated`);
+      }catch(e){ showToast('Bulk action failed','error'); }
     }
 
     async function crmSaveClient(){
@@ -27241,9 +27632,9 @@ $("saveFramework").onclick = async () => {
       title.textContent='Keyboard shortcuts';
       box.appendChild(title);
       const groups = [
-        { label:'Teammates', rows:[['1 – 7','Activate teammate by position']] },
-        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console']] },
-        { label:'Navigation', rows:[['Esc','Deselect seat / close overlay'],['?','Show this cheat sheet']] },
+        { label:'Teammates', rows:[['1 – 7','Activate teammate by position'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
+        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
+        { label:'Navigation', rows:[['Esc','Close modal / deselect seat'],['?','Show this cheat sheet'],['Ctrl+/','Show this cheat sheet']] },
       ];
       groups.forEach(g => {
         const grpLabel = document.createElement('div');
@@ -27330,12 +27721,39 @@ $("saveFramework").onclick = async () => {
           e.preventDefault();
           toggleTool('email broadcast',function(){ if(typeof showCRMModal==='function') showCRMModal('crmViewBroadcast','Email Broadcast'); else if(typeof window.showCRMModal==='function') window.showCRMModal('crmViewBroadcast','Email Broadcast'); hkToast('⌨ Email Broadcast'); });
           break;
+        case 'r':
+          e.preventDefault();
+          toggleTool('crm',function(){ if(typeof showCRMModal==='function') showCRMModal(); hkToast('⌨ CRM'); });
+          break;
+        case 'n':
+          e.preventDefault();
+          toggleTool('notepad',function(){ if(typeof showNotepadModal==='function') showNotepadModal(); hkToast('⌨ Notepad'); });
+          break;
+        case 'k':
+          e.preventDefault();
+          toggleTool('knowledge',function(){ if(typeof saOpenRag==='function') saOpenRag(); hkToast('⌨ Knowledge Base'); });
+          break;
         case '?':
         case '/':
           e.preventDefault();
           buildSheet();
           break;
         default: break;
+      }
+    });
+
+    // Ctrl+K: focus teammate message box
+    // Ctrl+/: show shortcut sheet
+    document.addEventListener('keydown', function saCtrlHotkeys(e){
+      if(!e.ctrlKey && !e.metaKey) return;
+      if(e.key === 'k' || e.key === 'K'){
+        e.preventDefault();
+        const fm = document.getElementById('followMsg');
+        if(fm){ fm.focus(); fm.select(); hkToast('⌨ Message box focused'); }
+      }
+      if(e.key === '/' && e.ctrlKey){
+        e.preventDefault();
+        buildSheet();
       }
     });
 
@@ -29142,11 +29560,16 @@ if(typeof maybeAutoShowOnboarding === "function"){
       <button onclick="saCloseRag()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
     </div>
     <div style="padding:20px;">
-      <div class="tiny" style="margin-bottom:14px;opacity:.7;line-height:1.6;">Upload a document and index it. Teammates will automatically search it when answering questions. Great for SOPs, contracts, product docs, and research.</div>
+      <div class="tiny" style="margin-bottom:14px;opacity:.7;line-height:1.6;">Upload a document or paste a URL. Teammates will automatically search it when answering questions. Great for SOPs, contracts, product docs, and research.</div>
       <input type="file" id="ragFileInput" accept=".txt,.md,.csv,.json,.pdf" style="display:none" />
       <button onclick="document.getElementById('ragFileInput').click()" class="btn" style="width:100%;margin-bottom:10px;">📂 Choose Document</button>
       <div id="ragSelectedFile" class="tiny" style="opacity:.6;margin-bottom:10px;"></div>
       <button id="ragIndexBtn" onclick="saIndexRagFile()" class="btn btnPrimary" style="width:100%;margin-bottom:10px;">⚡ Index Document</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><div style="flex:1;height:1px;background:rgba(42,58,106,.5);"></div><span class="tiny" style="opacity:.4;flex-shrink:0;">or</span><div style="flex:1;height:1px;background:rgba(42,58,106,.5);"></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input id="ragUrlInput" type="url" placeholder="https://example.com/page" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 12px;color:#e2e8f0;font-size:13px;" />
+        <button onclick="saIndexRagUrl()" class="btn btnPrimary" style="white-space:nowrap;padding:8px 14px;">🌐 Index URL</button>
+      </div>
       <div id="ragStatus" class="tiny" style="opacity:.7;"></div>
       <div style="margin-top:14px;border-top:1px solid rgba(42,58,106,.4);padding-top:14px;">
         <div style="font-size:11px;opacity:.5;letter-spacing:.05em;margin-bottom:8px;">INDEXED DOCUMENTS</div>
@@ -29403,6 +29826,23 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const pill=document.getElementById("ragIndexStatus"); if(pill) pill.style.display="inline-flex";
       if(fi) fi.value="";
       const lbl=document.getElementById("ragSelectedFile"); if(lbl) lbl.innerText="";
+      await saLoadRagDocs();
+    }catch(e){ if(st) st.innerText="Error: "+((e||{}).message||e); }
+  };
+
+  window.saIndexRagUrl = async function saIndexRagUrl(){
+    const inp=document.getElementById("ragUrlInput"), st=document.getElementById("ragStatus");
+    const url=(inp&&inp.value||"").trim();
+    if(!url){ if(st) st.innerText="Paste a URL first."; return; }
+    if(st) st.innerText="Fetching & indexing URL (may take 15–30s)…";
+    try{
+      const ix=await fetch("/api/rag/index_url",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({url:url, label:url.replace(/^https?:\/\//,"").slice(0,60)})});
+      const ixd=await ix.json();
+      if(!ixd.ok){ if(st) st.innerText="Error: "+(ixd.error||"Failed"); return; }
+      if(st) st.innerText=`Indexed ${ixd.chunks} chunks from ${url.replace(/^https?:\/\//,"").split("/")[0]}. Teammates will search this automatically.`;
+      if(inp) inp.value="";
+      const pill=document.getElementById("ragIndexStatus"); if(pill) pill.style.display="inline-flex";
       await saLoadRagDocs();
     }catch(e){ if(st) st.innerText="Error: "+((e||{}).message||e); }
   };
@@ -35494,13 +35934,15 @@ window.toggleNotifPanel = function(){
   <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Swipe up on controls to show them</div>
 
   <!-- Recording control bar — always visible while recording, can't be missed -->
-  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:12px 10px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:7px;">
+  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:12px 10px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:7px;flex-wrap:wrap;">
     <button id="tpRecBarPause" onclick="tpTogglePause()" style="padding:11px 14px;border-radius:10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.5);color:#fde68a;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9646;&#9646; Pause</button>
+    <button id="tpVoiceBtn" onclick="tpToggleVoiceScroll()" title="Auto-pause scroll when you stop talking" style="padding:11px 14px;border-radius:10px;background:rgba(30,42,74,.6);border:1px solid rgba(42,58,106,.6);color:#94a3b8;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#127908; Voice Scroll</button>
     <button id="tpRecBarRestart" onclick="tpRestartRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.55);color:#a5b4fc;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#8635; Restart</button>
-    <div id="tpRecBarBadge" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+    <div id="tpRecBarBadge" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">
       <div style="width:9px;height:9px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;flex-shrink:0;"></div>
       <span style="font-size:13px;color:#fca5a5;font-weight:700;letter-spacing:.06em;">REC</span>
       <span id="tpRecTimer" style="font-size:13px;color:#fca5a5;font-weight:600;min-width:38px;"></span>
+      <span id="tpVoiceBadge" style="font-size:11px;opacity:.8;color:#6ee7b7;margin-left:8px;"></span>
     </div>
     <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop</button>
   </div>
@@ -36361,6 +36803,42 @@ def _validate_crm_client_fields(payload: dict) -> Optional[str]:
     return None
 
 
+def _crm_activity_path(uname: str, client_id: str) -> Path:
+    return DATA / "crm" / uname / f"activity_{client_id}.json"
+
+def _crm_activity_log(uname: str, client_id: str) -> List[Dict[str, Any]]:
+    return load_json(_crm_activity_path(uname, client_id), [])
+
+def _crm_activity_append(uname: str, client_id: str, event_type: str, detail: str) -> None:
+    log = _crm_activity_log(uname, client_id)
+    log.append({"type": event_type, "detail": detail, "at": now_iso()})
+    save_json(_crm_activity_path(uname, client_id), log[-200:])  # keep last 200 events
+
+
+@app.get("/api/crm/clients/<client_id>/activity")
+def api_crm_activity_get(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "activity": _crm_activity_log(uname, client_id)})
+
+
+@app.post("/api/crm/clients/<client_id>/activity")
+def api_crm_activity_post(client_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    event_type = (payload.get("type") or "note").strip()[:40]
+    detail = (payload.get("detail") or "").strip()[:500]
+    if not detail:
+        return jsonify({"ok": False, "error": "detail required"}), 400
+    _crm_activity_append(uname, client_id, event_type, detail)
+    return jsonify({"ok": True})
+
+
 @app.post("/api/crm/clients")
 def api_crm_clients_create():
     u = current_user()
@@ -36461,6 +36939,7 @@ def api_crm_clients_update(client_id: str):
             c["pipeline_stage"] = stage
             if stage != old_stage and old_stage:
                 _award_points(uname, f"Moved contact to {stage}", 10)
+                _crm_activity_append(uname, client_id, "stage_change", f"{old_stage} → {stage}")
     if "tags" in payload:
         tags_in = payload.get("tags") or []
         if isinstance(tags_in, str):
@@ -36474,6 +36953,8 @@ def api_crm_clients_update(client_id: str):
     clients[client_id] = c
     crm["clients"] = clients
     _crm_save(uname, crm)
+    if payload.get("notes") and payload["notes"].strip():
+        _crm_activity_append(uname, client_id, "note", payload["notes"].strip()[:200])
     # Apply pipeline rules in background (they may invoke LLM — don't block the response)
     def _bg_rules():
         try:
@@ -36500,6 +36981,48 @@ def api_crm_clients_delete(client_id: str):
     crm["clients"] = clients
     _crm_save(uname, crm)
     return jsonify({"ok": True})
+
+@app.post("/api/crm/clients/bulk")
+def api_crm_clients_bulk():
+    """Apply a bulk action (stage change, add tag, delete) to a list of contact IDs."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    ids     = payload.get("ids") or []
+    action  = (payload.get("action") or "").strip()
+    value   = (payload.get("value") or "").strip()
+    if not ids or not action:
+        return jsonify({"ok": False, "error": "ids and action required"}), 400
+    crm     = _crm_load(uname)
+    clients = crm.get("clients") or {}
+    changed = 0
+    for cid in ids:
+        if cid not in clients or not isinstance(clients[cid], dict):
+            continue
+        c = clients[cid]
+        if action == "stage" and value:
+            old = c.get("pipeline_stage","")
+            c["pipeline_stage"] = value
+            if old != value:
+                _crm_activity_append(uname, cid, "stage_change", f"{old} → {value}")
+        elif action == "tag" and value:
+            tags = c.get("tags") or []
+            if value not in tags:
+                tags.append(value)
+                c["tags"] = tags
+        elif action == "delete":
+            del clients[cid]
+            changed += 1
+            continue
+        c["updated_at"] = now_iso()
+        clients[cid] = c
+        changed += 1
+    crm["clients"] = clients
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "changed": changed})
+
 
 @app.post("/api/crm/clients/import_csv")
 def api_crm_clients_import_csv():
@@ -41047,6 +41570,59 @@ def api_rag_index():
     return jsonify({"ok": True, "doc_id": doc_id, "chunks": len(chunks)})
 
 
+@app.post("/api/rag/index_url")
+def api_rag_index_url():
+    """Fetch a URL and index it into the RAG knowledge base."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    url     = (payload.get("url") or "").strip()
+    label   = (payload.get("label") or "").strip()[:80]
+    if not url:
+        return jsonify({"ok": False, "error": "url required"}), 400
+    text, err = _fetch_url_content(url, max_chars=60_000)
+    if err or not text:
+        return jsonify({"ok": False, "error": err or "Could not fetch URL"}), 400
+    chunks = _chunk_text(text)[:400]
+    if not chunks:
+        return jsonify({"ok": False, "error": "No readable text found at that URL"}), 400
+    try:
+        oai         = get_openai_client()
+        all_vectors: List[List[float]] = []
+        for i in range(0, len(chunks), 96):
+            all_vectors.extend(_embed_texts(chunks[i:i + 96], oai))
+    except Exception as e:
+        code, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
+    import hashlib
+    doc_id   = "url_" + hashlib.md5(url.encode()).hexdigest()[:12]
+    idx_path = _rag_index_path(uname)
+    existing: List[str] = []
+    if idx_path.exists():
+        for line in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                if json.loads(line).get("doc_id") != doc_id:
+                    existing.append(line)
+            except Exception:
+                pass
+    new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
+                 for i, (c, v) in enumerate(zip(chunks, all_vectors))]
+    idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    meta = _rag_load_meta(uname)
+    meta.setdefault("docs", {})[doc_id] = {
+        "doc_id": doc_id, "label": label or url[:60], "filename": url,
+        "chunks": len(chunks), "indexed_at": now_iso(), "source_url": url,
+    }
+    _rag_save_meta(uname, meta)
+    try:
+        _mark_onboarding_step(uname, "rag_indexed", True)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "doc_id": doc_id, "chunks": len(chunks)})
+
+
 @app.get("/api/rag/docs")
 def api_rag_docs():
     u = current_user()
@@ -41080,6 +41656,47 @@ def api_rag_delete():
     (meta.get("docs") or {}).pop(doc_id, None)
     _rag_save_meta(uname, meta)
     return jsonify({"ok": True})
+
+
+@app.post("/api/rag/pin_response")
+def api_rag_pin_response():
+    """Index a teammate response text directly as a RAG knowledge chunk."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    text    = (payload.get("text") or "").strip()
+    label   = (payload.get("label") or "Pinned response")[:80]
+    if not text:
+        return jsonify({"ok": False, "error": "text required"}), 400
+    if len(text) > 50_000:
+        text = text[:50_000]
+    chunks = _chunk_text(text)[:100]
+    if not chunks:
+        return jsonify({"ok": False, "error": "No text chunks extracted"}), 400
+    try:
+        oai         = get_openai_client()
+        all_vectors: List[List[float]] = []
+        for i in range(0, len(chunks), 96):
+            all_vectors.extend(_embed_texts(chunks[i:i + 96], oai))
+    except Exception as e:
+        code, msg = _classify_openai_error(e)
+        return jsonify({"ok": False, "error": msg}), code
+    import hashlib
+    doc_id   = "pin_" + hashlib.md5(text[:200].encode()).hexdigest()[:12] + "_" + now_iso()[:10].replace("-","")
+    idx_path = _rag_index_path(uname)
+    existing = idx_path.read_text(encoding="utf-8", errors="ignore").splitlines() if idx_path.exists() else []
+    new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
+                 for i, (c, v) in enumerate(zip(chunks, all_vectors))]
+    idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    meta = _rag_load_meta(uname)
+    meta.setdefault("docs", {})[doc_id] = {
+        "doc_id": doc_id, "label": label, "filename": "",
+        "chunks": len(chunks), "indexed_at": now_iso(), "pinned": True,
+    }
+    _rag_save_meta(uname, meta)
+    return jsonify({"ok": True, "doc_id": doc_id, "chunks": len(chunks)})
 
 
 def _rag_dynamic_top_k(query: str) -> int:
