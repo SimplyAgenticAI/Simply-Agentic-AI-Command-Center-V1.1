@@ -35082,6 +35082,9 @@ document.addEventListener('click',e=>{
   padding:10px 14px;
   -webkit-overflow-scrolling:touch;
   min-height:80px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
 }
 /* Pass row inside sheet */
 #saSheetPassRow{
@@ -35168,12 +35171,15 @@ document.addEventListener('click',e=>{
 <div id="saBottomSheet" role="dialog" aria-modal="true" aria-label="Chat with teammate">
   <div class="sa-sheet-handle" id="saSheetHandle"></div>
   <div class="sa-sheet-hdr">
-    <div class="sa-sheet-av" id="saSheetAv">A</div>
-    <div>
-      <div class="sa-sheet-name" id="saSheetName">Teammate</div>
-      <div class="sa-sheet-role" id="saSheetRole"></div>
+    <button onclick="saCloseSheet()" aria-label="Close chat" style="flex-shrink:0;display:flex;align-items:center;gap:6px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.45);color:#c4b5fd;border-radius:10px;padding:7px 14px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;">&#8592; Back</button>
+    <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;justify-content:center;">
+      <div class="sa-sheet-av" id="saSheetAv">A</div>
+      <div style="min-width:0;">
+        <div class="sa-sheet-name" id="saSheetName">Teammate</div>
+        <div class="sa-sheet-role" id="saSheetRole"></div>
+      </div>
     </div>
-    <button class="sa-sheet-close" onclick="saCloseSheet()" aria-label="Close chat" style="margin-left:auto;width:auto;padding:0 12px;font-size:13px;font-weight:700;gap:4px;display:flex;align-items:center;">← Back</button>
+    <div style="width:80px;flex-shrink:0;"></div>
   </div>
   <div class="passRow" id="saSheetPassRow" style="display:none;">
     <button class="btn btnMini passBtn" id="saSheetPassRisk">⚠️ Risk</button>
@@ -35207,6 +35213,31 @@ document.addEventListener('click',e=>{
   var _dragStartY = 0;
   var _sheetY     = 0;
   var _dragging   = false;
+  var _sheetHistoryPushed = false;
+
+  /* ── Internal close (DOM only, no history manipulation) ── */
+  function _doCloseSheet(){
+    if(!_sheetOpen) return;
+    _sheetOpen = false;
+    _sheetSeat = null;
+    var bs = ge('saBottomSheet');
+    bs.classList.remove('sa-sheet-open','sa-sheet-full');
+    bs.style.transform = 'translateY(100%)';
+    setTimeout(function(){
+      if(ge('saSheetBackdrop')) ge('saSheetBackdrop').style.display='none';
+      if(ge('saBottomSheet')){ ge('saBottomSheet').style.display='none'; ge('saBottomSheet').style.transform=''; }
+      document.body.classList.remove('sa-sheet-active');
+      document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
+    }, 340);
+  }
+
+  /* ── Back-gesture intercept: close sheet instead of navigating away ── */
+  window.addEventListener('popstate', function(e){
+    if(_sheetOpen){
+      _sheetHistoryPushed = false;
+      _doCloseSheet();
+    }
+  });
 
   /* ── Open sheet ── */
   window.saOpenSheet = function(name){
@@ -35237,7 +35268,6 @@ document.addEventListener('click',e=>{
     var sheetThread = ge('saSheetThread');
     if(desktop && sheetThread){
       sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
-      /* Scroll to most recent message immediately */
       sheetThread.scrollTop = sheetThread.scrollHeight;
     }
 
@@ -35251,6 +35281,13 @@ document.addEventListener('click',e=>{
     /* Mark active seat */
     document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
     if(seat) seat.classList.add('sa-sheet-seat');
+
+    /* Push a history entry so the browser back gesture closes the sheet
+       instead of navigating away from the app (which would trigger logout on some configs) */
+    if(!_sheetHistoryPushed){
+      history.pushState({saSheet: true, seat: name}, '');
+      _sheetHistoryPushed = true;
+    }
 
     /* Show */
     ge('saSheetBackdrop').style.display='block';
@@ -35282,23 +35319,16 @@ document.addEventListener('click',e=>{
     return true;
   };
 
-  /* ── Close sheet ── */
+  /* ── Close sheet (button / programmatic) ── */
   window.saCloseSheet = function(){
     if(!_sheetOpen) return;
-    _sheetOpen = false;
-    _sheetSeat = null;
-
-    var bs = ge('saBottomSheet');
-    bs.classList.remove('sa-sheet-open','sa-sheet-full');
-    bs.style.transform = 'translateY(100%)';
-
-    setTimeout(function(){
-      ge('saSheetBackdrop').style.display='none';
-      ge('saBottomSheet').style.display='none';
-      ge('saBottomSheet').style.transform='';
-      document.body.classList.remove('sa-sheet-active');
-      document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
-    }, 340);
+    /* If we pushed a history entry, pop it — this triggers popstate which calls _doCloseSheet */
+    if(_sheetHistoryPushed){
+      _sheetHistoryPushed = false;
+      history.back();
+      return; /* popstate will call _doCloseSheet */
+    }
+    _doCloseSheet();
   };
 
   /* ── Swipe down to dismiss ── */
@@ -35432,22 +35462,27 @@ document.addEventListener('click',e=>{
     mo.observe(document.body, {childList:true, subtree:true});
   }
 
-  /* Sync sheet thread when desktop thread updates */
+  /* Sync sheet thread when desktop thread updates (including live streaming tokens) */
   var desktopThread = ge('thread');
   if(desktopThread && window.MutationObserver){
+    var _syncTimer = null;
     var to = new MutationObserver(function(){
       if(!_sheetOpen) return;
-      var st = ge('saSheetThread');
-      if(st){
+      /* Debounce to avoid thrashing during streaming */
+      clearTimeout(_syncTimer);
+      _syncTimer = setTimeout(function(){
+        var st = ge('saSheetThread');
+        if(!st) return;
+        /* Clone the desktop thread so styles and classes transfer correctly */
         st.innerHTML = desktopThread.innerHTML;
         st.scrollTop = st.scrollHeight;
-      }
-      /* Also sync mic status */
-      var mic = ge('micStatusDm');
-      var sheetMic = ge('saSheetMic');
-      if(mic && sheetMic) sheetMic.textContent = mic.textContent;
+        /* Sync mic status */
+        var mic = ge('micStatusDm');
+        var sheetMic = ge('saSheetMic');
+        if(mic && sheetMic) sheetMic.textContent = mic.textContent;
+      }, 60);
     });
-    to.observe(desktopThread, {childList:true, subtree:true, characterData:true});
+    to.observe(desktopThread, {childList:true, subtree:true, characterData:true, attributes:true});
   }
 
   /* Keyboard: Escape closes sheet */
