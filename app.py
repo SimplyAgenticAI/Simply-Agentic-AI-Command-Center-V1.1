@@ -10881,6 +10881,8 @@ def setup_post():
 
 @app.get("/login")
 def login():
+    if current_user():
+        return redirect("/")
     allow_setup = not has_any_user()
     resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -36035,20 +36037,8 @@ function _syncFullChat(name){
 }
 
 function openFullChat(){
-  var fc=ge('mobFullChat'); if(!fc) return;
-  _syncFullChat(_nm||'');
-  fc.style.display='flex';
-  document.body.style.overflow='hidden';
-  setTimeout(function(){ var m=ge('mobFullChatMsg'); if(m) m.focus(); },200);
-  /* Observe desktop thread for updates */
-  var dt=ge('thread'), ft=ge('mobFullChatThread');
-  if(dt&&ft&&window.MutationObserver){
-    if(window._mobFullChatObs) window._mobFullChatObs.disconnect();
-    window._mobFullChatObs=new MutationObserver(function(){
-      ft.innerHTML=dt.innerHTML; ft.scrollTop=ft.scrollHeight;
-    });
-    window._mobFullChatObs.observe(dt,{childList:true,subtree:true,characterData:true});
-  }
+  /* Delegate to the unified bottom sheet (saOpenSheet) */
+  if(typeof window.saOpenSheet==='function' && _nm){ window.saOpenSheet(_nm); return; }
 }
 
 function closeFullChat(){
@@ -36085,6 +36075,15 @@ if(expandBtn) expandBtn.addEventListener('click',function(){
 
 var minBtn=ge('mobStripMinimize');
 if(minBtn) minBtn.addEventListener('click',function(){ minimizeStrip(); });
+
+/* Tapping the who-row header opens the full-screen sheet (skip expand/minimize button taps) */
+var whoRow=ge('mobStripWho');
+if(whoRow) whoRow.addEventListener('click',function(e){
+  var exp=ge('mobStripExpand'), mn=ge('mobStripMinimize');
+  if(exp&&exp.contains(e.target)) return;
+  if(mn&&mn.contains(e.target)) return;
+  if(_nm && typeof window.saOpenSheet==='function') window.saOpenSheet(_nm);
+});
 
 var fcClose=ge('mobFullChatClose');
 if(fcClose) fcClose.addEventListener('click',closeFullChat);
