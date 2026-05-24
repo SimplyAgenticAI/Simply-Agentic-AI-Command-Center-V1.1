@@ -35231,13 +35231,31 @@ document.addEventListener('click',e=>{
     }, 340);
   }
 
-  /* ── Back-gesture intercept: close sheet instead of navigating away ── */
-  window.addEventListener('popstate', function(e){
-    if(_sheetOpen){
-      _sheetHistoryPushed = false;
-      _doCloseSheet();
-    }
-  });
+  /* ── Global back-gesture trap ───────────────────────────────────────────
+     Plant a sentinel history state on load so there is always a "current app"
+     entry. On any popstate:
+       • If the sheet is open → close it (don't navigate away)
+       • Otherwise           → push the sentinel back so the user stays in the app
+     This means swiping left on mobile NEVER logs the user out; the only way
+     to log out is via the Logout button.
+  ─────────────────────────────────────────────────────────────────────── */
+  (function(){
+    /* Plant the sentinel on first load */
+    try{ history.replaceState({__saApp: true}, ''); }catch(e){}
+
+    window.addEventListener('popstate', function(e){
+      if(_sheetOpen){
+        /* Sheet is open — close it, stay on page */
+        _sheetHistoryPushed = false;
+        _doCloseSheet();
+        return;
+      }
+      /* No sheet — if we've backed out of our sentinel, snap right back */
+      if(!e.state || !e.state.__saApp){
+        try{ history.pushState({__saApp: true}, ''); }catch(e2){}
+      }
+    });
+  })();
 
   /* ── Open sheet ── */
   window.saOpenSheet = function(name){
