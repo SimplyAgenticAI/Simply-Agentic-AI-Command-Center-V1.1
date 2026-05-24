@@ -1751,15 +1751,24 @@ def login_required_api() -> bool:
 # SECURITY RESPONSE HEADERS + ERROR PAGES
 # =========================
 _ERROR_PAGE_CSS = (
-    "body{font-family:system-ui,sans-serif;background:#0a0e1f;color:#e2e8f0;"
-    "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}"
-    ".box{text-align:center;padding:40px;max-width:480px;}"
-    "h1{font-size:64px;font-weight:900;color:#c4b5fd;margin:0 0 8px;}"
-    "h2{font-size:20px;font-weight:700;margin:0 0 12px;}"
-    "p{color:#94a3b8;font-size:14px;margin:0 0 24px;}"
-    "a{color:#c4b5fd;text-decoration:none;font-size:14px;border:1px solid rgba(124,58,237,.4);"
-    "padding:9px 20px;border-radius:8px;background:rgba(124,58,237,.12);}"
-    "a:hover{background:rgba(124,58,237,.25);}"
+    "@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}"
+    "body{font-family:system-ui,sans-serif;background:#080c1e;color:#e2e8f0;"
+    "display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"
+    "background-image:radial-gradient(ellipse at 30% 20%,rgba(124,58,237,.13) 0%,transparent 60%),"
+    "radial-gradient(ellipse at 75% 80%,rgba(99,102,241,.10) 0%,transparent 55%);}"
+    ".box{text-align:center;padding:48px 40px;max-width:460px;animation:fadeUp .5s ease both;}"
+    ".icon{font-size:52px;margin-bottom:16px;filter:drop-shadow(0 0 18px rgba(124,58,237,.55));}"
+    ".code{font-size:72px;font-weight:900;background:linear-gradient(135deg,#c4b5fd,#818cf8);"
+    "-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0 0 6px;line-height:1;}"
+    "h2{font-size:20px;font-weight:700;margin:0 0 10px;color:#e2e8f0;}"
+    "p{color:#64748b;font-size:14px;margin:0 0 28px;line-height:1.65;}"
+    ".actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}"
+    "a{color:#c4b5fd;text-decoration:none;font-size:14px;font-weight:600;"
+    "border:1px solid rgba(124,58,237,.4);padding:10px 22px;border-radius:10px;"
+    "background:rgba(124,58,237,.12);transition:background .18s,border-color .18s;}"
+    "a:hover{background:rgba(124,58,237,.28);border-color:rgba(124,58,237,.7);}"
+    "a.sec{background:transparent;border-color:rgba(100,116,139,.35);color:#64748b;}"
+    "a.sec:hover{background:rgba(100,116,139,.12);border-color:rgba(100,116,139,.6);color:#94a3b8;}"
 )
 
 @app.after_request
@@ -9893,6 +9902,11 @@ resize();draw();
 <div class="card" style="position:relative;z-index:1;">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
+    <div style="margin:10px 0 4px;display:flex;justify-content:center;">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(99,102,241,.18));border:1px solid rgba(124,58,237,.45);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:0.04em;">
+        &#10024; What&#39;s New in V3.0 &nbsp;&middot;&nbsp; Smarter teammates &nbsp;&middot;&nbsp; Faster pipeline &nbsp;&middot;&nbsp; Polished UI
+      </span>
+    </div>
 
     <form method="post" action="/login">
       <label>Username</label>
@@ -10731,7 +10745,7 @@ a{color:#c4b5fd;text-decoration:underline;}
 # =========================
 @app.get("/terms")
 def terms_page():
-    app_name  = APP_TITLE.split(" v")[0]
+    app_name  = re.split(r' [Vv]\d', APP_TITLE)[0]
     from_email = SMTP_FROM_NAME or app_name
     html = f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -10778,7 +10792,7 @@ def terms_page():
 
 @app.get("/privacy")
 def privacy_page():
-    app_name  = APP_TITLE.split(" v")[0]
+    app_name  = re.split(r' [Vv]\d', APP_TITLE)[0]
     html = f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Privacy Policy — {app_name}</title>
@@ -17123,38 +17137,121 @@ input[type="range"]::-moz-range-progress {
 // =============================================================
 
 if (typeof window.showToast !== "function") {
+  // Inject toast styles once
+  (function(){
+    if(document.getElementById('_saToastStyle')) return;
+    const s = document.createElement('style');
+    s.id = '_saToastStyle';
+    s.textContent = `
+      @keyframes _saSlideIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}
+      @keyframes _saSlideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(110%);opacity:0}}
+      ._saToast{animation:_saSlideIn .28s cubic-bezier(.34,1.56,.64,1) both}
+      ._saToast._saOut{animation:_saSlideOut .22s ease-in both}
+      ._saToast:hover ._saProgress{animation-play-state:paused!important}
+      @keyframes _saBar{from{width:100%}to{width:0%}}
+    `;
+    document.head.appendChild(s);
+  })();
+
   window.showToast = function(msg, type) {
     try {
-      const isError = type === "error";
+      const isError  = type === "error";
+      const isWarn   = type === "warning";
+      const duration = isError ? null : 3500;
+
+      const icons = { error:"✕", warning:"⚠", success:"✓", info:"ℹ" };
+      const icon  = isError ? icons.error : isWarn ? icons.warning : (msg.startsWith("✅") ? "" : icons.success);
+
+      const colors = isError
+        ? { bg:"rgba(127,29,29,.97)", border:"#dc2626", progress:"#ef4444", iconBg:"rgba(220,38,38,.3)", iconColor:"#fca5a5" }
+        : isWarn
+        ? { bg:"rgba(120,80,0,.97)",  border:"#d97706", progress:"#f59e0b", iconBg:"rgba(217,119,6,.3)",  iconColor:"#fcd34d" }
+        : { bg:"rgba(17,24,39,.97)",  border:"rgba(124,58,237,.6)", progress:"#7c3aed", iconBg:"rgba(124,58,237,.2)", iconColor:"#c4b5fd" };
+
       const el = document.createElement("div");
-      el.style.cssText = "position:fixed;bottom:20px;right:20px;padding:10px 14px;border-radius:8px;font-size:14px;z-index:999999;max-width:340px;display:flex;align-items:flex-start;gap:8px;line-height:1.4;word-break:break-word;";
-      el.style.background = isError ? "#7f1d1d" : "#1f2937";
-      el.style.color = "#fff";
-      el.style.border = isError ? "1px solid #dc2626" : "none";
+      el.className = "_saToast";
+      el.style.cssText = `position:fixed;bottom:24px;right:24px;padding:12px 14px 12px 12px;border-radius:12px;font-size:13.5px;z-index:9999999;max-width:340px;min-width:220px;display:flex;align-items:flex-start;gap:10px;line-height:1.45;word-break:break-word;background:${colors.bg};color:#e2e8f0;border:1px solid ${colors.border};box-shadow:0 8px 32px rgba(0,0,0,.55);backdrop-filter:blur(12px);overflow:hidden;`;
+
+      if(icon){
+        const ic = document.createElement("span");
+        ic.textContent = icon;
+        ic.style.cssText = `flex-shrink:0;width:22px;height:22px;border-radius:50%;background:${colors.iconBg};color:${colors.iconColor};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;margin-top:1px;`;
+        el.appendChild(ic);
+      }
 
       const txt = document.createElement("span");
-      txt.textContent = msg;
+      txt.textContent = msg.replace(/^✅\s*/,'');
       txt.style.flex = "1";
       el.appendChild(txt);
 
-      if(isError){
-        const x = document.createElement("button");
-        x.textContent = "×";
-        x.style.cssText = "background:none;border:none;color:#fca5a5;cursor:pointer;font-size:18px;line-height:1;padding:0 0 0 6px;flex-shrink:0;";
-        x.onclick = function(){ el.remove(); };
-        el.appendChild(x);
+      const x = document.createElement("button");
+      x.textContent = "×";
+      x.style.cssText = "background:none;border:none;color:#64748b;cursor:pointer;font-size:18px;line-height:1;padding:0 0 0 8px;flex-shrink:0;transition:color .15s;";
+      x.onmouseenter = function(){ x.style.color="#e2e8f0"; };
+      x.onmouseleave = function(){ x.style.color="#64748b"; };
+      x.onclick = function(){ dismiss(); };
+      el.appendChild(x);
+
+      if(!isError && duration){
+        const bar = document.createElement("div");
+        bar.className = "_saProgress";
+        bar.style.cssText = `position:absolute;bottom:0;left:0;height:3px;background:${colors.progress};border-radius:0 0 12px 12px;animation:_saBar ${duration}ms linear forwards;`;
+        el.appendChild(bar);
       }
 
       document.body.appendChild(el);
 
-      if(!isError){
-        setTimeout(() => { el.remove(); }, 3000);
+      function dismiss(){
+        el.classList.add('_saOut');
+        setTimeout(()=>{ try{ el.remove(); }catch(e){} }, 250);
+      }
+
+      if(!isError && duration){
+        setTimeout(dismiss, duration);
       }
     } catch (e) {
       alert(msg);
     }
   };
 }
+
+// ── Session expiry interceptor ───────────────────────────────────────────────
+// Wraps fetch so any 401 from our own API shows a friendly re-login modal
+// instead of silently failing or confusing the user.
+(function(){
+  if(window._saSessionGuardInstalled) return;
+  window._saSessionGuardInstalled = true;
+
+  const _origFetch = window.fetch;
+  window.fetch = async function(...args){
+    const res = await _origFetch(...args);
+    if(res.status === 401){
+      try{
+        const url = (typeof args[0]==='string'?args[0]:(args[0]&&args[0].url)||'');
+        if(url.includes('/api/') || url.startsWith('/api')){
+          _saShowSessionModal();
+        }
+      }catch(e){}
+    }
+    return res;
+  };
+
+  function _saShowSessionModal(){
+    if(document.getElementById('_saSessionModal')) return;
+    const overlay = document.createElement('div');
+    overlay.id = '_saSessionModal';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999999;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="background:#0f172a;border:1px solid rgba(124,58,237,.5);border-radius:18px;padding:36px 32px;max-width:380px;width:90%;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.7);">
+        <div style="font-size:40px;margin-bottom:14px;">🔒</div>
+        <h2 style="color:#e2e8f0;font-size:20px;font-weight:800;margin:0 0 10px;">Session Expired</h2>
+        <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 24px;">Your session has timed out. Any unsaved work has been preserved — just log back in to continue.</p>
+        <button onclick="window.location='/login'" style="background:linear-gradient(135deg,#7c3aed,#6366f1);color:#fff;border:none;border-radius:10px;padding:12px 28px;font-size:15px;font-weight:700;cursor:pointer;width:100%;letter-spacing:.02em;">Log Back In</button>
+        <div style="margin-top:12px;font-size:12px;color:#475569;">You&#39;ll be returned here after logging in.</div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+})();
 
 
     // ── Oval Table: ellipse seat positioning ─────────────────────
@@ -39589,12 +39686,18 @@ def _handle_404(e):
     # Branded 404 — consistent with _error_404 above
     page = (
         f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<meta name='viewport' content='width=device-width,initial-scale=1'/>"
         f"<title>404 — {APP_TITLE}</title>"
         f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
         f"<div class='box'>"
-        f"<h1>404</h1><h2>Page not found</h2>"
-        f"<p>The page you're looking for doesn't exist or has moved.</p>"
-        f"<a href='/'>← Back to {APP_TITLE}</a></div></body></html>"
+        f"<div class='icon'>🔭</div>"
+        f"<div class='code'>404</div>"
+        f"<h2>Page not found</h2>"
+        f"<p>The page you&#39;re looking for doesn&#39;t exist or may have moved.<br>Double-check the URL or head back to your command center.</p>"
+        f"<div class='actions'>"
+        f"<a href='/'>← Back to Command Center</a>"
+        f"<a class='sec' onclick='history.back();return false;' href='#'>Go Back</a>"
+        f"</div></div></body></html>"
     )
     return page, 404
 
@@ -39607,12 +39710,18 @@ def _handle_500(e):
         pass
     page = (
         f"<!doctype html><html><head><meta charset='utf-8'/>"
+        f"<meta name='viewport' content='width=device-width,initial-scale=1'/>"
         f"<title>500 — {APP_TITLE}</title>"
         f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
         f"<div class='box'>"
-        f"<h1>500</h1><h2>Something went wrong</h2>"
-        f"<p>An unexpected error occurred. Please try again in a moment.</p>"
-        f"<a href='/'>← Back to {APP_TITLE}</a></div></body></html>"
+        f"<div class='icon'>⚡</div>"
+        f"<div class='code'>500</div>"
+        f"<h2>Something went wrong</h2>"
+        f"<p>An unexpected error occurred on our end. It&#39;s been logged and we&#39;ll look into it.<br>Refreshing usually fixes it — if not, try again in a moment.</p>"
+        f"<div class='actions'>"
+        f"<a href='/'>← Back to Command Center</a>"
+        f"<a class='sec' onclick='location.reload();return false;' href='#'>Refresh Page</a>"
+        f"</div></div></body></html>"
     )
     return page, 500
 
