@@ -14447,8 +14447,6 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
-            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
           </div>
         </div>
 
@@ -14467,13 +14465,16 @@ label         { font-size: 14px !important; }
         </div>
 
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saManageDropBtn" data-tip="Contacts, calendar & email" onclick="saToggleDrop('saManageDrop')">
+          <button class="saNavBtn" id="saManageDropBtn" data-tip="Contacts, libraries & resources" onclick="saToggleDrop('saManageDrop')">
             <span>📊 Manage</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saManageDrop">
             <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
+            <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
           </div>
         </div>
 
@@ -14595,6 +14596,7 @@ label         { font-size: 14px !important; }
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
+            <button class="btn" data-click="responseVaultBtn" onclick="closeMobileDrawer()">🗄️ Response Vault</button>
           </div>
         </div>
 
@@ -19084,33 +19086,33 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
             };
 
-            // Pin to Knowledge Base button
+            // Save to Response Vault button
             const pinBtn = document.createElement("button");
             pinBtn.className = "btn btnMini";
             pinBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
-            pinBtn.innerText = "📌 Save to KB";
-            pinBtn.title = "Save this response to your Knowledge Base";
+            pinBtn.innerText = "🗄️ Save to Vault";
+            pinBtn.title = "Save this response to your Response Vault";
             pinBtn.onclick = async (e) => {
               e.stopPropagation();
               pinBtn.innerText = "⏳ Saving…";
               try{
                 const label = (selectedSeat || "Teammate") + " — " + new Date().toISOString().slice(0,10);
-                const res = await fetch("/api/rag/pin_response", {
+                const res = await fetch("/api/vault/save", {
                   method: "POST",
                   headers: {"Content-Type": "application/json"},
-                  body: JSON.stringify({text: raw, label: label})
+                  body: JSON.stringify({text: raw, label: label, teammate: selectedSeat || ""})
                 });
                 const d = await res.json();
                 if(d.ok){
-                  pinBtn.innerText = "✅ Saved";
+                  pinBtn.innerText = "✅ Saved to Vault";
                   pinBtn.style.opacity = "1";
-                  if(window.showToast) showToast("📌 Response saved to Knowledge Base");
+                  if(window.showToast) showToast("🗄️ Saved to Response Vault");
                 } else {
-                  pinBtn.innerText = "📌 Save to KB";
+                  pinBtn.innerText = "🗄️ Save to Vault";
                   if(window.showToast) showToast("⚠️ " + (d.error || "Save failed"));
                 }
               }catch(err){
-                pinBtn.innerText = "📌 Save to KB";
+                pinBtn.innerText = "🗄️ Save to Vault";
                 if(window.showToast) showToast("⚠️ Save failed");
               }
             };
@@ -21626,6 +21628,195 @@ Challenge weak assumptions. Surface risks.`;
       showPromptLibraryModal();
     };
     // ===== END PROMPT LIBRARY =====
+
+    // ===== RESPONSE VAULT =====
+    (function(){
+      var _vaultOpen = false;
+
+      function openResponseVault(){
+        if(_vaultOpen) return;
+        _vaultOpen = true;
+        saToggleDrop('saManageDrop');
+
+        // Build overlay
+        var overlay = document.createElement('div');
+        overlay.id = '_rvOverlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;';
+        overlay.onclick = function(e){ if(e.target===overlay) closeVault(); };
+
+        overlay.innerHTML = [
+          '<div id="_rvPanel" style="background:#0f172a;border:1px solid rgba(124,58,237,.45);border-radius:20px;',
+          'width:min(680px,96vw);max-height:82vh;display:flex;flex-direction:column;',
+          'box-shadow:0 24px 64px rgba(0,0,0,.7);overflow:hidden;">',
+
+            // Header
+            '<div style="display:flex;align-items:center;gap:10px;padding:18px 22px 14px;border-bottom:1px solid rgba(255,255,255,.07);">',
+              '<span style="font-size:22px;">🗄️</span>',
+              '<div style="flex:1;">',
+                '<div style="font-size:17px;font-weight:800;color:#e2e8f0;">Response Vault</div>',
+                '<div style="font-size:12px;color:#475569;margin-top:1px;">Your saved AI responses — browse, copy, or delete</div>',
+              '</div>',
+              '<button onclick="document.getElementById(\'_rvOverlay\').dispatchEvent(new MouseEvent(\'click\'))" ',
+              'style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;',
+              'color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:4px 10px;">&#215;</button>',
+            '</div>',
+
+            // Search bar
+            '<div style="padding:12px 22px 0;">',
+              '<input id="_rvSearch" placeholder="Search your vault…" ',
+              'style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid rgba(255,255,255,.1);',
+              'border-radius:10px;color:#e2e8f0;padding:10px 14px;font-size:14px;outline:none;" />',
+            '</div>',
+
+            // Count + list
+            '<div id="_rvCount" style="padding:8px 22px 4px;font-size:12px;color:#334155;"></div>',
+            '<div id="_rvList" style="flex:1;overflow-y:auto;padding:0 14px 14px;"></div>',
+
+            // Empty state
+            '<div id="_rvEmpty" style="display:none;flex:1;align-items:center;justify-content:center;',
+            'flex-direction:column;gap:10px;padding:40px;text-align:center;">',
+              '<div style="font-size:40px;">🗄️</div>',
+              '<div style="font-size:16px;font-weight:700;color:#e2e8f0;">Your vault is empty</div>',
+              '<div style="font-size:13px;color:#475569;line-height:1.6;">',
+                'Hit <strong style="color:#c4b5fd;">Save to Vault</strong> on any AI response<br>to save it here for future use.',
+              '</div>',
+            '</div>',
+
+          '</div>',
+        ].join('');
+
+        document.body.appendChild(overlay);
+
+        // Search handler
+        var searchEl = document.getElementById('_rvSearch');
+        if(searchEl) searchEl.addEventListener('input', function(){ renderVaultList(this.value.toLowerCase()); });
+
+        loadAndRenderVault();
+      }
+
+      var _vaultEntries = [];
+
+      function loadAndRenderVault(){
+        var list = document.getElementById('_rvList');
+        if(list) list.innerHTML = '<div style="padding:20px;text-align:center;color:#475569;font-size:13px;">Loading…</div>';
+        fetch('/api/vault/list').then(function(r){ return r.json(); }).then(function(d){
+          _vaultEntries = (d.ok && d.entries) ? d.entries : [];
+          renderVaultList('');
+        }).catch(function(){
+          var l = document.getElementById('_rvList');
+          if(l) l.innerHTML = '<div style="padding:20px;color:#ef4444;font-size:13px;">Could not load vault.</div>';
+        });
+      }
+
+      function renderVaultList(query){
+        var list    = document.getElementById('_rvList');
+        var empty   = document.getElementById('_rvEmpty');
+        var countEl = document.getElementById('_rvCount');
+        if(!list) return;
+
+        var filtered = query
+          ? _vaultEntries.filter(function(e){
+              return (e.label||'').toLowerCase().indexOf(query) !== -1 ||
+                     (e.text||'').toLowerCase().indexOf(query) !== -1 ||
+                     (e.teammate||'').toLowerCase().indexOf(query) !== -1;
+            })
+          : _vaultEntries;
+
+        if(countEl) countEl.textContent = filtered.length + ' saved response' + (filtered.length !== 1 ? 's' : '');
+
+        if(!filtered.length){
+          list.innerHTML = '';
+          list.style.display = 'none';
+          if(empty) empty.style.display = 'flex';
+          return;
+        }
+        if(empty) empty.style.display = 'none';
+        list.style.display = '';
+
+        list.innerHTML = filtered.map(function(e){
+          var date = (e.saved_at||'').slice(0,10);
+          var preview = (e.text||'').slice(0,220).replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          if((e.text||'').length > 220) preview += '…';
+          return [
+            '<div class="_rvCard" data-id="'+e.id+'" ',
+            'style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:14px;',
+            'padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .18s;"',
+            ' onmouseenter="this.style.borderColor=\'rgba(124,58,237,.5)\'"',
+            ' onmouseleave="this.style.borderColor=\'rgba(255,255,255,.07)\'">',
+
+              '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">',
+                '<div style="flex:1;min-width:0;">',
+                  '<div style="font-size:13px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">',
+                    escapeHtmlVault(e.label||'Saved response'),
+                  '</div>',
+                  '<div style="font-size:11px;color:#475569;margin-top:2px;">',
+                    (e.teammate ? '<span style="color:#c4b5fd;font-weight:600;">'+escapeHtmlVault(e.teammate)+'</span> &middot; ' : ''),
+                    date,
+                  '</div>',
+                '</div>',
+                '<div style="display:flex;gap:6px;flex-shrink:0;">',
+                  '<button onclick="_rvCopy(\''+e.id+'\')" ',
+                  'style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:7px;',
+                  'color:#c4b5fd;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
+                  'title="Copy to clipboard">📋 Copy</button>',
+                  '<button onclick="_rvDelete(\''+e.id+'\')" ',
+                  'style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:7px;',
+                  'color:#fca5a5;cursor:pointer;font-size:11px;padding:4px 10px;" ',
+                  'title="Delete">✕</button>',
+                '</div>',
+              '</div>',
+
+              '<div style="font-size:12px;color:#64748b;line-height:1.55;white-space:pre-wrap;">',
+                preview,
+              '</div>',
+
+            '</div>',
+          ].join('');
+        }).join('');
+      }
+
+      function escapeHtmlVault(s){
+        return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      window._rvCopy = function(id){
+        var e = _vaultEntries.find(function(x){ return x.id===id; });
+        if(!e) return;
+        navigator.clipboard.writeText(e.text||'').then(function(){
+          if(typeof showToast==='function') showToast('📋 Copied to clipboard');
+        }).catch(function(){
+          var ta=document.createElement('textarea'); ta.value=e.text; ta.style.cssText='position:fixed;opacity:0;';
+          document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(_){}
+          document.body.removeChild(ta);
+          if(typeof showToast==='function') showToast('📋 Copied');
+        });
+      };
+
+      window._rvDelete = function(id){
+        if(!confirm('Delete this response from your vault?')) return;
+        fetch('/api/vault/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+          .then(function(r){ return r.json(); }).then(function(d){
+            if(d.ok){
+              _vaultEntries = _vaultEntries.filter(function(e){ return e.id!==id; });
+              var q = (document.getElementById('_rvSearch')||{}).value||'';
+              renderVaultList(q.toLowerCase());
+              if(typeof showToast==='function') showToast('Deleted from Response Vault');
+            }
+          }).catch(function(){});
+      };
+
+      function closeVault(){
+        _vaultOpen = false;
+        var o = document.getElementById('_rvOverlay');
+        if(o){ o.style.opacity='0'; o.style.transition='opacity .2s'; setTimeout(function(){ try{o.remove();}catch(_){} },220); }
+      }
+
+      window.openResponseVault = openResponseVault;
+      window.closeResponseVault = closeVault;
+
+      document.getElementById('responseVaultBtn').onclick = function(){ openResponseVault(); };
+    })();
+    // ===== END RESPONSE VAULT =====
 
     $("frameworkBtn").onclick = async () => {
       showFrameworkModal();
@@ -35035,17 +35226,17 @@ document.addEventListener('click',e=>{
             var voice = 'alloy';
             try{ var tm=((window.state&&window.state.installed)||{})[_sheetSeat||'']||{}; voice=tm.tts_voice||'alloy'; }catch(_){}
             if(typeof window.saTtsSpeak === 'function') window.saTtsSpeak(raw.trim(), voice, btn);
-          } else if(lbl.indexOf('Save to KB') !== -1 || lbl.indexOf('Saving') !== -1){
+          } else if(lbl.indexOf('Save to Vault') !== -1 || lbl.indexOf('Saving') !== -1){
             e.stopPropagation();
             btn.textContent = '⏳ Saving…';
-            fetch('/api/rag/pin_response', {
+            fetch('/api/vault/save', {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({text: raw.trim(), label: (_sheetSeat||'Teammate') + ' — ' + new Date().toISOString().slice(0,10)})
+              body: JSON.stringify({text: raw.trim(), label: (_sheetSeat||'Teammate') + ' — ' + new Date().toISOString().slice(0,10), teammate: _sheetSeat||''})
             }).then(function(r){ return r.json(); }).then(function(d){
-              if(d.ok){ btn.textContent = '✅ Saved'; if(typeof showToast==='function') showToast('📌 Saved to Knowledge Base'); }
-              else { btn.textContent = '📌 Save to KB'; if(typeof showToast==='function') showToast('⚠️ ' + (d.error||'Save failed')); }
-            }).catch(function(){ btn.textContent = '📌 Save to KB'; });
+              if(d.ok){ btn.textContent = '✅ Saved to Vault'; if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault'); }
+              else { btn.textContent = '🗄️ Save to Vault'; if(typeof showToast==='function') showToast('⚠️ ' + (d.error||'Save failed')); }
+            }).catch(function(){ btn.textContent = '🗄️ Save to Vault'; });
           }
         });
       }
@@ -41798,6 +41989,71 @@ def _consume_oauth_state(state):
 # =============================================================================
 
 import math as _math
+
+# ── Response Vault ────────────────────────────────────────────────────────────
+# Simple per-user library of saved AI responses. Plain JSON — no embeddings,
+# no external API calls. Replaces the RAG pin_response flow for user-facing saves.
+
+VAULT_DIR = DATA / "vault"
+VAULT_DIR.mkdir(exist_ok=True)
+
+def _vault_path(username: str) -> Path:
+    return VAULT_DIR / f"{_safe_name(username or 'anon')}.json"
+
+def _vault_load(username: str) -> list:
+    return load_json(_vault_path(username), [])
+
+def _vault_save(username: str, entries: list) -> None:
+    save_json(_vault_path(username), entries[:500])  # cap at 500 entries
+
+@app.post("/api/vault/save")
+def api_vault_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname   = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    text    = (payload.get("text") or "").strip()
+    label   = (payload.get("label") or "").strip()[:120]
+    teammate = (payload.get("teammate") or "").strip()[:60]
+    if not text:
+        return jsonify({"ok": False, "error": "text required"}), 400
+    if len(text) > 100_000:
+        text = text[:100_000]
+    entry = {
+        "id":        "vault_" + secrets.token_hex(8),
+        "label":     label or (teammate + " — " if teammate else "") + datetime.utcnow().strftime("%Y-%m-%d"),
+        "text":      text,
+        "teammate":  teammate,
+        "saved_at":  now_iso(),
+    }
+    entries = _vault_load(uname)
+    entries.insert(0, entry)
+    _vault_save(uname, entries)
+    return jsonify({"ok": True, "id": entry["id"]})
+
+@app.get("/api/vault/list")
+def api_vault_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    entries = _vault_load(uname)
+    return jsonify({"ok": True, "entries": entries})
+
+@app.post("/api/vault/delete")
+def api_vault_delete():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname  = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    vid    = ((request.get_json(silent=True) or {}).get("id") or "").strip()
+    if not vid:
+        return jsonify({"ok": False, "error": "id required"}), 400
+    entries = [e for e in _vault_load(uname) if e.get("id") != vid]
+    _vault_save(uname, entries)
+    return jsonify({"ok": True})
+
 
 # ── RAG (Retrieval-Augmented Generation) ─────────────────────────────────────
 
