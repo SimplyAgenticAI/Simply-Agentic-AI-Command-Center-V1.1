@@ -14595,8 +14595,6 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
-            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
-            <button class="btn" data-click="responseVaultBtn" onclick="closeMobileDrawer()">🗄️ Response Vault</button>
           </div>
         </div>
 
@@ -14623,6 +14621,8 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👥 Contacts</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
+            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
+            <button class="btn" data-click="responseVaultBtn" onclick="closeMobileDrawer()">🗄️ Response Vault</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var p=document.getElementById('notifPanel');if(p){p.style.position='fixed';p.style.top='0';p.style.left='0';p.style.right='0';p.style.bottom='0';p.style.width='100%';p.style.maxHeight='100vh';p.style.borderRadius='0';p.style.zIndex='99999';p.style.display='block';if(typeof loadNotifs==='function')loadNotifs();}},200);">🔔 Notifications</button>
           </div>
         </div>
@@ -35029,15 +35029,20 @@ document.addEventListener('click',e=>{
 }
 .sa-sheet-name{font-size:15px;font-weight:800;color:#e2e8f0;}
 .sa-sheet-role{font-size:12px;color:#64748b;margin-top:1px;}
-.sa-sheet-close{
-  margin-left:auto;background:rgba(255,255,255,.06);
+.sa-sheet-close,.sa-sheet-expand{
+  background:rgba(255,255,255,.06);
   border:1px solid rgba(255,255,255,.12);border-radius:8px;
   color:#94a3b8;font-size:15px;
   width:30px;height:30px;
   display:flex;align-items:center;justify-content:center;
   cursor:pointer;flex-shrink:0;
 }
-.sa-sheet-close:hover{background:rgba(255,255,255,.12);}
+.sa-sheet-expand{margin-left:auto;}
+.sa-sheet-close{margin-left:6px;}
+.sa-sheet-close:hover,.sa-sheet-expand:hover{background:rgba(255,255,255,.12);}
+#saBottomSheet.sa-sheet-full{
+  top:0;height:100vh;max-height:100vh;border-radius:0;
+}
 /* Thread */
 #saSheetThread{
   flex:1;
@@ -35136,6 +35141,7 @@ document.addEventListener('click',e=>{
       <div class="sa-sheet-name" id="saSheetName">Teammate</div>
       <div class="sa-sheet-role" id="saSheetRole"></div>
     </div>
+    <button class="sa-sheet-expand" id="saSheetExpandBtn" onclick="saToggleSheetFull()" aria-label="Expand to full screen" title="Expand">⤢</button>
     <button class="sa-sheet-close" onclick="saCloseSheet()" aria-label="Close chat">✕</button>
   </div>
   <div class="passRow" id="saSheetPassRow" style="display:none;">
@@ -35201,20 +35207,33 @@ document.addEventListener('click',e=>{
     if(desktop && sheetThread){
       sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
 
-      /* Re-attach Copy / Speak / Save-to-KB handlers via event delegation.
-         innerHTML copy strips .onclick listeners — data-msg-raw survives and lets us
-         reconstruct the correct text for each button click. */
+      /* Re-attach Copy / Speak / Save-to-Vault handlers via event delegation.
+         innerHTML copy strips .onclick listeners — data-msg-raw survives.
+         We use touchstart/touchend for reliable mobile response + click as fallback. */
       if(!sheetThread._saDelegated){
         sheetThread._saDelegated = true;
-        sheetThread.addEventListener('click', function(e){
-          var btn = e.target.closest ? e.target.closest('button.btn') : null;
-          if(!btn) return;
-          var msgBody = btn.closest ? btn.closest('[data-msg-raw]') : null;
-          var raw = msgBody ? msgBody.dataset.msgRaw : '';
-          if(!raw) return;
-          var lbl = (btn.textContent || btn.innerText || '');
+
+        /* Walk up from a touch/click target to find the enclosing <button> */
+        function _saWalkBtn(el){
+          while(el && el !== sheetThread){
+            if(el.tagName === 'BUTTON') return el;
+            el = el.parentElement;
+          }
+          return null;
+        }
+        /* Walk up to find the ancestor that has data-msg-raw */
+        function _saWalkRaw(el){
+          while(el && el !== sheetThread){
+            if(el.dataset && el.dataset.msgRaw) return el.dataset.msgRaw;
+            el = el.parentElement;
+          }
+          return '';
+        }
+        /* Dispatch the button action based on its label */
+        function _saActBtn(btn, raw){
+          if(!btn || !raw) return;
+          var lbl = btn.textContent || btn.innerText || '';
           if(lbl.indexOf('Copy') !== -1 || lbl.indexOf('Copied') !== -1){
-            e.stopPropagation();
             if(navigator.clipboard && navigator.clipboard.writeText){
               navigator.clipboard.writeText(raw.trim()).then(function(){
                 btn.textContent = '✓ Copied';
@@ -35222,12 +35241,10 @@ document.addEventListener('click',e=>{
               }).catch(function(){ _saFallbackCopy(raw, btn); });
             } else { _saFallbackCopy(raw, btn); }
           } else if(lbl.indexOf('Speak') !== -1 || lbl.indexOf('Stop') !== -1 || lbl.indexOf('Loading') !== -1){
-            e.stopPropagation();
             var voice = 'alloy';
             try{ var tm=((window.state&&window.state.installed)||{})[_sheetSeat||'']||{}; voice=tm.tts_voice||'alloy'; }catch(_){}
             if(typeof window.saTtsSpeak === 'function') window.saTtsSpeak(raw.trim(), voice, btn);
           } else if(lbl.indexOf('Save to Vault') !== -1 || lbl.indexOf('Saving') !== -1){
-            e.stopPropagation();
             btn.textContent = '⏳ Saving…';
             fetch('/api/vault/save', {
               method: 'POST',
@@ -35238,6 +35255,38 @@ document.addEventListener('click',e=>{
               else { btn.textContent = '🗄️ Save to Vault'; if(typeof showToast==='function') showToast('⚠️ ' + (d.error||'Save failed')); }
             }).catch(function(){ btn.textContent = '🗄️ Save to Vault'; });
           }
+        }
+        /* Touch tracking — store which button was touched so touchend can act on it */
+        var _saTouchBtn = null, _saTouchRaw = '', _saTouchY = 0;
+        sheetThread.addEventListener('touchstart', function(e){
+          var t = e.touches[0];
+          _saTouchY = t ? t.clientY : 0;
+          var btn = _saWalkBtn(e.target);
+          var raw = btn ? _saWalkRaw(btn) : '';
+          if(btn && raw){ _saTouchBtn = btn; _saTouchRaw = raw; }
+          else { _saTouchBtn = null; _saTouchRaw = ''; }
+        }, {passive: true});
+        sheetThread.addEventListener('touchend', function(e){
+          var btn = _saTouchBtn, raw = _saTouchRaw;
+          _saTouchBtn = null; _saTouchRaw = '';
+          if(!btn || !raw) return;
+          /* Ignore if the finger moved significantly (scroll gesture) */
+          var ct = e.changedTouches[0];
+          if(ct && Math.abs(ct.clientY - _saTouchY) > 12) return;
+          e.preventDefault(); /* suppress ghost click */
+          _saActBtn(btn, raw);
+        }, {passive: false});
+        /* Click fallback for desktop / browsers that don't fire touchend reliably */
+        var _saLastTouch = 0;
+        sheetThread.addEventListener('touchstart', function(){ _saLastTouch = Date.now(); }, {passive: true});
+        sheetThread.addEventListener('click', function(e){
+          if(Date.now() - _saLastTouch < 500) return; /* already handled by touchend */
+          var btn = _saWalkBtn(e.target);
+          if(!btn) return;
+          var raw = _saWalkRaw(btn);
+          if(!raw) return;
+          e.stopPropagation();
+          _saActBtn(btn, raw);
         });
       }
     }
@@ -35296,8 +35345,11 @@ document.addEventListener('click',e=>{
     _sheetOpen = false;
     _sheetSeat = null;
 
-    ge('saBottomSheet').classList.remove('sa-sheet-open');
-    ge('saBottomSheet').style.transform = 'translateY(100%)';
+    var bs = ge('saBottomSheet');
+    bs.classList.remove('sa-sheet-open','sa-sheet-full');
+    bs.style.transform = 'translateY(100%)';
+    var eb = ge('saSheetExpandBtn');
+    if(eb){ eb.textContent = '⤢'; eb.title = 'Expand'; }
 
     setTimeout(function(){
       ge('saSheetBackdrop').style.display='none';
@@ -35306,6 +35358,19 @@ document.addEventListener('click',e=>{
       document.body.classList.remove('sa-sheet-active');
       document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
     }, 340);
+  };
+
+  /* ── Expand / collapse full-screen ── */
+  window.saToggleSheetFull = function(){
+    var sheet = ge('saBottomSheet');
+    var btn   = ge('saSheetExpandBtn');
+    if(!sheet) return;
+    var full = sheet.classList.toggle('sa-sheet-full');
+    if(btn){ btn.textContent = full ? '⤡' : '⤢'; btn.title = full ? 'Restore' : 'Expand'; }
+    if(full){
+      var st = ge('saSheetThread');
+      if(st) setTimeout(function(){ st.scrollTop = st.scrollHeight; }, 50);
+    }
   };
 
   /* ── Swipe down to dismiss ── */
@@ -35372,6 +35437,11 @@ document.addEventListener('click',e=>{
   if(sheetMsgEl){
     sheetMsgEl.addEventListener('keydown',function(e){
       if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sheetSend(); }
+    });
+    /* Tapping the chat box expands the sheet to full screen */
+    sheetMsgEl.addEventListener('focus',function(){
+      var sheet = ge('saBottomSheet');
+      if(sheet && !sheet.classList.contains('sa-sheet-full')) saToggleSheetFull();
     });
   }
 
