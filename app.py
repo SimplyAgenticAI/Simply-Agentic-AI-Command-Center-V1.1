@@ -19052,6 +19052,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             copyBtn.className = "btn btnMini";
             copyBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
             copyBtn.innerText = "📋 Copy";
+            copyBtn.dataset.saRaw = raw; // survives innerHTML copy — used by mobile delegation
             copyBtn.title = "Copy response";
             copyBtn.onclick = (e) => {
               e.stopPropagation();
@@ -19078,6 +19079,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             speakBtn.className = "btn btnMini";
             speakBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
             speakBtn.innerText = "🔊 Speak";
+            speakBtn.dataset.saRaw = raw;
             speakBtn.title = "Read response aloud";
             speakBtn.onclick = (e) => {
               e.stopPropagation();
@@ -19091,6 +19093,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             pinBtn.className = "btn btnMini";
             pinBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
             pinBtn.innerText = "🗄️ Save to Vault";
+            pinBtn.dataset.saRaw = raw;
             pinBtn.title = "Save this response to your Response Vault";
             pinBtn.onclick = async (e) => {
               e.stopPropagation();
@@ -35207,96 +35210,9 @@ document.addEventListener('click',e=>{
     if(desktop && sheetThread){
       sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
 
-      /* Re-attach Copy / Speak / Save-to-Vault handlers via event delegation.
-         innerHTML copy strips .onclick listeners — data-msg-raw survives.
-         We use touchstart/touchend for reliable mobile response + click as fallback. */
-      if(!sheetThread._saDelegated){
-        sheetThread._saDelegated = true;
-
-        /* Walk up from a touch/click target to find the enclosing <button> */
-        function _saWalkBtn(el){
-          while(el && el !== sheetThread){
-            if(el.tagName === 'BUTTON') return el;
-            el = el.parentElement;
-          }
-          return null;
-        }
-        /* Walk up to find the ancestor that has data-msg-raw */
-        function _saWalkRaw(el){
-          while(el && el !== sheetThread){
-            if(el.dataset && el.dataset.msgRaw) return el.dataset.msgRaw;
-            el = el.parentElement;
-          }
-          return '';
-        }
-        /* Dispatch the button action based on its label */
-        function _saActBtn(btn, raw){
-          if(!btn || !raw) return;
-          var lbl = btn.textContent || btn.innerText || '';
-          if(lbl.indexOf('Copy') !== -1 || lbl.indexOf('Copied') !== -1){
-            if(navigator.clipboard && navigator.clipboard.writeText){
-              navigator.clipboard.writeText(raw.trim()).then(function(){
-                btn.textContent = '✓ Copied';
-                setTimeout(function(){ btn.textContent = '📋 Copy'; }, 1500);
-              }).catch(function(){ _saFallbackCopy(raw, btn); });
-            } else { _saFallbackCopy(raw, btn); }
-          } else if(lbl.indexOf('Speak') !== -1 || lbl.indexOf('Stop') !== -1 || lbl.indexOf('Loading') !== -1){
-            var voice = 'alloy';
-            try{ var tm=((window.state&&window.state.installed)||{})[_sheetSeat||'']||{}; voice=tm.tts_voice||'alloy'; }catch(_){}
-            if(typeof window.saTtsSpeak === 'function') window.saTtsSpeak(raw.trim(), voice, btn);
-          } else if(lbl.indexOf('Save to Vault') !== -1 || lbl.indexOf('Saving') !== -1){
-            btn.textContent = '⏳ Saving…';
-            fetch('/api/vault/save', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({text: raw.trim(), label: (_sheetSeat||'Teammate') + ' — ' + new Date().toISOString().slice(0,10), teammate: _sheetSeat||''})
-            }).then(function(r){ return r.json(); }).then(function(d){
-              if(d.ok){ btn.textContent = '✅ Saved to Vault'; if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault'); }
-              else { btn.textContent = '🗄️ Save to Vault'; if(typeof showToast==='function') showToast('⚠️ ' + (d.error||'Save failed')); }
-            }).catch(function(){ btn.textContent = '🗄️ Save to Vault'; });
-          }
-        }
-        /* Touch tracking — store which button was touched so touchend can act on it */
-        var _saTouchBtn = null, _saTouchRaw = '', _saTouchY = 0;
-        sheetThread.addEventListener('touchstart', function(e){
-          var t = e.touches[0];
-          _saTouchY = t ? t.clientY : 0;
-          var btn = _saWalkBtn(e.target);
-          var raw = btn ? _saWalkRaw(btn) : '';
-          if(btn && raw){ _saTouchBtn = btn; _saTouchRaw = raw; }
-          else { _saTouchBtn = null; _saTouchRaw = ''; }
-        }, {passive: true});
-        sheetThread.addEventListener('touchend', function(e){
-          var btn = _saTouchBtn, raw = _saTouchRaw;
-          _saTouchBtn = null; _saTouchRaw = '';
-          if(!btn || !raw) return;
-          /* Ignore if the finger moved significantly (scroll gesture) */
-          var ct = e.changedTouches[0];
-          if(ct && Math.abs(ct.clientY - _saTouchY) > 12) return;
-          e.preventDefault(); /* suppress ghost click */
-          _saActBtn(btn, raw);
-        }, {passive: false});
-        /* Click fallback for desktop / browsers that don't fire touchend reliably */
-        var _saLastTouch = 0;
-        sheetThread.addEventListener('touchstart', function(){ _saLastTouch = Date.now(); }, {passive: true});
-        sheetThread.addEventListener('click', function(e){
-          if(Date.now() - _saLastTouch < 500) return; /* already handled by touchend */
-          var btn = _saWalkBtn(e.target);
-          if(!btn) return;
-          var raw = _saWalkRaw(btn);
-          if(!raw) return;
-          e.stopPropagation();
-          _saActBtn(btn, raw);
-        });
-      }
-    }
-    function _saFallbackCopy(txt, btn){
-      var ta = document.createElement('textarea');
-      ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;';
-      document.body.appendChild(ta); ta.select();
-      try{ document.execCommand('copy'); }catch(_){}
-      document.body.removeChild(ta);
-      if(btn){ btn.textContent = '✓ Copied'; setTimeout(function(){ btn.textContent = '📋 Copy'; }, 1500); }
+      /* Copy/Speak/Save buttons are handled by the global _saThreadBtnDelegation
+         (see script below the sheet HTML). Each button has data-sa-raw set directly
+         on it in renderThread, which survives innerHTML serialization. */
     }
 
     /* Show pass row if desktop one is visible */
@@ -35315,10 +35231,13 @@ document.addEventListener('click',e=>{
     ge('saBottomSheet').style.display='flex';
     document.body.classList.add('sa-sheet-active');
 
-    /* Animate in */
+    /* Animate in — always open full-screen */
     requestAnimationFrame(function(){
       requestAnimationFrame(function(){
-        ge('saBottomSheet').classList.add('sa-sheet-open');
+        var bs = ge('saBottomSheet');
+        bs.classList.add('sa-sheet-open','sa-sheet-full');
+        var eb = ge('saSheetExpandBtn');
+        if(eb){ eb.textContent = '⤡'; eb.title = 'Restore'; }
       });
     });
 
@@ -35475,29 +35394,10 @@ document.addEventListener('click',e=>{
         if(!isMobile()) return; /* desktop: normal behaviour */
         /* If the click landed on a seatTools button (Edit, Stack), let it through */
         if(e.target && (e.target.closest ? e.target.closest('.seatTools') : false)) return;
-        /* First tap: reveal the Edit/Stack toolbar (mimics desktop hover).
-           Second tap (or tap elsewhere): open chat as normal. */
-        var tools = seat.querySelector('.seatTools');
-        if(tools && !seat._toolsRevealed){
-          e.stopPropagation();
-          seat._toolsRevealed = true;
-          tools.style.opacity = '1';
-          tools.style.pointerEvents = 'auto';
-          /* Auto-hide after 3 s if no button is pressed */
-          clearTimeout(seat._toolsTimer);
-          seat._toolsTimer = setTimeout(function(){
-            seat._toolsRevealed = false;
-            tools.style.opacity = '';
-            tools.style.pointerEvents = '';
-          }, 3000);
-          return;
-        }
-        /* Tools already revealed or no tools — open chat */
-        if(tools){ tools.style.opacity=''; tools.style.pointerEvents=''; seat._toolsRevealed=false; clearTimeout(seat._toolsTimer); }
+        /* Single tap always opens full-screen chat immediately */
         e.stopPropagation();
         var name = seat.getAttribute('data-name');
         if(!name) return;
-        /* Select seat on the backend first so thread loads */
         if(typeof window.selectSeat === 'function'){
           window.selectSeat(name).then(function(){
             saOpenSheet(name);
@@ -35558,6 +35458,121 @@ document.addEventListener('click',e=>{
 </script>
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
+
+<!-- ===== GLOBAL THREAD BUTTON DELEGATION =====
+     Handles Copy / Speak / Save-to-Vault in ANY thread container
+     (desktop #thread, mobile bottom sheet #saSheetThread, full-chat #mobFullChatThread).
+     Each button has data-sa-raw set directly in renderThread — attribute survives
+     innerHTML copy. Document-level touchstart/touchend fires before ghost click,
+     click fallback covers non-touch contexts.
+===== -->
+<script>
+(function(){
+  'use strict';
+  if(window._saThreadBtnDelegation) return;
+  window._saThreadBtnDelegation = true;
+
+  /* Thread containers where onclick was stripped by innerHTML copy */
+  var COPY_IDS = ['saSheetThread','mobFullChatThread'];
+
+  function inCopy(el){
+    for(var i=0;i<COPY_IDS.length;i++){
+      var c=document.getElementById(COPY_IDS[i]);
+      if(c&&c.contains(el)) return true;
+    }
+    return false;
+  }
+
+  /* Walk up from tap target to find a button carrying data-sa-raw */
+  function findActionBtn(el){
+    while(el&&el.tagName!=='BODY'){
+      if(el.tagName==='BUTTON'&&el.dataset&&el.dataset.saRaw) return el;
+      el=el.parentElement;
+    }
+    return null;
+  }
+
+  function fallbackCopy(txt,btn){
+    var ta=document.createElement('textarea');
+    ta.value=txt; ta.style.cssText='position:fixed;opacity:0;';
+    document.body.appendChild(ta); ta.select();
+    try{document.execCommand('copy');}catch(_){}
+    document.body.removeChild(ta);
+    if(btn){btn.textContent='✓ Copied';setTimeout(function(){btn.textContent='📋 Copy';},1500);}
+  }
+
+  function dispatchBtn(btn){
+    var raw=(btn.dataset&&btn.dataset.saRaw)||'';
+    if(!raw) return;
+    var lbl=btn.textContent||btn.innerText||'';
+
+    if(lbl.indexOf('Copy')!==-1||lbl.indexOf('Copied')!==-1){
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(raw.trim()).then(function(){
+          btn.textContent='✓ Copied';
+          setTimeout(function(){btn.textContent='📋 Copy';},1500);
+        }).catch(function(){fallbackCopy(raw,btn);});
+      } else { fallbackCopy(raw,btn); }
+
+    } else if(lbl.indexOf('Speak')!==-1||lbl.indexOf('Stop')!==-1||lbl.indexOf('Loading')!==-1){
+      var voice='alloy';
+      try{
+        var seat=window.selectedSeat||'';
+        var tm=((window.state&&window.state.installed)||{})[seat]||{};
+        voice=tm.tts_voice||'alloy';
+      }catch(_){}
+      if(typeof window.saTtsSpeak==='function') window.saTtsSpeak(raw.trim(),voice,btn);
+
+    } else if(lbl.indexOf('Save to Vault')!==-1||lbl.indexOf('Saving')!==-1){
+      btn.textContent='⏳ Saving…';
+      fetch('/api/vault/save',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          text:raw.trim(),
+          label:(window.selectedSeat||'Teammate')+' — '+new Date().toISOString().slice(0,10),
+          teammate:window.selectedSeat||''
+        })
+      }).then(function(r){return r.json();}).then(function(d){
+        if(d.ok){
+          btn.textContent='✅ Saved to Vault';
+          if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault');
+        } else {
+          btn.textContent='🗄️ Save to Vault';
+          if(typeof showToast==='function') showToast('⚠️ '+(d.error||'Save failed'));
+        }
+      }).catch(function(){btn.textContent='🗄️ Save to Vault';});
+    }
+  }
+
+  var _tb=null, _ty=0, _lt=0;
+
+  document.addEventListener('touchstart',function(e){
+    _lt=Date.now();
+    var btn=findActionBtn(e.target);
+    if(btn&&inCopy(btn)){
+      _tb=btn; _ty=e.touches[0]?e.touches[0].clientY:0;
+    } else { _tb=null; }
+  },{passive:true});
+
+  document.addEventListener('touchend',function(e){
+    var btn=_tb; _tb=null;
+    if(!btn) return;
+    var ct=e.changedTouches[0];
+    if(ct&&Math.abs(ct.clientY-_ty)>10) return; /* scroll, not tap */
+    e.preventDefault(); /* suppress ghost click */
+    dispatchBtn(btn);
+  },{passive:false});
+
+  document.addEventListener('click',function(e){
+    if(Date.now()-_lt<500) return; /* already handled by touchend */
+    var btn=findActionBtn(e.target);
+    if(!btn||!inCopy(btn)) return;
+    dispatchBtn(btn);
+  });
+})();
+</script>
+<!-- ===== END GLOBAL THREAD BUTTON DELEGATION ===== -->
 
 <!-- ══════════════════════════════════════════════════════════
      MOBILE LAYOUT v10 — DEFINITIVE
