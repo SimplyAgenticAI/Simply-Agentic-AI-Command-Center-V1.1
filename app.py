@@ -31870,8 +31870,36 @@ window._streamTtsFired = false;
     }
 
     window._saTtsPlaying = true;
-    if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏳ Loading…"; }
+    if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
+    /* ── Fast path: browser speechSynthesis starts in ~100 ms ── */
+    if(window.speechSynthesis){
+      try{
+        speechSynthesis.cancel();
+        var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
+        var voices = speechSynthesis.getVoices();
+        /* Prefer a natural-sounding English voice */
+        var pick = voices.find(function(v){ return /en[-_]US/i.test(v.lang) && v.localService; })
+                || voices.find(function(v){ return /en/i.test(v.lang) && v.localService; })
+                || voices.find(function(v){ return /en/i.test(v.lang); })
+                || voices[0];
+        if(pick) utt.voice = pick;
+        utt.rate = 1.0; utt.pitch = 1.0;
+        window._saTtsAudio = { pause: function(){ try{ speechSynthesis.cancel(); }catch(_){} } };
+        utt.onend = function(){
+          window._saTtsPlaying = false; window._saTtsAudio = null;
+          if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+        };
+        utt.onerror = function(){
+          window._saTtsPlaying = false; window._saTtsAudio = null;
+          if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+        };
+        speechSynthesis.speak(utt);
+        return; /* done — browser handles it */
+      }catch(_){}
+    }
+
+    /* ── Fallback: OpenAI TTS (higher quality, slower start) ── */
     try{
       // Fetch audio from OpenAI via our server
       var resp = await fetch("/api/tts", {
@@ -31911,8 +31939,6 @@ window._streamTtsFired = false;
       source.buffer = decoded;
       source.connect(ctx.destination);
 
-      if(btn){ btn.textContent="⏹ Stop"; }
-
       // Allow stop mid-play
       window._saTtsAudio = { pause: function(){ try{ source.stop(); }catch(_){} try{ ctx.close(); }catch(_){} } };
 
@@ -31928,10 +31954,7 @@ window._streamTtsFired = false;
     } catch(err) {
       window._saTtsPlaying = false;
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-
-      // Show exact error and fall back to browser voice
-      var msg = err.message || "Unknown error";
-      console.error("[TTS] OpenAI failed:", msg);
+      console.error("[TTS] failed:", err.message || err);
 
       if(window.speechSynthesis){
         try{
@@ -35044,7 +35067,13 @@ document.addEventListener('click',e=>{
 .sa-sheet-close{margin-left:6px;}
 .sa-sheet-close:hover,.sa-sheet-expand:hover{background:rgba(255,255,255,.12);}
 #saBottomSheet.sa-sheet-full{
-  top:0;height:100vh;max-height:100vh;border-radius:0;
+  top:0;bottom:0;height:auto;max-height:100%;border-radius:0;
+  padding-top:env(safe-area-inset-top);
+}
+#saBottomSheet.sa-sheet-full .sa-sheet-handle{ display:none; }
+#saBottomSheet.sa-sheet-full #saSheetThread{
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
 }
 /* Thread */
 #saSheetThread{
@@ -35144,8 +35173,7 @@ document.addEventListener('click',e=>{
       <div class="sa-sheet-name" id="saSheetName">Teammate</div>
       <div class="sa-sheet-role" id="saSheetRole"></div>
     </div>
-    <button class="sa-sheet-expand" id="saSheetExpandBtn" onclick="saToggleSheetFull()" aria-label="Expand to full screen" title="Expand">⤢</button>
-    <button class="sa-sheet-close" onclick="saCloseSheet()" aria-label="Close chat">✕</button>
+    <button class="sa-sheet-close" onclick="saCloseSheet()" aria-label="Close chat" style="margin-left:auto;width:auto;padding:0 12px;font-size:13px;font-weight:700;gap:4px;display:flex;align-items:center;">← Back</button>
   </div>
   <div class="passRow" id="saSheetPassRow" style="display:none;">
     <button class="btn btnMini passBtn" id="saSheetPassRisk">⚠️ Risk</button>
@@ -35209,10 +35237,8 @@ document.addEventListener('click',e=>{
     var sheetThread = ge('saSheetThread');
     if(desktop && sheetThread){
       sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
-
-      /* Copy/Speak/Save buttons are handled by the global _saThreadBtnDelegation
-         (see script below the sheet HTML). Each button has data-sa-raw set directly
-         on it in renderThread, which survives innerHTML serialization. */
+      /* Scroll to most recent message immediately */
+      sheetThread.scrollTop = sheetThread.scrollHeight;
     }
 
     /* Show pass row if desktop one is visible */
@@ -35236,8 +35262,6 @@ document.addEventListener('click',e=>{
       requestAnimationFrame(function(){
         var bs = ge('saBottomSheet');
         bs.classList.add('sa-sheet-open','sa-sheet-full');
-        var eb = ge('saSheetExpandBtn');
-        if(eb){ eb.textContent = '⤡'; eb.title = 'Restore'; }
       });
     });
 
@@ -35267,8 +35291,6 @@ document.addEventListener('click',e=>{
     var bs = ge('saBottomSheet');
     bs.classList.remove('sa-sheet-open','sa-sheet-full');
     bs.style.transform = 'translateY(100%)';
-    var eb = ge('saSheetExpandBtn');
-    if(eb){ eb.textContent = '⤢'; eb.title = 'Expand'; }
 
     setTimeout(function(){
       ge('saSheetBackdrop').style.display='none';
@@ -35277,19 +35299,6 @@ document.addEventListener('click',e=>{
       document.body.classList.remove('sa-sheet-active');
       document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
     }, 340);
-  };
-
-  /* ── Expand / collapse full-screen ── */
-  window.saToggleSheetFull = function(){
-    var sheet = ge('saBottomSheet');
-    var btn   = ge('saSheetExpandBtn');
-    if(!sheet) return;
-    var full = sheet.classList.toggle('sa-sheet-full');
-    if(btn){ btn.textContent = full ? '⤡' : '⤢'; btn.title = full ? 'Restore' : 'Expand'; }
-    if(full){
-      var st = ge('saSheetThread');
-      if(st) setTimeout(function(){ st.scrollTop = st.scrollHeight; }, 50);
-    }
   };
 
   /* ── Swipe down to dismiss ── */
@@ -35356,11 +35365,6 @@ document.addEventListener('click',e=>{
   if(sheetMsgEl){
     sheetMsgEl.addEventListener('keydown',function(e){
       if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sheetSend(); }
-    });
-    /* Tapping the chat box expands the sheet to full screen */
-    sheetMsgEl.addEventListener('focus',function(){
-      var sheet = ge('saBottomSheet');
-      if(sheet && !sheet.classList.contains('sa-sheet-full')) saToggleSheetFull();
     });
   }
 
