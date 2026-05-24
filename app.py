@@ -17315,7 +17315,7 @@ if (typeof window.showToast !== "function") {
           const len = ta.value.length;
           counter.textContent = len > 0 ? len + ' chars' : '';
           counter.style.color = len > 3800 ? '#ef4444' : len > 2500 ? '#f59e0b' : '#475569';
-          if(btn) btn.disabled = ta.value.trim().length === 0;
+          if(btn) btn.style.opacity = ta.value.trim().length === 0 ? '0.45' : '1';
         }
         ta.addEventListener('input', update);
         ta.addEventListener('focus', update);
@@ -17340,7 +17340,7 @@ if (typeof window.showToast !== "function") {
         btn.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:6px;color:#c4b5fd;cursor:pointer;font-size:13px;padding:3px 7px;opacity:0;transition:opacity .18s,background .18s;line-height:1;';
         msgEl.style.position = 'relative';
         btn.onclick = function(){
-          const txt = body.innerText || body.textContent || '';
+          const txt = body.dataset.msgRaw || body.innerText || body.textContent || '';
           navigator.clipboard.writeText(txt.trim()).then(function(){
             btn.innerHTML = '&#10003;';
             btn.style.color = '#86efac';
@@ -19041,6 +19041,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           }
           // Copy + Speak buttons — visible directly on every assistant message bubble
           if(m.role !== "user" && raw){
+            content.dataset.msgRaw = raw; // survives innerHTML copy for mobile sheet delegation
             const actRow = document.createElement("div");
             actRow.style.cssText = "margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;";
 
@@ -35008,6 +35009,54 @@ document.addEventListener('click',e=>{
     var sheetThread = ge('saSheetThread');
     if(desktop && sheetThread){
       sheetThread.innerHTML = desktop.innerHTML || '<div class="tiny" style="color:#475569;padding:8px 0;">Start a conversation with '+name+'.</div>';
+
+      /* Re-attach Copy / Speak / Save-to-KB handlers via event delegation.
+         innerHTML copy strips .onclick listeners — data-msg-raw survives and lets us
+         reconstruct the correct text for each button click. */
+      if(!sheetThread._saDelegated){
+        sheetThread._saDelegated = true;
+        sheetThread.addEventListener('click', function(e){
+          var btn = e.target.closest ? e.target.closest('button.btn') : null;
+          if(!btn) return;
+          var msgBody = btn.closest ? btn.closest('[data-msg-raw]') : null;
+          var raw = msgBody ? msgBody.dataset.msgRaw : '';
+          if(!raw) return;
+          var lbl = (btn.textContent || btn.innerText || '');
+          if(lbl.indexOf('Copy') !== -1 || lbl.indexOf('Copied') !== -1){
+            e.stopPropagation();
+            if(navigator.clipboard && navigator.clipboard.writeText){
+              navigator.clipboard.writeText(raw.trim()).then(function(){
+                btn.textContent = '✓ Copied';
+                setTimeout(function(){ btn.textContent = '📋 Copy'; }, 1500);
+              }).catch(function(){ _saFallbackCopy(raw, btn); });
+            } else { _saFallbackCopy(raw, btn); }
+          } else if(lbl.indexOf('Speak') !== -1 || lbl.indexOf('Stop') !== -1 || lbl.indexOf('Loading') !== -1){
+            e.stopPropagation();
+            var voice = 'alloy';
+            try{ var tm=((window.state&&window.state.installed)||{})[_sheetSeat||'']||{}; voice=tm.tts_voice||'alloy'; }catch(_){}
+            if(typeof window.saTtsSpeak === 'function') window.saTtsSpeak(raw.trim(), voice, btn);
+          } else if(lbl.indexOf('Save to KB') !== -1 || lbl.indexOf('Saving') !== -1){
+            e.stopPropagation();
+            btn.textContent = '⏳ Saving…';
+            fetch('/api/rag/pin_response', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({text: raw.trim(), label: (_sheetSeat||'Teammate') + ' — ' + new Date().toISOString().slice(0,10)})
+            }).then(function(r){ return r.json(); }).then(function(d){
+              if(d.ok){ btn.textContent = '✅ Saved'; if(typeof showToast==='function') showToast('📌 Saved to Knowledge Base'); }
+              else { btn.textContent = '📌 Save to KB'; if(typeof showToast==='function') showToast('⚠️ ' + (d.error||'Save failed')); }
+            }).catch(function(){ btn.textContent = '📌 Save to KB'; });
+          }
+        });
+      }
+    }
+    function _saFallbackCopy(txt, btn){
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.cssText = 'position:fixed;opacity:0;';
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      document.body.removeChild(ta);
+      if(btn){ btn.textContent = '✓ Copied'; setTimeout(function(){ btn.textContent = '📋 Copy'; }, 1500); }
     }
 
     /* Show pass row if desktop one is visible */
@@ -35109,9 +35158,9 @@ document.addEventListener('click',e=>{
         window.selectSeat(_sheetSeat).then(function(){
           var fmsg = ge('followMsg');
           if(fmsg){ fmsg.value = text; }
-          var sfBtn = ge('sendFollow');
-          if(sfBtn) sfBtn.click();
           msg.value = '';
+          if(typeof window.sendFollow === 'function'){ window.sendFollow(); }
+          else{ var sfBtn = ge('sendFollow'); if(sfBtn) sfBtn.click(); }
           /* Refresh sheet thread after a moment */
           setTimeout(function(){
             var desktop = ge('thread');
