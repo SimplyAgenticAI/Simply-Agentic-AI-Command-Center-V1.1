@@ -11267,6 +11267,27 @@ If you ever need help, just reply to this email.
 """,
         ), daemon=True).start()
 
+    # Admin signup alert — notify the platform owner whenever a new user joins
+    _admin_notify_email = SMTP_USER
+    if _admin_notify_email and not is_first_user:
+        _signup_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        _base2 = (PUBLIC_BASE_URL or "").rstrip("/")
+        threading.Thread(target=_send_platform_email, args=(
+            _admin_notify_email,
+            f"[{APP_TITLE}] New signup: {username}",
+            f"""New user just joined your platform!
+
+Username : {username}
+Email    : {email or "(not provided)"}
+Time     : {_signup_time}
+Invite   : {seat_code or "(open signup)"}
+
+View your admin panel: {_base2}/admin
+
+— {APP_TITLE} Notifications
+""",
+        ), daemon=True).start()
+
     return redirect(url_for("index"))
 _PENDING_VERIFICATIONS_PATH = DATA / "pending_verifications.json"
 
@@ -17253,6 +17274,160 @@ if (typeof window.showToast !== "function") {
   }
 })();
 
+
+    // ── Ctrl+Enter to send in all chat inputs ────────────────────
+    document.addEventListener('keydown', function(e){
+      if((e.ctrlKey || e.metaKey) && e.key === 'Enter'){
+        const a = document.activeElement;
+        if(!a) return;
+        if(a.id === 'followMsg'){
+          e.preventDefault();
+          if(typeof window.sendFollow === 'function') window.sendFollow();
+        } else if(a.id === 'opPrompt'){
+          e.preventDefault();
+          if(typeof window.conveneAll === 'function') window.conveneAll();
+        }
+      }
+    });
+
+    // ── Update send button label to show shortcut hint ────────────
+    (function(){
+      const sf = document.getElementById('sendFollow');
+      if(sf && !sf.dataset.hinted){
+        sf.dataset.hinted = '1';
+        const isMac = /Mac|iPhone|iPad/.test(navigator.platform||'');
+        sf.title = (isMac ? '⌘' : 'Ctrl') + '+Enter to send';
+      }
+    })();
+
+    // ── Character counter for chat inputs ────────────────────────
+    (function(){
+      function attachCounter(taId, btnId){
+        const ta = document.getElementById(taId);
+        const btn = document.getElementById(btnId);
+        if(!ta) return;
+        const counter = document.createElement('span');
+        counter.style.cssText = 'font-size:11px;color:#475569;position:absolute;bottom:6px;right:8px;pointer-events:none;z-index:10;transition:color .2s;';
+        const wrap = ta.parentElement;
+        if(wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+        if(wrap) wrap.appendChild(counter);
+        function update(){
+          const len = ta.value.length;
+          counter.textContent = len > 0 ? len + ' chars' : '';
+          counter.style.color = len > 3800 ? '#ef4444' : len > 2500 ? '#f59e0b' : '#475569';
+          if(btn) btn.disabled = ta.value.trim().length === 0;
+        }
+        ta.addEventListener('input', update);
+        ta.addEventListener('focus', update);
+        update();
+      }
+      setTimeout(function(){
+        attachCounter('followMsg', 'sendFollow');
+        attachCounter('opPrompt', 'conveneAll');
+      }, 800);
+    })();
+
+    // ── Copy button on AI responses (MutationObserver) ────────────
+    (function(){
+      function addCopyBtn(msgEl){
+        if(msgEl.dataset.copyAdded) return;
+        msgEl.dataset.copyAdded = '1';
+        const body = msgEl.querySelector('.msg-body');
+        if(!body) return;
+        const btn = document.createElement('button');
+        btn.innerHTML = '&#128203;';
+        btn.title = 'Copy response';
+        btn.style.cssText = 'position:absolute;top:6px;right:6px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:6px;color:#c4b5fd;cursor:pointer;font-size:13px;padding:3px 7px;opacity:0;transition:opacity .18s,background .18s;line-height:1;';
+        msgEl.style.position = 'relative';
+        btn.onclick = function(){
+          const txt = body.innerText || body.textContent || '';
+          navigator.clipboard.writeText(txt.trim()).then(function(){
+            btn.innerHTML = '&#10003;';
+            btn.style.color = '#86efac';
+            setTimeout(function(){ btn.innerHTML = '&#128203;'; btn.style.color = '#c4b5fd'; }, 1800);
+          }).catch(function(){
+            btn.innerHTML = '&#10007;';
+            setTimeout(function(){ btn.innerHTML = '&#128203;'; }, 1500);
+          });
+        };
+        msgEl.addEventListener('mouseenter', function(){ btn.style.opacity = '1'; });
+        msgEl.addEventListener('mouseleave', function(){ btn.style.opacity = '0'; });
+        msgEl.appendChild(btn);
+      }
+
+      function scanThread(thread){
+        thread.querySelectorAll('.msg.assistant').forEach(addCopyBtn);
+      }
+
+      const thread = document.getElementById('thread');
+      if(thread){
+        scanThread(thread);
+        new MutationObserver(function(muts){
+          muts.forEach(function(m){
+            m.addedNodes.forEach(function(n){
+              if(n.nodeType === 1){
+                if(n.classList && n.classList.contains('msg') && n.classList.contains('assistant')) addCopyBtn(n);
+                n.querySelectorAll && n.querySelectorAll('.msg.assistant').forEach(addCopyBtn);
+              }
+            });
+          });
+        }).observe(thread, {childList: true, subtree: true});
+      }
+    })();
+
+    // ── Onboarding checklist (first-time users) ───────────────────
+    (function(){
+      const SK = 'sa_onboarding_v1';
+      if(localStorage.getItem(SK + '_dismissed')) return;
+
+      fetch('/api/me').then(r=>r.json()).then(function(d){
+        if(!d.ok) return;
+        const u = d.user || {};
+        const steps = [
+          { key:'openai',   done: d.has_openai_key,                          label:'Add your OpenAI key in Settings',        link:'#',    onclick:"document.querySelector('[data-tab=settings],[id*=settingsBtn],[id*=settings]')?.click();_saDismissOnboarding();" },
+          { key:'msg',      done: !!localStorage.getItem('sa_first_msg_sent'), label:'Send your first message to a teammate', link:'#',    onclick:"document.getElementById('followMsg')?.focus();_saDismissOnboarding();" },
+          { key:'smtp',     done: d.has_smtp || d.has_gmail_oauth,           label:'Connect your email (Settings → Email)',   link:'#',    onclick:"document.querySelector('[data-tab=settings]')?.click();_saDismissOnboarding();" },
+        ];
+        const allDone = steps.every(function(s){ return s.done; });
+        if(allDone){ localStorage.setItem(SK + '_dismissed','1'); return; }
+
+        const panel = document.createElement('div');
+        panel.id = '_saOnboarding';
+        panel.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:9999998;width:290px;background:#0f172a;border:1px solid rgba(124,58,237,.45);border-radius:16px;padding:18px 18px 14px;box-shadow:0 12px 48px rgba(0,0,0,.65);backdrop-filter:blur(14px);animation:_saSlideIn .35s cubic-bezier(.34,1.56,.64,1) both;';
+
+        const pct = Math.round(steps.filter(function(s){return s.done;}).length / steps.length * 100);
+        panel.innerHTML =
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+            '<div style="font-size:14px;font-weight:800;color:#e2e8f0;">&#127919; Getting Started</div>' +
+            '<button onclick="_saDismissOnboarding()" style="background:none;border:none;color:#475569;cursor:pointer;font-size:18px;line-height:1;padding:0;" title="Dismiss">&#215;</button>' +
+          '</div>' +
+          '<div style="height:5px;background:rgba(255,255,255,.08);border-radius:99px;margin-bottom:14px;overflow:hidden;">' +
+            '<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#7c3aed,#6366f1);border-radius:99px;transition:width .4s;"></div>' +
+          '</div>' +
+          steps.map(function(s){
+            return '<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;cursor:pointer;" onclick="'+s.onclick+'">' +
+              '<span style="flex-shrink:0;width:18px;height:18px;border-radius:50%;background:'+(s.done?'rgba(134,239,172,.2)':'rgba(124,58,237,.15)')+';border:1.5px solid '+(s.done?'#86efac':'rgba(124,58,237,.5)')+';display:flex;align-items:center;justify-content:center;font-size:10px;color:'+(s.done?'#86efac':'#7c3aed')+';margin-top:1px;">'+(s.done?'&#10003;':'&#8226;')+'</span>' +
+              '<span style="font-size:13px;color:'+(s.done?'#475569':'#cbd5e1')+';'+(s.done?'text-decoration:line-through;':'')+'line-height:1.4;">'+s.label+'</span>' +
+            '</div>';
+          }).join('') +
+          '<div style="margin-top:4px;font-size:11px;color:#334155;text-align:right;">'+pct+'% complete</div>';
+
+        document.body.appendChild(panel);
+      }).catch(function(){});
+
+      window._saDismissOnboarding = function(){
+        const p = document.getElementById('_saOnboarding');
+        if(p){ p.classList.add('_saOut'); setTimeout(function(){ try{p.remove();}catch(e){} },250); }
+        localStorage.setItem(SK + '_dismissed','1');
+      };
+
+      // Mark first message sent when sendFollow or conveneAll fires
+      const _origSF = window.sendFollow;
+      if(typeof _origSF === 'function') window.sendFollow = async function(){
+        localStorage.setItem('sa_first_msg_sent','1');
+        return _origSF.apply(this, arguments);
+      };
+    })();
 
     // ── Oval Table: ellipse seat positioning ─────────────────────
     // rx = half the horizontal radius, ry = half the vertical radius
