@@ -385,7 +385,7 @@ def _normalize_plan_key(key: str) -> str:
 
 # ── Per-plan usage limits ────────────────────────────────────────────────────
 MSG_LIMITS   = {"founder": 1000, "solo": 600,  "teams": 2000}
-IMAGE_LIMITS = {"founder": 30,   "solo": 20,   "teams": 50}
+IMAGE_LIMITS = {"founder": 20,   "solo": 15,   "teams": 40}
 
 _MSG_USAGE_LOCK = threading.Lock()
 
