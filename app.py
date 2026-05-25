@@ -4833,6 +4833,74 @@ def _is_retryable_llm_error(e: Exception) -> bool:
     return any(x in s for x in ["connection", "timeout", "network", "503", "502", "service unavailable"])
 
 
+_ANALYTICS_LOCK = threading.Lock()
+
+def _analytics_log_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return LOGS_DIR / f"events_{safe}.jsonl"
+
+def _log_analytics_event(username: str, event_type: str, data: dict = None) -> None:
+    """Append a structured event to the per-user analytics log. Best-effort, never raises."""
+    try:
+        path = _analytics_log_path(username or "anon")
+        record = json.dumps({
+            "ts": now_iso(),
+            "event": event_type,
+            "data": data or {},
+        }, ensure_ascii=False)
+        with _ANALYTICS_LOCK:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(record + "\n")
+    except Exception:
+        pass
+
+def _read_analytics_events(username: str, limit: int = 200) -> list:
+    try:
+        path = _analytics_log_path(username or "anon")
+        if not path.exists():
+            return []
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
+        out = []
+        for ln in lines[-limit:]:
+            try:
+                out.append(json.loads(ln))
+            except Exception:
+                pass
+        return out
+    except Exception:
+        return []
+
+
+def _is_provider_error(e: Exception) -> bool:
+    """Return True for provider-side failures worth falling back on (not auth/rate-limit)."""
+    s = str(e).lower()
+    if any(x in s for x in ["401", "403", "invalid api key", "authentication", "api_key", "rate limit", "429", "quota"]):
+        return False
+    return any(x in s for x in ["500", "503", "502", "overloaded", "service unavailable", "connection", "timeout", "network", "internal server"])
+
+
+_SMART_ROUTING_CHEAP_OPENAI = "gpt-4o-mini"
+_SMART_ROUTING_CHEAP_CLAUDE = "claude-haiku-4-5-20251001"
+_SMART_ROUTING_COMPLEX_KEYWORDS = [
+    "write", "draft", "create", "generate", "analyze", "analyse", "summarize", "summarise",
+    "explain", "plan", "strategy", "research", "review", "compare", "evaluate",
+    "code", "build", "design", "refactor", "report", "proposal", "email",
+]
+
+def _pick_model_smart(message: str, preferred_model: str) -> str:
+    """If message is simple (short + no complex keywords), return cheaper variant of preferred model.
+    Used when user has smart_routing enabled in settings."""
+    msg = (message or "").strip()
+    if len(msg) > 200:
+        return preferred_model
+    msg_lower = msg.lower()
+    if any(kw in msg_lower for kw in _SMART_ROUTING_COMPLEX_KEYWORDS):
+        return preferred_model
+    if _is_claude_model(preferred_model):
+        return _SMART_ROUTING_CHEAP_CLAUDE
+    return _SMART_ROUTING_CHEAP_OPENAI
+
+
 # =========================
 # URL CONTENT FETCHER (for teammates)
 # =========================
@@ -4917,9 +4985,10 @@ def _inject_url_content(message: str) -> str:
     return message
 
 
-def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None) -> str:
+def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None, _fallback: bool = False) -> str:
     """Routes to Claude or OpenAI based on model name.
-    claude-* models use Anthropic API. Everything else uses OpenAI."""
+    claude-* models use Anthropic API. Everything else uses OpenAI.
+    On provider-side failures, automatically retries with the alternate provider unless _fallback=True."""
     def _text_only(msgs):
         out = []
         for m in msgs:
@@ -4946,25 +5015,35 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                 "Go to Settings and paste your Anthropic key (sk-ant-...)."
             )
         clean = _text_only(messages)
-        resp = claude.messages.create(
-            model=use_model,
-            max_tokens=4096,
-            system=system,
-            messages=clean,
-            temperature=temperature,
-        )
         try:
-            _cu = resp.usage
-            if _cu:
-                _uname = ""
+            resp = claude.messages.create(
+                model=use_model,
+                max_tokens=4096,
+                system=system,
+                messages=clean,
+                temperature=temperature,
+            )
+            try:
+                _cu = resp.usage
+                if _cu:
+                    _uname = ""
+                    try:
+                        _uname = _get_session_username()
+                    except Exception:
+                        pass
+                    _log_token_usage(_uname, use_model, _cu.input_tokens or 0, _cu.output_tokens or 0)
+            except Exception:
+                pass
+            return (resp.content[0].text or "").strip()
+        except Exception as _claude_err:
+            if not _fallback and _is_provider_error(_claude_err):
                 try:
-                    _uname = _get_session_username()
+                    import logging as _logging
+                    _logging.warning(f"Claude provider error ({_claude_err}), falling back to gpt-4o-mini")
+                    return call_llm(system, messages, temperature, model="gpt-4o-mini", _fallback=True)
                 except Exception:
                     pass
-                _log_token_usage(_uname, use_model, _cu.input_tokens or 0, _cu.output_tokens or 0)
-        except Exception:
-            pass
-        return (resp.content[0].text or "").strip()
+            raise _claude_err
 
     # ── OpenAI path ───────────────────────────────────────────────
     client = get_openai_client()
@@ -5008,6 +5087,14 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             import time as _time; _time.sleep(2)
             continue
         raise e
+    # Exhausted OpenAI retries — try Claude Haiku fallback if eligible
+    if not _fallback and _last_exc and _is_provider_error(_last_exc):
+        try:
+            import logging as _logging
+            _logging.warning(f"OpenAI provider error ({_last_exc}), falling back to claude-haiku-4-5-20251001")
+            return call_llm(system, messages, temperature, model="claude-haiku-4-5-20251001", _fallback=True)
+        except Exception:
+            pass
     raise _last_exc
 
 # =========================
@@ -6263,6 +6350,7 @@ def api_get_user_settings():
             "has_claude_key":       bool(claude_key),
             "claude_key_hint":      claude_hint,
             "global_default_model": (settings.get("global_default_model") or "").strip(),
+            "smart_routing": bool(settings.get("smart_routing")),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {}).get("refresh_token") or (settings.get("gmail_oauth") or {}).get("access_token")),
             "smtp": safe_smtp,
             "tooltip_level": (settings.get("tooltip_level") or "medium"),  # off | low | medium | high
@@ -6349,6 +6437,8 @@ def api_set_user_settings():
         rec["settings"]["claude_key"] = _encrypt_field(claude_key)
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
+    if "smart_routing" in (data or {}):
+        rec["settings"]["smart_routing"] = bool(data.get("smart_routing"))
 
     # Tooltip level — always save when present (including "off")
     tooltip_level = (data.get("tooltip_level") or "").strip().lower()
@@ -15027,6 +15117,32 @@ label         { font-size: 14px !important; }
                       <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
                     </div>
 
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 14px;">
+                      <div>
+                        <div style="font-size:13px;font-weight:600;color:#c4b5fd;">⚡ Smart Model Routing</div>
+                        <div class="tiny" style="opacity:.7;margin-top:2px;">Automatically use a faster, cheaper model for short or simple messages. Quality model is still used for complex tasks.</div>
+                      </div>
+                      <label style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;margin-left:14px;">
+                        <input type="checkbox" id="smartRoutingToggle" style="opacity:0;width:0;height:0;position:absolute;" />
+                        <span id="smartRoutingTrack" style="position:absolute;inset:0;background:rgba(42,58,106,.5);border-radius:12px;cursor:pointer;transition:background .2s;"></span>
+                        <span id="smartRoutingThumb" style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:left .2s;"></span>
+                      </label>
+                    </div>
+
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:10px 14px;">
+                      <div>
+                        <div style="font-size:13px;font-weight:600;color:#6ee7b7;">🔔 Browser Notifications</div>
+                        <div class="tiny" style="opacity:.7;margin-top:2px;" id="notifPermStatus">Get notified when relay or broadcast finishes, even if the tab is in the background.</div>
+                      </div>
+                      <button id="enableNotifBtn" class="btn btnMini" style="flex-shrink:0;margin-left:12px;" onclick="(function(){
+                        if(!window.Notification){document.getElementById('notifPermStatus').innerText='Notifications not supported in this browser.';return;}
+                        if(Notification.permission==='granted'){document.getElementById('notifPermStatus').innerText='✓ Already enabled';return;}
+                        Notification.requestPermission().then(function(p){
+                          document.getElementById('notifPermStatus').innerText=p==='granted'?'✓ Notifications enabled!':'Permission denied — check browser settings.';
+                        }).catch(function(){});
+                      })()">Enable</button>
+                    </div>
+
                     <div>
                       <button id="saveApiKeysBtn" class="btn btnPrimary" style="padding:6px 18px;font-size:13px;">💾 Save API Keys</button>
                       <span id="saveApiKeysStatus" style="font-size:12px;opacity:.8;margin-left:10px;"></span>
@@ -17060,6 +17176,16 @@ input[type="range"]::-moz-range-progress {
           <button class="btn btnMini" id="exportThreadBtn" title="Export conversation as HTML">📄 Export</button>
           <button class="btn btnMini" id="shareThreadBtn" title="Create read-only share link">🔗 Share</button>
           <span id="ragIndexStatus" class="sa-rag-pill" style="display:none;" title="Knowledge base active for this conversation">🔬 RAG</span>
+        </div>
+        <!-- Context Window Indicator -->
+        <div id="ctxBarWrap" style="flex-shrink:0;margin-bottom:5px;display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">CONTEXT USED</span>
+            <span id="ctxBarLabel" style="font-size:10px;color:#64748b;font-variant-numeric:tabular-nums;"></span>
+          </div>
+          <div style="height:4px;background:rgba(42,58,106,.35);border-radius:2px;overflow:hidden;">
+            <div id="ctxBar" style="height:100%;width:0%;background:#22c55e;border-radius:2px;transition:width .45s ease,background .45s ease;"></div>
+          </div>
         </div>
         <!-- Thread — flex:1 so it fills remaining space without external scroll -->
         <div class="thread" id="thread" style="flex:1;min-height:0;overflow-y:auto;"></div>
@@ -19230,6 +19356,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           }
         }
       }
+      // Context window indicator update
+      (function(){
+        var wrap=document.getElementById('ctxBarWrap'), bar=document.getElementById('ctxBar'), lbl=document.getElementById('ctxBarLabel');
+        if(!wrap||!bar||!lbl||!msgs||!msgs.length){if(wrap)wrap.style.display='none';return;}
+        var totalChars=0; msgs.forEach(function(m){totalChars+=(m.content||'').length;});
+        var estTokens=Math.round(totalChars/4);
+        var ctxSize=128000, mdl='';
+        try{mdl=(window.state&&window.state.selected_model)||'';}catch(e){}
+        if(/claude/i.test(mdl)) ctxSize=190000;
+        else if(/gpt-3\.5/i.test(mdl)) ctxSize=16000;
+        var pct=Math.min(100,Math.round(estTokens/ctxSize*100));
+        var color=pct<50?'#22c55e':pct<80?'#f59e0b':'#ef4444';
+        bar.style.width=pct+'%'; bar.style.background=color; lbl.style.color=color;
+        var tkLabel=estTokens>=1000?(estTokens/1000).toFixed(1)+'k':String(estTokens);
+        lbl.innerText='~'+tkLabel+' / '+(ctxSize/1000|0)+'k tokens ('+pct+'%)';
+        wrap.style.display='block';
+      })();
       // Scroll to latest message — three attempts to handle slow layouts, images, and mobile transitions
       function _scrollToBottom(el){ el.scrollTop = el.scrollHeight; }
       _scrollToBottom(box);
@@ -22008,6 +22151,19 @@ Challenge weak assumptions. Surface risks.`;
         if($("globalDefaultModel") && s.global_default_model){
           $("globalDefaultModel").value = s.global_default_model;
         }
+        // Smart routing toggle
+        (function(){
+          var tog=$("smartRoutingToggle"), track=$("smartRoutingTrack"), thumb=$("smartRoutingThumb");
+          if(!tog) return;
+          function _applyToggle(on){
+            track.style.background=on?'rgba(124,58,237,.7)':'rgba(42,58,106,.5)';
+            thumb.style.left=on?'21px':'3px';
+          }
+          tog.checked=!!s.smart_routing;
+          _applyToggle(!!s.smart_routing);
+          track.onclick=function(){ tog.checked=!tog.checked; _applyToggle(tog.checked); };
+          thumb.onclick=function(){ tog.checked=!tog.checked; _applyToggle(tog.checked); };
+        })();
         const smtp = s.smtp || {};
         // SMTP fields hidden from UI — values preserved in backend
         $("settingsStatus").innerText = "Ready";
@@ -22044,6 +22200,17 @@ Challenge weak assumptions. Surface risks.`;
           window._applyTheme(theme);
           window._loadThemeIntoUI(theme);
         } catch(e) {}
+        // Notification permission status
+        try{
+          const nps = $("notifPermStatus");
+          if(nps && window.Notification){
+            nps.innerText = Notification.permission === 'granted'
+              ? '✓ Notifications enabled — you will be alerted when relay or broadcast finishes.'
+              : Notification.permission === 'denied'
+              ? 'Blocked — allow notifications in browser settings to enable.'
+              : 'Get notified when relay or broadcast finishes, even if the tab is in the background.';
+          }
+        }catch(e){}
       }catch(e){
         $("settingsStatus").innerText = "Load failed";
       }
@@ -27795,10 +27962,12 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const keyVal = ($("openaiKey").value || "").trim();
       const claudeKeyVal = ($("claudeKey") ? $("claudeKey").value : "").trim();
       const globalModel = ($("globalDefaultModel") ? $("globalDefaultModel").value : "").trim();
+      const smartRouting = !!($("smartRoutingToggle") && $("smartRoutingToggle").checked);
       const payload = {
         openai_key: keyVal,
         claude_key: claudeKeyVal,
         global_default_model: globalModel,
+        smart_routing: smartRouting,
         tooltip_level: ($("tooltipLevel") ? $("tooltipLevel").value : "medium"),
         theme: (window._saThemePrefs || {}),
         smtp: {
@@ -34910,6 +35079,12 @@ window._saOpenPipeline=function(){
     }
   }catch(_){}
   if(!_plSeats.length){ if(typeof showToast==='function') showToast('No teammates found — select a seat first'); return; }
+  /* Request browser notification permission (once) so relay completion can notify */
+  try{
+    if(window.Notification&&Notification.permission==='default'){
+      Notification.requestPermission().catch(function(){});
+    }
+  }catch(_){}
   if(!_pl.steps.length) _pl.steps=[{seat:'',instruction:''},{seat:'',instruction:''}];
   _plRebuild();
   gpl('pipelineSetup').style.display='';
@@ -35011,6 +35186,14 @@ function _plExecStep(steps, prompt, idx, prevOut){
     var fo=gpl('plFinalOut'); if(fo) fo.textContent=prevOut;
     var fs=gpl('plFinalSection'); if(fs) fs.style.display='';
     if(typeof showToast==='function') showToast('Relay complete! 🎉');
+    /* Analytics event */
+    try{ fetch('/api/analytics/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:'relay_run',data:{steps:steps.length,output_len:prevOut.length}})}); }catch(_){}
+    /* Browser notification if permitted and tab not focused */
+    try{
+      if(window.Notification&&Notification.permission==='granted'&&document.visibilityState!=='visible'){
+        new Notification('Simply Agentic',{body:'Relay finished — '+steps.length+' step'+(steps.length===1?'':'s')+' complete.',icon:'/static/icon-192.png'});
+      }
+    }catch(_){}
     return;
   }
 
@@ -37095,6 +37278,12 @@ window.sa5OpenBcastModal = function(label, total, jobId){
       if(done){
         document.getElementById('sa5BcastClose').style.display = 'block';
         _sa5Sse.close(); _sa5Sse = null;
+        /* Browser notification on broadcast complete */
+        try{
+          if(job.status==='done'&&window.Notification&&Notification.permission==='granted'&&document.visibilityState!=='visible'){
+            new Notification('Simply Agentic',{body:'Email broadcast complete — '+(job.sent||0)+' sent.',icon:'/static/icon-192.png'});
+          }
+        }catch(_){}
       }
     }catch(_){}
   };
@@ -43930,6 +44119,39 @@ def api_usage_summary():
         "recent":        recent,
     }})
 
+@app.post("/api/analytics/event")
+def api_analytics_event():
+    """Log a client-side analytics event (relay_run, feature_open, etc.)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False}), 401
+    try:
+        data = request.get_json(force=True) or {}
+    except Exception:
+        data = {}
+    event_type = (data.get("event") or "").strip()[:64]
+    if not event_type:
+        return jsonify({"ok": False, "error": "Missing event"}), 400
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _log_analytics_event(uname, event_type, data.get("data") or {})
+    return jsonify({"ok": True})
+
+
+@app.get("/api/analytics/events")
+def api_analytics_events():
+    """Return recent analytics events for the current user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    events = _read_analytics_events(uname, limit=500)
+    by_type: dict = {}
+    for ev in events:
+        t = ev.get("event") or "unknown"
+        by_type[t] = by_type.get(t, 0) + 1
+    return jsonify({"ok": True, "events": events[-50:][::-1], "summary": by_type, "total": len(events)})
+
+
 _DASHBOARD_CACHE: Dict[str, Any] = {}
 _DASHBOARD_CACHE_LOCK = threading.Lock()
 _DASHBOARD_CACHE_TTL  = 30  # seconds
@@ -44592,6 +44814,13 @@ def api_followup_stream():
     thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
+    # Smart routing: downgrade to cheap model for simple messages when user enables the setting
+    try:
+        _u_sett = (load_users().get("users", {}).get(uname, {}).get("settings") or {})
+        if _u_sett.get("smart_routing"):
+            preferred_model = _pick_model_smart(msg, preferred_model)
+    except Exception:
+        pass
     _use_claude     = _is_claude_model(preferred_model)
 
     # Read the user's OpenAI key directly — never rely on g.openai_client
@@ -44623,6 +44852,12 @@ def api_followup_stream():
                 teammate=name, status="success"
             )
             _mark_onboarding_step(uname, "first_prompt", True)
+            _log_analytics_event(uname, "teammate_message", {
+                "teammate": name,
+                "model": preferred_model,
+                "msg_len": len(msg),
+                "resp_len": len(complete_text),
+            })
         except Exception:
             pass
         return complete_text, draft
