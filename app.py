@@ -19150,6 +19150,48 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
     window.selectSeat = selectSeat;  // expose for prompt library and other cross-scope callers
 
+    // Lightweight markdown → safe HTML for teammate messages
+    function saMarkdown(text){
+      if(!text) return '';
+      const lines = text.split('\n');
+      const out = [];
+      let inOl=false, inUl=false, inPre=false;
+      function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function inline(s){
+        s = s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+        s = s.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
+        s = s.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
+        s = s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(124,58,237,.15);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:.88em;">$1</code>');
+        return s;
+      }
+      for(let i=0;i<lines.length;i++){
+        const raw=lines[i];
+        if(raw.trimStart().startsWith('```')){
+          if(inPre){ out.push('</code></pre>'); inPre=false; }
+          else{
+            if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;}
+            out.push('<pre style="background:rgba(0,0,0,.35);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;"><code style="font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre;">');
+            inPre=true;
+          }
+          continue;
+        }
+        if(inPre){ out.push(esc(raw)); continue; }
+        const e=esc(raw);
+        if(/^### /.test(e)){ if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
+        if(/^## /.test(e)){  if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:14px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
+        if(/^# /.test(e)){   if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:15px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
+        if(/^-{3,}$/.test(raw.trim())){ if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<hr style="border:none;border-top:1px solid rgba(124,58,237,.3);margin:8px 0;">'); continue; }
+        const olM=raw.match(/^(\d+)\.\s+([\s\S]*)/);
+        if(olM){ if(inUl){out.push('</ul>');inUl=false;} if(!inOl){out.push('<ol style="padding-left:20px;margin:6px 0;">');inOl=true;} out.push('<li>'+inline(esc(olM[2]))+'</li>'); continue; }
+        const ulM=raw.match(/^[-*•]\s+([\s\S]*)/);
+        if(ulM){ if(inOl){out.push('</ol>');inOl=false;} if(!inUl){out.push('<ul style="padding-left:20px;margin:6px 0;">');inUl=true;} out.push('<li>'+inline(esc(ulM[1]))+'</li>'); continue; }
+        if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;}
+        out.push(raw.trim()==='' ? '<div style="height:5px;"></div>' : '<div>'+inline(e)+'</div>');
+      }
+      if(inOl)out.push('</ol>'); if(inUl)out.push('</ul>'); if(inPre)out.push('</code></pre>');
+      return out.join('');
+    }
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -19338,7 +19380,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           content._visualPrompt = m.role === 'user' ? '' : ((msgs[msgs.indexOf(m)-1]||{}).content||'').slice(0,120);
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
-          content.innerText = raw;
+          if(m.role === 'user'){ content.innerText = raw; } else { content.innerHTML = saMarkdown(raw); }
           // CRM name detection — if response mentions a known contact, show quick-open button
           if(m.role !== "user" && raw && (crmCache.clients||[]).length){
             const rawLower = raw.toLowerCase();
@@ -21141,7 +21183,7 @@ function _saJobNotify(seatName, status){
             try{
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
-              if(ev.token){ fullText += ev.token; aBody.innerText = fullText; cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
+              if(ev.token){ fullText += ev.token; aBody.innerHTML = saMarkdown(fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
             }catch(e){}
           }
