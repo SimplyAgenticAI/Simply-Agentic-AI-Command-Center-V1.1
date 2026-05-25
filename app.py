@@ -7644,6 +7644,13 @@ def _api_followup_impl(data):
 
 
 
+    # Message limit check (mirrors streaming path)
+    _plan_k = _get_user_plan(uname)
+    _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
+    if not _allowed:
+        _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
+        return jsonify({"ok": False, "error": f"You've used all {_limit} messages included with {_plan_nm} this month. Add your own API key in Settings for unlimited access, or your limit resets on the 1st.", "limit_hit": True}), 429
+
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
@@ -7663,6 +7670,8 @@ def _api_followup_impl(data):
             text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
     else:
         text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
+
+    _increment_msg_usage(uname)
 
     new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread, uname)
@@ -38659,7 +38668,7 @@ def api_crm_clients_create():
         current_count = len(crm.get("clients") or {})
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
-            upgrade_to = "Teams ($97/mo)" if plan_key in ("solo", "starter") else "Teams ($97/mo)"
+            upgrade_to = "Teams ($127/mo)" if _normalize_plan_key(plan_key) in ("solo", "founder") else "contact support"
             return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"}), 403
 
     cid = _crm_new_id("c")
