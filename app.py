@@ -34292,7 +34292,7 @@ document.addEventListener('click',e=>{
 
       <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button onclick="_saClearPl()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#64748b;border-radius:10px;padding:9px 18px;font-size:13px;cursor:pointer;">Clear</button>
-        <button id="plRunBtn" onclick="_saRunPipeline()" style="background:rgba(124,58,237,.85);border:none;color:#fff;border-radius:10px;padding:9px 24px;font-size:13px;font-weight:700;cursor:pointer;">▶ Run Pipeline</button>
+        <button id="plRunBtn" onclick="_saRunPipeline()" style="background:rgba(124,58,237,.85);border:none;color:#fff;border-radius:10px;padding:9px 24px;font-size:13px;font-weight:700;cursor:pointer;">▶ Run Relay</button>
       </div>
     </div>
 
