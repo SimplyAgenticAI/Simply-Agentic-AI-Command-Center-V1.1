@@ -288,7 +288,7 @@ FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", "7"))
 STRIPE_PRICE_ID       = os.getenv("STRIPE_PRICE_ID", "")
 
 STRIPE_PRICE_ID_STARTER = os.getenv("STRIPE_PRICE_ID_STARTER", "price_1TNLaBKAWBo2NxJsK5bMQr4x") or STRIPE_PRICE_ID or "price_1TNLaBKAWBo2NxJsK5bMQr4x"
-STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TNzAyKAWBo2NxJsy3ff1pGv")  # Teams plan
+STRIPE_PRICE_ID_GROWTH  = os.getenv("STRIPE_PRICE_ID_GROWTH",  "price_1TapONKAWBo2NxJsdsY6XkmE")  # Teams plan $127/mo
 
 # ── Founder / Early-Adopter plan ─────────────────────────────────────────────
 # Founder plan — product: prod_UP048a3RZv4e9i
