@@ -7649,7 +7649,7 @@ def _api_followup_impl(data):
     _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
     if not _allowed:
         _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
-        return jsonify({"ok": False, "error": f"You've used all {_limit} messages included with {_plan_nm} this month. Connect your own API key in ⚙️ Settings to unlock unlimited messages and all premium models — or your limit resets on the 1st.", "limit_hit": True}), 429
+        return jsonify({"ok": False, "error": f"You've used all {_limit} AI Credits included with {_plan_nm} this month. Connect your own API key in ⚙️ Settings to unlock unlimited credits and all premium models — or your credits reset on the 1st.", "limit_hit": True}), 429
 
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
@@ -17320,7 +17320,7 @@ input[type="range"]::-moz-range-progress {
         <!-- Monthly usage bar (hidden when user has own key) -->
         <div id="msgUsageWrap" style="flex-shrink:0;display:none;margin-bottom:6px;padding:6px 10px;background:rgba(7,10,20,.5);border:1px solid rgba(42,58,106,.4);border-radius:8px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">MONTHLY MESSAGES</span>
+            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">AI CREDITS</span>
             <span id="msgUsageLabel" style="font-size:10px;color:#64748b;font-variant-numeric:tabular-nums;"></span>
           </div>
           <div style="height:4px;background:rgba(42,58,106,.35);border-radius:2px;overflow:hidden;">
@@ -19654,7 +19654,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           imgL.style.display='block';
         }
         if(pct>=100){
-          lbl.innerText='Limit reached — upgrade or add your own API key';
+          lbl.innerText='AI Credits used — connect your API key for unlimited';
           lbl.style.color='#ef4444';
           wrap.style.background='rgba(239,68,68,.08)';
           wrap.style.borderColor='rgba(239,68,68,.3)';
@@ -45064,8 +45064,8 @@ def api_followup_stream():
         if not _allowed:
             _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
             return jsonify({"ok": False, "error": (
-                f"You've used all {_limit} messages included in {_plan_nm} this month. "
-                f"Upgrade to get more, or add your own API key in Settings for unlimited messages."
+                f"You've used all {_limit} AI Credits included in {_plan_nm} this month. "
+                f"Upgrade to get more, or add your own API key in Settings for unlimited credits."
             ), "limit_hit": True}), 429
     except Exception:
         pass
