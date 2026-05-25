@@ -19324,23 +19324,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
           content.innerText = raw;
-          // Edit button for user messages
-          if(isUser && raw){
-            const editRow = document.createElement("div");
-            editRow.style.cssText = "margin-top:5px;display:flex;justify-content:flex-end;";
-            const editBtn = document.createElement("button");
-            editBtn.className = "btn btnMini";
-            editBtn.style.cssText = "font-size:11px;opacity:.35;padding:2px 9px;transition:opacity .15s;";
-            editBtn.innerText = "✏️ Edit";
-            editBtn.title = "Edit this message and regenerate from here";
-            editBtn.onmouseenter = () => { editBtn.style.opacity = ".9"; };
-            editBtn.onmouseleave = () => { editBtn.style.opacity = ".35"; };
-            (function(idx, txt, seat){ editBtn.onclick = function(e){ e.stopPropagation(); window._saEditMsg(idx, txt, seat); }; })(msgIdx, raw, selectedSeat);
-            editBtn.dataset.saEditIdx = String(msgIdx); // survives innerHTML copy → mobile delegation
-            editBtn.dataset.saRaw = raw;                // stores the text to restore
-            editRow.appendChild(editBtn);
-            content.appendChild(editRow);
-          }
           // CRM name detection — if response mentions a known contact, show quick-open button
           if(m.role !== "user" && raw && (crmCache.clients||[]).length){
             const rawLower = raw.toLowerCase();
@@ -19457,19 +19440,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 actRow.appendChild(prevBtn);
               }
             }
-            // Retry (regenerate) button
-            const regenBtn = document.createElement("button");
-            regenBtn.className = "btn btnMini";
-            regenBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
-            regenBtn.innerText = "↺ Retry";
-            regenBtn.title = "Regenerate this response";
-            (function(idx, prevTxt, seat){
-              regenBtn.onclick = function(e){ e.stopPropagation(); window._saRegenMsg(idx, prevTxt, seat); };
-            })(msgIdx, msgIdx > 0 ? (msgs[msgIdx-1]||{}).content||'' : '', selectedSeat);
-            regenBtn.dataset.saRetryIdx  = String(msgIdx);
-            regenBtn.dataset.saRetryPrev = msgIdx > 0 ? (msgs[msgIdx-1]||{}).content||'' : '';
-            regenBtn.dataset.saRaw = '1'; // truthy — lets findActionBtn locate this button
-            actRow.appendChild(regenBtn);
             content.appendChild(actRow);
           }
         }
