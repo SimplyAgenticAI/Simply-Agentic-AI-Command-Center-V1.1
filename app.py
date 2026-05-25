@@ -14580,9 +14580,6 @@ label         { font-size: 14px !important; }
   box-shadow:0 6px 20px rgba(0,0,0,.45);
 }
 [data-tip]:hover::after{opacity:1;transform:translateX(-50%) scale(1);}
-/* Dropdown items — tooltip floats to the right so it doesn't hide behind the nav */
-.saDrop [data-tip]::after{bottom:auto;top:50%;left:calc(100% + 10px);transform:translateY(-50%) scale(0.94);}
-.saDrop [data-tip]:hover::after{opacity:1;transform:translateY(-50%) scale(1);}
 
 /* ── Stats strip ─────────────────────────────────────────────────────── */
 .statsStrip{
@@ -14684,12 +14681,12 @@ label         { font-size: 14px !important; }
             <span>👥 Teammates</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saTeamDrop">
-            <button class="saDropItem" id="createTeamBtn" data-tip="Build a new AI teammate with a custom role &amp; personality">✨ Create Teammate</button>
-            <button class="saDropItem" id="editTeammatesBtn" data-tip="Update your teammates' names, roles, and instructions">✏️ Edit Teammates</button>
-            <button class="saDropItem" id="manageTeamBtn" data-tip="Add or remove teammates from your Round Table">➕ Add / Dismiss</button>
-            <button class="saDropItem" id="installFullBtn" data-tip="Install all 7 AI specialists in one click">⚡ Install Full Team</button>
+            <button class="saDropItem" id="createTeamBtn">✨ Create Teammate</button>
+            <button class="saDropItem" id="editTeammatesBtn">✏️ Edit Teammates</button>
+            <button class="saDropItem" id="manageTeamBtn">➕ Add / Dismiss</button>
+            <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="frameworkBtn" data-tip="Set your core business context shared across all teammates">🧠 Core Framework</button>
+            <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
           </div>
         </div>
 
@@ -14698,13 +14695,13 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
-            <button class="saDropItem" id="visualCreatorBtn" data-tip="Generate images, variations &amp; visual edits with AI">✨ Visual Creator</button>
-            <button class="saDropItem" id="teleprompterBtn" data-tip="Script and display scrolling text for recordings" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
-            <button class="saDropItem" id="socialStudioBtn" data-tip="Plan &amp; generate social content for any platform">📣 Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn" data-tip="Build and refine your core business offer with AI">🎯 Offer Builder</button>
-            <button class="saDropItem" id="growthPlaybookBtn" data-tip="Create a custom growth strategy for your business">📋 Growth Playbook</button>
-            <button class="saDropItem" id="notepadBtn" data-tip="Quick scratch pad for notes and ideas" onclick="showNotepadModal()">📝 Notepad</button>
-            <button class="saDropItem" id="imageLibBtn" data-tip="Browse &amp; manage all your AI-generated images">🖼 Image Library</button>
+            <button class="saDropItem" id="visualCreatorBtn">✨ Visual Creator</button>
+            <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
+            <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
+            <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
+            <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
+            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
           </div>
         </div>
 
@@ -14713,12 +14710,12 @@ label         { font-size: 14px !important; }
             <span>🔍 Research</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saResearchDrop">
-            <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
-            <button class="saDropItem" id="siteAnalyzerBtn" data-tip="Audit any website for messaging, SEO &amp; opportunities" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
+            <button class="saDropItem" id="leadLabBtn">🔬 Find Leads</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" data-tip="Build a detailed intelligence profile on any prospect" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
-            <button class="saDropItem" data-tip="Scan your market for trends, competitors &amp; gaps" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
-            <button class="saDropItem" data-tip="Identify buying signals from prospects and leads" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
+            <button class="saDropItem" id="prospectDossierBtn" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
+            <button class="saDropItem" id="marketScannerBtn" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
+            <button class="saDropItem" id="intentSignalsBtn" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
           </div>
         </div>
 
@@ -14731,8 +14728,8 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="promptLibraryBtn" data-tip="Save &amp; reuse your best prompts across all teammates">📚 Prompt Library</button>
-            <button class="saDropItem" id="responseVaultBtn" data-tip="Store &amp; retrieve your favorite AI responses">🗄️ Response Vault</button>
+            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
+            <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
           </div>
         </div>
 
@@ -31071,6 +31068,48 @@ if(typeof maybeAutoShowOnboarding === "function"){
       text: "🏆 Community leaderboard — earn points by using the app, submitting feature ideas, and engaging with your team.",
       level: "high", position: "bottom", trigger: "hover"
     },
+    // ── Team dropdown ──
+    { id:"tip_create_teammate", target:"#createTeamBtn", level:"medium", trigger:"hover",
+      text:"✨ Build a new AI teammate from scratch — give them a name, role, personality, and area of expertise." },
+    { id:"tip_edit_teammates", target:"#editTeammatesBtn", level:"medium", trigger:"hover",
+      text:"✏️ Update any teammate's name, role, avatar, instructions, or voice settings anytime." },
+    { id:"tip_manage_team", target:"#manageTeamBtn", level:"medium", trigger:"hover",
+      text:"➕ Add new teammates to your Round Table or dismiss ones you're not currently using." },
+    { id:"tip_install_full", target:"#installFullBtn", level:"medium", trigger:"hover",
+      text:"⚡ Install all 7 pre-built AI specialists at once — sales, marketing, research, writing, systems, and more." },
+    { id:"tip_framework", target:"#frameworkBtn", level:"medium", trigger:"hover",
+      text:"🧠 Your Core Framework is shared with every teammate automatically. Add your niche, ideal client, and offer for smarter responses." },
+    // ── Create dropdown ──
+    { id:"tip_visual_creator", target:"#visualCreatorBtn", level:"medium", trigger:"hover",
+      text:"✨ Generate images, create variations of existing ones, or edit them using a text prompt." },
+    { id:"tip_teleprompter", target:"#teleprompterBtn", level:"medium", trigger:"hover",
+      text:"🎙 Display a scrolling script on screen while you record — great for videos and live sessions." },
+    { id:"tip_social_studio", target:"#socialStudioBtn", level:"medium", trigger:"hover",
+      text:"📣 Plan and generate on-brand social content for any platform — from hooks to full post sequences." },
+    { id:"tip_offer_builder", target:"#offerBuilderBtn", level:"medium", trigger:"hover",
+      text:"🎯 Workshop your core offer with AI — positioning, pricing, messaging, and objection handling." },
+    { id:"tip_growth_playbook", target:"#growthPlaybookBtn", level:"medium", trigger:"hover",
+      text:"📋 Build a tailored growth strategy with specific actions, timelines, and priorities for your business." },
+    { id:"tip_notepad", target:"#notepadBtn", level:"medium", trigger:"hover",
+      text:"📝 Quick scratch pad — jot down ideas, copy snippets, or draft content between sessions." },
+    { id:"tip_image_lib", target:"#imageLibBtn", level:"medium", trigger:"hover",
+      text:"🖼 Browse every image you've generated — organized, searchable, and ready to download or reuse." },
+    // ── Research dropdown ──
+    { id:"tip_site_analyzer", target:"#siteAnalyzerBtn", level:"medium", trigger:"hover",
+      text:"🌐 Paste any URL and get a full audit — messaging gaps, SEO opportunities, and conversion improvements." },
+    { id:"tip_prospect_dossier", target:"#prospectDossierBtn", level:"medium", trigger:"hover",
+      text:"🎯 Build a detailed intelligence profile on any prospect or company before you reach out." },
+    { id:"tip_market_scanner", target:"#marketScannerBtn", level:"medium", trigger:"hover",
+      text:"📊 Scan your market for trends, competitor gaps, and positioning opportunities." },
+    { id:"tip_intent_signals", target:"#intentSignalsBtn", level:"medium", trigger:"hover",
+      text:"📡 Identify buying signals — who in your market is actively looking for what you offer." },
+    // ── Manage dropdown ──
+    { id:"tip_calendar", target:"#calendarBtn", level:"medium", trigger:"hover",
+      text:"📅 Connect Google Calendar to check availability, schedule meetings, and let teammates book time for you." },
+    { id:"tip_email_console", target:"#emailConsoleBtn", level:"medium", trigger:"hover",
+      text:"📧 View every email your teammates have drafted or sent, including full broadcast history and open stats." },
+    { id:"tip_response_vault", target:"#responseVaultBtn", level:"medium", trigger:"hover",
+      text:"🗄️ Save your best AI responses here and pull them back into any conversation — your personal answer library." },
   ];
 
   // ── State ─────────────────────────────────────────────────
