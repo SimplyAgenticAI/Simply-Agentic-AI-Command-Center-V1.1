@@ -19125,6 +19125,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             actRow.appendChild(copyBtn);
             actRow.appendChild(speakBtn);
             actRow.appendChild(pinBtn);
+            // Preview button — only when response contains renderable content
+            if(typeof window._saPreviewDetect === 'function'){
+              var _prevDet = window._saPreviewDetect(raw);
+              if(_prevDet){
+                var prevBtn = document.createElement("button");
+                prevBtn.className = "btn btnMini";
+                prevBtn.style.cssText = "font-size:11px;opacity:.9;padding:2px 9px;background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.5);color:#c4b5fd;";
+                prevBtn.innerText = "▶ Preview";
+                prevBtn.title = "Open live preview pane";
+                (function(det){ prevBtn.onclick = function(e){ e.stopPropagation(); window._saPreviewShow(det, selectedSeat||'Preview'); }; })(_prevDet);
+                actRow.appendChild(prevBtn);
+              }
+            }
             content.appendChild(actRow);
           }
         }
@@ -19134,6 +19147,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(content);
         box.appendChild(div);
       });
+      // Auto-open preview pane for the last assistant message that contains HTML
+      if(typeof window._saPreviewDetect === 'function' && typeof window._saPreviewShow === 'function'){
+        var _lastAsst = null;
+        for(var _mi = msgs.length - 1; _mi >= 0; _mi--){
+          if(msgs[_mi].role !== 'user'){ _lastAsst = msgs[_mi]; break; }
+        }
+        if(_lastAsst){
+          var _autoDet = window._saPreviewDetect(_lastAsst.content || '');
+          if(_autoDet && _autoDet.type === 'html' && (_lastAsst.content || '').length > 300){
+            window._saPreviewShow(_autoDet, selectedSeat || 'Preview');
+          }
+        }
+      }
       // Scroll to latest message — three attempts to handle slow layouts, images, and mobile transitions
       function _scrollToBottom(el){ el.scrollTop = el.scrollHeight; }
       _scrollToBottom(box);
@@ -35518,6 +35544,197 @@ document.addEventListener('click',e=>{
 
 <!-- ===== END MOBILE BOTTOM SHEET ===== -->
 
+<!-- ===== LIVE PREVIEW PANE — JS ===== -->
+<script>
+(function(){
+  'use strict';
+
+  /* ── Detect previewable content in a raw message string ──
+     Returns {type, language, code} or null.
+     Priority: html fence > bare html doc > js/ts/css fence > table > other code fence */
+  function _saPreviewDetect(raw){
+    if(!raw || raw.length < 40) return null;
+
+    /* 1. Fenced code blocks */
+    var fenceRe = /```(\w*)\s*\n([\s\S]*?)```/g, m, best = null;
+    while((m = fenceRe.exec(raw)) !== null){
+      var lang = (m[1]||'').toLowerCase().trim();
+      var code = m[2]||'';
+      if(!code.trim() || code.length < 30) continue;
+      if(lang==='html'||lang==='htm'){
+        return {type:'html', language:'html', code:code};
+      }
+      if(!best){
+        var typ = (lang==='js'||lang==='javascript'||lang==='ts'||lang==='typescript'
+                   ||lang==='jsx'||lang==='tsx'||lang==='css'||lang==='scss') ? 'code' : 'code';
+        best = {type:typ, language:lang||'code', code:code};
+      }
+    }
+
+    /* 2. Bare full HTML document */
+    var trimmed = raw.trim();
+    if(/^<!DOCTYPE\s+html/i.test(trimmed)||/^<html[\s>]/i.test(trimmed)){
+      return {type:'html', language:'html', code:trimmed};
+    }
+
+    /* 3. Substantial inline HTML block (div/section etc.) */
+    if(/<(?:html|body|head|div|section|article|header|main|nav|aside)\b[^>]*>[\s\S]{200,}/i.test(trimmed) && !best){
+      return {type:'html', language:'html', code:trimmed};
+    }
+
+    /* 4. Markdown table */
+    if(!best && /\|.+\|.+\|\s*\n\s*\|[-: |]+\|/m.test(raw)){
+      return {type:'table', language:'table', code:raw};
+    }
+
+    return best;
+  }
+
+  /* ── Convert markdown table to an HTML table ── */
+  function _mdTableToHtml(md){
+    var lines = md.split('\n'), rows = [], inTable = false, out = '';
+    function buildTbl(rs){
+      if(!rs.length) return '';
+      var h = '<table style="border-collapse:collapse;width:100%;font-family:system-ui,sans-serif;font-size:14px;">';
+      rs.forEach(function(cells,ri){
+        h += '<tr>';
+        cells.forEach(function(c){
+          var t = ri===0?'th':'td';
+          h += '<'+t+' style="border:1px solid #334155;padding:8px 12px;text-align:left;'+(ri===0?'background:#1e293b;font-weight:600;color:#e2e8f0;':'color:#cbd5e1;')+'">'+(c||'')+'</'+t+'>';
+        });
+        h += '</tr>';
+      });
+      return h + '</table>';
+    }
+    lines.forEach(function(line){
+      var t = line.trim();
+      if(/^\|/.test(t)&&/\|$/.test(t)){
+        inTable = true;
+        if(/^\|[-: |]+\|$/.test(t)) return; // separator
+        rows.push(t.slice(1,-1).split('|').map(function(c){return c.trim();}));
+      } else {
+        if(inTable){ out += buildTbl(rows); rows = []; inTable = false; }
+        if(t) out += '<p style="color:#cbd5e1;line-height:1.6;margin:6px 0;">'+t+'</p>';
+      }
+    });
+    if(rows.length) out += buildTbl(rows);
+    return out;
+  }
+
+  /* ── Wrap code in a full iframe-safe HTML document ── */
+  function _wrapForFrame(det){
+    if(det.type==='table'){
+      return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:24px;background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;}</style></head><body>'+_mdTableToHtml(det.code)+'</body></html>';
+    }
+    var code = det.code;
+    if(/<!DOCTYPE\s+html|<html[\s>]/i.test(code)) return code;
+    return '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box;}body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#fff;color:#1e293b;}</style></head><body>'+code+'</body></html>';
+  }
+
+  /* ── Show the preview pane ── */
+  function _saPreviewShow(det, sourceName){
+    var pane = document.getElementById('saPreviewPane');
+    if(!pane) return;
+    var frameEl = document.getElementById('saPreviewFrame');
+    var codeEl  = document.getElementById('saPreviewCode');
+    var emptyEl = document.getElementById('saPreviewEmpty');
+    var labelEl = document.getElementById('saPreviewLabel');
+    var tabBtn  = document.getElementById('saPreviewNewTabBtn');
+
+    if(labelEl) labelEl.textContent = (sourceName||'Preview') + '  ·  ' + (det.language||'preview');
+
+    /* Show iframe for HTML / table, code block for everything else */
+    if(det.type==='html'||det.type==='table'){
+      var doc = _wrapForFrame(det);
+      if(frameEl){ frameEl.style.display='block'; frameEl.srcdoc=doc; }
+      if(codeEl)  codeEl.style.display='none';
+      if(emptyEl) emptyEl.style.display='none';
+      if(tabBtn){
+        tabBtn.style.display='';
+        tabBtn._doc = doc;
+      }
+    } else {
+      if(codeEl){ codeEl.style.display='block'; codeEl.textContent=det.code; }
+      if(frameEl) frameEl.style.display='none';
+      if(emptyEl) emptyEl.style.display='none';
+      if(tabBtn) tabBtn.style.display='none';
+    }
+
+    pane._rawCode = det.code;
+    pane.classList.add('sa-preview-open');
+    document.body.classList.add('sa-preview-active');
+    window._saPreviewIsOpen = true;
+  }
+
+  /* ── Close the pane ── */
+  function _saPreviewClose(){
+    var pane = document.getElementById('saPreviewPane');
+    if(pane) pane.classList.remove('sa-preview-open');
+    document.body.classList.remove('sa-preview-active');
+    window._saPreviewIsOpen = false;
+    /* Blank iframe so audio/video/scripts stop */
+    var f = document.getElementById('saPreviewFrame');
+    if(f){ f.srcdoc=''; f.style.display='none'; }
+  }
+
+  /* ── Wire up buttons ── */
+  function _wirePreviewBtns(){
+    var closeBtn = document.getElementById('saPreviewCloseBtn');
+    if(closeBtn) closeBtn.onclick = _saPreviewClose;
+
+    var copyBtn = document.getElementById('saPreviewCopyBtn');
+    if(copyBtn) copyBtn.onclick = function(){
+      var pane = document.getElementById('saPreviewPane');
+      var raw = pane && pane._rawCode;
+      if(!raw) return;
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(raw).then(function(){
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(function(){ copyBtn.textContent = '📋 Copy'; }, 1500);
+        }).catch(function(){});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = raw; ta.style.cssText = 'position:fixed;opacity:0;';
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); }catch(_){}
+        document.body.removeChild(ta);
+        copyBtn.textContent = '✓ Copied';
+        setTimeout(function(){ copyBtn.textContent = '📋 Copy'; }, 1500);
+      }
+    };
+
+    var tabBtn = document.getElementById('saPreviewNewTabBtn');
+    if(tabBtn) tabBtn.onclick = function(){
+      var doc = tabBtn._doc;
+      if(!doc) return;
+      var blob = new Blob([doc], {type:'text/html'});
+      var url  = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      /* Revoke after a moment — the new tab will have loaded by then */
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+    };
+  }
+
+  /* Expose globally */
+  window._saPreviewDetect = _saPreviewDetect;
+  window._saPreviewShow   = _saPreviewShow;
+  window._saPreviewClose  = _saPreviewClose;
+
+  /* Wire buttons after DOM ready */
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', _wirePreviewBtns);
+  } else {
+    _wirePreviewBtns();
+  }
+
+  /* Close on Escape */
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && window._saPreviewIsOpen) _saPreviewClose();
+  });
+
+})();
+</script>
+
 <!-- ===== GLOBAL THREAD BUTTON DELEGATION =====
      Handles Copy / Speak / Save-to-Vault in ANY thread container
      (desktop #thread, mobile bottom sheet #saSheetThread, full-chat #mobFullChatThread).
@@ -35660,6 +35877,89 @@ document.addEventListener('click',e=>{
       rows="1" autocomplete="off" autocorrect="off"
       autocapitalize="sentences" spellcheck="false"></textarea>
     <button id="mobStripSend">&#x21B5;</button>
+  </div>
+</div>
+
+<style>
+/* ── Live Preview Pane ── */
+#saPreviewPane{
+  position:fixed;
+  top:0;right:0;bottom:0;
+  width:min(660px,48vw);
+  background:#07091a;
+  border-left:1px solid rgba(124,58,237,.35);
+  box-shadow:-8px 0 40px rgba(0,0,0,.5);
+  display:flex;flex-direction:column;
+  z-index:4500;
+  transform:translateX(100%);
+  transition:transform .28s cubic-bezier(.4,0,.2,1);
+  border-radius:0;
+}
+#saPreviewPane.sa-preview-open{
+  transform:translateX(0);
+}
+#saPreviewHeader{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 14px;
+  border-bottom:1px solid rgba(42,58,106,.7);
+  background:rgba(10,14,30,.95);
+  flex-shrink:0;min-height:48px;
+  gap:10px;
+}
+#saPreviewBody{
+  flex:1;overflow:hidden;display:flex;flex-direction:column;position:relative;
+}
+#saPreviewCode{
+  flex:1;margin:0;padding:18px;
+  font-family:'Courier New',Courier,monospace;
+  font-size:12.5px;line-height:1.6;
+  color:#a5f3fc;
+  background:#070d1a;
+  overflow:auto;
+  white-space:pre;
+  tab-size:2;
+}
+#saPreviewEmpty{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  color:#1e293b;font-size:13px;
+}
+/* When preview pane is open on wide screens, nudge the main layout */
+@media(min-width:961px){
+  body.sa-preview-active .tableWrap,
+  body.sa-preview-active #tableWrap{
+    margin-right:min(660px,48vw);
+    transition:margin-right .28s cubic-bezier(.4,0,.2,1);
+  }
+}
+/* Mobile: full-screen overlay */
+@media(max-width:960px){
+  #saPreviewPane{
+    width:100vw;
+    z-index:9000;
+    border-left:none;
+    box-shadow:none;
+  }
+}
+</style>
+
+<!-- ===== LIVE PREVIEW PANE ===== -->
+<div id="saPreviewPane">
+  <div id="saPreviewHeader">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0;overflow:hidden;">
+      <span style="font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#7c3aed;flex-shrink:0;">▶ PREVIEW</span>
+      <span id="saPreviewLabel" style="font-size:12px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+      <button id="saPreviewCopyBtn" class="btn btnMini" style="font-size:11px;padding:3px 10px;">📋 Copy</button>
+      <button id="saPreviewNewTabBtn" class="btn btnMini" style="font-size:11px;padding:3px 10px;display:none;">⬡ New tab</button>
+      <button id="saPreviewCloseBtn" title="Close preview" style="background:rgba(42,58,106,.5);border:1px solid rgba(42,58,106,.8);color:#94a3b8;border-radius:8px;width:30px;height:30px;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>
+    </div>
+  </div>
+  <div id="saPreviewBody">
+    <iframe id="saPreviewFrame" sandbox="allow-scripts allow-forms allow-modals" style="display:none;width:100%;height:100%;border:none;background:#fff;border-radius:0 0 12px 0;"></iframe>
+    <pre id="saPreviewCode" style="display:none;"></pre>
+    <div id="saPreviewEmpty" style="display:flex;align-items:center;justify-content:center;height:100%;color:#334155;font-size:13px;">No preview loaded</div>
   </div>
 </div>
 
