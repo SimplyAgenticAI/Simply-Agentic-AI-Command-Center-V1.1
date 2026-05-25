@@ -16956,7 +16956,7 @@ input[type="range"]::-moz-range-progress {
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                     <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
                     <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
-                    <button id="pipelineBtn"        class="saMoreItem" style="color:#a78bfa;" onclick="if(typeof _saOpenPipeline==='function')_saOpenPipeline()">⛓ Pipeline</button>
+                    <button id="pipelineBtn"        class="saMoreItem" style="color:#a78bfa;" onclick="if(typeof _saOpenPipeline==='function')_saOpenPipeline()">⛓ Relay</button>
                     <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
                   </div>
                 </div>
@@ -34271,7 +34271,7 @@ document.addEventListener('click',e=>{
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
       <div>
-        <div style="font-size:16px;font-weight:800;color:#a78bfa;">⛓ Pipeline</div>
+        <div style="font-size:16px;font-weight:800;color:#a78bfa;">⛓ Relay</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">Chain teammates in sequence — each one builds on the last</div>
       </div>
       <button onclick="if(!window._plRunning)_saClosePipeline()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
@@ -34288,6 +34288,7 @@ document.addEventListener('click',e=>{
       </div>
       <div id="plStepBuilder" style="display:flex;flex-direction:column;gap:8px;"></div>
       <div id="plBuilderHint" style="text-align:center;padding:24px 0;color:#334155;font-size:12px;">Add at least 2 steps — select a teammate and optionally give each one a custom instruction</div>
+
 
       <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
         <button onclick="_saClearPl()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#64748b;border-radius:10px;padding:9px 18px;font-size:13px;cursor:pointer;">Clear</button>
@@ -34310,7 +34311,7 @@ document.addEventListener('click',e=>{
       </div>
 
       <div style="margin-top:18px;">
-        <button onclick="_saPlReset()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#94a3b8;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;">↩ New pipeline</button>
+        <button onclick="_saPlReset()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#94a3b8;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;">↩ New relay</button>
       </div>
     </div>
 
@@ -34895,11 +34896,20 @@ function _plRebuild(){
 window._saOpenPipeline=function(){
   _plSeats=[];
   try{
-    var inst=(window.state&&window.state.installed)||{};
-    var order=(window.state&&(window.state.active_order||window.state.installed_order))||Object.keys(inst);
-    order.forEach(function(n){ if(inst[n]) _plSeats.push(n); });
+    /* 1. Try window.state (populated after API/state loads) */
+    if(window.state&&window.state.installed&&typeof window.state.installed==='object'){
+      var order=(window.state.active_order||window.state.installed_order)||Object.keys(window.state.installed);
+      order.forEach(function(n){ if(window.state.installed[n]&&_plSeats.indexOf(n)===-1) _plSeats.push(n); });
+    }
+    /* 2. Fallback: read from rendered seat cards in the DOM (always present) */
+    if(!_plSeats.length){
+      document.querySelectorAll('.seat[data-name]').forEach(function(el){
+        var n=el.dataset.name;
+        if(n&&n!=='Operator'&&_plSeats.indexOf(n)===-1) _plSeats.push(n);
+      });
+    }
   }catch(_){}
-  if(!_plSeats.length){ if(typeof showToast==='function') showToast('No teammates installed'); return; }
+  if(!_plSeats.length){ if(typeof showToast==='function') showToast('No teammates found — select a seat first'); return; }
   if(!_pl.steps.length) _pl.steps=[{seat:'',instruction:''},{seat:'',instruction:''}];
   _plRebuild();
   gpl('pipelineSetup').style.display='';
@@ -35000,7 +35010,7 @@ function _plExecStep(steps, prompt, idx, prevOut){
     _pl.running=false; window._plRunning=false; _pl.finalText=prevOut;
     var fo=gpl('plFinalOut'); if(fo) fo.textContent=prevOut;
     var fs=gpl('plFinalSection'); if(fs) fs.style.display='';
-    if(typeof showToast==='function') showToast('Pipeline complete! 🎉');
+    if(typeof showToast==='function') showToast('Relay complete! 🎉');
     return;
   }
 
@@ -35091,7 +35101,7 @@ window._saPlPreview=function(){
   var t=_pl.finalText; if(!t) return;
   var det=(typeof window._saPreviewDetect==='function')&&window._saPreviewDetect(t);
   if(!det) det={type:'code',language:'text',code:t};
-  if(typeof window._saPreviewShow==='function') window._saPreviewShow(det,'Pipeline');
+  if(typeof window._saPreviewShow==='function') window._saPreviewShow(det,'Relay');
 };
 
 window._saPlSendToThread=function(){
@@ -35100,7 +35110,7 @@ window._saPlSendToThread=function(){
   if(!seat){ if(typeof showToast==='function') showToast('Select a teammate first, then try again'); return; }
   fetch('/api/thread/'+encodeURIComponent(seat)+'/inject',{
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({role:'assistant', content:'[Pipeline result]\n\n'+t})
+    body:JSON.stringify({role:'assistant', content:'[Relay result]\n\n'+t})
   }).then(function(r){ return r.json(); }).then(function(d){
     if(d.ok){
       if(typeof showToast==='function') showToast('Sent to '+seat+"'s thread");
