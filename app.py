@@ -17308,7 +17308,7 @@ input[type="range"]::-moz-range-progress {
         <!-- Context Window Indicator -->
         <div id="ctxBarWrap" style="flex-shrink:0;margin-bottom:5px;display:none;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
-            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">CONTEXT USED</span>
+            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">AI CREDITS</span>
             <span id="ctxBarLabel" style="font-size:10px;color:#64748b;font-variant-numeric:tabular-nums;"></span>
           </div>
           <div style="height:4px;background:rgba(42,58,106,.35);border-radius:2px;overflow:hidden;">
