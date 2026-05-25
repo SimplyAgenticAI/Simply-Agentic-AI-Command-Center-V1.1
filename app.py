@@ -7593,6 +7593,28 @@ def api_thread_truncate(name: str):
     save_thread(name, thread[:keep], uname)
     return jsonify({"ok": True, "kept": keep, "removed": max(0, len(thread) - keep)})
 
+@app.post("/api/thread/<name>/inject")
+def api_thread_inject(name: str):
+    """Append a message directly to a teammate thread (used by Pipeline and other tools)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u["username"]
+    reg = load_registry(uname)
+    if name not in reg.get("installed", {}):
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    data = request.json or {}
+    role = data.get("role", "assistant")
+    if role not in ("user", "assistant"):
+        role = "assistant"
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"ok": False, "error": "No content"}), 400
+    thread = load_thread(name, uname)
+    thread.append({"role": role, "content": content})
+    save_thread(name, thread, uname)
+    return jsonify({"ok": True, "msg_count": len(thread)})
+
 @app.get("/api/search_threads")
 def api_search_threads():
     """Full-text search across all of the user's saved teammate threads."""
@@ -16934,6 +16956,7 @@ input[type="range"]::-moz-range-progress {
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                     <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
                     <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
+                    <button id="pipelineBtn"        class="saMoreItem" style="color:#a78bfa;" onclick="if(typeof _saOpenPipeline==='function')_saOpenPipeline()">⛓ Pipeline</button>
                     <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
                   </div>
                 </div>
@@ -34241,6 +34264,60 @@ document.addEventListener('click',e=>{
   </div>
 </div>
 
+<!-- ═══ PIPELINE MODE MODAL ═══ -->
+<div id="pipelineModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this&&!window._plRunning)_saClosePipeline()">
+  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(700px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
+      <div>
+        <div style="font-size:16px;font-weight:800;color:#a78bfa;">⛓ Pipeline</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px;">Chain teammates in sequence — each one builds on the last</div>
+      </div>
+      <button onclick="if(!window._plRunning)_saClosePipeline()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+    </div>
+
+    <!-- Setup view -->
+    <div id="pipelineSetup" style="padding:22px;">
+      <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;">Starting prompt</div>
+      <textarea id="pipelinePrompt" rows="3" placeholder="What should the pipeline work on? e.g. 'Our invoicing SaaS for freelancers — write a landing page'" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:10px;padding:11px 13px;color:#e2e8f0;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;outline:none;line-height:1.5;"></textarea>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:10px;">
+        <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Pipeline steps</div>
+        <button onclick="_saAddPlStep()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:8px;padding:5px 13px;font-size:12px;cursor:pointer;font-weight:600;">+ Add step</button>
+      </div>
+      <div id="plStepBuilder" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div id="plBuilderHint" style="text-align:center;padding:24px 0;color:#334155;font-size:12px;">Add at least 2 steps — select a teammate and optionally give each one a custom instruction</div>
+
+      <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+        <button onclick="_saClearPl()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#64748b;border-radius:10px;padding:9px 18px;font-size:13px;cursor:pointer;">Clear</button>
+        <button id="plRunBtn" onclick="_saRunPipeline()" style="background:rgba(124,58,237,.85);border:none;color:#fff;border-radius:10px;padding:9px 24px;font-size:13px;font-weight:700;cursor:pointer;">▶ Run Pipeline</button>
+      </div>
+    </div>
+
+    <!-- Results view -->
+    <div id="pipelineResults" style="display:none;padding:22px;">
+      <div id="plResultCards" style="display:flex;flex-direction:column;gap:10px;"></div>
+
+      <div id="plFinalSection" style="display:none;margin-top:20px;border-top:1px solid rgba(42,58,106,.5);padding-top:20px;">
+        <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;">Final output</div>
+        <div id="plFinalOut" style="background:rgba(7,10,20,.6);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:14px;font-size:13px;color:#e2e8f0;white-space:pre-wrap;line-height:1.65;max-height:300px;overflow-y:auto;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+          <button onclick="_saPlCopy()" style="background:rgba(42,58,106,.4);border:1px solid rgba(42,58,106,.7);color:#94a3b8;border-radius:8px;padding:7px 16px;font-size:12px;cursor:pointer;">📋 Copy</button>
+          <button onclick="_saPlPreview()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:8px;padding:7px 16px;font-size:12px;cursor:pointer;">▶ Preview</button>
+          <button onclick="_saPlSendToThread()" style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;border-radius:8px;padding:7px 16px;font-size:12px;cursor:pointer;">→ Send to thread</button>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <button onclick="_saPlReset()" style="background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#94a3b8;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;">↩ New pipeline</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+<!-- ═══ END PIPELINE MODE MODAL ═══ -->
+
 <!-- ═══ FUSION MODE MODAL ═══ -->
 <div id="fusionModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('fusionModal')">
   <div style="background:rgba(10,14,30,.99);border:1px solid rgba(59,130,246,.4);border-radius:18px;width:min(700px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
@@ -34733,6 +34810,317 @@ document.addEventListener('click',e=>{
 
 })();
 </script>
+<!-- ═══ PIPELINE MODE JS ═══ -->
+<script>
+(function(){
+'use strict';
+
+var _pl = { steps:[], running:false, results:[], finalText:'' };
+var _plSeats = [];
+
+function gpl(id){ return document.getElementById(id); }
+
+/* ── Build seat options ── */
+function _plSeatOpts(sel){
+  var h='<option value="">Select teammate…</option>';
+  _plSeats.forEach(function(s){ h+='<option value="'+s+'"'+(s===sel?' selected':'')+'>'+s+'</option>'; });
+  return h;
+}
+
+/* ── Rebuild the step builder cards ── */
+function _plRebuild(){
+  var list=gpl('plStepBuilder'), hint=gpl('plBuilderHint');
+  if(!list) return;
+  list.innerHTML='';
+  if(!_pl.steps.length){ if(hint) hint.style.display=''; return; }
+  if(hint) hint.style.display='none';
+
+  _pl.steps.forEach(function(step, i){
+    var card=document.createElement('div');
+    card.style.cssText='background:rgba(14,20,45,.8);border:1px solid rgba(42,58,106,.7);border-radius:12px;padding:12px 14px;';
+
+    /* row 1: number + arrows + seat select + delete */
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;';
+
+    var num=document.createElement('div');
+    num.style.cssText='width:24px;height:24px;min-width:24px;background:rgba(124,58,237,.3);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#c4b5fd;flex-shrink:0;';
+    num.textContent=i+1;
+
+    var arrs=document.createElement('div');
+    arrs.style.cssText='display:flex;flex-direction:column;gap:1px;flex-shrink:0;';
+    function mkArr(txt,dis,fn){
+      var b=document.createElement('button');
+      b.textContent=txt; b.disabled=dis;
+      b.style.cssText='background:none;border:none;color:'+(dis?'#1e293b':'#475569')+';cursor:'+(dis?'default':'pointer')+';font-size:9px;padding:0;line-height:1.2;';
+      b.onclick=fn; return b;
+    }
+    arrs.appendChild(mkArr('▲',i===0,function(){ _saMovePl(i,-1); }));
+    arrs.appendChild(mkArr('▼',i===_pl.steps.length-1,function(){ _saMovePl(i,1); }));
+
+    var sel=document.createElement('select');
+    sel.style.cssText='flex:1;background:rgba(7,10,20,.8);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:13px;cursor:pointer;';
+    sel.innerHTML=_plSeatOpts(step.seat);
+    (function(idx){ sel.onchange=function(){ _pl.steps[idx].seat=sel.value; }; })(i);
+
+    var del=document.createElement('button');
+    del.textContent='✕'; del.title='Remove step';
+    del.style.cssText='background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:7px;padding:4px 9px;font-size:12px;cursor:pointer;flex-shrink:0;';
+    (function(idx){ del.onclick=function(){ _pl.steps.splice(idx,1); _plRebuild(); }; })(i);
+
+    row.appendChild(num); row.appendChild(arrs); row.appendChild(sel); row.appendChild(del);
+
+    /* row 2: instruction input */
+    var instr=document.createElement('input');
+    instr.type='text';
+    instr.placeholder='Custom instruction (optional) — e.g. "Edit and tighten this draft"';
+    instr.value=step.instruction||'';
+    instr.style.cssText='width:100%;background:rgba(7,10,20,.5);border:1px solid rgba(42,58,106,.5);border-radius:8px;padding:7px 11px;color:#e2e8f0;font-size:12px;box-sizing:border-box;outline:none;margin-top:8px;';
+    (function(idx){ instr.oninput=function(){ _pl.steps[idx].instruction=instr.value; }; })(i);
+
+    card.appendChild(row); card.appendChild(instr);
+    list.appendChild(card);
+
+    /* connector arrow between steps */
+    if(i<_pl.steps.length-1){
+      var conn=document.createElement('div');
+      conn.style.cssText='text-align:center;color:#1e293b;font-size:14px;line-height:1;margin:-2px 0;';
+      conn.textContent='↓';
+      list.appendChild(conn);
+    }
+  });
+}
+
+/* ── Expose open/close ── */
+window._saOpenPipeline=function(){
+  _plSeats=[];
+  try{
+    var inst=(window.state&&window.state.installed)||{};
+    var order=(window.state&&(window.state.active_order||window.state.installed_order))||Object.keys(inst);
+    order.forEach(function(n){ if(inst[n]) _plSeats.push(n); });
+  }catch(_){}
+  if(!_plSeats.length){ if(typeof showToast==='function') showToast('No teammates installed'); return; }
+  if(!_pl.steps.length) _pl.steps=[{seat:'',instruction:''},{seat:'',instruction:''}];
+  _plRebuild();
+  gpl('pipelineSetup').style.display='';
+  gpl('pipelineResults').style.display='none';
+  var m=gpl('pipelineModal'); m.style.display='flex';
+  setTimeout(function(){ var p=gpl('pipelinePrompt'); if(p) p.focus(); },200);
+};
+
+window._saClosePipeline=function(){
+  var m=gpl('pipelineModal'); if(m) m.style.display='none';
+};
+
+window._saAddPlStep=function(){
+  if(_pl.steps.length>=7){ if(typeof showToast==='function') showToast('Maximum 7 steps'); return; }
+  _pl.steps.push({seat:'',instruction:''}); _plRebuild();
+};
+
+window._saClearPl=function(){
+  _pl.steps=[{seat:'',instruction:''},{seat:'',instruction:''}]; _plRebuild();
+  var p=gpl('pipelinePrompt'); if(p) p.value='';
+};
+
+window._saMovePl=function(idx,dir){
+  var ni=idx+dir;
+  if(ni<0||ni>=_pl.steps.length) return;
+  var t=_pl.steps[idx]; _pl.steps[idx]=_pl.steps[ni]; _pl.steps[ni]=t;
+  _plRebuild();
+};
+
+/* ── Result card factory ── */
+function _plResultCard(idx, seat){
+  var card=document.createElement('div');
+  card.id='plRC_'+idx;
+  card.style.cssText='background:rgba(14,20,45,.7);border:1px solid rgba(42,58,106,.5);border-radius:12px;overflow:hidden;transition:border-color .25s;';
+
+  var hdr=document.createElement('div');
+  hdr.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(10,14,30,.5);';
+
+  var av=document.createElement('div');
+  av.style.cssText='width:22px;height:22px;min-width:22px;background:rgba(124,58,237,.4);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;';
+  av.textContent=(seat||'?')[0].toUpperCase();
+
+  var nm=document.createElement('div');
+  nm.style.cssText='font-size:13px;font-weight:700;color:#e2e8f0;flex:1;';
+  nm.textContent='Step '+(idx+1)+' — '+seat;
+
+  var badge=document.createElement('div');
+  badge.id='plBadge_'+idx;
+  badge.style.cssText='font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:5px;background:rgba(42,58,106,.5);color:#475569;';
+  badge.textContent='Waiting…';
+
+  hdr.appendChild(av); hdr.appendChild(nm); hdr.appendChild(badge);
+
+  var body=document.createElement('div');
+  body.id='plRBody_'+idx;
+  body.style.cssText='padding:12px 14px;font-size:12.5px;color:#64748b;line-height:1.65;white-space:pre-wrap;max-height:180px;overflow-y:auto;min-height:40px;';
+  body.textContent='…';
+
+  var foot=document.createElement('div');
+  foot.id='plRFoot_'+idx;
+  foot.style.cssText='display:none;padding:8px 14px;border-top:1px solid rgba(42,58,106,.3);gap:6px;';
+
+  card.appendChild(hdr); card.appendChild(body); card.appendChild(foot);
+  return card;
+}
+
+/* ── Run pipeline ── */
+window._saRunPipeline=function(){
+  if(_pl.running){ if(typeof showToast==='function') showToast('Pipeline already running'); return; }
+  var prompt=(gpl('pipelinePrompt')||{}).value||'';
+  if(!prompt.trim()){ if(typeof showToast==='function') showToast('Enter a starting prompt first'); return; }
+  var valid=_pl.steps.filter(function(s){ return s.seat; });
+  if(valid.length<2){ if(typeof showToast==='function') showToast('Select teammates for at least 2 steps'); return; }
+
+  _pl.running=true; window._plRunning=true; _pl.results=[]; _pl.finalText='';
+
+  gpl('pipelineSetup').style.display='none';
+  gpl('pipelineResults').style.display='';
+  gpl('plFinalSection').style.display='none';
+  gpl('plResultCards').innerHTML='';
+
+  valid.forEach(function(step,i){
+    gpl('plResultCards').appendChild(_plResultCard(i,step.seat));
+    if(i<valid.length-1){
+      var conn=document.createElement('div');
+      conn.style.cssText='text-align:center;color:#1e293b;font-size:14px;line-height:1;';
+      conn.textContent='↓';
+      gpl('plResultCards').appendChild(conn);
+    }
+  });
+
+  _plExecStep(valid, prompt, 0, '');
+};
+
+function _plExecStep(steps, prompt, idx, prevOut){
+  if(idx>=steps.length){
+    /* All done */
+    _pl.running=false; window._plRunning=false; _pl.finalText=prevOut;
+    var fo=gpl('plFinalOut'); if(fo) fo.textContent=prevOut;
+    var fs=gpl('plFinalSection'); if(fs) fs.style.display='';
+    if(typeof showToast==='function') showToast('Pipeline complete! 🎉');
+    return;
+  }
+
+  var step=steps[idx], seat=step.seat, instr=(step.instruction||'').trim();
+
+  /* Activate card */
+  var badge=gpl('plBadge_'+idx), body=gpl('plRBody_'+idx), card=gpl('plRC_'+idx);
+  if(badge){ badge.style.background='rgba(124,58,237,.25)'; badge.style.color='#c4b5fd'; badge.textContent='Working…'; }
+  if(card) card.style.borderColor='rgba(124,58,237,.45)';
+  if(body){ body.textContent=''; body.style.color='#e2e8f0'; }
+  try{ card&&card.scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(_){}
+
+  /* Build message */
+  var msg;
+  if(idx===0){
+    msg=instr ? instr+'\n\n'+prompt : prompt;
+  } else {
+    var prevName=steps[idx-1].seat;
+    msg=(instr?instr+'\n\n':'')+
+        'Here is what '+prevName+' produced:\n\n'+prevOut;
+  }
+
+  /* Stream via /api/followup/stream */
+  var stepOut='';
+  fetch('/api/followup/stream',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:seat, message:msg})
+  }).then(function(resp){
+    if(!resp.ok||!resp.body) throw new Error('stream failed');
+    var reader=resp.body.getReader(), dec=new TextDecoder(), buf='';
+
+    function tick(){
+      reader.read().then(function(r){
+        if(r.done){
+          /* Step complete */
+          _pl.results.push({teammate:seat, output:stepOut});
+          if(badge){ badge.style.background='rgba(16,185,129,.2)'; badge.style.color='#6ee7b7'; badge.textContent='✓ Done'; }
+          if(card) card.style.borderColor='rgba(16,185,129,.3)';
+          /* Step copy button */
+          var foot=gpl('plRFoot_'+idx);
+          if(foot){
+            foot.style.display='flex';
+            var cb=document.createElement('button');
+            cb.textContent='📋 Copy step';
+            cb.style.cssText='background:rgba(42,58,106,.3);border:1px solid rgba(42,58,106,.6);color:#94a3b8;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;';
+            (function(t){ cb.onclick=function(){
+              navigator.clipboard&&navigator.clipboard.writeText(t).then(function(){
+                cb.textContent='✓ Copied';
+                setTimeout(function(){ cb.textContent='📋 Copy step'; },1400);
+              });
+            }; })(stepOut);
+            foot.appendChild(cb);
+          }
+          _plExecStep(steps, prompt, idx+1, stepOut);
+          return;
+        }
+        buf+=dec.decode(r.value,{stream:true});
+        var lines=buf.split('\n'); buf=lines.pop();
+        lines.forEach(function(line){
+          if(!line.startsWith('data:')) return;
+          try{
+            var ev=JSON.parse(line.slice(5).trim());
+            if(ev.token){ stepOut+=ev.token; if(body){ body.textContent=stepOut; body.scrollTop=body.scrollHeight; } }
+          }catch(_){}
+        });
+        tick();
+      }).catch(function(){
+        if(badge){ badge.style.background='rgba(239,68,68,.2)'; badge.style.color='#f87171'; badge.textContent='✕ Error'; }
+        _pl.running=false; window._plRunning=false;
+        if(typeof showToast==='function') showToast('Error at step '+(idx+1));
+      });
+    }
+    tick();
+  }).catch(function(){
+    if(badge){ badge.style.background='rgba(239,68,68,.2)'; badge.style.color='#f87171'; badge.textContent='✕ Error'; }
+    _pl.running=false; window._plRunning=false;
+    if(typeof showToast==='function') showToast('Network error at step '+(idx+1));
+  });
+}
+
+/* ── Final output actions ── */
+window._saPlCopy=function(){
+  var t=_pl.finalText; if(!t) return;
+  navigator.clipboard&&navigator.clipboard.writeText(t).then(function(){ if(typeof showToast==='function') showToast('Copied!'); });
+};
+
+window._saPlPreview=function(){
+  var t=_pl.finalText; if(!t) return;
+  var det=(typeof window._saPreviewDetect==='function')&&window._saPreviewDetect(t);
+  if(!det) det={type:'code',language:'text',code:t};
+  if(typeof window._saPreviewShow==='function') window._saPreviewShow(det,'Pipeline');
+};
+
+window._saPlSendToThread=function(){
+  var t=_pl.finalText, seat=window.selectedSeat;
+  if(!t){ if(typeof showToast==='function') showToast('No output yet'); return; }
+  if(!seat){ if(typeof showToast==='function') showToast('Select a teammate first, then try again'); return; }
+  fetch('/api/thread/'+encodeURIComponent(seat)+'/inject',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({role:'assistant', content:'[Pipeline result]\n\n'+t})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.ok){
+      if(typeof showToast==='function') showToast('Sent to '+seat+"'s thread");
+      if(typeof window.refreshThread==='function') window.refreshThread();
+      window._saClosePipeline();
+    }
+  }).catch(function(){ if(typeof showToast==='function') showToast('Save failed — use Copy instead'); });
+};
+
+window._saPlReset=function(){
+  gpl('pipelineSetup').style.display='';
+  gpl('pipelineResults').style.display='none';
+  gpl('plFinalSection').style.display='none';
+  _pl.results=[]; _pl.finalText='';
+};
+
+})();
+</script>
+<!-- ═══ END PIPELINE MODE JS ═══ -->
+
 <!-- ═══ END ORCHESTRA / DEEP DIVE / FUSION ═══ -->
 
 <!-- ═══ EXTENSION PANEL ═══ -->
