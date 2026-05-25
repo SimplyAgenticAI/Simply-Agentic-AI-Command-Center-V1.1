@@ -8823,9 +8823,9 @@ AUTH_BASE_CSS = r"""
   .btn:hover{ background: rgba(20,28,60,.96); }
   .card form{ max-width: 640px; }
   .btnPrimary{
-    border:1px solid rgba(247,211,106,.72);
+    border:1px solid rgba(255,220,80,1);
     background: linear-gradient(180deg, rgba(124,58,237,.46), rgba(59,130,246,.18));
-    box-shadow: 0 0 24px rgba(124,58,237,.22), 0 0 24px rgba(247,211,106,.16), inset 0 0 0 1px rgba(247,211,106,.22);
+    box-shadow: 0 0 18px rgba(255,210,50,.55), 0 0 36px rgba(255,200,30,.28), inset 0 0 0 1px rgba(255,225,100,.35);
   }
   a{ color: #ddd6fe; text-decoration:none; font-size: 15px; }
   a:hover{ text-decoration: underline; }
