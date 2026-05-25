@@ -7577,6 +7577,22 @@ def api_thread_clear(name: str) -> Any:
     append_log("thread_cleared", {"teammate": name, "by": uname})
     return jsonify({"ok": True, "teammate": name})
 
+@app.post("/api/thread/<name>/truncate")
+def api_thread_truncate(name: str):
+    """Truncate a thread to the first keep_count messages (used by edit/regenerate)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u["username"]
+    reg = load_registry(uname)
+    if name not in reg.get("installed", {}):
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    data = request.json or {}
+    keep = max(0, int(data.get("keep_count", 0)))
+    thread = load_thread(name, uname)
+    save_thread(name, thread[:keep], uname)
+    return jsonify({"ok": True, "kept": keep, "removed": max(0, len(thread) - keep)})
+
 @app.get("/api/search_threads")
 def api_search_threads():
     """Full-text search across all of the user's saved teammate threads."""
@@ -18916,7 +18932,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         box.appendChild(empty);
         return;
       }
-      msgs.forEach(m => {
+      msgs.forEach((m, msgIdx) => {
         const div = document.createElement("div");
         const isUser = m.role === "user";
         div.className = "msg " + (isUser ? "user" : "assistant");
@@ -19023,6 +19039,21 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
           content.innerText = raw;
+          // Edit button for user messages
+          if(isUser && raw){
+            const editRow = document.createElement("div");
+            editRow.style.cssText = "margin-top:5px;display:flex;justify-content:flex-end;";
+            const editBtn = document.createElement("button");
+            editBtn.className = "btn btnMini";
+            editBtn.style.cssText = "font-size:11px;opacity:.35;padding:2px 9px;transition:opacity .15s;";
+            editBtn.innerText = "✏️ Edit";
+            editBtn.title = "Edit this message and regenerate from here";
+            editBtn.onmouseenter = () => { editBtn.style.opacity = ".9"; };
+            editBtn.onmouseleave = () => { editBtn.style.opacity = ".35"; };
+            (function(idx, txt, seat){ editBtn.onclick = function(e){ e.stopPropagation(); window._saEditMsg(idx, txt, seat); }; })(msgIdx, raw, selectedSeat);
+            editRow.appendChild(editBtn);
+            content.appendChild(editRow);
+          }
           // CRM name detection — if response mentions a known contact, show quick-open button
           if(m.role !== "user" && raw && (crmCache.clients||[]).length){
             const rawLower = raw.toLowerCase();
@@ -19138,6 +19169,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 actRow.appendChild(prevBtn);
               }
             }
+            // Retry (regenerate) button
+            const regenBtn = document.createElement("button");
+            regenBtn.className = "btn btnMini";
+            regenBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+            regenBtn.innerText = "↺ Retry";
+            regenBtn.title = "Regenerate this response";
+            (function(idx, prevTxt, seat){
+              regenBtn.onclick = function(e){ e.stopPropagation(); window._saRegenMsg(idx, prevTxt, seat); };
+            })(msgIdx, msgIdx > 0 ? (msgs[msgIdx-1]||{}).content||'' : '', selectedSeat);
+            actRow.appendChild(regenBtn);
             content.appendChild(actRow);
           }
         }
@@ -35719,6 +35760,46 @@ document.addEventListener('click',e=>{
   window._saPreviewDetect = _saPreviewDetect;
   window._saPreviewShow   = _saPreviewShow;
   window._saPreviewClose  = _saPreviewClose;
+
+  /* ── Edit message: truncate thread to before msgIdx, restore text to input ── */
+  window._saEditMsg = async function(msgIdx, text, seat){
+    seat = seat || window.selectedSeat;
+    if(!seat) return;
+    try{
+      await fetch('/api/thread/'+encodeURIComponent(seat)+'/truncate',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({keep_count: msgIdx})
+      });
+    }catch(_){}
+    if(typeof window.refreshThread === 'function') await window.refreshThread();
+    var inp = document.getElementById('followMsg');
+    if(inp){
+      inp.value = text;
+      inp.focus();
+      inp.style.height = 'auto';
+      inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
+      try{ inp.scrollIntoView({behavior:'smooth', block:'end'}); }catch(_){}
+    }
+    if(typeof window.showToast === 'function') window.showToast('Message restored — edit and resend');
+  };
+
+  /* ── Regenerate: remove assistant response, auto-resend the user prompt ── */
+  window._saRegenMsg = async function(msgIdx, prevUserText, seat){
+    seat = seat || window.selectedSeat;
+    if(!seat) return;
+    try{
+      await fetch('/api/thread/'+encodeURIComponent(seat)+'/truncate',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({keep_count: msgIdx})
+      });
+    }catch(_){}
+    if(typeof window.refreshThread === 'function') await window.refreshThread();
+    if(prevUserText){
+      var inp = document.getElementById('followMsg');
+      var btn = document.getElementById('sendFollow');
+      if(inp && btn){ inp.value = prevUserText; btn.click(); }
+    }
+  };
 
   /* Wire buttons after DOM ready */
   if(document.readyState === 'loading'){
