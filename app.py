@@ -14580,6 +14580,9 @@ label         { font-size: 14px !important; }
   box-shadow:0 6px 20px rgba(0,0,0,.45);
 }
 [data-tip]:hover::after{opacity:1;transform:translateX(-50%) scale(1);}
+/* Dropdown items — tooltip floats to the right so it doesn't hide behind the nav */
+.saDrop [data-tip]::after{bottom:auto;top:50%;left:calc(100% + 10px);transform:translateY(-50%) scale(0.94);}
+.saDrop [data-tip]:hover::after{opacity:1;transform:translateY(-50%) scale(1);}
 
 /* ── Stats strip ─────────────────────────────────────────────────────── */
 .statsStrip{
@@ -14681,12 +14684,12 @@ label         { font-size: 14px !important; }
             <span>👥 Teammates</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saTeamDrop">
-            <button class="saDropItem" id="createTeamBtn">✨ Create Teammate</button>
-            <button class="saDropItem" id="editTeammatesBtn">✏️ Edit Teammates</button>
-            <button class="saDropItem" id="manageTeamBtn">➕ Add / Dismiss</button>
-            <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
+            <button class="saDropItem" id="createTeamBtn" data-tip="Build a new AI teammate with a custom role &amp; personality">✨ Create Teammate</button>
+            <button class="saDropItem" id="editTeammatesBtn" data-tip="Update your teammates' names, roles, and instructions">✏️ Edit Teammates</button>
+            <button class="saDropItem" id="manageTeamBtn" data-tip="Add or remove teammates from your Round Table">➕ Add / Dismiss</button>
+            <button class="saDropItem" id="installFullBtn" data-tip="Install all 7 AI specialists in one click">⚡ Install Full Team</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
+            <button class="saDropItem" id="frameworkBtn" data-tip="Set your core business context shared across all teammates">🧠 Core Framework</button>
           </div>
         </div>
 
@@ -14695,13 +14698,13 @@ label         { font-size: 14px !important; }
             <span>✍️ Create</span><span class="saChevron">&#9660;</span>
           </button>
           <div class="saDrop" id="saCreateDrop">
-            <button class="saDropItem" id="visualCreatorBtn">✨ Visual Creator</button>
-            <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
-            <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
-            <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
-            <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
-            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
+            <button class="saDropItem" id="visualCreatorBtn" data-tip="Generate images, variations &amp; visual edits with AI">✨ Visual Creator</button>
+            <button class="saDropItem" id="teleprompterBtn" data-tip="Script and display scrolling text for recordings" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
+            <button class="saDropItem" id="socialStudioBtn" data-tip="Plan &amp; generate social content for any platform">📣 Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn" data-tip="Build and refine your core business offer with AI">🎯 Offer Builder</button>
+            <button class="saDropItem" id="growthPlaybookBtn" data-tip="Create a custom growth strategy for your business">📋 Growth Playbook</button>
+            <button class="saDropItem" id="notepadBtn" data-tip="Quick scratch pad for notes and ideas" onclick="showNotepadModal()">📝 Notepad</button>
+            <button class="saDropItem" id="imageLibBtn" data-tip="Browse &amp; manage all your AI-generated images">🖼 Image Library</button>
           </div>
         </div>
 
@@ -14711,11 +14714,11 @@ label         { font-size: 14px !important; }
           </button>
           <div class="saDrop" id="saResearchDrop">
             <button class="saDropItem" id="leadLabBtn" data-tip="Search the web for qualified leads">🔬 Find Leads</button>
-            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" data-tip="Audit any website for messaging, SEO &amp; opportunities" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
-            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
-            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
+            <button class="saDropItem" data-tip="Build a detailed intelligence profile on any prospect" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
+            <button class="saDropItem" data-tip="Scan your market for trends, competitors &amp; gaps" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
+            <button class="saDropItem" data-tip="Identify buying signals from prospects and leads" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
           </div>
         </div>
 
@@ -14728,8 +14731,8 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
-            <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
+            <button class="saDropItem" id="promptLibraryBtn" data-tip="Save &amp; reuse your best prompts across all teammates">📚 Prompt Library</button>
+            <button class="saDropItem" id="responseVaultBtn" data-tip="Store &amp; retrieve your favorite AI responses">🗄️ Response Vault</button>
           </div>
         </div>
 
