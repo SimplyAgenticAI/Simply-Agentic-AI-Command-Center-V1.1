@@ -32295,34 +32295,7 @@ window._streamTtsFired = false;
     window._saTtsPlaying = true;
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
-    /* ── Fast path: browser speechSynthesis starts in ~100 ms ── */
-    if(window.speechSynthesis){
-      try{
-        speechSynthesis.cancel();
-        var utt = new SpeechSynthesisUtterance(text.slice(0,3000));
-        var voices = speechSynthesis.getVoices();
-        /* Prefer a natural-sounding English voice */
-        var pick = voices.find(function(v){ return /en[-_]US/i.test(v.lang) && v.localService; })
-                || voices.find(function(v){ return /en/i.test(v.lang) && v.localService; })
-                || voices.find(function(v){ return /en/i.test(v.lang); })
-                || voices[0];
-        if(pick) utt.voice = pick;
-        utt.rate = 1.0; utt.pitch = 1.0;
-        window._saTtsAudio = { pause: function(){ try{ speechSynthesis.cancel(); }catch(_){} } };
-        utt.onend = function(){
-          window._saTtsPlaying = false; window._saTtsAudio = null;
-          if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-        };
-        utt.onerror = function(){
-          window._saTtsPlaying = false; window._saTtsAudio = null;
-          if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-        };
-        speechSynthesis.speak(utt);
-        return; /* done — browser handles it */
-      }catch(_){}
-    }
-
-    /* ── Fallback: OpenAI TTS (higher quality, slower start) ── */
+    /* ── Primary: OpenAI TTS with teammate's configured voice ── */
     try{
       // Fetch audio from OpenAI via our server
       var resp = await fetch("/api/tts", {
