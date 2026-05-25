@@ -18623,6 +18623,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("editWillNotDo").value = (t.will_not_do || []).join("\n");
       if($("editPreferredModel")) $("editPreferredModel").value = t.preferred_model || "";
       if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
+      setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 80);
 
       $("editStatus").innerText = "Ready";
       showEditModal("Edit " + name);
@@ -19627,6 +19628,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const lbl  = document.getElementById('msgUsageLabel');
         const imgL = document.getElementById('msgUsageImgLine');
         if(!wrap||!bar||!lbl) return;
+        window._saHasOwnKey = !!d.has_own_key; // cache for model lock
         // BYOK prompt logic
         const byokEl = document.getElementById('byokPrompt');
         if(byokEl){
@@ -19658,9 +19660,57 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           wrap.style.borderColor='rgba(239,68,68,.3)';
         }
       }catch(e){}
+      // Apply model lock after every usage refresh
+      if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(d && d.has_own_key);
     };
     // Load on init and after each message
     window._saRefreshUsageBar();
+
+    // ── Model lock: disable premium models when user has no own API key ──────
+    (function(){
+      const PREMIUM = ['gpt-4o','gpt-4-turbo','o3-mini','claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5-20251001'];
+      const HINT_ID_PREFIX = 'modelLockHint_';
+
+      window._saApplyModelLock = function(hasOwnKey){
+        ['editPreferredModel','globalDefaultModel'].forEach(function(selId){
+          const sel = document.getElementById(selId);
+          if(!sel) return;
+
+          // Strip previous markers (safe to re-run)
+          Array.from(sel.options).forEach(function(opt){
+            opt.text = opt.text.replace(/ 🔑$/,'');
+            opt.disabled = false;
+            opt.style.color = '';
+          });
+
+          // Remove existing hint
+          const oldHint = document.getElementById(HINT_ID_PREFIX + selId);
+          if(oldHint) oldHint.remove();
+
+          if(hasOwnKey) return; // All unlocked — nothing more to do
+
+          // Lock premium options
+          Array.from(sel.options).forEach(function(opt){
+            if(PREMIUM.includes(opt.value)){
+              opt.text = opt.text + ' 🔑';
+              opt.disabled = true;
+            }
+          });
+
+          // If current value is a locked model, reset to gpt-4o-mini
+          if(PREMIUM.includes(sel.value)){
+            sel.value = 'gpt-4o-mini';
+          }
+
+          // Insert hint below the select
+          const hint = document.createElement('div');
+          hint.id = HINT_ID_PREFIX + selId;
+          hint.style.cssText = 'margin-top:6px;padding:7px 10px;background:rgba(124,58,237,.09);border:1px solid rgba(124,58,237,.28);border-radius:7px;font-size:11px;line-height:1.5;color:#94a3b8;';
+          hint.innerHTML = '🔑 <strong style="color:#c4b5fd;">Premium models require your own API key.</strong> Connect yours in <span style="color:#a78bfa;cursor:pointer;text-decoration:underline;" onclick="var s=document.getElementById(\'settingsBtn\');if(s)s.click();">Settings → API Keys</span> to unlock GPT-4o, Claude &amp; more — plus unlimited messages.';
+          sel.parentNode.insertBefore(hint, sel.nextSibling);
+        });
+      };
+    })();
 
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
@@ -22399,6 +22449,8 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
       try{ settingsLoadSmsSettings(); }catch(e){}
+      // Re-apply model lock after settings form renders (selects now in DOM)
+      setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 120);
       if(auto){
         // slight UI nudge so first-time users know what to do
         $("modalTitle").innerText = "Settings: connect your key + email";
