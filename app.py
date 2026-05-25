@@ -19155,40 +19155,55 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(!text) return '';
       const lines = text.split('\n');
       const out = [];
-      let inOl=false, inUl=false, inPre=false;
+      let inPre=false, inList=false, olCounter=0;
       function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
       function inline(s){
-        s = s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
-        s = s.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
-        s = s.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
-        s = s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(124,58,237,.15);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:.88em;">$1</code>');
+        s=s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
+        s=s.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
+        s=s.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
+        s=s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(124,58,237,.15);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:.88em;">$1</code>');
         return s;
       }
+      function closeList(){ if(inList){ out.push('</div>'); inList=false; olCounter=0; } }
       for(let i=0;i<lines.length;i++){
         const raw=lines[i];
         if(raw.trimStart().startsWith('```')){
           if(inPre){ out.push('</code></pre>'); inPre=false; }
-          else{
-            if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;}
-            out.push('<pre style="background:rgba(0,0,0,.35);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;"><code style="font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre;">');
-            inPre=true;
-          }
+          else{ closeList(); out.push('<pre style="background:rgba(0,0,0,.35);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;"><code style="font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre;">'); inPre=true; }
           continue;
         }
         if(inPre){ out.push(esc(raw)); continue; }
         const e=esc(raw);
-        if(/^### /.test(e)){ if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
-        if(/^## /.test(e)){  if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:14px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
-        if(/^# /.test(e)){   if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<div style="font-size:15px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
-        if(/^-{3,}$/.test(raw.trim())){ if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;} out.push('<hr style="border:none;border-top:1px solid rgba(124,58,237,.3);margin:8px 0;">'); continue; }
+        if(/^### /.test(e)){ closeList(); out.push('<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
+        if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:14px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
+        if(/^# /.test(e)){   closeList(); out.push('<div style="font-size:15px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
+        if(/^-{3,}$/.test(raw.trim())){ closeList(); out.push('<hr style="border:none;border-top:1px solid rgba(124,58,237,.3);margin:8px 0;">'); continue; }
+        // Numbered list — use explicit counter, never rely on browser <ol> state
         const olM=raw.match(/^(\d+)\.\s+([\s\S]*)/);
-        if(olM){ if(inUl){out.push('</ul>');inUl=false;} if(!inOl){out.push('<ol style="padding-left:20px;margin:6px 0;">');inOl=true;} out.push('<li>'+inline(esc(olM[2]))+'</li>'); continue; }
+        if(olM){
+          if(!inList){ out.push('<div style="margin:4px 0;">'); inList=true; olCounter=0; }
+          olCounter++;
+          out.push('<div class="sa-li"><span class="sa-li-num">'+olCounter+'.</span><span class="sa-li-body">'+inline(esc(olM[2]))+'</span></div>');
+          continue;
+        }
+        // Bullet list
         const ulM=raw.match(/^[-*•]\s+([\s\S]*)/);
-        if(ulM){ if(inOl){out.push('</ol>');inOl=false;} if(!inUl){out.push('<ul style="padding-left:20px;margin:6px 0;">');inUl=true;} out.push('<li>'+inline(esc(ulM[1]))+'</li>'); continue; }
-        if(inOl){out.push('</ol>');inOl=false;} if(inUl){out.push('</ul>');inUl=false;}
-        out.push(raw.trim()==='' ? '<div style="height:5px;"></div>' : '<div>'+inline(e)+'</div>');
+        if(ulM){
+          if(!inList){ out.push('<div style="margin:4px 0;">'); inList=true; }
+          out.push('<div class="sa-li"><span class="sa-li-num">•</span><span class="sa-li-body">'+inline(esc(ulM[1]))+'</span></div>');
+          continue;
+        }
+        // Blank line — keep list open (AI puts blanks between items); only add spacer outside lists
+        if(raw.trim()===''){
+          if(!inList) out.push('<div style="height:5px;"></div>');
+          continue;
+        }
+        // Regular text — closes any open list
+        closeList();
+        out.push('<div>'+inline(e)+'</div>');
       }
-      if(inOl)out.push('</ol>'); if(inUl)out.push('</ul>'); if(inPre)out.push('</code></pre>');
+      closeList();
+      if(inPre) out.push('</code></pre>');
       return out.join('');
     }
 
@@ -20889,11 +20904,17 @@ function _saJobNotify(seatName, status){
     window.saWireThreadClicks = function saWireThreadClicks(){
       const thread=document.getElementById('thread');
       if(!thread)return;
-      // Inject choice hover styles once
       if(!document.getElementById('sa-choice-style')){
         const st=document.createElement('style');
         st.id='sa-choice-style';
-        st.textContent='.saChoice{cursor:pointer;border-radius:6px;padding:3px 8px;margin:2px 0;display:list-item;transition:background .15s,outline .15s;}.saChoice:hover{background:rgba(124,58,237,.22);outline:1px solid rgba(124,58,237,.45);color:#e2e8f0;}';
+        st.textContent=[
+          '.sa-li{display:flex;gap:9px;align-items:baseline;padding:5px 10px;border-radius:7px;margin:2px 0;}',
+          '.sa-li-num{color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;font-size:.9em;}',
+          '.sa-li-body{flex:1;}',
+          '.saChoice{cursor:pointer;transition:background .15s,box-shadow .15s;user-select:none;}',
+          '.saChoice *{pointer-events:none;}',
+          '.saChoice:hover{background:rgba(124,58,237,.22);box-shadow:0 0 0 1px rgba(124,58,237,.5);color:#e2e8f0;}'
+        ].join('');
         document.head.appendChild(st);
       }
       thread.querySelectorAll('.msg.assistant').forEach(function(msg){
@@ -20901,15 +20922,16 @@ function _saJobNotify(seatName, status){
         msg._saWired=true;
         const body=msg.querySelector('.msg-body');
         if(!body)return;
-        const items=body.querySelectorAll('li');
+        const items=body.querySelectorAll('.sa-li');
         if(items.length<2)return;
-        items.forEach(function(li){
-          if(li._saChoiceWired)return;
-          li._saChoiceWired=true;
-          li.classList.add('saChoice');
-          li.addEventListener('click',function(e){
+        items.forEach(function(item){
+          if(item._saChoiceWired)return;
+          item._saChoiceWired=true;
+          item.classList.add('saChoice');
+          item.addEventListener('click',function(e){
             e.stopPropagation();
-            const text=li.innerText.trim();
+            const bodySpan=item.querySelector('.sa-li-body');
+            const text=(bodySpan?bodySpan.innerText:item.innerText).trim();
             const fm=document.getElementById('followMsg');
             if(fm){fm.value=text;fm.focus();}
             if(typeof window.sendFollow==='function')window.sendFollow();
