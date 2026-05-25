@@ -19051,6 +19051,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             editBtn.onmouseenter = () => { editBtn.style.opacity = ".9"; };
             editBtn.onmouseleave = () => { editBtn.style.opacity = ".35"; };
             (function(idx, txt, seat){ editBtn.onclick = function(e){ e.stopPropagation(); window._saEditMsg(idx, txt, seat); }; })(msgIdx, raw, selectedSeat);
+            editBtn.dataset.saEditIdx = String(msgIdx); // survives innerHTML copy → mobile delegation
+            editBtn.dataset.saRaw = raw;                // stores the text to restore
             editRow.appendChild(editBtn);
             content.appendChild(editRow);
           }
@@ -19166,6 +19168,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 prevBtn.innerText = "▶ Preview";
                 prevBtn.title = "Open live preview pane";
                 (function(det){ prevBtn.onclick = function(e){ e.stopPropagation(); window._saPreviewShow(det, selectedSeat||'Preview'); }; })(_prevDet);
+                prevBtn.dataset.saRaw = raw; // mobile delegation re-detects from the raw text
                 actRow.appendChild(prevBtn);
               }
             }
@@ -19178,6 +19181,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             (function(idx, prevTxt, seat){
               regenBtn.onclick = function(e){ e.stopPropagation(); window._saRegenMsg(idx, prevTxt, seat); };
             })(msgIdx, msgIdx > 0 ? (msgs[msgIdx-1]||{}).content||'' : '', selectedSeat);
+            regenBtn.dataset.saRetryIdx  = String(msgIdx);
+            regenBtn.dataset.saRetryPrev = msgIdx > 0 ? (msgs[msgIdx-1]||{}).content||'' : '';
+            regenBtn.dataset.saRaw = '1'; // truthy — lets findActionBtn locate this button
             actRow.appendChild(regenBtn);
             content.appendChild(actRow);
           }
@@ -35761,6 +35767,18 @@ document.addEventListener('click',e=>{
   window._saPreviewShow   = _saPreviewShow;
   window._saPreviewClose  = _saPreviewClose;
 
+  /* ── Resolve the right input + send button regardless of mobile/desktop ── */
+  function _saGetChatInput(){
+    var isMob = window.innerWidth <= 960;
+    /* Mobile sheet open → use sheet input */
+    if(isMob && document.getElementById('saBottomSheet') &&
+       document.getElementById('saBottomSheet').style.display !== 'none'){
+      return {inp: document.getElementById('saSheetMsg'), btn: document.getElementById('saSheetSend')};
+    }
+    /* Desktop or mobile strip */
+    return {inp: document.getElementById('followMsg'), btn: document.getElementById('sendFollow')};
+  }
+
   /* ── Edit message: truncate thread to before msgIdx, restore text to input ── */
   window._saEditMsg = async function(msgIdx, text, seat){
     seat = seat || window.selectedSeat;
@@ -35772,13 +35790,13 @@ document.addEventListener('click',e=>{
       });
     }catch(_){}
     if(typeof window.refreshThread === 'function') await window.refreshThread();
-    var inp = document.getElementById('followMsg');
-    if(inp){
-      inp.value = text;
-      inp.focus();
-      inp.style.height = 'auto';
-      inp.style.height = Math.min(inp.scrollHeight, 200) + 'px';
-      try{ inp.scrollIntoView({behavior:'smooth', block:'end'}); }catch(_){}
+    var ci = _saGetChatInput();
+    if(ci.inp){
+      ci.inp.value = text;
+      ci.inp.focus();
+      ci.inp.style.height = 'auto';
+      ci.inp.style.height = Math.min(ci.inp.scrollHeight, 200) + 'px';
+      try{ ci.inp.scrollIntoView({behavior:'smooth', block:'end'}); }catch(_){}
     }
     if(typeof window.showToast === 'function') window.showToast('Message restored — edit and resend');
   };
@@ -35795,9 +35813,8 @@ document.addEventListener('click',e=>{
     }catch(_){}
     if(typeof window.refreshThread === 'function') await window.refreshThread();
     if(prevUserText){
-      var inp = document.getElementById('followMsg');
-      var btn = document.getElementById('sendFollow');
-      if(inp && btn){ inp.value = prevUserText; btn.click(); }
+      var ci = _saGetChatInput();
+      if(ci.inp && ci.btn){ ci.inp.value = prevUserText; ci.btn.click(); }
     }
   };
 
@@ -35840,10 +35857,14 @@ document.addEventListener('click',e=>{
     return false;
   }
 
-  /* Walk up from tap target to find a button carrying data-sa-raw */
+  /* Walk up from tap target to find a delegation-managed button */
   function findActionBtn(el){
     while(el&&el.tagName!=='BODY'){
-      if(el.tagName==='BUTTON'&&el.dataset&&el.dataset.saRaw) return el;
+      if(el.tagName==='BUTTON'&&el.dataset&&(
+        el.dataset.saRaw ||
+        el.dataset.saEditIdx !== undefined ||
+        el.dataset.saRetryIdx !== undefined
+      )) return el;
       el=el.parentElement;
     }
     return null;
@@ -35860,8 +35881,34 @@ document.addEventListener('click',e=>{
 
   function dispatchBtn(btn){
     var raw=(btn.dataset&&btn.dataset.saRaw)||'';
-    if(!raw) return;
     var lbl=btn.textContent||btn.innerText||'';
+
+    /* ── Edit message ── */
+    if(btn.dataset&&btn.dataset.saEditIdx!==undefined){
+      var eidx=parseInt(btn.dataset.saEditIdx,10);
+      var etxt=btn.dataset.saRaw||'';
+      if(typeof window._saEditMsg==='function') window._saEditMsg(eidx, etxt, window.selectedSeat);
+      return;
+    }
+
+    /* ── Retry / regenerate ── */
+    if(btn.dataset&&btn.dataset.saRetryIdx!==undefined){
+      var ridx=parseInt(btn.dataset.saRetryIdx,10);
+      var rprev=btn.dataset.saRetryPrev||'';
+      if(typeof window._saRegenMsg==='function') window._saRegenMsg(ridx, rprev, window.selectedSeat);
+      return;
+    }
+
+    /* ── Preview ── */
+    if(lbl.indexOf('Preview')!==-1&&raw&&raw!=='1'){
+      if(typeof window._saPreviewDetect==='function'){
+        var det=window._saPreviewDetect(raw);
+        if(det&&typeof window._saPreviewShow==='function') window._saPreviewShow(det, window.selectedSeat||'Preview');
+      }
+      return;
+    }
+
+    if(!raw||raw==='1') return;
 
     if(lbl.indexOf('Copy')!==-1||lbl.indexOf('Copied')!==-1){
       if(navigator.clipboard&&navigator.clipboard.writeText){
