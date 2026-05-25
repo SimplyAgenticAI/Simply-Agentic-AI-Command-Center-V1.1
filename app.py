@@ -354,7 +354,7 @@ PLANS: Dict[str, Any] = {
     },
     "teams": {
         "name":             "Teams",
-        "price":            97,
+        "price":            127,
         "price_id":         STRIPE_PRICE_ID_GROWTH,
         "badge":            None,
         "tagline":          "Scale your pipeline, build your AI team, and bring in real humans too.",
@@ -382,6 +382,85 @@ def _normalize_plan_key(key: str) -> str:
     """Map legacy plan keys to current ones so existing seat records keep working."""
     k = (key or "solo").strip().lower()
     return _PLAN_KEY_ALIASES.get(k, k) if k not in PLANS else k
+
+# ── Per-plan usage limits ────────────────────────────────────────────────────
+MSG_LIMITS   = {"founder": 1000, "solo": 600,  "teams": 2000}
+IMAGE_LIMITS = {"founder": 30,   "solo": 20,   "teams": 50}
+
+_MSG_USAGE_LOCK = threading.Lock()
+
+def _msg_usage_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return Path(DATA_DIR) / f"msg_usage_{safe}.json"
+
+def _get_msg_usage(username: str) -> Dict[str, Any]:
+    """Return {month, count, image_count} for current calendar month. Auto-resets on new month."""
+    month = datetime.utcnow().strftime("%Y-%m")
+    try:
+        path = _msg_usage_path(username)
+        if path.exists():
+            d = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(d, dict) and d.get("month") == month:
+                return {"month": month, "count": int(d.get("count", 0)), "image_count": int(d.get("image_count", 0))}
+    except Exception:
+        pass
+    return {"month": month, "count": 0, "image_count": 0}
+
+def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, Any]:
+    """Thread-safe increment of message or image counter. Returns updated usage dict."""
+    month = datetime.utcnow().strftime("%Y-%m")
+    with _MSG_USAGE_LOCK:
+        try:
+            path = _msg_usage_path(username)
+            d = {"month": month, "count": 0, "image_count": 0}
+            if path.exists():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and raw.get("month") == month:
+                    d = raw
+                d["month"] = month
+            if images:
+                d["image_count"] = int(d.get("image_count", 0)) + 1
+            else:
+                d["count"] = int(d.get("count", 0)) + 1
+            path.write_text(json.dumps(d), encoding="utf-8")
+            return d
+        except Exception:
+            return {"month": month, "count": 0, "image_count": 0}
+
+def _user_has_own_key(username: str) -> bool:
+    """Return True if the user has saved their own OpenAI or Claude API key (bypasses msg limits)."""
+    try:
+        u = load_users().get("users", {}).get(username, {})
+        s = u.get("settings") or {}
+        ok = bool(_decrypt_field((s.get("openai_key") or "").strip()))
+        ck = bool(_decrypt_field((s.get("claude_key") or "").strip()))
+        return ok or ck
+    except Exception:
+        return False
+
+def _check_msg_limit(username: str, plan_key: str) -> tuple:
+    """Return (allowed, used, limit, image_used, image_limit, has_own_key).
+    allowed=True if the user can send another message."""
+    if _user_has_own_key(username):
+        return (True, 0, 0, 0, 0, True)
+    k      = _normalize_plan_key(plan_key)
+    limit  = MSG_LIMITS.get(k, 600)
+    ilimit = IMAGE_LIMITS.get(k, 20)
+    usage  = _get_msg_usage(username)
+    used   = usage["count"]
+    iused  = usage["image_count"]
+    return (used < limit, used, limit, iused, ilimit, False)
+
+def _check_image_limit(username: str, plan_key: str) -> tuple:
+    """Return (allowed, used, limit, has_own_key)."""
+    if _user_has_own_key(username):
+        return (True, 0, 0, True)
+    k      = _normalize_plan_key(plan_key)
+    ilimit = IMAGE_LIMITS.get(k, 20)
+    usage  = _get_msg_usage(username)
+    iused  = usage["image_count"]
+    return (iused < ilimit, iused, ilimit, False)
+
 
 def _plan_price_id(plan_key: str) -> str:
     """Return the Stripe price ID for a plan key, falling back to Solo."""
@@ -761,12 +840,14 @@ def _get_global_openai_client() -> "OpenAI":
     return client
 
 def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
-    """Returns Anthropic client using ONLY the user's own saved claude_key. Never falls back to server."""
+    """Returns Anthropic client. Prefers user's own saved claude_key; falls back to server ANTHROPIC_API_KEY."""
     if _anthropic_sdk is None:
         return None
-    if not u:
-        return None
-    key = _decrypt_field(((u.get("settings") or {}).get("claude_key") or "").strip())
+    key = ""
+    if u:
+        key = _decrypt_field(((u.get("settings") or {}).get("claude_key") or "").strip())
+    if not key:
+        key = (ANTHROPIC_API_KEY or "").strip()
     if not key:
         return None
     return _anthropic_sdk.Anthropic(api_key=key)
@@ -1070,12 +1151,28 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
             return
         _image_job_set(job_id, {"status": "done", "url": url, "image": rec})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}", username=username)
+        try: _increment_msg_usage(username, images=True)
+        except Exception: pass
     except Exception as e:
         _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}", username=username)
 
 def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
-    _image_jobs_evict_old()  # [UPGRADE 1] sweep stale jobs on every new creation
+    _image_jobs_evict_old()  # sweep stale jobs on every new creation
+    # Image generation limit check
+    try:
+        _pk = _get_user_plan(username or "")
+        _img_ok, _img_used, _img_lim, _img_own = _check_image_limit(username or "", _pk)
+        if not _img_ok:
+            _pn = (PLANS.get(_pk) or {}).get("name", "your plan")
+            raise RuntimeError(
+                f"You've used all {_img_lim} image generations included in {_pn} this month. "
+                f"Upgrade your plan or add your own API key in Settings for unlimited images."
+            )
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
     job_id = uuid.uuid4().hex
     _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
     t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
@@ -2718,7 +2815,7 @@ ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
     {"key": "operator_profile",  "title": "Complete Your Operator Profile"},
-    {"key": "preferred_ai",      "title": "Connect AI (OpenAI or Claude)"},
+    {"key": "preferred_ai",      "title": "Add Your Own API Key (Optional)"},
     {"key": "full_team",         "title": "Install the Full Team"},
     {"key": "session_goal",      "title": "Set a Session Goal"},
     {"key": "email_connected",   "title": "Connect Email"},
@@ -11514,6 +11611,9 @@ def verify_email_post():
         users[username] = u_rec
         data["users"] = users
         save_users(data)
+        # Platform provides AI — mark preferred_ai step complete so users aren't asked to add a key
+        try: _mark_onboarding_step(username, "preferred_ai", True)
+        except Exception: pass
 
     if not is_first and seat_code:
         try:
@@ -15092,7 +15192,7 @@ label         { font-size: 14px !important; }
                         <span id="openaiKeyStatus" style="font-size:11px;font-weight:600;"></span>
                       </div>
                       <input id="openaiKey" type="text" placeholder="sk-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="openai_api_key_field" data-lpignore="true" data-1p-ignore="true" style="margin-top:6px;" />
-                      <div class="tiny" style="opacity:.7;margin-top:3px;">Required for GPT models, image generation, and voice.</div>
+                      <div class="tiny" style="opacity:.7;margin-top:3px;">Optional — AI is included in your plan. Adding your own key removes monthly message limits.</div>
                       <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                         <button id="testVoiceBtn" class="btn" style="font-size:12px;padding:4px 12px;">🔍 Test Voice</button>
                         <span id="testVoiceResult" style="font-size:12px;font-family:monospace;"></span>
@@ -15105,7 +15205,7 @@ label         { font-size: 14px !important; }
                         <span id="claudeKeyStatus" style="font-size:11px;font-weight:600;"></span>
                       </div>
                       <input id="claudeKey" type="text" placeholder="sk-ant-... (leave blank to keep saved)" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="verbatim" name="claude_api_key_field" data-lpignore="true" data-1p-ignore="true" style="margin-top:6px;" />
-                      <div class="tiny" style="opacity:.7;margin-top:3px;">Required for Claude models. Get yours at console.anthropic.com</div>
+                      <div class="tiny" style="opacity:.7;margin-top:3px;">Optional — adds Claude access and removes monthly message limits. Get yours at console.anthropic.com</div>
                     </div>
 
                     <div>
@@ -17198,6 +17298,17 @@ input[type="range"]::-moz-range-progress {
         </div>
         <!-- Thread — flex:1 so it fills remaining space without external scroll -->
         <div class="thread" id="thread" style="flex:1;min-height:0;overflow-y:auto;"></div>
+        <!-- Monthly usage bar (hidden when user has own key) -->
+        <div id="msgUsageWrap" style="flex-shrink:0;display:none;margin-bottom:6px;padding:6px 10px;background:rgba(7,10,20,.5);border:1px solid rgba(42,58,106,.4);border-radius:8px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;">MONTHLY MESSAGES</span>
+            <span id="msgUsageLabel" style="font-size:10px;color:#64748b;font-variant-numeric:tabular-nums;"></span>
+          </div>
+          <div style="height:4px;background:rgba(42,58,106,.35);border-radius:2px;overflow:hidden;">
+            <div id="msgUsageBar" style="height:100%;width:0%;background:#22c55e;border-radius:2px;transition:width .4s ease,background .4s ease;"></div>
+          </div>
+          <div id="msgUsageImgLine" style="font-size:10px;color:#475569;margin-top:4px;display:none;"></div>
+        </div>
         <!-- Input always visible at bottom -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
@@ -19505,6 +19616,39 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     $("refreshThread").onclick = refreshThread;
     window.refreshThread = refreshThread; // expose globally for stack modal
 
+    /* ── Monthly usage bar ──────────────────────────────────────────── */
+    window._saRefreshUsageBar = async function(){
+      try{
+        const r = await fetch('/api/usage/messages');
+        const d = await r.json();
+        if(!d.ok) return;
+        const wrap = document.getElementById('msgUsageWrap');
+        const bar  = document.getElementById('msgUsageBar');
+        const lbl  = document.getElementById('msgUsageLabel');
+        const imgL = document.getElementById('msgUsageImgLine');
+        if(!wrap||!bar||!lbl) return;
+        if(d.has_own_key){ wrap.style.display='none'; return; }
+        var used=d.messages.used, limit=d.messages.limit, pct=d.messages.pct;
+        var color = pct<60?'#22c55e':pct<85?'#f59e0b':'#ef4444';
+        bar.style.width=pct+'%'; bar.style.background=color;
+        lbl.style.color=color;
+        lbl.innerText=used+' / '+limit+' used ('+pct+'%)';
+        wrap.style.display='block';
+        if(d.images&&d.images.limit){
+          imgL.innerText='Images: '+d.images.used+' / '+d.images.limit;
+          imgL.style.display='block';
+        }
+        if(pct>=100){
+          lbl.innerText='Limit reached — upgrade or add your own API key';
+          lbl.style.color='#ef4444';
+          wrap.style.background='rgba(239,68,68,.08)';
+          wrap.style.borderColor='rgba(239,68,68,.3)';
+        }
+      }catch(e){}
+    };
+    // Load on init and after each message
+    window._saRefreshUsageBar();
+
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
       box.innerHTML = "";
@@ -20929,6 +21073,7 @@ function _saJobNotify(seatName, status){
       }
 
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
+      try{ if(window._saRefreshUsageBar) window._saRefreshUsageBar(); }catch(e){}
       dmFileIds = [];
       renderAttachList("dmAttachList", dmFileIds);
     }
@@ -22186,10 +22331,10 @@ Challenge weak assumptions. Surface risks.`;
             const planNames = {
               "founder": {label:"🔥 Founder Access", price:"$27/mo"},
               "solo":    {label:"Solo Operator",     price:"$47/mo"},
-              "teams":   {label:"Teams",             price:"$97/mo"},
+              "teams":   {label:"Teams",             price:"$127/mo"},
               // legacy aliases
               "starter": {label:"Solo Operator",     price:"$47/mo"},
-              "growth":  {label:"Teams",             price:"$97/mo"},
+              "growth":  {label:"Teams",             price:"$127/mo"},
             };
             const info = planNames[planKey] || {label: planKey, price:""};
             const badge = $("billingPlanBadge");
@@ -44130,6 +44275,34 @@ def api_usage_summary():
         "recent":        recent,
     }})
 
+@app.get("/api/usage/messages")
+def api_usage_messages():
+    """Return current month message/image usage and plan limits for the logged-in user."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    plan_key = _get_user_plan(uname)
+    allowed, used, limit, iused, ilimit, has_own_key = _check_msg_limit(uname, plan_key)
+    plan_info = PLANS.get(plan_key) or PLANS.get("solo") or {}
+    return jsonify({
+        "ok":          True,
+        "plan":        plan_key,
+        "plan_name":   plan_info.get("name", plan_key),
+        "has_own_key": has_own_key,
+        "messages": {
+            "used":  used,
+            "limit": limit,
+            "pct":   round(used / limit * 100) if limit else 0,
+        },
+        "images": {
+            "used":  iused,
+            "limit": ilimit,
+            "pct":   round(iused / ilimit * 100) if ilimit else 0,
+        },
+    })
+
+
 @app.post("/api/analytics/event")
 def api_analytics_event():
     """Log a client-side analytics event (relay_run, feature_open, etc.)."""
@@ -44803,6 +44976,20 @@ def api_followup_stream():
     user_content = _build_user_content(msg2, vision_images)
 
     uname = _get_session_username()
+
+    # ── Message usage limit check ─────────────────────────────────────────────
+    try:
+        _plan_k = _get_user_plan(uname)
+        _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
+        if not _allowed:
+            _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
+            return jsonify({"ok": False, "error": (
+                f"You've used all {_limit} messages included in {_plan_nm} this month. "
+                f"Upgrade to get more, or add your own API key in Settings for unlimited messages."
+            ), "limit_hit": True}), 429
+    except Exception:
+        pass
+
     # Award community points for chatting with a teammate
     try:
         if uname: _award_points(uname, f"Chatted with {name}", 3)
@@ -44869,6 +45056,7 @@ def api_followup_stream():
                 "msg_len": len(msg),
                 "resp_len": len(complete_text),
             })
+            _increment_msg_usage(uname)
         except Exception:
             pass
         return complete_text, draft
