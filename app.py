@@ -7649,13 +7649,16 @@ def _api_followup_impl(data):
     _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
     if not _allowed:
         _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
-        return jsonify({"ok": False, "error": f"You've used all {_limit} messages included with {_plan_nm} this month. Add your own API key in Settings for unlimited access, or your limit resets on the 1st.", "limit_hit": True}), 429
+        return jsonify({"ok": False, "error": f"You've used all {_limit} messages included with {_plan_nm} this month. Connect your own API key in ⚙️ Settings to unlock unlimited messages and all premium models — or your limit resets on the 1st.", "limit_hit": True}), 429
 
     msgs: List[Dict[str, Any]] = []
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
     _resolved_model = _resolve_model_for_user(defn, current_user())
+    # Protect platform key: restrict to gpt-4o-mini when user has no own API key
+    if not _user_has_own_key(uname):
+        _resolved_model = "gpt-4o-mini"
     _tool_log: List[Dict[str, Any]] = []
 
     # Tool calling: skip for o1/o3/o4/claude (unsupported tools param)
@@ -17325,6 +17328,17 @@ input[type="range"]::-moz-range-progress {
           </div>
           <div id="msgUsageImgLine" style="font-size:10px;color:#475569;margin-top:4px;display:none;"></div>
         </div>
+        <!-- BYOK prompt — shown when user has no own API key -->
+        <div id="byokPrompt" style="display:none;flex-shrink:0;margin-bottom:6px;padding:10px 12px;background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(14,165,233,.08));border:1px solid rgba(124,58,237,.35);border-radius:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div style="flex:1;">
+              <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:4px;">🔑 Connect your own API key</div>
+              <div style="font-size:11px;color:#94a3b8;line-height:1.5;">Unlock <strong style="color:#e2e8f0;">unlimited messages</strong>, <strong style="color:#e2e8f0;">GPT-4o &amp; Claude</strong>, and all premium models — free to connect, you only pay OpenAI/Anthropic directly at cost.</div>
+            </div>
+            <button id="byokPromptDismiss" title="Dismiss" style="background:none;border:none;color:#475569;font-size:14px;cursor:pointer;padding:0;flex-shrink:0;line-height:1;">✕</button>
+          </div>
+          <button id="byokPromptCta" style="margin-top:8px;width:100%;padding:7px;border-radius:7px;background:linear-gradient(135deg,rgba(124,58,237,.3),rgba(14,165,233,.2));border:1px solid rgba(124,58,237,.5);color:#c4b5fd;font-size:12px;font-weight:600;cursor:pointer;text-align:center;">Connect API Key in Settings →</button>
+        </div>
         <!-- Input always visible at bottom -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
@@ -19613,6 +19627,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const lbl  = document.getElementById('msgUsageLabel');
         const imgL = document.getElementById('msgUsageImgLine');
         if(!wrap||!bar||!lbl) return;
+        // BYOK prompt logic
+        const byokEl = document.getElementById('byokPrompt');
+        if(byokEl){
+          if(d.has_own_key){
+            byokEl.style.display='none';
+          } else if(!sessionStorage.getItem('sa_byok_dismissed')){
+            byokEl.style.display='block';
+            const ctaBtn = document.getElementById('byokPromptCta');
+            const dismissBtn = document.getElementById('byokPromptDismiss');
+            if(ctaBtn && !ctaBtn._wired){ ctaBtn._wired=true; ctaBtn.onclick=()=>{ const s=document.getElementById('settingsBtn'); if(s)s.click(); setTimeout(()=>{ const t=document.querySelector('[data-tab="keys"],[id*="apiKey"],[id*="openaiKey"]'); if(t)t.scrollIntoView({behavior:'smooth'}); },400); }; }
+            if(dismissBtn && !dismissBtn._wired){ dismissBtn._wired=true; dismissBtn.onclick=()=>{ byokEl.style.display='none'; sessionStorage.setItem('sa_byok_dismissed','1'); }; }
+          }
+        }
         if(d.has_own_key){ wrap.style.display='none'; return; }
         var used=d.messages.used, limit=d.messages.limit, pct=d.messages.pct;
         var color = pct<60?'#22c55e':pct<85?'#f59e0b':'#ef4444';
@@ -45029,6 +45056,10 @@ def api_followup_stream():
     _user_api_key = _decrypt_field(_raw_key.strip()) if _raw_key else ""
     _effective_key = _user_api_key or OPENAI_API_KEY or ""
     oai_client = OpenAI(api_key=_effective_key) if _effective_key else None
+    # Protect platform key: if user has no own key, restrict to gpt-4o-mini
+    if not _user_api_key:
+        preferred_model = "gpt-4o-mini"
+        _use_claude = False
 
     # Snapshot thread before streaming so we save the right context
     pre_thread = list(thread)
