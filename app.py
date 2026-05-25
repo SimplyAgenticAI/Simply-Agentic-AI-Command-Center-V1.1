@@ -20844,7 +20844,37 @@ function _saJobNotify(seatName, status){
     window.saOpenMsgModal = function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
     window.saCloseMsgModal = function saCloseMsgModal(){ const m=document.getElementById('saMsgModal'); if(m)m.style.display='none'; document.body.style.overflow=''; }
     window.saCopyMsgModal = function saCopyMsgModal(){ const b=document.getElementById('saMsgModalBody'); navigator.clipboard.writeText(b?b.innerText:'').then(()=>{}).catch(()=>{}); }
-    window.saWireThreadClicks = function saWireThreadClicks(){ const thread=document.getElementById('thread'); if(!thread)return; thread.querySelectorAll('.msg').forEach(function(msg){ if(msg._saWired)return; msg._saWired=true; msg.style.cursor='pointer'; msg.title='Click to expand'; msg.addEventListener('click',function(e){ if(e.target.tagName==='A'||e.target.tagName==='BUTTON')return; const who=(msg.querySelector('.who')||{}).innerText||(window.selectedSeat||'Response'); saOpenMsgModal(who,msg.innerHTML); }); }); }
+    window.saWireThreadClicks = function saWireThreadClicks(){
+      const thread=document.getElementById('thread');
+      if(!thread)return;
+      // Inject choice hover styles once
+      if(!document.getElementById('sa-choice-style')){
+        const st=document.createElement('style');
+        st.id='sa-choice-style';
+        st.textContent='.saChoice{cursor:pointer;border-radius:6px;padding:3px 8px;margin:2px 0;display:list-item;transition:background .15s,outline .15s;}.saChoice:hover{background:rgba(124,58,237,.22);outline:1px solid rgba(124,58,237,.45);color:#e2e8f0;}';
+        document.head.appendChild(st);
+      }
+      thread.querySelectorAll('.msg.assistant').forEach(function(msg){
+        if(msg._saWired)return;
+        msg._saWired=true;
+        const body=msg.querySelector('.msg-body');
+        if(!body)return;
+        const items=body.querySelectorAll('li');
+        if(items.length<2)return;
+        items.forEach(function(li){
+          if(li._saChoiceWired)return;
+          li._saChoiceWired=true;
+          li.classList.add('saChoice');
+          li.addEventListener('click',function(e){
+            e.stopPropagation();
+            const text=li.innerText.trim();
+            const fm=document.getElementById('followMsg');
+            if(fm){fm.value=text;fm.focus();}
+            if(typeof window.sendFollow==='function')window.sendFollow();
+          });
+        });
+      });
+    }
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
     (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
