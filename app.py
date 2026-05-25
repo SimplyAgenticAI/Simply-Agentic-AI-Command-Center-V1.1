@@ -329,7 +329,7 @@ PLANS: Dict[str, Any] = {
             "Price locked forever — never increases",
         ],
     },
-    "starter": {
+    "solo": {
         "name":             "Solo Operator",
         "price":            47,
         "price_id":         STRIPE_PRICE_ID_STARTER,
@@ -339,8 +339,9 @@ PLANS: Dict[str, Any] = {
         "crm_contacts":     500,
         "broadcast_recipients": 250,
         "team_seats":       1,
+        "msg_limit":        600,
         "features": [
-            "All 7 built-in AI teammates — GPT-4o & Claude",
+            "All 7 built-in AI teammates — AI included, no API key needed",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Lead Lab, Social Studio & Offer Builder",
@@ -348,10 +349,11 @@ PLANS: Dict[str, Any] = {
             "Website & landing page analyzer (scored 1–100)",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
+            "600 AI messages per month included",
         ],
     },
-    "growth": {
-        "name":             "Team",
+    "teams": {
+        "name":             "Teams",
         "price":            97,
         "price_id":         STRIPE_PRICE_ID_GROWTH,
         "badge":            None,
@@ -360,25 +362,31 @@ PLANS: Dict[str, Any] = {
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
         "team_seats":       3,
+        "msg_limit":        2000,
         "features": [
-            "All 7 built-in AI teammates — GPT-4o & Claude",
+            "Everything in Solo — plus team features",
             "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
-            "Lead Lab, Social Studio & Offer Builder",
-            "AI Notepad — write, improve, expand & summarize",
-            "Website & landing page analyzer (scored 1–100)",
-            "Calendar, tasks & Gmail sync",
             "3 team seats — run with a crew",
+            "2,000 AI messages per month included",
             "Advanced pipeline automation",
             "Priority support",
         ],
     },
 }
 
+_PLAN_KEY_ALIASES = {"starter": "solo", "growth": "teams", "pro": "teams"}
+
+def _normalize_plan_key(key: str) -> str:
+    """Map legacy plan keys to current ones so existing seat records keep working."""
+    k = (key or "solo").strip().lower()
+    return _PLAN_KEY_ALIASES.get(k, k) if k not in PLANS else k
+
 def _plan_price_id(plan_key: str) -> str:
-    """Return the Stripe price ID for a plan key, falling back to Starter."""
-    p = PLANS.get(plan_key) or PLANS.get("starter") or {}
+    """Return the Stripe price ID for a plan key, falling back to Solo."""
+    k = _normalize_plan_key(plan_key)
+    p = PLANS.get(k) or PLANS.get("solo") or {}
     return (p.get("price_id") or STRIPE_PRICE_ID_STARTER or STRIPE_PRICE_ID or "").strip()
 
 
@@ -447,7 +455,8 @@ def _founder_weekly_timer() -> Dict[str, Any]:
 
 def _team_seat_limit(plan_key: str) -> int:
     """Return the number of team seats included in a plan (1 = solo/owner only)."""
-    return int((PLANS.get(plan_key) or PLANS.get("starter") or {}).get("team_seats", 1))
+    k = _normalize_plan_key(plan_key)
+    return int((PLANS.get(k) or PLANS.get("solo") or {}).get("team_seats", 1))
 
 def _get_team_owner(username: str) -> Optional[str]:
     """Return the team owner for a user (None if they are the owner)."""
@@ -516,9 +525,9 @@ def _remove_team_member(owner_username: str, member_username: str) -> Tuple[bool
 
 
 def _get_user_plan(username: str) -> str:
-    """Return the plan key ('starter'/'growth'/'pro') for a given username.
-    Looks up their seat record. Admins (first user) get 'pro' automatically.
-    Falls back to 'starter' if no seat found.
+    """Return the plan key ('founder'/'solo'/'teams') for a given username.
+    Looks up their seat record. Admins (first user) get 'teams' automatically.
+    Falls back to 'solo' if no seat found.
     Result is cached on g per username for the duration of the request.
     """
     # Per-request cache — plan won't change mid-request
@@ -532,22 +541,22 @@ def _get_user_plan(username: str) -> str:
     except RuntimeError:
         cache = None  # no app context (background thread)
 
-    result = "starter"
+    result = "solo"
     try:
-        # Admin always gets pro access
+        # Admin always gets teams access
         data = load_users()
         users = data.get("users") or {}
         if users:
             first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
             if first.get("username") == username:
-                result = "growth"
+                result = "teams"
                 if cache is not None:
                     cache[username] = result
                 return result
         seats = (_load_seats().get("seats") or {})
         for seat in seats.values():
             if seat.get("claimed_by") == username:
-                result = (seat.get("plan") or "starter").strip().lower()
+                result = _normalize_plan_key((seat.get("plan") or "solo").strip().lower())
                 break
     except Exception:
         pass
@@ -1299,7 +1308,7 @@ def _load_stripe_sessions() -> Dict[str, Any]:
 def _save_stripe_sessions(data: Dict[str, Any]) -> None:
     save_json(STRIPE_SESSIONS_PATH, data)
 
-def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "", plan: str = "starter") -> str:
+def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "", plan: str = "solo") -> str:
     """Create a fresh seat code tied to a completed Stripe checkout and return it."""
     # Idempotent: if we already made one for this session, return it
     sess_data = _load_stripe_sessions()
@@ -1314,7 +1323,7 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
     while code in seats:
         code = f"SA-{secrets.token_urlsafe(8).upper()[:8]}"
 
-    plan_info = PLANS.get(plan) or PLANS.get("starter") or {}
+    plan_info = PLANS.get(_normalize_plan_key(plan)) or PLANS.get("solo") or {}
     # Calculate trial end date
     _trial_end = None
     if FREE_TRIAL_DAYS > 0:
@@ -5781,11 +5790,11 @@ def api_admin_seats_generate():
     count        = max(1, min(int(payload.get("count", 1)), 50))
     holder_name  = (payload.get("holder_name")  or "").strip()[:120]
     holder_email = (payload.get("holder_email") or "").strip()[:200]
-    plan_key     = (payload.get("plan") or "starter").strip().lower()
+    plan_key     = _normalize_plan_key((payload.get("plan") or "solo").strip().lower())
     if plan_key not in PLANS:
-        plan_key = "starter"
-    plan_info    = PLANS.get(plan_key) or PLANS["starter"]
-    plan_name    = plan_info.get("name", "Starter Operator")
+        plan_key = "solo"
+    plan_info    = PLANS.get(plan_key) or PLANS["solo"]
+    plan_name    = plan_info.get("name", "Solo Operator")
     data = _load_seats()
     seats = data.get("seats") or {}
     existing_nums = [v.get("seat_num", 0) for v in seats.values()]
@@ -5836,11 +5845,11 @@ def api_admin_seat_update(code: str):
     if "holder_email" in payload:
         seats[code]["holder_email"] = (payload["holder_email"] or "").strip()[:200]
     if "plan" in payload:
-        plan_key = (payload["plan"] or "starter").strip().lower()
+        plan_key = _normalize_plan_key((payload["plan"] or "solo").strip().lower())
         if plan_key not in PLANS:
-            plan_key = "starter"
+            plan_key = "solo"
         seats[code]["plan"]      = plan_key
-        seats[code]["plan_name"] = (PLANS.get(plan_key) or PLANS["starter"]).get("name", "Starter Operator")
+        seats[code]["plan_name"] = (PLANS.get(plan_key) or PLANS["solo"]).get("name", "Solo Operator")
     data["seats"] = seats
     _save_seats(data)
     return jsonify({"ok": True, "seat": {"code": code, **seats[code]}})
@@ -5948,8 +5957,8 @@ a.back:hover{color:#c4b5fd;}
     <input type="email" id="genEmail" placeholder="jane@example.com">
     <label>Plan</label>
     <select id="genPlan">
-      <option value="starter">Starter Operator</option>
-      <option value="growth">Growth System</option>
+      <option value="solo">Solo Operator</option>
+      <option value="teams">Teams</option>
       <option value="founder">Founder</option>
     </select>
     <div class="msg" id="genMsg"></div>
@@ -5970,8 +5979,8 @@ a.back:hover{color:#c4b5fd;}
     <label>Plan</label>
     <select id="editPlan">
       <option value="founder">Founder</option>
-      <option value="starter">Solo</option>
-      <option value="growth">Teams</option>
+      <option value="solo">Solo</option>
+      <option value="teams">Teams</option>
     </select>
     <label>Status</label>
     <select id="editStatus">
@@ -6081,7 +6090,7 @@ a.back:hover{color:#c4b5fd;}
       ge('editCode').value   = code;
       ge('editName').value   = seat.holder_name  || '';
       ge('editEmail').value  = seat.holder_email || '';
-      ge('editPlan').value   = seat.plan         || 'starter';
+      ge('editPlan').value   = seat.plan         || 'solo';
       ge('editStatus').value = seat.status       || 'active';
       ge('editNotes').value  = seat.notes        || '';
       ge('editMsg').className = 'msg';
@@ -6095,7 +6104,7 @@ a.back:hover{color:#c4b5fd;}
     ge('genCount').value = '1';
     ge('genName').value  = '';
     ge('genEmail').value = '';
-    ge('genPlan').value  = 'starter';
+    ge('genPlan').value  = 'solo';
     ge('genMsg').className = 'msg';
     ge('genSubmitBtn').disabled = false;
     openModal('genModal');
@@ -6956,7 +6965,7 @@ def api_create_teammate():
 
     # Enforce plan-based custom teammate limit
     plan_key  = _get_user_plan(uname)
-    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
     max_custom = plan_info.get("custom_teammates")  # None = unlimited, 0 = not allowed
 
     if max_custom is not None:  # None means unlimited — skip check
@@ -10338,7 +10347,7 @@ function startStripeCheckout() {
   spinner.style.display = 'inline';
   cardIcon.style.display = 'none';
 
-  const plan = new URLSearchParams(window.location.search).get('plan') || 'starter';
+  const plan = new URLSearchParams(window.location.search).get('plan') || 'solo';
 
   fetch('/stripe/create_checkout', {
     method: 'POST',
@@ -10606,10 +10615,10 @@ def pricing_page():
 
     # Solo + Team cards
     cards_html = ""
-    for key, plan_key in [("starter", "starter"), ("growth", "growth")]:
+    for key, plan_key in [("solo", "solo"), ("teams", "teams")]:
         p = PLANS.get(plan_key, {})
         badge      = p.get("badge")
-        is_solo    = key == "starter"
+        is_solo    = key == "solo"
         badge_html = f"<div class='plan-badge'>{badge}</div>" if badge else ""
         rec_cls    = " plan-card-featured" if is_solo else ""
         feats      = "".join(f"<li><span class='pfc'>&#10003;</span>{f}</li>" for f in p.get("features", []))
@@ -11225,9 +11234,9 @@ def register_get():
     stripe_email = None
     stripe_err   = None
     stripe_session = (request.args.get("stripe_session") or "").strip()
-    selected_plan  = (request.args.get("plan") or "starter").strip().lower()
+    selected_plan  = _normalize_plan_key((request.args.get("plan") or "solo").strip().lower())
     if selected_plan not in PLANS:
-        selected_plan = "starter"
+        selected_plan = "solo"
 
     if stripe_session:
         code, email = _stripe_session_code(stripe_session)
@@ -11265,25 +11274,25 @@ def register_post():
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE,
             error="Too many registration attempts. Please wait before trying again.",
             ok=None, require_code=True, stripe_code=None, stripe_email=None,
-            stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+            stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     username = _clean_username(request.form.get("username",""))
     email = (request.form.get("email","") or "").strip()
     pw = (request.form.get("password","") or "").strip()
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     if len(username) > 40:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     if email and not EMAIL_RE.match(email):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     _pw_ok, _pw_err = _validate_password_strength(pw)
     if not _pw_ok:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
     if not request.form.get("tos_accepted"):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
@@ -11292,12 +11301,12 @@ def register_post():
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
         if not ok:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="starter", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
 
     # ── Email verification ────────────────────────────────────────────────────
     # Skip for: first user (admin, no SMTP yet), or when SMTP is not configured,
@@ -11747,16 +11756,16 @@ def stripe_create_checkout():
     """Redirect the visitor to a Stripe Checkout session for the selected plan."""
     if not _stripe_ready():
         # Try direct payment link as fallback
-        plan_key_fb = (request.get_json(silent=True) or {}).get("plan", "starter")
+        plan_key_fb = _normalize_plan_key((request.get_json(silent=True) or {}).get("plan", "solo"))
         payment_link = _get_payment_link(plan_key_fb)
         if payment_link:
             return jsonify({"ok": True, "payment_link": payment_link})
         return jsonify({"ok": False, "error": "Stripe is not configured on this server."}), 400
 
     payload  = request.get_json(silent=True) or {}
-    plan_key = (payload.get("plan") or request.form.get("plan") or "starter").strip().lower()
+    plan_key = _normalize_plan_key((payload.get("plan") or request.form.get("plan") or "solo").strip().lower())
     if plan_key not in PLANS:
-        plan_key = "starter"
+        plan_key = "solo"
 
     price_id = _plan_price_id(plan_key)
     if not price_id:
@@ -11806,8 +11815,8 @@ def _get_payment_link(plan_key: str) -> str:
     """Return a direct Stripe payment link for a plan, if configured."""
     links = {
         "founder": STRIPE_LINK_FOUNDER,
-        "starter": STRIPE_LINK_SOLO,
-        "growth":  STRIPE_LINK_TEAMS,
+        "solo":    STRIPE_LINK_SOLO,
+        "teams":   STRIPE_LINK_TEAMS,
     }
     return (links.get(plan_key) or "").strip()
 
@@ -11841,7 +11850,7 @@ def stripe_webhook():
         email       = (details.get("email") or obj.get("customer_email") or "")
         name        = (details.get("name") or "").strip()
         # Detect plan from the price ID on the line items
-        plan = "starter"
+        plan = "solo"
         try:
             paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
         except Exception:
@@ -22173,12 +22182,14 @@ Challenge weak assumptions. Surface risks.`;
           const meRes = await fetch("/api/me");
           const meData = await meRes.json();
           if(meData && meData.user){
-            const planKey = meData.user.plan || "starter";
+            const planKey = meData.user.plan || "solo";
             const planNames = {
               "founder": {label:"🔥 Founder Access", price:"$27/mo"},
+              "solo":    {label:"Solo Operator",     price:"$47/mo"},
+              "teams":   {label:"Teams",             price:"$97/mo"},
+              // legacy aliases
               "starter": {label:"Solo Operator",     price:"$47/mo"},
-              "growth":  {label:"Team",              price:"$97/mo"},
-              "pro":     {label:"Operator Pro",      price:"$197/mo"},
+              "growth":  {label:"Teams",             price:"$97/mo"},
             };
             const info = planNames[planKey] || {label: planKey, price:""};
             const badge = $("billingPlanBadge");
@@ -38524,13 +38535,13 @@ def api_crm_clients_create():
 
     # Plan-based contact limit
     plan_key  = _get_user_plan(uname)
-    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
     max_contacts = plan_info.get("crm_contacts")  # None = unlimited
     if max_contacts is not None:
         current_count = len(crm.get("clients") or {})
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
-            upgrade_to = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            upgrade_to = "Teams ($97/mo)" if plan_key in ("solo", "starter") else "Teams ($97/mo)"
             return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"}), 403
 
     cid = _crm_new_id("c")
@@ -38712,7 +38723,7 @@ def api_crm_clients_import_csv():
 
     # Plan-based contact limit
     plan_key  = _get_user_plan(uname)
-    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
     max_contacts = plan_info.get("crm_contacts")  # None = unlimited
 
     imported = 0
@@ -38980,11 +38991,11 @@ def api_crm_broadcast_email():
 
         # Plan-based broadcast recipient limit
         plan_key  = _get_user_plan(uname)
-        plan_info = PLANS.get(plan_key) or PLANS["starter"]
+        plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
         max_recipients = plan_info.get("broadcast_recipients")  # None = unlimited
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name   = plan_info.get("name", "your plan")
-            upgrade_to  = "Growth System ($97/mo)" if plan_key == "starter" else "Operator Pro ($197/mo)"
+            upgrade_to  = "Teams ($97/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
@@ -47017,7 +47028,7 @@ def api_extension_import_lead():
         name = "Facebook Contact"  # never hard-fail — use fallback name
     crm       = _crm_load(uname)
     plan_key  = _get_user_plan(uname)
-    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
     max_c     = plan_info.get("crm_contacts")
     if max_c is not None and len(crm.get("clients") or {}) >= max_c:
         return jsonify({"ok": False, "error": f"Contact limit reached ({max_c}). <a href='/stripe/manage' style='color:#c4b5fd;'>Upgrade your plan →</a>"}), 403
@@ -47316,7 +47327,7 @@ def api_extension_bulk_import():
         return jsonify({"ok": False, "error": "profiles array required"}), 400
     crm       = _crm_load(uname)
     plan_key  = _get_user_plan(uname)
-    plan_info = PLANS.get(plan_key) or PLANS["starter"]
+    plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
     max_c     = plan_info.get("crm_contacts")
     imported  = 0
     skipped   = 0
@@ -47431,7 +47442,7 @@ def api_extension_tag_contact():
     # If no contact found by URL but we have a name, try to auto-import
     if not matched_cid and name and profile_url:
         plan_key  = _get_user_plan(uname)
-        plan_info = PLANS.get(plan_key) or PLANS["starter"]
+        plan_info = PLANS.get(_normalize_plan_key(plan_key)) or PLANS["solo"]
         max_c     = plan_info.get("crm_contacts")
         if max_c is None or len(crm.get("clients") or {}) < max_c:
             cid = _crm_new_id("c")
