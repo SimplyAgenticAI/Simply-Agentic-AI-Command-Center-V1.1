@@ -4263,11 +4263,12 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
         "start": {"dateTime": start_iso, "timeZone": timezone},
         "end": {"dateTime": end_iso, "timeZone": timezone},
     }
+    has_attendees = False
     if attendees:
         clean = [{"email": a.strip()} for a in attendees if (a or "").strip()]
         if clean:
             event["attendees"] = clean
-            event["sendUpdates"] = "all"
+            has_attendees = True
     if use_meet:
         event["conferenceData"] = {
             "createRequest": {
@@ -4275,7 +4276,11 @@ def _calendar_create_event(access_token: str, title: str, start_iso: str, end_is
                 "conferenceSolutionKey": {"type": "hangoutsMeet"}
             }
         }
-    params = {"conferenceDataVersion": "1"} if use_meet else {}
+    params: Dict[str, str] = {}
+    if use_meet:
+        params["conferenceDataVersion"] = "1"
+    if has_attendees:
+        params["sendUpdates"] = "all"  # must be query param, not body field
     r = requests.post(url, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}, json=event, params=params, timeout=20)
     data = r.json() if r.content else {}
     if r.status_code >= 400:
