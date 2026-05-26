@@ -2490,7 +2490,7 @@ def get_openai_client() -> "OpenAI":
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
-EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body)\s*:\s*(.*)\s*$", re.IGNORECASE)
+EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body|email-num|email_num)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
 
 def now_iso() -> str:
@@ -4570,6 +4570,8 @@ def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
             if hm:
                 key = hm.group(1).lower().strip()
                 val = (hm.group(2) or "").strip()
+                if key in ("email-num", "email_num"):
+                    continue  # series counter — skip silently
                 if key == "to":
                     to_val = val
                     continue
@@ -4692,21 +4694,34 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     email_rules = (
         "EMAIL CAPABILITY\n"
-        "You can draft emails, but you cannot send emails.\n"
-        "If the user asks you to send an email, output a structured email draft so the UI can auto fill fields.\n"
-        "Use this exact format when an email draft is appropriate:\n"
+        "You can draft emails but cannot send them — the UI handles sending.\n"
+        "\n"
+        "SINGLE EMAIL: Write the email naturally as readable prose in your reply, then append ONE machine-readable block at the very end:\n"
         "```email\n"
-        "To: recipient@email.com\n"
-        "Subject: subject line\n"
-        "Body: first line of body\n"
-        "rest of body.\n"
+        "Subject: your subject line\n"
+        "Body: full email body starting here\n"
+        "rest of body on additional lines\n"
         "```\n"
+        "\n"
+        "EMAIL SERIES: Write each email as a numbered item with a brief description in your reply. "
+        "After your full readable response, append one machine-readable block per email (in order):\n"
+        "```email\n"
+        "Email-Num: 1\n"
+        "Subject: subject for email 1\n"
+        "Body: full body for email 1\n"
+        "```\n"
+        "```email\n"
+        "Email-Num: 2\n"
+        "Subject: subject for email 2\n"
+        "Body: full body for email 2\n"
+        "```\n"
+        "(continue for every email in the series)\n"
+        "\n"
         "IMPORTANT EMAIL RULES:\n"
-        "- Do NOT include 'To:', 'From:', or any header lines inside the Body section.\n"
-        "- The Body must start directly with the greeting or first sentence (e.g. 'Hi Sarah,' or 'Hello,').\n"
-        f"- Always sign off using the operator's real name. The operator's name is: {_op_name_for_email}.\n"
-        "  Never use placeholder text like 'Name', '[Your Name]', '[Operator Name]', or 'Your Name' in the sign-off.\n"
-        "  Correct example: 'Best,\\n" + _op_name_for_email + "'\n"
+        "- Machine-readable blocks are hidden from the chat — the UI converts them into clickable console buttons. Always place ALL blocks AFTER your human-readable reply.\n"
+        "- Do NOT include 'To:', 'From:', or header lines inside the Body section.\n"
+        "- Body must start directly with the greeting or first sentence (e.g. 'Hi Sarah,' or 'Hello,').\n"
+        f"- Always sign off with the operator's real name: {_op_name_for_email}. Never use placeholder text like '[Your Name]'.\n"
         "- Do not claim the email was sent.\n"
         "- No em dashes.\n"
     )
@@ -19270,6 +19285,43 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
     window.saMarkdown = saMarkdown;
 
+    // Parse ```email blocks out of AI text — returns {cleanText, emails[]}
+    window.saParseEmailBlocks = function(text){
+      if(!text) return {cleanText:'', emails:[]};
+      var emails = [];
+      var emailRe = /```email\s*([\s\S]*?)```/gi;
+      var m;
+      while((m = emailRe.exec(text)) !== null){
+        var block = m[1].trim();
+        var lines = block.split('\n');
+        var emailNum = emails.length + 1;
+        var subject = '';
+        var bodyLines = [];
+        var inBody = false;
+        for(var i=0; i<lines.length; i++){
+          var line = lines[i];
+          var hm = line.match(/^\s*(email-?num|email_num|subject|body)\s*:\s*(.*)/i);
+          if(hm){
+            var key = hm[1].toLowerCase().replace(/[-_]/g,'');
+            var val = hm[2].trim();
+            if(key==='emailnum'){ emailNum = parseInt(val)||emailNum; inBody=false; }
+            else if(key==='subject'){ subject=val; inBody=false; }
+            else if(key==='body'){ inBody=true; if(val) bodyLines.push(val); }
+          } else if(inBody){
+            bodyLines.push(line);
+          }
+        }
+        emails.push({num:emailNum, subject:subject, body:bodyLines.join('\n').trim()});
+      }
+      // Strip all email blocks (complete + any trailing incomplete one) from visible text
+      var cleanText = text
+        .replace(/```email[\s\S]*?```/gi, '')
+        .replace(/```email[\s\S]*$/i, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return {cleanText:cleanText, emails:emails};
+    };
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -19458,7 +19510,35 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           content._visualPrompt = m.role === 'user' ? '' : ((msgs[msgs.indexOf(m)-1]||{}).content||'').slice(0,120);
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
-          if(m.role === 'user'){ content.innerText = raw; } else { content.innerHTML = saMarkdown(raw); }
+          if(m.role === 'user'){
+            content.innerText = raw;
+          } else {
+            const _ep2 = (typeof window.saParseEmailBlocks==='function')
+              ? window.saParseEmailBlocks(raw)
+              : {cleanText: raw, emails: []};
+            content.innerHTML = saMarkdown(_ep2.cleanText || raw);
+            if(_ep2.emails.length > 0){
+              const _erow2 = document.createElement('div');
+              _erow2.style.cssText = 'margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;';
+              const _elbl2 = document.createElement('span');
+              _elbl2.style.cssText = 'font-size:11px;color:#64748b;';
+              _elbl2.innerText = 'Load into console:';
+              _erow2.appendChild(_elbl2);
+              _ep2.emails.forEach(function(em2, idx2){
+                const _eb2 = document.createElement('button');
+                _eb2.className = 'btn btnMini';
+                _eb2.style.cssText = 'font-size:11px;padding:3px 12px;';
+                _eb2.innerText = _ep2.emails.length===1 ? '📧 Open in Console' : ('📧 Email '+(idx2+1));
+                if(em2.subject) _eb2.title = em2.subject;
+                _eb2.onclick = (function(e2){ return function(){
+                  if(typeof window.applyEmailDraft==='function')
+                    window.applyEmailDraft({to:'',subject:e2.subject,body:e2.body}, window.selectedSeat||'');
+                }; })(em2);
+                _erow2.appendChild(_eb2);
+              });
+              content.appendChild(_erow2);
+            }
+          }
           // CRM name detection — if response mentions a known contact, show quick-open button
           if(m.role !== "user" && raw && (crmCache.clients||[]).length){
             const rawLower = raw.toLowerCase();
@@ -33467,10 +33547,12 @@ window._streamTtsFired = false;
               }
               aBody._visHtml = _htmlSoFar;
             } else {
+              // Strip complete and incomplete email blocks so no code-block scrollbar appears during streaming
+              var _stText = fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
               if(typeof window.saMarkdown==="function"){
-                aBody.innerHTML = window.saMarkdown(fullText);
+                aBody.innerHTML = window.saMarkdown(_stText||fullText);
               } else {
-                aBody.innerText = fullText;
+                aBody.innerText = _stText||fullText;
               }
               aBody.appendChild(aCursor);
             }
@@ -33494,26 +33576,53 @@ window._streamTtsFired = false;
             aCursor.remove();
             const _finalText = parsed.response || fullText;
             const _visIdx = _finalText ? _finalText.indexOf("__VISUAL__") : -1;
+            // Parse email blocks before rendering
+            const _ep = (typeof window.saParseEmailBlocks==="function")
+              ? window.saParseEmailBlocks(_finalText||'')
+              : {cleanText:_finalText||'', emails:[]};
             if(_visIdx !== -1){
               const _html = _finalText.slice(_visIdx + "__VISUAL__".length);
               _buildVisualOutput(aBody, _html);
             } else {
-              window.lastSeatAssistantText = _finalText;
+              window.lastSeatAssistantText = _ep.cleanText || _finalText;
               if(_finalText){
                 if(typeof window.saMarkdown==="function"){
-                  aBody.innerHTML = window.saMarkdown(_finalText);
+                  aBody.innerHTML = window.saMarkdown(_ep.cleanText || _finalText);
                 } else {
-                  aBody.innerText = _finalText;
+                  aBody.innerText = _ep.cleanText || _finalText;
                 }
+              }
+              // Email buttons — one per block found in the response
+              if(_ep.emails.length > 0){
+                const _erow = document.createElement('div');
+                _erow.style.cssText = 'margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;';
+                const _elbl = document.createElement('span');
+                _elbl.style.cssText = 'font-size:11px;color:#64748b;';
+                _elbl.innerText = 'Load into console:';
+                _erow.appendChild(_elbl);
+                _ep.emails.forEach(function(em, idx){
+                  const _eb = document.createElement('button');
+                  _eb.className = 'btn btnMini';
+                  _eb.style.cssText = 'font-size:11px;padding:3px 12px;';
+                  _eb.innerText = _ep.emails.length===1 ? '📧 Open in Console' : ('📧 Email '+(idx+1));
+                  if(em.subject) _eb.title = em.subject;
+                  _eb.onclick = (function(e){ return function(){
+                    if(typeof window.applyEmailDraft==='function')
+                      window.applyEmailDraft({to:'',subject:e.subject,body:e.body}, seat);
+                  }; })(em);
+                  _erow.appendChild(_eb);
+                });
+                aBody.appendChild(_erow);
               }
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
             if(typeof setOpStatus==="function") setOpStatus("Complete");
-            if(parsed.email_draft && typeof applyEmailDraft==="function") applyEmailDraft(parsed.email_draft, seat);
+            // Auto-open console only for single emails with no parsed blocks (legacy plain format)
+            if(parsed.email_draft && _ep.emails.length===0 && typeof applyEmailDraft==="function") applyEmailDraft(parsed.email_draft, seat);
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
-            if(_visIdx === -1) addTtsButton(aDiv, _finalText, tm.tts_voice||"alloy");
+            if(_visIdx === -1) addTtsButton(aDiv, _ep.cleanText||_finalText, tm.tts_voice||"alloy");
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
           }
