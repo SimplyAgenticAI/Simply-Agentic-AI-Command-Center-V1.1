@@ -14718,6 +14718,7 @@ label         { font-size: 14px !important; }
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
+            <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
           </div>
         </div>
 
@@ -14869,6 +14870,7 @@ label         { font-size: 14px !important; }
             <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoTranscriptModal,200);">🎬 Video to Transcript</button>
           </div>
         </div>
 
@@ -28155,6 +28157,137 @@ if($("lightbox")) $("lightbox").onclick = (e)=>{ if(e && e.target && e.target.id
 
 if($("imageLibBtn")) $("imageLibBtn").onclick = ()=> showImageLibraryModal();
 
+if($("videoTranscriptBtn")) $("videoTranscriptBtn").onclick = ()=> showVideoTranscriptModal();
+
+function showVideoTranscriptModal() {
+  saToggleDrop('saCreateDrop');
+  var html = '<div id="vtModal" style="padding:4px 0 8px;">' +
+    '<div id="vtDropZone" style="border:2px dashed #7c3aed;border-radius:12px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .2s;background:rgba(124,58,237,.06);">' +
+      '<div style="font-size:38px;margin-bottom:8px;">🎬</div>' +
+      '<div style="font-size:15px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop your video or audio here</div>' +
+      '<div style="font-size:12px;color:#64748b;margin-bottom:16px;">MP4 · MOV · WEBM · MP3 · M4A · WAV &nbsp;·&nbsp; Max 25 MB</div>' +
+      '<button class="btn" id="vtPickBtn" style="background:#7c3aed;color:#fff;padding:8px 22px;font-size:13px;border-radius:8px;border:none;cursor:pointer;">Choose File</button>' +
+      '<input type="file" id="vtFileInput" accept=".mp4,.mov,.webm,.mp3,.m4a,.wav,video/*,audio/*" style="display:none;">' +
+    '</div>' +
+    '<div id="vtProgress" style="display:none;margin-top:18px;">' +
+      '<div style="font-size:13px;color:#94a3b8;margin-bottom:10px;text-align:center;">⏳ Transcribing… this may take a moment.</div>' +
+      '<div style="height:6px;background:#1e1b4b;border-radius:4px;overflow:hidden;">' +
+        '<div id="vtProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a78bfa);border-radius:4px;transition:width .6s;"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="vtResult" style="display:none;margin-top:16px;">' +
+      '<div style="font-size:12px;color:#a78bfa;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">TRANSCRIPT</div>' +
+      '<textarea id="vtText" style="width:100%;min-height:200px;padding:12px 14px;background:#0f0e17;color:#e2e8f0;border:1px solid #312e81;border-radius:8px;font-size:13px;line-height:1.65;resize:vertical;font-family:inherit;box-sizing:border-box;" readonly></textarea>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
+        '<button class="btn" id="vtCopyBtn" style="font-size:12px;padding:6px 14px;">📋 Copy</button>' +
+        '<button class="btn" id="vtVaultBtn" style="font-size:12px;padding:6px 14px;">🗄️ Save to Vault</button>' +
+        '<button class="btn" id="vtSendBtn" style="font-size:12px;padding:6px 14px;">💬 Send to Teammate</button>' +
+        '<button class="btn" id="vtNewBtn" style="font-size:12px;padding:6px 14px;opacity:.7;">🔄 New Upload</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="vtError" style="display:none;margin-top:12px;color:#f87171;font-size:13px;padding:10px 14px;background:rgba(248,113,113,.08);border-radius:8px;border:1px solid rgba(248,113,113,.3);"></div>' +
+  '</div>';
+  showModal("🎬 Video to Transcript", html);
+
+  var dropZone  = document.getElementById('vtDropZone');
+  var fileInput = document.getElementById('vtFileInput');
+  var pickBtn   = document.getElementById('vtPickBtn');
+
+  pickBtn.onclick = function(e){ e.stopPropagation(); fileInput.click(); };
+  dropZone.onclick = function(e){ if(e.target !== pickBtn) fileInput.click(); };
+  dropZone.ondragover  = function(e){ e.preventDefault(); dropZone.style.background='rgba(124,58,237,.18)'; dropZone.style.borderColor='#a78bfa'; };
+  dropZone.ondragleave = function(){ dropZone.style.background='rgba(124,58,237,.06)'; dropZone.style.borderColor='#7c3aed'; };
+  dropZone.ondrop = function(e){ e.preventDefault(); dropZone.style.background='rgba(124,58,237,.06)'; dropZone.style.borderColor='#7c3aed'; var f=e.dataTransfer.files[0]; if(f) vtStartTranscribe(f); };
+  fileInput.onchange = function(){ var f=fileInput.files[0]; if(f) vtStartTranscribe(f); };
+}
+
+async function vtStartTranscribe(file) {
+  var allowed = ['mp4','mov','webm','mp3','m4a','wav'];
+  var ext = (file.name.split('.').pop()||'').toLowerCase();
+  var errEl   = document.getElementById('vtError');
+  var progress= document.getElementById('vtProgress');
+  var pBar    = document.getElementById('vtProgressBar');
+  var result  = document.getElementById('vtResult');
+  var dropZone= document.getElementById('vtDropZone');
+
+  errEl.style.display='none';
+  result.style.display='none';
+
+  if(!allowed.includes(ext)){
+    errEl.textContent='Unsupported file type. Please use MP4, MOV, WEBM, MP3, M4A, or WAV.';
+    errEl.style.display='block'; return;
+  }
+  if(file.size > 25*1024*1024){
+    errEl.textContent='File too large. Maximum size is 25 MB.';
+    errEl.style.display='block'; return;
+  }
+
+  dropZone.style.display='none';
+  progress.style.display='block';
+  pBar.style.width='0%';
+
+  var pct=0;
+  var pInterval=setInterval(function(){ pct=Math.min(pct+(pct<70?3:.5),92); pBar.style.width=pct+'%'; },350);
+
+  try{
+    var fd=new FormData();
+    fd.append('file', file);
+    var resp=await fetch('/api/transcribe',{method:'POST',body:fd});
+    clearInterval(pInterval);
+    pBar.style.width='100%';
+    await new Promise(function(r){setTimeout(r,350);});
+    progress.style.display='none';
+
+    var data=await resp.json();
+    if(!data.ok){
+      dropZone.style.display='block';
+      errEl.textContent=data.error||'Transcription failed. Please try again.';
+      errEl.style.display='block'; return;
+    }
+
+    var text=data.transcript||'';
+    document.getElementById('vtText').value=text;
+    result.style.display='block';
+
+    document.getElementById('vtCopyBtn').onclick=function(){
+      navigator.clipboard.writeText(text).then(function(){
+        var b=document.getElementById('vtCopyBtn');
+        b.textContent='✅ Copied'; setTimeout(function(){ b.textContent='📋 Copy'; },2000);
+      });
+    };
+    document.getElementById('vtVaultBtn').onclick=async function(){
+      var b=document.getElementById('vtVaultBtn');
+      b.textContent='⏳ Saving…';
+      try{
+        var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
+        var d=await r.json();
+        if(d.ok){ b.textContent='✅ Saved'; if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault'); }
+        else b.textContent='🗄️ Save to Vault';
+      }catch(e){ b.textContent='🗄️ Save to Vault'; }
+    };
+    document.getElementById('vtSendBtn').onclick=function(){
+      var fm=document.getElementById('followMsg');
+      if(fm){ fm.value='Here is a video transcript, please help me with it:\n\n'+text.slice(0,3000); fm.focus(); }
+      closeModal();
+      if(typeof window.sendFollow==='function') window.sendFollow();
+    };
+    document.getElementById('vtNewBtn').onclick=function(){
+      result.style.display='none';
+      errEl.style.display='none';
+      dropZone.style.display='block';
+      var fi=document.getElementById('vtFileInput');
+      if(fi) fi.value='';
+    };
+  }catch(err){
+    clearInterval(pInterval);
+    progress.style.display='none';
+    dropZone.style.display='block';
+    errEl.textContent='Network error — please try again.';
+    errEl.style.display='block';
+  }
+}
+
 try{
   if($("calPrevBtn")) $("calPrevBtn").onclick = async ()=>{
     cal.m -= 1;
@@ -31276,6 +31409,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
       text:"📝 Quick scratch pad — jot down ideas, copy snippets, or draft content between sessions." },
     { id:"tip_image_lib", target:"#imageLibBtn", level:"medium", trigger:"hover",
       text:"🖼 Browse every image you've generated — organized, searchable, and ready to download or reuse." },
+    { id:"tip_video_transcript", target:"#videoTranscriptBtn", level:"medium", trigger:"hover",
+      text:"🎬 Upload any video or audio file and get a full text transcript powered by OpenAI Whisper." },
     // ── Research dropdown ──
     { id:"tip_site_analyzer", target:"#siteAnalyzerBtn", level:"medium", trigger:"hover",
       text:"🌐 Paste any URL and get a full audit — messaging gaps, SEO opportunities, and conversion improvements." },
@@ -46048,6 +46183,49 @@ def api_tts():
         )
     except Exception as exc:
         print(f"[TTS] EXCEPTION: {exc}", flush=True)
+        code, msg = _classify_openai_error(exc)
+        return jsonify({"ok": False, "error": msg}), code
+
+
+@app.post("/api/transcribe")
+def api_transcribe():
+    """Transcribe a video or audio file via OpenAI Whisper-1."""
+    import io
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    f        = request.files["file"]
+    filename = f.filename or "upload"
+    ext      = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    allowed  = {"mp4", "mov", "webm", "mp3", "m4a", "wav"}
+    if ext not in allowed:
+        return jsonify({"ok": False, "error": f"Unsupported file type '.{ext}'. Use MP4, MOV, WEBM, MP3, M4A, or WAV."}), 400
+
+    data = f.read()
+    if len(data) > 25 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File exceeds the 25 MB limit."}), 400
+
+    username  = u.get("username", "unknown")
+    user_key  = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    if not openai_key:
+        return jsonify({"ok": False, "error": "Transcription requires an OpenAI API key. Add yours in Settings → API Keys."}), 400
+
+    print(f"[TRANSCRIBE] user={username} file={filename} size={len(data)} ext={ext}", flush=True)
+    try:
+        oai = OpenAI(api_key=openai_key.strip())
+        buf = io.BytesIO(data)
+        buf.name = filename  # Whisper uses filename to detect format
+        result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
+        transcript = (result.text or "").strip()
+        print(f"[TRANSCRIBE] done user={username} chars={len(transcript)}", flush=True)
+        return jsonify({"ok": True, "transcript": transcript})
+    except Exception as exc:
+        print(f"[TRANSCRIBE] EXCEPTION: {exc}", flush=True)
         code, msg = _classify_openai_error(exc)
         return jsonify({"ok": False, "error": msg}), code
 
