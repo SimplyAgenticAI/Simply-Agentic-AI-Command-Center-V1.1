@@ -19557,8 +19557,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       requestAnimationFrame(function(){ _scrollToBottom(box); });
       setTimeout(function(){ _scrollToBottom(box); }, 150);
       setTimeout(function(){ _scrollToBottom(box); }, 400);
-      // Wire clickable choices after DOM is fully settled
-      setTimeout(function(){ if(typeof window.saWireThreadClicks==='function') window.saWireThreadClicks(); }, 200);
     }
     function renderOperatorProfile(p){
       const box = $("thread");
@@ -20903,35 +20901,33 @@ function _saJobNotify(seatName, status){
     window.saOpenMsgModal = function saOpenMsgModal(title,html){ const m=document.getElementById('saMsgModal'),b=document.getElementById('saMsgModalBody'),t=document.getElementById('saMsgModalTitle'); if(!m||!b)return; if(t)t.innerText=title||'Response'; b.innerHTML=html||''; m.style.display='flex'; document.body.style.overflow='hidden'; }
     window.saCloseMsgModal = function saCloseMsgModal(){ const m=document.getElementById('saMsgModal'); if(m)m.style.display='none'; document.body.style.overflow=''; }
     window.saCopyMsgModal = function saCopyMsgModal(){ const b=document.getElementById('saMsgModalBody'); navigator.clipboard.writeText(b?b.innerText:'').then(()=>{}).catch(()=>{}); }
-    // Inject choice CSS once at startup
-    (function(){
-      if(document.getElementById('sa-choice-style')) return;
-      const st=document.createElement('style');
-      st.id='sa-choice-style';
-      st.textContent=[
-        '.sa-li{display:flex;gap:9px;align-items:baseline;padding:5px 10px;border-radius:7px;margin:2px 0;cursor:pointer;transition:background .15s,box-shadow .15s;user-select:none;}',
-        '.sa-li-num{color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;font-size:.9em;pointer-events:none;}',
-        '.sa-li-body{flex:1;pointer-events:none;}',
-        '.sa-li:hover{background:rgba(124,58,237,.22);box-shadow:0 0 0 1px rgba(124,58,237,.5);color:#e2e8f0;}'
-      ].join('');
-      document.head.appendChild(st);
-    })();
-
     window.saWireThreadClicks = function saWireThreadClicks(){
       const thread=document.getElementById('thread');
       if(!thread)return;
+      if(!document.getElementById('sa-choice-style')){
+        const st=document.createElement('style');
+        st.id='sa-choice-style';
+        st.textContent=[
+          '.sa-li{display:flex;gap:9px;align-items:baseline;padding:5px 10px;border-radius:7px;margin:2px 0;}',
+          '.sa-li-num{color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;font-size:.9em;}',
+          '.sa-li-body{flex:1;}',
+          '.saChoice{cursor:pointer;transition:background .15s,box-shadow .15s;user-select:none;}',
+          '.saChoice *{pointer-events:none;}',
+          '.saChoice:hover{background:rgba(124,58,237,.22);box-shadow:0 0 0 1px rgba(124,58,237,.5);color:#e2e8f0;}'
+        ].join('');
+        document.head.appendChild(st);
+      }
       thread.querySelectorAll('.msg.assistant').forEach(function(msg){
-        // Don't re-scan messages already fully wired
         if(msg._saWired)return;
         const body=msg.querySelector('.msg-body');
         if(!body)return;
         const items=body.querySelectorAll('.sa-li');
-        // Only mark wired + attach handlers when items actually exist
         if(items.length<2)return;
         msg._saWired=true;
         items.forEach(function(item){
           if(item._saChoiceWired)return;
           item._saChoiceWired=true;
+          item.classList.add('saChoice');
           item.addEventListener('click',function(e){
             e.stopPropagation();
             const bodySpan=item.querySelector('.sa-li-body');
@@ -20942,15 +20938,9 @@ function _saJobNotify(seatName, status){
           });
         });
       });
-    };
+    }
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
-    // Wire after every renderThread call and on any DOM change in #thread
-    (function(){
-      const thread=document.getElementById('thread');
-      if(thread&&window.MutationObserver){
-        new MutationObserver(function(){ setTimeout(saWireThreadClicks,80); }).observe(thread,{childList:true,subtree:true});
-      }
-    })();
+    (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
 
     // ===== CONVERSATION HISTORY SEARCH =====
