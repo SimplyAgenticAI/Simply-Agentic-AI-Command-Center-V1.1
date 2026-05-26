@@ -4805,14 +4805,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         )
 
     format_rules = (
-        "RESPONSE FORMAT — follow every single reply, no exceptions:\n"
+        "RESPONSE FORMAT — follow every single rule, every single reply, no exceptions:\n"
         "- Write in plain conversational prose for explanations, answers, and follow-ups.\n"
-        "- When giving options, steps, or choices the user can pick from: use a numbered list (1. 2. 3.).\n"
-        "- When listing unordered features, attributes, or points: use a dash list (- item).\n"
-        "- Use **bold** only to emphasise a single key word or short phrase — never bold full sentences.\n"
+        "- When giving options, steps, or choices: use a numbered list (1. 2. 3.).\n"
+        "- Each numbered item MUST be a single line: write the key phrase in bold, then a colon, then the full explanation — all on one line. Example: 1. **Strategy name**: Full description of what to do and why, written right here on the same line.\n"
+        "- NEVER put sub-bullets, nested dashes, or follow-up bullet points under a numbered item. Everything for that point goes inline on the same line.\n"
+        "- When listing unordered features, attributes, or points: use a dash list (- item), also single-line per item.\n"
+        "- Use **bold** only for a single key word or short phrase per item — never bold full sentences.\n"
         "- No # or ## or ### headers in chat replies. No tables unless explicitly asked for.\n"
         "- Do not start every list item with an emoji. Emojis are fine in prose when they fit naturally.\n"
-        "- Never mix formats in one reply (e.g. some items numbered, some bulleted, some bold-prefixed).\n"
+        "- Never mix formats in one reply (e.g. some items numbered, some bulleted).\n"
         "- Every reply must look like it came from the same consistent professional voice.\n"
     )
 
@@ -33492,6 +33494,9 @@ window._streamTtsFired = false;
       if(typeof setSeatLive==="function") setSeatLive(seat,"waiting");
       if(typeof setOpStatus==="function") setOpStatus("Error");
     }
+    // Reload thread from server so conversation persists across seat switches
+    try{ if(typeof window.refreshThread==="function") await window.refreshThread(); }catch(_){}
+    try{ if(typeof window._saRefreshUsageBar==="function") window._saRefreshUsageBar(); }catch(_){}
   }
 
   /* Patch the existing sendFollow to route through stream when mode is ON */
@@ -45447,6 +45452,7 @@ def api_followup_stream():
 
     def generate():
         parts = []
+        _persisted = False
         try:
             # ── Claude streaming path ─────────────────────────────────────────
             if _use_claude:
@@ -45496,6 +45502,7 @@ def api_followup_stream():
                         yield "data: " + json.dumps({"token": token}) + "\n\n"
 
             _, draft = _persist_stream_result(parts)
+            _persisted = True
             yield "data: " + json.dumps({
                 "done":            True,
                 "email_draft":     draft,
@@ -45503,12 +45510,21 @@ def api_followup_stream():
             }) + "\n\n"
 
         except Exception as exc:
+            if not _persisted and parts:
+                try: _persist_stream_result(parts)
+                except Exception: pass
+                _persisted = True
             err_msg = str(exc) or "Stream error"
             try:
                 _, err_msg = _classify_openai_error(exc)
             except Exception:
                 pass
             yield "data: " + json.dumps({"error": err_msg}) + "\n\n"
+        finally:
+            # Last-resort save: handles GeneratorExit (client disconnect) and any uncaught path
+            if not _persisted and parts:
+                try: _persist_stream_result(parts)
+                except Exception: pass
 
     return Response(
         stream_with_context(generate()),
