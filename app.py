@@ -28187,7 +28187,9 @@ function showVideoTranscriptModal() {
     '</div>' +
     '<div id="vtError" style="display:none;margin-top:12px;color:#f87171;font-size:13px;padding:10px 14px;background:rgba(248,113,113,.08);border-radius:8px;border:1px solid rgba(248,113,113,.3);"></div>' +
   '</div>';
-  showModal("🎬 Video to Transcript", html);
+  showModal("🎬 Video to Transcript", "");
+  var modalBody = document.getElementById('modalBody');
+  if(modalBody) modalBody.innerHTML = html;
 
   var dropZone  = document.getElementById('vtDropZone');
   var fileInput = document.getElementById('vtFileInput');
