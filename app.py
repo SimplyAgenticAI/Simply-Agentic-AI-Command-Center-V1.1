@@ -19178,19 +19178,29 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:14px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
         if(/^# /.test(e)){   closeList(); out.push('<div style="font-size:15px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
         if(/^-{3,}$/.test(raw.trim())){ closeList(); out.push('<hr style="border:none;border-top:1px solid rgba(124,58,237,.3);margin:8px 0;">'); continue; }
-        // Numbered list — use explicit counter, never rely on browser <ol> state
-        const olM=raw.match(/^(\d+)\.\s+([\s\S]*)/);
+        // Numbered list — strip optional leading ** so "**1. Text**" also matches
+        const _olStrip=raw.replace(/^\s*\*{0,3}\s*/,'');
+        const olM=_olStrip.match(/^(\d+)\.\s*([\s\S]*)/);
         if(olM){
-          if(!inList){ out.push('<div style="margin:4px 0;">'); inList=true; olCounter=0; }
+          const _olText=olM[2].replace(/\*{1,3}$/,'').trim();
+          if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; olCounter=0; }
           olCounter++;
-          out.push('<div class="sa-li"><span class="sa-li-num">'+olCounter+'.</span><span class="sa-li-body">'+inline(esc(olM[2]))+'</span></div>');
+          const _olSafe=_olText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;">'+olCounter+'.</span>'+
+            '<span style="flex:1;line-height:1.5;">'+inline(esc(_olText))+'</span></div>');
           continue;
         }
         // Bullet list
-        const ulM=raw.match(/^[-*•]\s+([\s\S]*)/);
+        const _ulStrip=raw.replace(/^\s*/,'');
+        const ulM=_ulStrip.match(/^[-*•]\s+([\s\S]*)/);
         if(ulM){
-          if(!inList){ out.push('<div style="margin:4px 0;">'); inList=true; }
-          out.push('<div class="sa-li"><span class="sa-li-num">•</span><span class="sa-li-body">'+inline(esc(ulM[1]))+'</span></div>');
+          const _ulText=ulM[1].trim();
+          if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; }
+          const _ulSafe=_ulText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          out.push('<div class="sa-li" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;">•</span>'+
+            '<span style="flex:1;line-height:1.5;">'+inline(esc(_ulText))+'</span></div>');
           continue;
         }
         // Blank line — keep list open (AI puts blanks between items); only add spacer outside lists
@@ -20905,38 +20915,20 @@ function _saJobNotify(seatName, status){
     window.saWireThreadClicks = function saWireThreadClicks(){
       const thread=document.getElementById('thread');
       if(!thread)return;
-      if(!document.getElementById('sa-choice-style')){
-        const st=document.createElement('style');
-        st.id='sa-choice-style';
-        st.textContent=[
-          '.sa-li{display:flex;gap:9px;align-items:baseline;padding:5px 10px;border-radius:7px;margin:2px 0;}',
-          '.sa-li-num{color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;font-size:.9em;}',
-          '.sa-li-body{flex:1;}',
-          '.saChoice{cursor:pointer;transition:background .15s,box-shadow .15s;user-select:none;}',
-          '.saChoice *{pointer-events:none;}',
-          '.saChoice:hover{background:rgba(124,58,237,.22);box-shadow:0 0 0 1px rgba(124,58,237,.5);color:#e2e8f0;}'
-        ].join('');
-        document.head.appendChild(st);
-      }
-      thread.querySelectorAll('.msg.assistant').forEach(function(msg){
-        if(msg._saWired)return;
-        const body=msg.querySelector('.msg-body');
-        if(!body)return;
-        const items=body.querySelectorAll('.sa-li');
-        if(items.length<2)return;
-        msg._saWired=true;
-        items.forEach(function(item){
-          if(item._saChoiceWired)return;
-          item._saChoiceWired=true;
-          item.classList.add('saChoice');
-          item.addEventListener('click',function(e){
-            e.stopPropagation();
-            const bodySpan=item.querySelector('.sa-li-body');
-            const text=(bodySpan?bodySpan.innerText:item.innerText).trim();
-            const fm=document.getElementById('followMsg');
-            if(fm){fm.value=text;fm.focus();}
-            if(typeof window.sendFollow==='function')window.sendFollow();
-          });
+      thread.querySelectorAll('.sa-li[data-sa-pick]').forEach(function(item){
+        if(item._saChoiceWired)return;
+        item._saChoiceWired=true;
+        item.style.cursor='pointer';
+        item.style.userSelect='none';
+        item.addEventListener('mouseover',function(){ item.style.background='rgba(124,58,237,.2)'; item.style.borderColor='rgba(124,58,237,.45)'; });
+        item.addEventListener('mouseout', function(){ item.style.background=''; item.style.borderColor='transparent'; });
+        item.addEventListener('click',function(e){
+          e.stopPropagation();
+          const text=(item.dataset.saPick||'').trim()||item.innerText.trim();
+          if(!text)return;
+          const fm=document.getElementById('followMsg');
+          if(fm){fm.value=text;fm.focus();}
+          if(typeof window.sendFollow==='function')window.sendFollow();
         });
       });
     }
