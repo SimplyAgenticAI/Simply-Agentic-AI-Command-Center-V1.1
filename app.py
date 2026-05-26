@@ -19261,8 +19261,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           olCounter++;
           const _olSafe=_olText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
-            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;">'+olCounter+'.</span>'+
-            '<span style="flex:1;line-height:1.5;">'+inline(esc(_olText))+'</span></div>');
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
+            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
           continue;
         }
         // Bullet list
@@ -19273,8 +19273,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; }
           const _ulSafe=_ulText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           out.push('<div class="sa-li" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
-            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;">•</span>'+
-            '<span style="flex:1;line-height:1.5;">'+inline(esc(_ulText))+'</span></div>');
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">•</span>'+
+            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
           continue;
         }
         // Blank line — keep list open (AI puts blanks between items); only add spacer outside lists
@@ -19524,26 +19524,22 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               ? window.saParseEmailBlocks(raw)
               : {cleanText: raw, emails: []};
             content.innerHTML = saMarkdown(_ep2.cleanText || raw);
+            // Wire numbered list items as direct email openers for history view
             if(_ep2.emails.length > 0){
-              const _erow2 = document.createElement('div');
-              _erow2.style.cssText = 'margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;';
-              const _elbl2 = document.createElement('span');
-              _elbl2.style.cssText = 'font-size:11px;color:#64748b;';
-              _elbl2.innerText = 'Load into console:';
-              _erow2.appendChild(_elbl2);
-              _ep2.emails.forEach(function(em2, idx2){
-                const _eb2 = document.createElement('button');
-                _eb2.className = 'btn btnMini';
-                _eb2.style.cssText = 'font-size:11px;padding:3px 12px;';
-                _eb2.innerText = _ep2.emails.length===1 ? '📧 Open in Console' : ('📧 Email '+(idx2+1));
-                if(em2.subject) _eb2.title = em2.subject;
-                _eb2.onclick = (function(e2){ return function(){
+              content.querySelectorAll('.sa-li').forEach(function(li2, idx2){
+                const _em2 = _ep2.emails[idx2];
+                if(!_em2) return;
+                li2._saChoiceWired = true;
+                li2.style.cursor = 'pointer';
+                li2.style.userSelect = 'none';
+                li2.addEventListener('mouseover', function(){ li2.style.background='rgba(124,58,237,.2)'; li2.style.borderColor='rgba(124,58,237,.45)'; });
+                li2.addEventListener('mouseout',  function(){ li2.style.background=''; li2.style.borderColor='transparent'; });
+                li2.addEventListener('click', (function(e2){ return function(ev2){
+                  ev2.stopPropagation();
                   if(typeof window.applyEmailDraft==='function')
                     window.applyEmailDraft({to:'',subject:e2.subject,body:e2.body}, window.selectedSeat||'');
-                }; })(em2);
-                _erow2.appendChild(_eb2);
+                }; })(_em2));
               });
-              content.appendChild(_erow2);
             }
           }
           // CRM name detection — if response mentions a known contact, show quick-open button
@@ -33599,27 +33595,22 @@ window._streamTtsFired = false;
                   aBody.innerText = _ep.cleanText || _finalText;
                 }
               }
-              // Email buttons — one per block found in the response
+              // Wire each numbered list item as a direct email opener (click item → loads that email)
               if(_ep.emails.length > 0){
-                const _erow = document.createElement('div');
-                _erow.style.cssText = 'margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;';
-                const _elbl = document.createElement('span');
-                _elbl.style.cssText = 'font-size:11px;color:#64748b;';
-                _elbl.innerText = 'Load into console:';
-                _erow.appendChild(_elbl);
-                _ep.emails.forEach(function(em, idx){
-                  const _eb = document.createElement('button');
-                  _eb.className = 'btn btnMini';
-                  _eb.style.cssText = 'font-size:11px;padding:3px 12px;';
-                  _eb.innerText = _ep.emails.length===1 ? '📧 Open in Console' : ('📧 Email '+(idx+1));
-                  if(em.subject) _eb.title = em.subject;
-                  _eb.onclick = (function(e){ return function(){
+                aBody.querySelectorAll('.sa-li').forEach(function(li, idx){
+                  const _em = _ep.emails[idx];
+                  if(!_em) return;
+                  li._saChoiceWired = true; // prevent saWireThreadClicks from overriding
+                  li.style.cursor = 'pointer';
+                  li.style.userSelect = 'none';
+                  li.addEventListener('mouseover', function(){ li.style.background='rgba(124,58,237,.2)'; li.style.borderColor='rgba(124,58,237,.45)'; });
+                  li.addEventListener('mouseout',  function(){ li.style.background=''; li.style.borderColor='transparent'; });
+                  li.addEventListener('click', (function(e){ return function(ev){
+                    ev.stopPropagation();
                     if(typeof window.applyEmailDraft==='function')
                       window.applyEmailDraft({to:'',subject:e.subject,body:e.body}, seat);
-                  }; })(em);
-                  _erow.appendChild(_eb);
+                  }; })(_em));
                 });
-                aBody.appendChild(_erow);
               }
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
