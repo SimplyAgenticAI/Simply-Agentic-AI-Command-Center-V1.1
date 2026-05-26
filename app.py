@@ -19206,6 +19206,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(inPre) out.push('</code></pre>');
       return out.join('');
     }
+    window.saMarkdown = saMarkdown;
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
@@ -32624,8 +32625,40 @@ window._streamTtsFired = false;
       saTtsSpeak(text, voice, speakBtn);
     });
 
+    // Vault button
+    const pinBtn = document.createElement("button");
+    pinBtn.className = "btn btnMini";
+    pinBtn.style.cssText = "font-size:11px;opacity:.65;padding:2px 9px;";
+    pinBtn.innerText = "🗄️ Save to Vault";
+    pinBtn.title = "Save this response to your Response Vault";
+    pinBtn.addEventListener("click", async function(e){
+      e.stopPropagation();
+      pinBtn.innerText = "⏳ Saving…";
+      try{
+        const seat = (typeof window.selectedSeat==="string" ? window.selectedSeat : "") || "Teammate";
+        const label = seat + " — " + new Date().toISOString().slice(0,10);
+        const res = await fetch("/api/vault/save", {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({text: text, label: label, teammate: seat})
+        });
+        const d = await res.json();
+        if(d.ok){
+          pinBtn.innerText = "✅ Saved";
+          pinBtn.style.opacity = "1";
+          if(typeof showToast==="function") showToast("🗄️ Saved to Response Vault");
+        } else {
+          pinBtn.innerText = "🗄️ Save to Vault";
+          if(typeof showToast==="function") showToast("⚠️ " + (d.error || "Save failed"));
+        }
+      }catch(err){
+        pinBtn.innerText = "🗄️ Save to Vault";
+        if(typeof showToast==="function") showToast("⚠️ Save failed");
+      }
+    });
+
     actRow.appendChild(copyBtn);
     actRow.appendChild(speakBtn);
+    actRow.appendChild(pinBtn);
     msgBody.appendChild(actRow);
   };
 
@@ -33283,7 +33316,13 @@ window._streamTtsFired = false;
               _buildVisualOutput(aBody, _html);
             } else {
               window.lastSeatAssistantText = _finalText;
-              if(_finalText && _finalText !== fullText) aBody.innerText = _finalText;
+              if(_finalText){
+                if(typeof window.saMarkdown==="function"){
+                  aBody.innerHTML = window.saMarkdown(_finalText);
+                } else {
+                  aBody.innerText = _finalText;
+                }
+              }
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
             if(typeof setOpStatus==="function") setOpStatus("Complete");
