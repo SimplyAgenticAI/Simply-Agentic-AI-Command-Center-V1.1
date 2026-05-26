@@ -14783,25 +14783,28 @@ label         { font-size: 14px !important; }
             ⚙ Account ▾
           </button>
           <div id="moreMenuDrop" style="display:none;position:absolute;top:calc(100% + 8px);right:0;width:230px;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.35);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.55);z-index:9999;overflow:hidden;padding:6px;">
-            <!-- Account / Settings -->
+            <!-- Primary account items -->
             <button id="settingsBtn" class="saMoreItem" style="color:#e2e8f0;">⚙️ User Settings</button>
-            <button id="customizeBtn" class="saMoreItem" style="color:#e2e8f0;">🎨 Customize</button>
             <button id="operatorProfileBtn" class="saMoreItem" style="color:#e2e8f0;">🧑‍💼 Operator Profile</button>
-            <button id="teamBtn" class="saMoreItem" style="color:#e2e8f0;">👥 My Team</button>
             <button id="sessionObjectiveBtn" class="saMoreItem" style="color:#e2e8f0;">🎯 Session Objective</button>
             <button id="openApiKeyHelpBtn" class="saMoreItem" style="color:#e2e8f0;">🔑 API Keys</button>
+            <button id="teamBtn" class="saMoreItem" style="color:#e2e8f0;">👥 My Team</button>
             <a id="seatManagerLink" href="/admin/seats" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🗝 Seat Manager</a>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
-            <!-- Onboarding / Support -->
-            <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#a78bfa;display:block;">📚 Getting Started</a>
-            <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#c4b5fd;">🧭 Help</button>
-            <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#6ee7b7;">🔌 Chrome Extension</button>
-            <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="color:#818cf8;">⬇ Install App</button>
-            <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#86efac;">✉ Get Human Help</button>
-            <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
-            <!-- Admin / Debug -->
-            <button onclick="openBugReportModal();saCloseMoreMenu();" class="saMoreItem" style="color:#fca5a5;">🐛 Report Bug</button>
-            <button id="bugInboxNavBtn" onclick="openBugInboxModal();saCloseMoreMenu();" class="saMoreItem" style="display:none;color:#fca5a5;">🐛 Bug Inbox</button>
+            <!-- Help & Resources accordion -->
+            <button id="helpAccordionBtn" class="saMoreItem" onclick="saToggleHelpAccordion()" style="color:#a78bfa;display:flex;justify-content:space-between;align-items:center;width:100%;">
+              <span>📦 Help &amp; Resources</span><span id="helpAccordionArrow" style="font-size:10px;opacity:.7;">▶</span>
+            </button>
+            <div id="helpAccordionBody" style="display:none;">
+              <button id="customizeBtn" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">🎨 Customize</button>
+              <a href="/getting-started" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:block;padding-left:18px;">📚 Getting Started</a>
+              <button onclick="openScoutPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">🧭 Help</button>
+              <button onclick="openHumanHelpModal();saCloseMoreMenu();" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">✉ Get Human Help</button>
+              <button onclick="openExtensionPanel();saCloseMoreMenu();" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">🔌 Chrome Extension</button>
+              <button id="pwaInstallBtn" onclick="window.installPWA()" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">⬇ Install App</button>
+              <button onclick="openBugReportModal();saCloseMoreMenu();" class="saMoreItem" style="color:#e2e8f0;padding-left:18px;">🐛 Report Bug</button>
+              <button id="bugInboxNavBtn" onclick="openBugInboxModal();saCloseMoreMenu();" class="saMoreItem" style="display:none;color:#fca5a5;padding-left:18px;">🐛 Bug Inbox</button>
+            </div>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <a href="/logout" onclick="return confirm('Are you sure you want to log out?')" class="saMoreItem" style="text-decoration:none;color:#94a3b8;display:block;">🚪 Logout</a>
           </div>
@@ -35846,7 +35849,20 @@ window._saPlReset=function(){
 
   // ── Public togglers (called by onclick) ──────────────────────────────────
   window.saToggleMoreMenu  = function(){ openDrop('moreMenuDrop',  'moreMenuBtn');  };
-  window.saCloseMoreMenu   = function(){ closeDrop('moreMenuDrop', 'moreMenuBtn'); closeAllDrops(); };
+  window.saCloseMoreMenu   = function(){
+    closeDrop('moreMenuDrop', 'moreMenuBtn'); closeAllDrops();
+    // collapse help accordion when menu closes
+    var b=document.getElementById('helpAccordionBody'); if(b) b.style.display='none';
+    var a=document.getElementById('helpAccordionArrow'); if(a) a.textContent='▶';
+  };
+  window.saToggleHelpAccordion = function(){
+    var body=document.getElementById('helpAccordionBody');
+    var arrow=document.getElementById('helpAccordionArrow');
+    if(!body) return;
+    var open=body.style.display!=='none';
+    body.style.display=open?'none':'block';
+    if(arrow) arrow.textContent=open?'▶':'▼';
+  };
   window.saToggleGcTools   = function(){ openDrop('gcToolsDrop',   'gcToolsBtn');   };
   window.saToggleDmAttach  = function(){ openDrop('dmAttachDrop',  'dmAttachBtn');  };
 
