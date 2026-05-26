@@ -4848,8 +4848,9 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     format_rules = (
         "RESPONSE FORMAT — follow every single rule, every single reply, no exceptions:\n"
         "- Write in plain conversational prose for explanations, answers, and follow-ups.\n"
-        "- When giving options, steps, or choices: use a numbered list (1. 2. 3.).\n"
+        "- When giving options, steps, or choices: use a numbered list with sequential numbers (1. 2. 3. 4. 5. — never repeat 1. for every item).\n"
         "- Each numbered item MUST be a single line: write the key phrase in bold, then a colon, then the full explanation — all on one line. Example: 1. **Strategy name**: Full description of what to do and why, written right here on the same line.\n"
+        "- CRITICAL: After each numbered item, do NOT add a blank line, a description line, or any continuation text before the next number. All content for that item is on the same line as the number.\n"
         "- NEVER put sub-bullets, nested dashes, or follow-up bullet points under a numbered item. Everything for that point goes inline on the same line.\n"
         "- When listing unordered features, attributes, or points: use a dash list (- item), also single-line per item.\n"
         "- Use **bold** only for a single key word or short phrase per item — never bold full sentences.\n"
@@ -19231,7 +19232,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         s=s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(124,58,237,.15);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:.88em;">$1</code>');
         return s;
       }
-      function closeList(){ if(inList){ out.push('</div>'); inList=false; olCounter=0; } }
+      // olCounter persists across list/close cycles so text between items doesn't reset numbers
+      function closeList(){ if(inList){ out.push('</div>'); inList=false; } }
       for(let i=0;i<lines.length;i++){
         const raw=lines[i];
         if(raw.trimStart().startsWith('```')){
@@ -19250,7 +19252,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const olM=_olStrip.match(/^(\d+)\.\s*([\s\S]*)/);
         if(olM){
           const _olText=olM[2].replace(/\*{1,3}$/,'').trim();
-          if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; olCounter=0; }
+          if(!inList){
+            out.push('<div style="margin:6px 0 4px;">'); inList=true;
+            // Use the parsed number as starting point when resuming after text/close
+            const _parsedN = parseInt(olM[1]) || 1;
+            olCounter = _parsedN > olCounter ? _parsedN - 1 : olCounter;
+          }
           olCounter++;
           const _olSafe=_olText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
@@ -20555,7 +20562,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           try{ setOpStatus("Done"); }catch(_){}
           try{ $("followMsg").value=""; }catch(_){}
           try{ await refreshThread(); }catch(_){}
-          if(data.email_draft){ try{ applyEmailDraft(data.email_draft,seat); }catch(_){} }
+          // Email buttons rendered by refreshThread() above — no auto-open
           if(data.job_id){ try{ pollImageJob(data.job_id,seat); }catch(_){} }
         }else{
           try{ setSeatLive(seat,"waiting"); }catch(_){}
@@ -21330,7 +21337,7 @@ function _saJobNotify(seatName, status){
             try{
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
-              if(ev.token){ fullText += ev.token; aBody.innerHTML = saMarkdown(fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
+              if(ev.token){ fullText += ev.token; var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim(); aBody.innerHTML = saMarkdown(_st3||fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
             }catch(e){}
           }
@@ -21345,7 +21352,7 @@ function _saJobNotify(seatName, status){
           setSeatLive(selectedSeat,"done"); setOpStatus("Complete");
           await refreshThread();
           try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
-          if(emailDraft) applyEmailDraft(emailDraft, selectedSeat);
+          // Email buttons are rendered by refreshThread() — no auto-open
         }
 
       }catch(err){
@@ -33617,8 +33624,7 @@ window._streamTtsFired = false;
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
             if(typeof setOpStatus==="function") setOpStatus("Complete");
-            // Auto-open console only for single emails with no parsed blocks (legacy plain format)
-            if(parsed.email_draft && _ep.emails.length===0 && typeof applyEmailDraft==="function") applyEmailDraft(parsed.email_draft, seat);
+            // Email buttons rendered inline above — never auto-open console
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
