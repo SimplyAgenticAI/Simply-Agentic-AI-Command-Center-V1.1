@@ -4799,6 +4799,18 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "If a request is disallowed or unsafe, refuse briefly and offer a safe alternative.\n\n"
         )
 
+    format_rules = (
+        "RESPONSE FORMAT — follow every single reply, no exceptions:\n"
+        "- Write in plain conversational prose for explanations, answers, and follow-ups.\n"
+        "- When giving options, steps, or choices the user can pick from: use a numbered list (1. 2. 3.).\n"
+        "- When listing unordered features, attributes, or points: use a dash list (- item).\n"
+        "- Use **bold** only to emphasise a single key word or short phrase — never bold full sentences.\n"
+        "- No # or ## or ### headers in chat replies. No tables unless explicitly asked for.\n"
+        "- Do not start every list item with an emoji. Emojis are fine in prose when they fit naturally.\n"
+        "- Never mix formats in one reply (e.g. some items numbered, some bulleted, some bold-prefixed).\n"
+        "- Every reply must look like it came from the same consistent professional voice.\n"
+    )
+
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
@@ -4816,6 +4828,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{client_block}"
         f"{shared_memory_block}\n"
         f"{rag_context}"
+        f"{format_rules}\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
 
