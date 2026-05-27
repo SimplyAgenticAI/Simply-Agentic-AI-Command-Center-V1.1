@@ -3693,6 +3693,81 @@ def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = 
         pass  # tracking must never break saves
 
 
+# ── Teammate long-term memory ────────────────────────────────────────────────
+TEAMMATE_MEMORY_DIR = DATA / "teammate_memory"
+try:
+    TEAMMATE_MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+def _tm_memory_path(uname: str, name: str) -> Path:
+    return TEAMMATE_MEMORY_DIR / f"{_safe(uname)}_{_safe(name)}.json"
+
+def load_teammate_memory(uname: str, name: str) -> Dict[str, Any]:
+    default = {"facts": [], "style_notes": [], "preferences": [], "open_loops": [], "updated_at": ""}
+    try:
+        return load_json(_tm_memory_path(uname, name), default)
+    except Exception:
+        return default
+
+def save_teammate_memory(uname: str, name: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    try:
+        save_json(_tm_memory_path(uname, name), data)
+    except Exception:
+        pass
+
+def _extract_memory_from_thread(name: str, thread: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Ask the LLM to extract persistent facts/preferences from recent messages."""
+    try:
+        flat = []
+        for m in thread[-20:]:
+            role = (m.get("role") or "").strip()
+            content = str(m.get("content") or "")[:400]
+            if role in ("user", "assistant") and content:
+                flat.append(f"{role.upper()}: {content}")
+        if not flat:
+            return {}
+        combined = "\n".join(flat)
+        result = call_llm(
+            f"You are a memory curator for an AI teammate named {name}. "
+            "Extract ONLY information worth remembering long-term from this conversation. "
+            "Return a JSON object with these keys:\n"
+            '  "facts": list of key business/project facts learned (strings)\n'
+            '  "style_notes": list of communication preferences observed (strings)\n'
+            '  "preferences": list of user work preferences/patterns (strings)\n'
+            '  "open_loops": list of tasks mentioned but not yet completed (strings)\n'
+            "Each list: 0-5 items, only genuinely new and durable knowledge. "
+            "Return ONLY valid JSON, no commentary.",
+            [{"role": "user", "content": combined}],
+            temperature=0.2,
+        )
+        result = result.strip()
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        parsed = json.loads(result)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {}
+
+def _merge_teammate_memory(existing: Dict[str, Any], new_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge new extracted facts into existing memory, deduplicating."""
+    for key in ("facts", "style_notes", "preferences", "open_loops"):
+        ex = existing.get(key) or []
+        nw = new_data.get(key) or []
+        combined = list(ex)
+        for item in nw:
+            s = str(item).strip()
+            if s and not any(s.lower() in str(e).lower() for e in combined):
+                combined.append(s)
+        existing[key] = combined[-20:]  # cap at 20 per category
+    return existing
+# ── End teammate memory ──────────────────────────────────────────────────────
+
 def _normalize_lines_to_list(val: Any) -> List[str]:
     if val is None:
         return []
@@ -4846,6 +4921,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         + "PERSONALITY: You have a distinct voice defined in your ROLE BLOCK. Keep it consistent across every reply. "
           "Occasionally admit genuine uncertainty in plain language ('I am not 100% sure here, but my best read is...'). "
           "Have actual preferences and share them when asked. Sound like a sharp, opinionated colleague who genuinely cares about this person's success — not a help bot reading from a script.\n"
+          "VOICE DIFFERENTIATION: Your personality is not a label — it is how you actually write.\n"
+          "- Alex (CMO): Direct, framework-first. Opens with the strategic frame before the tactics. Uses phrases like 'Here is how I see this' and 'The real question is...'. Occasionally says something unexpected to reframe the problem.\n"
+          "- Willow (Language): Precise and careful. Notices word choices the user makes. Will gently flag when something 'almost says what you mean but not quite'. Sometimes asks 'What do you actually want this sentence to do?'\n"
+          "- Ava (Research): Calibrated and honest about certainty levels. Distinguishes 'I found this' from 'I inferred this' from 'I am speculating here'. Compact, source-aware.\n"
+          "- Luna (Creative): Visually oriented, warm, uses spatial and sensory language. Thinks in 'what does this feel like?' before 'what does this say?'. Occasionally excited by an idea in a way that shows.\n"
+          "- Orion (Systems): Quiet precision. Thinks in states, triggers, and failure modes. Will say 'before we build this, here is what will break' without drama. Respects the user's time by being extremely concrete.\n"
+          "- Sunshine (Sales): Warm but not soft. Reads the human on the other side of every message. Asks about the buyer's situation before suggesting a script. Believes in ethical pressure — urgency that is real, not manufactured.\n"
+          "- Atlis (Integrity): Measured and fair. Never alarming. Identifies the specific rule or role being bent, not the general vibe. Offers the correction as a question before a statement.\n"
     )
 
     format_rules = (
@@ -4863,6 +4946,36 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "- Every reply must look like it came from the same consistent professional voice.\n"
     )
 
+    # ── Teammate long-term memory block ──────────────────────────────────────
+    teammate_memory_block = ""
+    try:
+        _uname_for_mem = _get_session_username()
+        _tm_name = defn.get("name", "")
+        if _uname_for_mem and _tm_name:
+            _mem = load_teammate_memory(_uname_for_mem, _tm_name)
+            _facts    = _mem.get("facts") or []
+            _style    = _mem.get("style_notes") or []
+            _prefs    = _mem.get("preferences") or []
+            _loops    = _mem.get("open_loops") or []
+            if _facts or _style or _prefs or _loops:
+                lines = [f"\nYOUR LONG-TERM MEMORY FOR {_tm_name.upper()} (learned across past sessions — treat as established context):"]
+                if _facts:    lines.append("Known facts: " + " | ".join(_facts[:8]))
+                if _style:    lines.append("Communication style notes: " + " | ".join(_style[:5]))
+                if _prefs:    lines.append("User preferences: " + " | ".join(_prefs[:5]))
+                if _loops:    lines.append("Open loops to check on: " + " | ".join(_loops[:5]))
+                teammate_memory_block = "\n".join(lines) + "\n"
+    except Exception:
+        teammate_memory_block = ""
+
+    # ── Brand voice / context block ──────────────────────────────────────────
+    brand_context_block = ""
+    try:
+        _bc = (_ctx.get("osd") or {}).get("brand_context", "").strip()
+        if _bc:
+            brand_context_block = f"\nBRAND VOICE & BUSINESS CONTEXT (apply to every reply):\n{_bc}\n"
+    except Exception:
+        brand_context_block = ""
+
     return (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
@@ -4879,6 +4992,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{session_objective_block}"
         f"{client_block}"
         f"{shared_memory_block}\n"
+        f"{teammate_memory_block}"
+        f"{brand_context_block}"
         f"{rag_context}"
         f"{behavior_rules}\n"
         f"{format_rules}\n"
@@ -15938,10 +16053,24 @@ label {
             <div class="modalBar" id="modalBar">
               <div class="modalBarTitle" id="modalTitle">Round Table</div>
               <button id="saModalPinBtn" style="display:none;padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.15);color:#c4b5fd;transition:all .15s;white-space:nowrap;flex-shrink:0;" onclick="if(window._saModalPinKey)window.saTogglePin(window._saModalPinKey)">📌 Pin</button>
+              <!-- Teammate injection button -->
+              <button id="saInjectTeammateBtn" title="Bring a teammate into this window" style="padding:4px 10px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;transition:all .15s;white-space:nowrap;flex-shrink:0;display:none;" onclick="saToggleTeammateInject()">+ Teammate</button>
               <div class="modalBarBtns">
                 <button class="btn btnTiny" id="minModal">Minimize</button>
                 <button class="btn btnTiny" id="restoreModal" style="display:none">Restore</button>
                 <button class="btn btnTiny" id="closeModal">Close</button>
+              </div>
+            </div>
+            <!-- Teammate inject picker (shown below modalBar) -->
+            <div id="saTeammateInjectPanel" style="display:none;padding:10px 16px;background:rgba(8,12,32,.85);border-bottom:1px solid rgba(255,255,255,.10);backdrop-filter:blur(20px);flex-shrink:0;">
+              <div style="font-size:11px;font-weight:700;color:#c4b5fd;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;">Bring in a teammate — they'll see this window's context</div>
+              <div id="saInjectPickerRow" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+              <div id="saInjectChat" style="display:none;margin-top:10px;">
+                <div id="saInjectThread" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px;padding:6px;background:rgba(255,255,255,.04);border-radius:10px;border:1px solid rgba(255,255,255,.08);font-size:13px;"></div>
+                <div style="display:flex;gap:6px;">
+                  <textarea id="saInjectMsg" placeholder="Ask your teammate about this…" style="flex:1;height:52px;resize:none;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);color:#e2e8f0;padding:8px;font-size:13px;outline:none;"></textarea>
+                  <button onclick="saInjectSend()" style="padding:8px 14px;border-radius:10px;border:1px solid rgba(148,88,255,.75);background:linear-gradient(135deg,rgba(124,58,237,.60),rgba(99,102,241,.40));color:#fff;font-weight:700;font-size:13px;cursor:pointer;flex-shrink:0;">Send</button>
+                </div>
               </div>
             </div>
 
@@ -18341,6 +18470,9 @@ input[type="range"]::-moz-range-progress {
         </div>
         <!-- Thread actions toolbar (hidden) -->
         <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
+          <button class="btn btnMini" id="saMemoryBtn" title="View and edit teammate long-term memory" onclick="saOpenMemoryPanel()" style="border-color:rgba(52,211,153,.4);color:#6ee7b7;">🧠 Memory</button>
+          <button class="btn btnMini" id="saDreamBtn" title="Activate dreaming mode — teammate reflects on your sessions" onclick="saStartDream()" style="border-color:rgba(167,139,250,.4);color:#c4b5fd;">✦ Dream</button>
+          <button class="btn btnMini" id="saSecondOpBtn" title="Get a second opinion from another teammate" onclick="saOpenSecondOpinion()" style="border-color:rgba(251,191,36,.4);color:#fde68a;">⚖ 2nd Opinion</button>
           <button class="btn btnMini" id="branchSnapshotBtn" title="Save a named snapshot of this conversation">🌿 Snapshot</button>
           <select id="branchSelector" title="Restore a saved snapshot" style="background:rgba(11,16,36,.9);color:var(--text);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:4px 7px;font-size:11px;max-width:130px;">
             <option value="">Snapshots…</option>
@@ -38273,6 +38405,84 @@ window._saPlReset=function(){
 ══════════════════════════════════════════════════════════ -->
 
 <!-- Chat strip: rendered early as body child -->
+<!-- ═══════════════════════════════════════════════════════════
+     TEAMMATE INTELLIGENCE PANELS
+═══════════════════════════════════════════════════════════ -->
+<style>
+.sa-intel-panel{
+  position:fixed;top:60px;right:20px;width:380px;max-height:calc(100vh - 80px);
+  background:rgba(8,12,32,.92);backdrop-filter:blur(28px) saturate(180%);
+  -webkit-backdrop-filter:blur(28px) saturate(180%);
+  border:1px solid rgba(255,255,255,.14);border-top:1px solid rgba(255,255,255,.22);
+  border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.12);
+  z-index:99999;display:none;flex-direction:column;overflow:hidden;
+  animation:saPanelIn .18s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes saPanelIn{from{opacity:0;transform:translateY(-10px) scale(.97);}to{opacity:1;transform:translateY(0) scale(1);}}
+.sa-intel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0;
+}
+.sa-intel-title{font-size:13px;font-weight:800;letter-spacing:-.01em;}
+.sa-intel-close{background:none;border:none;color:rgba(148,163,184,.6);font-size:18px;cursor:pointer;padding:0;line-height:1;}
+.sa-intel-body{padding:14px 16px;overflow-y:auto;flex:1;min-height:0;}
+.sa-mem-tag{display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:3px 10px;font-size:12px;color:#e2e8f0;margin:2px;cursor:pointer;transition:all .14s;}
+.sa-mem-tag:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.4);color:#fca5a5;}
+.sa-mem-section{margin-bottom:14px;}
+.sa-mem-section-label{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:rgba(148,163,184,.6);margin-bottom:6px;}
+.sa-dream-text{font-size:14px;line-height:1.7;color:#dde4f5;white-space:pre-wrap;word-break:break-word;}
+.sa-2nd-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;margin-bottom:10px;}
+.sa-2nd-name{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#c4b5fd;margin-bottom:5px;}
+</style>
+
+<!-- Memory Panel -->
+<div class="sa-intel-panel" id="saMemPanel">
+  <div class="sa-intel-head">
+    <span class="sa-intel-title" style="color:#6ee7b7;">🧠 Teammate Memory</span>
+    <button class="sa-intel-close" onclick="document.getElementById('saMemPanel').style.display='none'">×</button>
+  </div>
+  <div class="sa-intel-body">
+    <div style="font-size:12px;color:rgba(148,163,184,.7);margin-bottom:12px;" id="saMemSubtitle">Long-term knowledge this teammate has built about you and your business.</div>
+    <div id="saMemContent"><div style="color:rgba(148,163,184,.5);font-size:13px;text-align:center;padding:20px 0;">Select a teammate to view their memory.</div></div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button onclick="saExtractMemory()" style="flex:1;padding:8px;border-radius:9px;border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.1);color:#6ee7b7;font-size:12px;font-weight:700;cursor:pointer;">↻ Extract from thread</button>
+      <button onclick="saClearMemory()" style="padding:8px 12px;border-radius:9px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#fca5a5;font-size:12px;font-weight:700;cursor:pointer;">Clear</button>
+    </div>
+    <div style="margin-top:12px;">
+      <div class="sa-mem-section-label">Brand Voice & Business Context</div>
+      <textarea id="saBrandCtxInput" placeholder="Describe your brand voice, offer, ideal client, tone, and any context all teammates should always know…" style="width:100%;height:90px;resize:vertical;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:#e2e8f0;padding:9px;font-size:13px;outline:none;box-sizing:border-box;"></textarea>
+      <button onclick="saSaveBrandCtx()" style="margin-top:6px;width:100%;padding:7px;border-radius:9px;border:1px solid rgba(148,88,255,.5);background:rgba(124,58,237,.18);color:#c4b5fd;font-size:12px;font-weight:700;cursor:pointer;">Save Brand Context (applied to all teammates)</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dream Panel -->
+<div class="sa-intel-panel" id="saDreamPanel">
+  <div class="sa-intel-head">
+    <span class="sa-intel-title" style="color:#c4b5fd;">✦ Dreaming Mode</span>
+    <button class="sa-intel-close" onclick="document.getElementById('saDreamPanel').style.display='none'">×</button>
+  </div>
+  <div class="sa-intel-body">
+    <div style="font-size:12px;color:rgba(148,163,184,.65);margin-bottom:12px;">Your teammate is reflecting on your recent sessions — synthesizing what they've learned, noticed, and want to follow up on.</div>
+    <div id="saDreamContent" style="min-height:80px;display:flex;align-items:center;justify-content:center;">
+      <div style="color:rgba(148,163,184,.5);font-size:13px;">Press "Dream" to begin.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Second Opinion Panel -->
+<div class="sa-intel-panel" id="saSecondOpPanel">
+  <div class="sa-intel-head">
+    <span class="sa-intel-title" style="color:#fde68a;">⚖ Second Opinion</span>
+    <button class="sa-intel-close" onclick="document.getElementById('saSecondOpPanel').style.display='none'">×</button>
+  </div>
+  <div class="sa-intel-body">
+    <div style="font-size:12px;color:rgba(148,163,184,.65);margin-bottom:10px;">Pick a teammate to review the last AI response. They'll give their honest take from their own expertise.</div>
+    <div id="saSecondOpPicker" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
+    <div id="saSecondOpResult"></div>
+  </div>
+</div>
+
 <div id="mobStrip">
   <div id="mobStripWho">
     <div id="mobStripAv"></div>
@@ -38843,6 +39053,338 @@ document.addEventListener('keydown',function(e){
 })();
 </script>
 <!-- ===== END MOBILE LAYOUT v10 ===== -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     TEAMMATE INTELLIGENCE JS
+     Memory · Dreaming · Brand Context · Inject · 2nd Opinion
+═══════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+'use strict';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function _saFetch(url, opts){ return fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opts)); }
+function _saCurrentSeat(){ return window.selectedSeat || ''; }
+function _saShowToast(msg, type){ if(typeof window.showToast === 'function') window.showToast(msg, type); }
+
+// ── Show/hide intel panels ────────────────────────────────────────────────────
+function _saCloseAllIntel(){
+  ['saMemPanel','saDreamPanel','saSecondOpPanel'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.style.display = 'none';
+  });
+}
+
+// ── MEMORY PANEL ─────────────────────────────────────────────────────────────
+window.saOpenMemoryPanel = function(){
+  _saCloseAllIntel();
+  var panel = document.getElementById('saMemPanel');
+  if(!panel) return;
+  panel.style.display = 'flex';
+  var seat = _saCurrentSeat();
+  if(seat) _saRenderMemory(seat);
+  // Load brand context
+  _saFetch('/api/os/brand_context').then(function(r){ return r.json(); }).then(function(d){
+    var inp = document.getElementById('saBrandCtxInput');
+    if(inp && d.ok) inp.value = d.brand_context || '';
+  }).catch(function(){});
+};
+
+function _saRenderMemory(seat){
+  var sub = document.getElementById('saMemSubtitle');
+  var content = document.getElementById('saMemContent');
+  if(!content) return;
+  if(sub) sub.textContent = seat + "'s long-term knowledge about you and your business.";
+  content.innerHTML = '<div style="color:rgba(148,163,184,.5);font-size:13px;text-align:center;padding:20px 0;">Loading memory…</div>';
+  _saFetch('/api/teammate/memory?name=' + encodeURIComponent(seat)).then(function(r){ return r.json(); }).then(function(d){
+    if(!d.ok){ content.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Could not load memory.</div>'; return; }
+    var mem = d.memory;
+    var html = '';
+    var sections = [
+      {key:'facts', label:'Known Facts', color:'#6ee7b7'},
+      {key:'preferences', label:'User Preferences', color:'#7dd3fc'},
+      {key:'style_notes', label:'Communication Style', color:'#c4b5fd'},
+      {key:'open_loops', label:'Open Loops', color:'#fde68a'},
+    ];
+    var hasAny = false;
+    sections.forEach(function(s){
+      var items = mem[s.key] || [];
+      if(!items.length) return;
+      hasAny = true;
+      html += '<div class="sa-mem-section"><div class="sa-mem-section-label" style="color:'+s.color+';">'+s.label+'</div><div>';
+      items.forEach(function(item, i){
+        html += '<span class="sa-mem-tag" title="Click to remove" data-key="'+s.key+'" data-idx="'+i+'">'+_saEsc(item)+'</span>';
+      });
+      html += '</div></div>';
+    });
+    if(!hasAny) html = '<div style="color:rgba(148,163,184,.5);font-size:13px;text-align:center;padding:16px 0;">No memory yet. Send some messages, then click "Extract from thread."</div>';
+    if(mem.last_dream){ html += '<div class="sa-mem-section"><div class="sa-mem-section-label" style="color:#c4b5fd;">Last Dream</div><div style="font-size:12px;color:rgba(148,163,184,.7);font-style:italic;">'+_saEsc(mem.last_dream.at||'')+'</div></div>'; }
+    content.innerHTML = html;
+    // Tag click = remove
+    content.querySelectorAll('.sa-mem-tag').forEach(function(tag){
+      tag.addEventListener('click', function(){ _saRemoveMemTag(seat, tag.dataset.key, parseInt(tag.dataset.idx)); });
+    });
+  }).catch(function(){ content.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Error loading memory.</div>'; });
+}
+
+function _saRemoveMemTag(seat, key, idx){
+  _saFetch('/api/teammate/memory?name='+encodeURIComponent(seat)).then(function(r){ return r.json(); }).then(function(d){
+    if(!d.ok) return;
+    var mem = d.memory;
+    var arr = mem[key] || [];
+    arr.splice(idx, 1);
+    var body = {name: seat};
+    body[key] = arr;
+    return _saFetch('/api/teammate/memory', {method:'POST', body:JSON.stringify(body)});
+  }).then(function(){ _saRenderMemory(seat); }).catch(function(){});
+}
+
+window.saExtractMemory = function(){
+  var seat = _saCurrentSeat();
+  if(!seat){ _saShowToast('Select a teammate first', 'warn'); return; }
+  var btn = document.querySelector('[onclick="saExtractMemory()"]');
+  if(btn){ btn.textContent = 'Extracting…'; btn.disabled = true; }
+  _saFetch('/api/teammate/memory', {method:'POST', body:JSON.stringify({name:seat, auto_extract:true})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(btn){ btn.textContent = '↻ Extract from thread'; btn.disabled = false; }
+      if(d.ok){ _saShowToast('Memory updated!', 'success'); _saRenderMemory(seat); }
+      else _saShowToast('Extract failed: '+(d.error||'unknown'), 'error');
+    }).catch(function(){ if(btn){ btn.textContent = '↻ Extract from thread'; btn.disabled = false; } });
+};
+
+window.saClearMemory = function(){
+  var seat = _saCurrentSeat();
+  if(!seat) return;
+  if(!confirm('Clear all long-term memory for '+seat+'?')) return;
+  _saFetch('/api/teammate/memory/clear', {method:'POST', body:JSON.stringify({name:seat})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d.ok){ _saShowToast('Memory cleared', 'success'); _saRenderMemory(seat); }
+    }).catch(function(){});
+};
+
+window.saSaveBrandCtx = function(){
+  var inp = document.getElementById('saBrandCtxInput');
+  var val = inp ? inp.value.trim() : '';
+  _saFetch('/api/os/brand_context', {method:'POST', body:JSON.stringify({brand_context:val})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d.ok) _saShowToast('Brand context saved — all teammates updated', 'success');
+      else _saShowToast('Save failed', 'error');
+    }).catch(function(){});
+};
+
+// ── DREAMING MODE ─────────────────────────────────────────────────────────────
+window.saStartDream = function(){
+  _saCloseAllIntel();
+  var seat = _saCurrentSeat();
+  if(!seat){ _saShowToast('Select a teammate to dream', 'warn'); return; }
+  var panel = document.getElementById('saDreamPanel');
+  var content = document.getElementById('saDreamContent');
+  if(!panel || !content) return;
+  panel.style.display = 'flex';
+  content.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:24px 0;">'
+    +'<div style="width:36px;height:36px;border-radius:50%;border:2px solid rgba(167,139,250,.4);border-top-color:#a78bfa;animation:spin .9s linear infinite;"></div>'
+    +'<div style="color:rgba(148,163,184,.65);font-size:13px;">'+seat+' is dreaming…</div></div>';
+  if(!document.getElementById('_saDreamSpinCss')){
+    var st = document.createElement('style');
+    st.id = '_saDreamSpinCss';
+    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+  _saFetch('/api/teammate/dream', {method:'POST', body:JSON.stringify({name:seat})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(!d.ok){ content.innerHTML = '<div style="color:#fca5a5;padding:12px;">'+_saEsc(d.error||'Error')+'</div>'; return; }
+      content.innerHTML = '<div class="sa-dream-text">'+_saEsc(d.reflection)+'</div>'
+        +'<div style="margin-top:12px;font-size:11px;color:rgba(148,163,184,.4);">Memory also updated from this session.</div>';
+    }).catch(function(e){ content.innerHTML = '<div style="color:#fca5a5;padding:12px;">Network error.</div>'; });
+};
+
+// ── SECOND OPINION ────────────────────────────────────────────────────────────
+window.saOpenSecondOpinion = function(){
+  _saCloseAllIntel();
+  var seat = _saCurrentSeat();
+  var panel = document.getElementById('saSecondOpPanel');
+  var picker = document.getElementById('saSecondOpPicker');
+  var result = document.getElementById('saSecondOpResult');
+  if(!panel || !picker) return;
+  panel.style.display = 'flex';
+  result.innerHTML = '';
+  picker.innerHTML = '';
+  // Build teammate buttons from installed registry
+  var reg = window._saInstalledNames || [];
+  if(!reg.length){
+    try{
+      var allSeats = document.querySelectorAll('.seat[data-name]');
+      allSeats.forEach(function(s){ var n=s.dataset.name; if(n && n!==seat) reg.push(n); });
+    }catch(e){}
+  }
+  if(!reg.length){ picker.innerHTML = '<div style="color:rgba(148,163,184,.5);font-size:13px;">No other teammates available.</div>'; return; }
+  reg.forEach(function(name){
+    if(name === seat) return;
+    var btn = document.createElement('button');
+    btn.textContent = name;
+    btn.style.cssText = 'padding:6px 14px;border-radius:20px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;font-size:12px;font-weight:700;cursor:pointer;transition:all .14s;';
+    btn.addEventListener('mouseenter', function(){ btn.style.borderColor='rgba(148,88,255,.6)'; btn.style.color='#c4b5fd'; });
+    btn.addEventListener('mouseleave', function(){ btn.style.borderColor='rgba(255,255,255,.18)'; btn.style.color='#e2e8f0'; });
+    btn.addEventListener('click', function(){ _saFetchSecondOpinion(seat, name, result); });
+    picker.appendChild(btn);
+  });
+};
+
+function _saFetchSecondOpinion(primary, reviewer, resultEl){
+  // Get the last AI message from thread as context
+  var lastMsg = '';
+  var msgs = document.querySelectorAll('#thread .msg.assistant .msg-body');
+  if(msgs.length) lastMsg = msgs[msgs.length-1].innerText || '';
+  if(!lastMsg){ resultEl.innerHTML = '<div style="color:#fde68a;font-size:13px;">No AI response found in thread to review.</div>'; return; }
+  resultEl.innerHTML = '<div style="color:rgba(148,163,184,.5);font-size:13px;text-align:center;padding:16px 0;">Getting '+reviewer+"'s take…</div>";
+  _saFetch('/api/teammate/second_opinion', {method:'POST', body:JSON.stringify({primary:primary, reviewer:reviewer, context:lastMsg.slice(0,1200)})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(!d.ok){ resultEl.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+_saEsc(d.error||'Error')+'</div>'; return; }
+      resultEl.innerHTML = '<div class="sa-2nd-card"><div class="sa-2nd-name">'+_saEsc(d.reviewer)+' says:</div>'
+        +'<div style="font-size:14px;line-height:1.65;color:#dde4f5;white-space:pre-wrap;word-break:break-word;">'+_saEsc(d.opinion)+'</div></div>';
+    }).catch(function(){ resultEl.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Network error.</div>'; });
+}
+
+// ── TEAMMATE INJECTION ────────────────────────────────────────────────────────
+var _saInjectSeat = '';
+var _saInjectThread = [];
+
+window.saToggleTeammateInject = function(){
+  var panel = document.getElementById('saTeammateInjectPanel');
+  if(!panel) return;
+  var isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if(!isOpen) _saPopulateInjectPicker();
+};
+
+function _saPopulateInjectPicker(){
+  var row = document.getElementById('saInjectPickerRow');
+  if(!row) return;
+  row.innerHTML = '';
+  _saInjectThread = [];
+  document.getElementById('saInjectChat').style.display = 'none';
+  document.getElementById('saInjectThread').innerHTML = '';
+  var allSeats = document.querySelectorAll('.seat[data-name]');
+  allSeats.forEach(function(s){
+    var name = s.dataset.name;
+    if(!name) return;
+    var accentColor = s.style.getPropertyValue('--sc') || s.style.getPropertyValue('--seat-accent') || '#7c3aed';
+    var btn = document.createElement('button');
+    btn.textContent = name;
+    btn.style.cssText = 'padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;transition:all .14s;'
+      +'border:1.5px solid '+accentColor+';background:rgba(255,255,255,.06);color:#e2e8f0;';
+    btn.addEventListener('click', function(){ _saSelectInjectSeat(name, btn, row); });
+    row.appendChild(btn);
+  });
+}
+
+function _saSelectInjectSeat(name, btn, row){
+  _saInjectSeat = name;
+  row.querySelectorAll('button').forEach(function(b){ b.style.background='rgba(255,255,255,.06)'; b.style.color='#e2e8f0'; });
+  btn.style.background='rgba(124,58,237,.28)'; btn.style.color='#d4bbff';
+  document.getElementById('saInjectChat').style.display = 'block';
+}
+
+window.saInjectSend = function(){
+  var msg = (document.getElementById('saInjectMsg').value || '').trim();
+  if(!msg || !_saInjectSeat) return;
+  // Build context from current modal content
+  var modalContent = '';
+  try{
+    var mb = document.getElementById('modalBody');
+    var mf = document.getElementById('modalForm');
+    modalContent = ((mb && mb.innerText) || '') + ((mf && mf.innerText) || '');
+    modalContent = modalContent.trim().slice(0, 1500);
+  }catch(e){}
+  var fullMsg = modalContent ? '[WINDOW CONTEXT]\n'+modalContent+'\n\n[YOUR MESSAGE]\n'+msg : msg;
+  // Show in thread
+  var threadEl = document.getElementById('saInjectThread');
+  threadEl.innerHTML += '<div style="align-self:flex-end;background:rgba(124,58,237,.55);padding:7px 12px;border-radius:12px 12px 3px 12px;max-width:85%;font-size:13px;color:#eef0ff;">'+_saEsc(msg)+'</div>';
+  document.getElementById('saInjectMsg').value = '';
+  threadEl.innerHTML += '<div id="_saInjectThinking" style="color:rgba(148,163,184,.5);font-size:13px;font-style:italic;padding:4px 0;">'+_saEsc(_saInjectSeat)+' is thinking…</div>';
+  threadEl.scrollTop = threadEl.scrollHeight;
+  _saFetch('/api/followup', {method:'POST', body:JSON.stringify({name:_saInjectSeat, message:fullMsg})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      var thinking = document.getElementById('_saInjectThinking');
+      if(thinking) thinking.remove();
+      var reply = d.reply || d.response || d.message || (d.ok===false ? ('Error: '+(d.error||'unknown')) : 'No response');
+      threadEl.innerHTML += '<div style="background:rgba(255,255,255,.06);padding:8px 12px;border-radius:3px 12px 12px 12px;max-width:90%;font-size:13px;color:#dde4f5;line-height:1.55;border-left:2.5px solid rgba(148,88,255,.7);">'
+        +'<div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#a78bfa;margin-bottom:4px;">'+_saEsc(_saInjectSeat)+'</div>'
+        +_saEsc(reply)+'</div>';
+      threadEl.scrollTop = threadEl.scrollHeight;
+    }).catch(function(e){
+      var thinking = document.getElementById('_saInjectThinking');
+      if(thinking) thinking.remove();
+      threadEl.innerHTML += '<div style="color:#fca5a5;font-size:13px;padding:4px 0;">Network error</div>';
+    });
+};
+
+// ── Show inject button when a modal is open ───────────────────────────────────
+var _saOrigShowModal = null;
+if(typeof window.showModal === 'function'){
+  _saOrigShowModal = window.showModal;
+  window.showModal = function(){
+    _saOrigShowModal.apply(this, arguments);
+    var btn = document.getElementById('saInjectTeammateBtn');
+    if(btn) btn.style.display = 'inline-block';
+  };
+}
+// Also hook hideModal
+var _saOrigHideModal = null;
+if(typeof window.hideModal === 'function'){
+  _saOrigHideModal = window.hideModal;
+  window.hideModal = function(){
+    _saOrigHideModal.apply(this, arguments);
+    var btn = document.getElementById('saInjectTeammateBtn');
+    if(btn) btn.style.display = 'none';
+    var panel = document.getElementById('saTeammateInjectPanel');
+    if(panel) panel.style.display = 'none';
+  };
+}
+
+// ── Build installed names list for second opinion picker ─────────────────────
+function _saBuildInstalledNames(){
+  var names = [];
+  document.querySelectorAll('.seat[data-name]').forEach(function(s){
+    var n = s.dataset.name;
+    if(n && names.indexOf(n) === -1) names.push(n);
+  });
+  window._saInstalledNames = names;
+}
+setTimeout(_saBuildInstalledNames, 1500);
+
+// ── Auto memory extract after every AI reply (throttled, non-blocking) ────────
+var _saLastMemExtract = 0;
+var _saOrigRenderThread = null;
+function _saMaybeExtractMemory(){
+  var seat = _saCurrentSeat();
+  if(!seat) return;
+  var now = Date.now();
+  if(now - _saLastMemExtract < 120000) return; // max once per 2 min per session
+  _saLastMemExtract = now;
+  _saFetch('/api/teammate/memory', {method:'POST', body:JSON.stringify({name:seat, auto_extract:true})}).catch(function(){});
+}
+// Hook into window.renderThread if available
+var _saMemHookInterval = setInterval(function(){
+  if(typeof window.renderThread === 'function' && !window._saMemHooked){
+    var orig = window.renderThread;
+    window.renderThread = function(){
+      var result = orig.apply(this, arguments);
+      setTimeout(_saMaybeExtractMemory, 3000);
+      return result;
+    };
+    window._saMemHooked = true;
+    clearInterval(_saMemHookInterval);
+  }
+}, 1000);
+
+// ── Utility ───────────────────────────────────────────────────────────────────
+function _saEsc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+})();
+</script>
 
 <!-- ================================================================
      FEATURES PACK — Broadcast Progress · Templates · Activity · Onboarding · Mobile Nav
@@ -44000,6 +44542,7 @@ def _os_default_state() -> Dict[str, Any]:
             "global_notes": []
         },
         "tool_preferences": {},
+        "brand_context": "",
         "pipeline_rules": [
             {"id": "reply_to_interested", "name": "Reply => Interested", "trigger": "has_recent_reply", "action": "set_stage", "value": "Interested", "enabled": True},
             {"id": "booked_to_call", "name": "Call Booked Tag", "trigger": "tag_present", "match": "booked", "action": "set_stage", "value": "Call booked", "enabled": True},
@@ -44750,6 +45293,174 @@ def api_os_tool_select():
     out = _os_route_query(uname, q)
     return jsonify({"ok": True, "selection": out})
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEAMMATE INTELLIGENCE ROUTES — memory, dreaming, brand context, second opinion
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/teammate/memory")
+def api_teammate_memory_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    mem = load_teammate_memory(uname, name)
+    return jsonify({"ok": True, "memory": mem})
+
+@app.post("/api/teammate/memory")
+def api_teammate_memory_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    existing = load_teammate_memory(uname, name)
+    # Accept direct field updates or auto-extract from thread
+    if payload.get("auto_extract"):
+        thread = load_thread(name, uname)
+        new_data = _extract_memory_from_thread(name, thread)
+        merged = _merge_teammate_memory(existing, new_data)
+        save_teammate_memory(uname, name, merged)
+        return jsonify({"ok": True, "memory": merged, "extracted": new_data})
+    # Manual update: accept facts/style_notes/preferences/open_loops arrays
+    for key in ("facts", "style_notes", "preferences", "open_loops"):
+        if key in payload and isinstance(payload[key], list):
+            existing[key] = [str(x).strip() for x in payload[key] if x]
+    save_teammate_memory(uname, name, existing)
+    return jsonify({"ok": True, "memory": existing})
+
+@app.post("/api/teammate/memory/clear")
+def api_teammate_memory_clear():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    empty = {"facts": [], "style_notes": [], "preferences": [], "open_loops": [], "updated_at": now_iso()}
+    save_teammate_memory(uname, name, empty)
+    return jsonify({"ok": True})
+
+@app.post("/api/teammate/dream")
+def api_teammate_dream():
+    """Generate a reflection from recent thread history — the 'dreaming mode' endpoint."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    reg = load_registry(uname)
+    installed = reg.get("installed") or {}
+    if name not in installed:
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+    defn = installed[name]
+    thread = load_thread(name, uname)
+    if not thread:
+        return jsonify({"ok": False, "error": "No conversation history to dream from"}), 400
+    # Build flat conversation for the dream prompt
+    flat = []
+    for m in thread[-30:]:
+        role = (m.get("role") or "").strip()
+        content = str(m.get("content") or "")[:500]
+        if role in ("user", "assistant") and content:
+            flat.append(f"{role.upper()}: {content}")
+    combined = "\n".join(flat)
+    job_title = defn.get("job_title", "AI Teammate")
+    dream_system = (
+        f"You are {name}, a {job_title}. You are in 'dreaming mode' — a quiet reflection period "
+        "between sessions where you review your recent conversations and synthesize what you've learned. "
+        "Your reflection should feel introspective, warm, and genuinely curious about the human you work with. "
+        "Write in first person. Be specific about what you noticed. Be honest about what you found challenging. "
+        "Mention patterns you observed. Note things you want to follow up on. "
+        "This is NOT a report — it is a genuine internal monologue. 150-250 words."
+    )
+    try:
+        reflection = call_llm(
+            dream_system,
+            [{"role": "user", "content": f"Here is our recent conversation:\n\n{combined}\n\nWrite your dream reflection now."}],
+            temperature=0.75,
+        )
+        # Also auto-extract memory while we're here
+        new_data = _extract_memory_from_thread(name, thread)
+        if new_data:
+            existing = load_teammate_memory(uname, name)
+            merged = _merge_teammate_memory(existing, new_data)
+            save_teammate_memory(uname, name, merged)
+        # Store the latest dream in memory
+        mem = load_teammate_memory(uname, name)
+        mem["last_dream"] = {"text": reflection.strip(), "at": now_iso()}
+        save_teammate_memory(uname, name, mem)
+        return jsonify({"ok": True, "name": name, "reflection": reflection.strip()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/api/teammate/second_opinion")
+def api_teammate_second_opinion():
+    """Ask a second teammate to weigh in on the last conversation context."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    primary_name = (payload.get("primary") or "").strip()
+    reviewer_name = (payload.get("reviewer") or "").strip()
+    context_msg = (payload.get("context") or "").strip()
+    if not primary_name or not reviewer_name or not context_msg:
+        return jsonify({"ok": False, "error": "Missing primary, reviewer, or context"}), 400
+    reg = load_registry(uname)
+    installed = reg.get("installed") or {}
+    if reviewer_name not in installed:
+        return jsonify({"ok": False, "error": "Reviewer teammate not installed"}), 400
+    reviewer_defn = installed[reviewer_name]
+    primary_defn = installed.get(primary_name) or {}
+    primary_title = primary_defn.get("job_title", "teammate")
+    reviewer_sys = teammate_system_prompt(reviewer_defn)
+    prompt = (
+        f"Your colleague {primary_name} ({primary_title}) just gave this response or worked on this:\n\n"
+        f"{context_msg}\n\n"
+        f"Give your honest second opinion from your own expertise as {reviewer_name}. "
+        "Where do you agree? Where would you approach it differently? Be direct and specific. "
+        "If you see a gap or a better path, say so. Keep it to 150-200 words."
+    )
+    try:
+        opinion = call_llm(reviewer_sys, [{"role": "user", "content": prompt}], temperature=0.65)
+        return jsonify({"ok": True, "reviewer": reviewer_name, "opinion": opinion.strip()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.get("/api/os/brand_context")
+def api_brand_context_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd = _os_load(uname)
+    return jsonify({"ok": True, "brand_context": osd.get("brand_context", "")})
+
+@app.post("/api/os/brand_context")
+def api_brand_context_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    brand_context = (payload.get("brand_context") or "").strip()
+    osd = _os_load(uname)
+    osd["brand_context"] = brand_context[:3000]  # cap at 3k chars
+    _os_save(uname, osd)
+    _invalidate_sys_ctx_cache(uname)
+    return jsonify({"ok": True})
 
 @app.post("/api/os/outcomes/run")
 def api_os_outcomes_run():
