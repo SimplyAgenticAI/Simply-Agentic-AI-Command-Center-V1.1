@@ -4703,22 +4703,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "rest of body on additional lines\n"
         "```\n"
         "\n"
-        "EMAIL SERIES: Write each email as a numbered item with a brief description in your reply. "
-        "After your full readable response, append one machine-readable block per email (in order):\n"
-        "```email\n"
-        "Email-Num: 1\n"
-        "Subject: subject for email 1\n"
-        "Body: full body for email 1\n"
-        "```\n"
-        "```email\n"
-        "Email-Num: 2\n"
-        "Subject: subject for email 2\n"
-        "Body: full body for email 2\n"
-        "```\n"
-        "(continue for every email in the series)\n"
+        "EMAIL IDEAS / SERIES: When asked for multiple email ideas or an email sequence:\n"
+        "- Give ONLY a short numbered list. Each item = email name in bold + one sentence description. Nothing more.\n"
+        "- Do NOT write full email bodies, subject lines, or append any email blocks.\n"
+        "- The user will click the one they want and you will draft just that single email.\n"
+        "- Example:\n"
+        "  1. **Welcome Email**: Warm intro that shares your story and sets expectations.\n"
+        "  2. **Value Bomb**: Teaches one high-value tip with no pitch — pure value.\n"
+        "  3. **Social Proof**: Short case study showing a real result from a past client.\n"
         "\n"
         "IMPORTANT EMAIL RULES:\n"
-        "- Machine-readable blocks are hidden from the chat — the UI converts them into clickable console buttons. Always place ALL blocks AFTER your human-readable reply.\n"
         "- Do NOT include 'To:', 'From:', or header lines inside the Body section.\n"
         "- Body must start directly with the greeting or first sentence (e.g. 'Hi Sarah,' or 'Hello,').\n"
         f"- Always sign off with the operator's real name: {_op_name_for_email}. Never use placeholder text like '[Your Name]'.\n"
@@ -19644,20 +19638,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             actRow.appendChild(copyBtn);
             actRow.appendChild(speakBtn);
             actRow.appendChild(pinBtn);
-            // Preview button — only when response contains renderable content
-            if(typeof window._saPreviewDetect === 'function'){
-              var _prevDet = window._saPreviewDetect(raw);
-              if(_prevDet){
-                var prevBtn = document.createElement("button");
-                prevBtn.className = "btn btnMini";
-                prevBtn.style.cssText = "font-size:11px;opacity:.9;padding:2px 9px;background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.5);color:#c4b5fd;";
-                prevBtn.innerText = "▶ Preview";
-                prevBtn.title = "Open live preview pane";
-                (function(det){ prevBtn.onclick = function(e){ e.stopPropagation(); window._saPreviewShow(det, selectedSeat||'Preview'); }; })(_prevDet);
-                prevBtn.dataset.saRaw = raw; // mobile delegation re-detects from the raw text
-                actRow.appendChild(prevBtn);
-              }
-            }
             content.appendChild(actRow);
           }
         }
@@ -21063,6 +21043,8 @@ function _saJobNotify(seatName, status){
           if(!text)return;
           const fm=document.getElementById('followMsg');
           if(fm){fm.value=text;fm.focus();}
+          // Signal that the user intentionally clicked an item — allow email console to auto-open
+          window._saUserRequestedEmailDraft = true;
           if(typeof window.sendFollow==='function')window.sendFollow();
         });
       });
@@ -21348,7 +21330,11 @@ function _saJobNotify(seatName, status){
           setSeatLive(selectedSeat,"done"); setOpStatus("Complete");
           await refreshThread();
           try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
-          // Email buttons are rendered by refreshThread() — no auto-open
+          // Auto-open console only when user clicked a list item to request this draft
+          if(emailDraft && window._saUserRequestedEmailDraft && typeof applyEmailDraft==="function"){
+            applyEmailDraft(emailDraft, selectedSeat);
+          }
+          window._saUserRequestedEmailDraft = false;
         }
 
       }catch(err){
@@ -33615,7 +33601,11 @@ window._streamTtsFired = false;
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
             if(typeof setOpStatus==="function") setOpStatus("Complete");
-            // Email buttons rendered inline above — never auto-open console
+            // Auto-open console only when user clicked a list item to request this draft
+            if(parsed.email_draft && window._saUserRequestedEmailDraft && typeof applyEmailDraft==="function"){
+              applyEmailDraft(parsed.email_draft, seat);
+            }
+            window._saUserRequestedEmailDraft = false;
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
