@@ -3343,7 +3343,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Write sales, hype, or persuasive language",
         ],
         "goal": "Architect language. Preserve meaning. Optimize clarity.",
-        "avatar": {"bg": "#4c1d95", "fg": "#e6edff", "sigil": "W"},
+        "avatar": {"bg": "#5b21b6", "fg": "#e6edff", "sigil": "W"},
     },
     "Ava": {
         "name": "Ava",
@@ -9330,14 +9330,14 @@ footer a{color:var(--pl);text-decoration:none;}
         <!-- Row 3: Orion | Group Console | Willow -->
         <div class="seat" style="--seat-accent:#374151;"><span class="snum">07</span><div class="av" style="background:#374151;">O</div><div class="sm"><div class="sn">Orion</div><div class="sr">Systems Autom...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
         <div class="gc"><div class="gc-t">Group Console</div><div class="gc-btns"><div class="gcb">Assemble</div><div class="gcb">&#8943; Tools</div><div class="gcb">&#128206; Files</div></div><textarea class="gc-ta" readonly>Type a prompt to send to all teammates at once...</textarea><div class="gc-send">Send to all teammates</div></div>
-        <div class="seat" style="--seat-accent:#4c1d95;"><span class="snum">03</span><div class="av" style="background:#4c1d95;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div class="seat" style="--seat-accent:#5b21b6;"><span class="snum">03</span><div class="av" style="background:#5b21b6;">W</div><div class="sm"><div class="sn">Willow</div><div class="sr">Language Spec...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
         <!-- Row 4: Ava | gap | Luna -->
         <div class="seat" style="--seat-accent:#0f766e;"><span class="snum">06</span><div class="av" style="background:#0f766e;">A</div><div class="sm"><div class="sn">Ava</div><div class="sr">Research &amp; Kn...</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
         <div></div>
         <div class="seat" style="--seat-accent:#7c2d12;"><span class="snum">04</span><div class="av" style="background:#7c2d12;">L</div><div class="sm"><div class="sn">Luna</div><div class="sr">Creative Engineer</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
         <!-- Row 5: Atlis at 6 o'clock (foot of table) -->
         <div></div>
-        <div class="seat" style="--seat-accent:#111827;"><span class="snum">05</span><div class="av" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
+        <div class="seat" style="--seat-accent:#1e3a5c;"><span class="snum">05</span><div class="av" style="background:#1e3a5c;">I</div><div class="sm"><div class="sn">Atlis</div><div class="sr">System Integrity</div></div><div class="ss"><div class="sdot idle"></div><span>Idle</span></div><div class="sedit">Edit</div></div>
         <div></div>
       </div>
       <!-- Right sidebar: Alex's thread -->
@@ -9384,12 +9384,12 @@ footer a{color:var(--pl);text-decoration:none;}
   </div>
   <div class="tmg">
     <div class="tmc a5"><div class="tmav" style="background:#1e3a8a;">A</div><div class="tmn">Alex</div><div class="tmr">Chief Marketing Officer</div><div class="tmd">Strategy, positioning, offer architecture, messaging systems, and long-term growth infrastructure. Strategy before tactics, always.</div><div class="tmbar" style="background:linear-gradient(90deg,#1e3a8a,#3b82f6);"></div></div>
-    <div class="tmc a6"><div class="tmav" style="background:#4c1d95;">W</div><div class="tmn">Willow</div><div class="tmr">Language Specialist</div><div class="tmd">Refines tone, voice, clarity, and meaning. Will not write sales hype, artificial urgency, or manipulative framing.</div><div class="tmbar" style="background:linear-gradient(90deg,#4c1d95,#8b5cf6);"></div></div>
+    <div class="tmc a6"><div class="tmav" style="background:#5b21b6;">W</div><div class="tmn">Willow</div><div class="tmr">Language Specialist</div><div class="tmd">Refines tone, voice, clarity, and meaning. Will not write sales hype, artificial urgency, or manipulative framing.</div><div class="tmbar" style="background:linear-gradient(90deg,#5b21b6,#8b5cf6);"></div></div>
     <div class="tmc a7"><div class="tmav" style="background:#0f766e;">A</div><div class="tmn">Ava</div><div class="tmr">Research &amp; Knowledge Curator</div><div class="tmd">Gathers, validates, and synthesizes information. Separates fact from inference. Labels uncertainty. Never guesses.</div><div class="tmbar" style="background:linear-gradient(90deg,#0f766e,#14b8a6);"></div></div>
     <div class="tmc a5"><div class="tmav" style="background:#374151;">O</div><div class="tmn">Orion</div><div class="tmr">Systems &amp; Automation Engineer</div><div class="tmd">Designs automation systems for reliable scale. Architecture before execution. Will not automate unstable processes.</div><div class="tmbar" style="background:linear-gradient(90deg,#374151,#6b7280);"></div></div>
     <div class="tmc a6"><div class="tmav" style="background:#9a3412;">S</div><div class="tmn">Sunshine</div><div class="tmr">Sales Specialist</div><div class="tmd">Ethical, high-trust sales conversations. Diagnoses readiness before proposing. Will not pressure or force a close.</div><div class="tmbar" style="background:linear-gradient(90deg,#9a3412,#f97316);"></div></div>
     <div class="tmc a7"><div class="tmav" style="background:#7c2d12;">L</div><div class="tmn">Luna</div><div class="tmr">Creative Engineer</div><div class="tmd">Cinematic, consistent visual systems. Hierarchy before effects. Keeps designs consistent over time.</div><div class="tmbar" style="background:linear-gradient(90deg,#7c2d12,#ef4444);"></div></div>
-    <div class="tmc a8"><div class="tmav" style="background:#111827;border:1px solid rgba(255,255,255,.1);">I</div><div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div><div class="tmd">Monitors role boundaries and system coherence. Acts as referee, never contributor. Protects integrity at all times.</div><div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div></div>
+    <div class="tmc a8"><div class="tmav" style="background:#1e3a5c;">I</div><div class="tmn">Atlis</div><div class="tmr">System Integrity Architect</div><div class="tmd">Monitors role boundaries and system coherence. Acts as referee, never contributor. Protects integrity at all times.</div><div class="tmbar" style="background:linear-gradient(90deg,#1f2937,#4b5563);"></div></div>
   </div>
 </section>
 
