@@ -13283,8 +13283,7 @@ HTML = r"""
       position:fixed; inset:0; display:none;
       align-items:stretch; justify-content:stretch;
       padding:0;
-      background: rgba(4,8,24,.88);
-      backdrop-filter: blur(6px);
+      background: transparent;
       z-index: 999200;
     }
     .overlay.show{ display:flex; }
@@ -13297,7 +13296,12 @@ HTML = r"""
       height: 100vh;
       max-width: 100vw;
       max-height: 100vh;
-      background: rgba(10,16,38,.99);
+      background: #030511;
+      background-image:
+        radial-gradient(ellipse 72% 52% at 88% 6%,  rgba(14,165,233,.22)  0%, rgba(56,189,248,.09) 40%, transparent 65%),
+        radial-gradient(ellipse 62% 48% at 6%  92%,  rgba(124,58,237,.30)  0%, rgba(99,58,200,.12)  34%, transparent 62%),
+        radial-gradient(ellipse 46% 36% at 50% 50%, rgba(79,50,180,.08)   0%, transparent 70%);
+      background-attachment: fixed;
       border: none;
       border-radius: 0;
       padding: 0;
@@ -13320,8 +13324,9 @@ HTML = r"""
       padding: 10px 18px;
       border-radius: 0;
       border: none;
-      border-bottom: 1px solid rgba(42,58,106,.55);
-      background: rgba(10,16,36,.98);
+      border-bottom: 1px solid rgba(255,255,255,.07);
+      background: rgba(3,5,17,.85);
+      backdrop-filter: blur(10px);
       cursor: default;
       user-select:none;
       flex-shrink:0;
@@ -13344,13 +13349,9 @@ HTML = r"""
     }
 
     .modalBodyWrap{
-      margin-top: 10px;
       flex: 1 1 auto;
       overflow: auto;
-      border-radius: 14px;
-      border: 1px solid rgba(42,58,106,.6);
-      background: rgba(18,28,56,.5);
-      padding: 10px;
+      padding: 24px 28px;
       display: flex;
       flex-direction: column;
     }
@@ -15020,11 +15021,11 @@ input:focus, textarea:focus, select:focus {
 #calendarForm        { --tool-accent:#4ade80; }
 #teamForm            { --tool-accent:#c084fc; }
 
-/* 10. Glass container — dark premium background for all tool panels */
+/* 10. Tool panels sit directly on the modal background — no additional layering */
 #siteAnalyzerForm, #marketScannerForm, #prospectDossierForm,
 #intentSignalsForm, #emailConsoleForm, #crmForm,
 #leadHandoffForm, #teamForm {
-  background: linear-gradient(160deg, rgba(6,10,28,.97) 0%, rgba(4,7,20,.99) 100%) !important;
+  background: transparent !important;
 }
 
 /* 1. Branded tool header card */
