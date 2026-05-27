@@ -13461,6 +13461,78 @@ HTML = r"""
     .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
     .modal.minimized .modalBodyWrap{ display:none; }
 
+    /* ── Edit Teammate two-panel layout ── */
+    #etLayout{
+      display:flex; gap:18px;
+      flex:1 1 auto; min-height:0;
+    }
+    #etSidebar{
+      width:290px; flex-shrink:0;
+      background:rgba(255,255,255,.034);
+      backdrop-filter:blur(28px) saturate(1.35);
+      border:1px solid rgba(255,255,255,.09);
+      border-top:1px solid rgba(255,255,255,.14);
+      border-radius:22px;
+      box-shadow:0 8px 36px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.08);
+      padding:24px 20px;
+      display:flex; flex-direction:column;
+      overflow-y:auto;
+    }
+    #etContent{
+      flex:1; min-width:0;
+      background:rgba(255,255,255,.034);
+      backdrop-filter:blur(28px) saturate(1.35);
+      border:1px solid rgba(255,255,255,.09);
+      border-top:1px solid rgba(255,255,255,.14);
+      border-radius:22px;
+      box-shadow:0 8px 36px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.08);
+      padding:28px 30px;
+      display:flex; flex-direction:column; gap:16px;
+      overflow-y:auto;
+    }
+    #etAvatarSection{
+      text-align:center; margin-bottom:20px;
+      padding-bottom:18px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+    }
+    #etAvatarGlyph{
+      width:62px; height:62px; border-radius:18px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:28px; font-weight:900;
+      background:linear-gradient(135deg,rgba(124,58,237,.40),rgba(14,165,233,.28));
+      border:1px solid rgba(124,58,237,.42);
+      box-shadow:0 0 30px rgba(124,58,237,.30),inset 0 1px 0 rgba(255,255,255,.10);
+      color:#e2e8f0; margin:0 auto 10px;
+    }
+    #etNameDisplay{
+      font-size:17px; font-weight:800; color:#f1f5f9;
+      letter-spacing:-.02em; line-height:1.2;
+    }
+    #etDivider{ height:1px; background:rgba(255,255,255,.07); margin:4px 0 14px; }
+    .etSpacer{ flex:1; min-height:10px; }
+    #etActions{ display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+    #etActions .btn, #etActions .btnPrimary{
+      width:100%; text-align:center; padding:11px 14px; font-size:14px;
+    }
+    #etSidebar label{
+      font-size:11px; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; color:rgba(148,163,184,.62);
+      margin:0 0 6px; display:block;
+    }
+    #etSidebar input, #etSidebar select{ margin-bottom:12px; font-size:14px; }
+    #etContent label{
+      font-size:11px; font-weight:700; letter-spacing:.08em;
+      text-transform:uppercase; color:rgba(148,163,184,.62);
+      margin:0 0 6px; display:block;
+    }
+    #etContent textarea{ width:100%; resize:vertical; }
+    .et2col{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    @media(max-width:760px){
+      #etLayout{ flex-direction:column; }
+      #etSidebar{ width:100%; }
+      .et2col{ grid-template-columns:1fr; }
+    }
+
     /* ── Background task dock ── */
     #toolDock{
       position:fixed; bottom:16px; right:16px; z-index:99990;
@@ -15678,80 +15750,95 @@ input:focus, textarea:focus, select:focus {
 
 
               <div class="modalForm" id="modalForm">
-                <div class="modalInner">
-                  <div class="tiny" id="editHint" style="margin-bottom:12px;text-align:center;">
-                    Update responsibilities, rules, and goals for this teammate. Name stays locked.
+                <div id="etLayout">
+
+                  <!-- LEFT SIDEBAR: identity, model, actions -->
+                  <div id="etSidebar">
+                    <div id="etAvatarSection">
+                      <div id="etAvatarGlyph">?</div>
+                      <div id="etNameDisplay"></div>
+                      <div id="editHint" style="margin-top:5px;font-size:11px;color:rgba(148,163,184,.5);">Name is locked.</div>
+                    </div>
+
+                    <label>Name</label>
+                    <input id="editName" placeholder="Teammate name" readonly />
+                    <label>Job Title</label>
+                    <input id="editJobTitle" placeholder="e.g. Sales Coach" />
+                    <label>Version</label>
+                    <input id="editVersion" placeholder="v1.0" />
+
+                    <div id="etDivider"></div>
+
+                    <label>AI Model <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(blank = global default)</span></label>
+                    <select id="editPreferredModel" style="width:100%;">
+                      <option value="">Default (global model)</option>
+                      <optgroup label="OpenAI (GPT)">
+                        <option value="gpt-4o">GPT-4o — balanced</option>
+                        <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                        <option value="o3-mini">o3-mini — advanced reasoning</option>
+                      </optgroup>
+                      <optgroup label="Anthropic (Claude)">
+                        <option value="claude-opus-4-5">Claude Opus — most capable</option>
+                        <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                        <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                      </optgroup>
+                    </select>
+
+                    <label>TTS Voice <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(speak responses aloud)</span></label>
+                    <select id="editTtsVoice" style="width:100%;">
+                      <option value="alloy">Alloy — neutral</option>
+                      <option value="echo">Echo — male, clear</option>
+                      <option value="fable">Fable — storytelling</option>
+                      <option value="onyx">Onyx — deep male</option>
+                      <option value="nova">Nova — female, bright</option>
+                      <option value="shimmer">Shimmer — soft female</option>
+                    </select>
+
+                    <div class="etSpacer"></div>
+
+                    <div id="etActions">
+                      <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
+                      <button class="btn btnPrimary" id="saveEdit" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.42);">Save Changes</button>
+                      <button class="btn" id="cancelEdit">Cancel</button>
+                    </div>
+                    <div class="tiny" id="editStatus" style="margin-top:8px;text-align:center;min-height:16px;"></div>
                   </div>
 
-                  <!-- Row 1: Name + Job Title + Version -->
-                  <div class="grid" style="grid-template-columns:2fr 2fr 1fr;gap:10px;margin-bottom:12px;">
-                    <div><label>Name</label><input id="editName" placeholder="Teammate name" readonly /></div>
-                    <div><label>Job Title</label><input id="editJobTitle" placeholder="Job title"/></div>
-                    <div><label>Version</label><input id="editVersion" placeholder="v1.0"/></div>
-                  </div>
+                  <!-- RIGHT PANEL: prompt configuration -->
+                  <div id="etContent">
+                    <div style="margin-bottom:4px;">
+                      <div style="font-size:17px;font-weight:800;color:#f1f5f9;letter-spacing:-.02em;">Prompt Configuration</div>
+                      <div style="font-size:12px;color:rgba(148,163,184,.5);margin-top:3px;">Define how this teammate thinks, behaves, and responds.</div>
+                    </div>
 
-                  <!-- Row 2: Left col (Mission + Goal + Thinking) / Right col (Responsibilities + Will Not Do) -->
-                  <div class="formGrid2">
                     <div>
                       <label>Mission</label>
-                      <textarea id="editMission" placeholder="Mission" style="height:90px;"></textarea>
+                      <textarea id="editMission" placeholder="What is this teammate's core mission and purpose?" style="height:120px;"></textarea>
                     </div>
-                    <div style="grid-row:span 3;">
-                      <label>Responsibilities (one per line)</label>
-                      <textarea id="editResponsibilities" placeholder="One responsibility per line" style="height:210px;"></textarea>
-                    </div>
+
                     <div>
                       <label>Goal</label>
-                      <textarea id="editGoal" placeholder="Goal" style="height:90px;"></textarea>
+                      <textarea id="editGoal" placeholder="What outcome is this teammate working to achieve?" style="height:110px;"></textarea>
                     </div>
+
                     <div>
-                      <label>Thinking Style</label>
-                      <textarea id="editThinking" placeholder="Thinking style" style="height:90px;"></textarea>
+                      <label>Responsibilities <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(one per line)</span></label>
+                      <textarea id="editResponsibilities" placeholder="One responsibility per line" style="height:190px;"></textarea>
                     </div>
-                    <div class="spanFull">
-                      <label>Will Not Do (one per line)</label>
-                      <textarea id="editWillNotDo" placeholder="One rule per line" style="height:80px;"></textarea>
+
+                    <div class="et2col">
+                      <div>
+                        <label>Thinking Style</label>
+                        <textarea id="editThinking" placeholder="How should this teammate approach and frame problems?" style="height:130px;"></textarea>
+                      </div>
+                      <div>
+                        <label>Will Not Do <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(one per line)</span></label>
+                        <textarea id="editWillNotDo" placeholder="One rule per line" style="height:130px;"></textarea>
+                      </div>
                     </div>
                   </div>
 
-                  <!-- Row 3: Model + Voice -->
-                  <div class="grid" style="margin-top:14px;">
-                    <div>
-                      <label>AI Model <span class="tiny" style="opacity:.6;">(leave blank for global default)</span></label>
-                      <select id="editPreferredModel" style="width:100%;">
-                        <option value="">Default (global model)</option>
-                        <optgroup label="OpenAI (GPT)">
-                          <option value="gpt-4o">GPT-4o — balanced</option>
-                          <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
-                          <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
-                          <option value="o3-mini">o3-mini — advanced reasoning</option>
-                        </optgroup>
-                        <optgroup label="Anthropic (Claude)">
-                          <option value="claude-opus-4-5">Claude Opus — most capable</option>
-                          <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
-                          <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
-                        </optgroup>
-                      </select>
-                    </div>
-                    <div>
-                      <label>TTS Voice <span class="tiny" style="opacity:.6;">(speak responses aloud)</span></label>
-                      <select id="editTtsVoice" style="width:100%;">
-                        <option value="alloy">Alloy — neutral</option>
-                        <option value="echo">Echo — male, clear</option>
-                        <option value="fable">Fable — storytelling</option>
-                        <option value="onyx">Onyx — deep male</option>
-                        <option value="nova">Nova — female, bright</option>
-                        <option value="shimmer">Shimmer — soft female</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div class="actions" style="justify-content:center;margin-top:14px;">
-                    <button class="btn" id="cancelEdit">Cancel</button>
-                    <button class="btn btnPrimary" id="saveEdit">Save changes</button>
-                    <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
-                  </div>
-                  <div class="tiny" id="editStatus" style="margin-top:10px;text-align:center;"></div>
                 </div>
               </div>
 
@@ -18730,7 +18817,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("modalForm").style.display = "block";
+      $("modalForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
 
       modalMinimized = false;
       $("modalWin").classList.remove("minimized");
@@ -19378,9 +19465,11 @@ window.showModal = function showModal(title, body, imgUrl){
       $("editWillNotDo").value = (t.will_not_do || []).join("\n");
       if($("editPreferredModel")) $("editPreferredModel").value = t.preferred_model || "";
       if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
+      if($("etNameDisplay")) $("etNameDisplay").textContent = t.name || name || "";
+      if($("etAvatarGlyph")) $("etAvatarGlyph").textContent = (t.name || name || "?")[0].toUpperCase();
       setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 80);
 
-      $("editStatus").innerText = "Ready";
+      $("editStatus").innerText = "";
       showEditModal("Edit " + name);
     }
 
