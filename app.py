@@ -16274,6 +16274,28 @@ input:focus, textarea:focus, select:focus {
                 </div>
               </div>
 
+              <!-- RESPONSE VAULT MODAL FORM -->
+              <div class="modalForm" id="responseVaultForm" style="display:none;flex-direction:column;height:100%;padding:0;">
+                <!-- Toolbar -->
+                <div style="display:flex;align-items:center;gap:12px;padding:14px 24px 12px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;">
+                  <input id="_rvSearch" placeholder="🔍  Search saved responses…"
+                    style="flex:1;max-width:520px;background:rgba(30,41,59,.8);border:1px solid rgba(255,255,255,.1);
+                    border-radius:10px;color:#e2e8f0;padding:9px 14px;font-size:14px;outline:none;" />
+                  <div id="_rvCount" style="font-size:12px;color:#475569;white-space:nowrap;"></div>
+                </div>
+                <!-- Grid of cards -->
+                <div id="_rvList" style="flex:1;overflow-y:auto;padding:18px 24px;
+                  display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:12px;align-content:start;">
+                </div>
+                <!-- Empty state -->
+                <div id="_rvEmpty" style="display:none;flex:1;align-items:center;justify-content:center;
+                  flex-direction:column;gap:14px;padding:80px 40px;text-align:center;">
+                  <div style="font-size:52px;">🗄️</div>
+                  <div style="font-size:18px;font-weight:700;color:#e2e8f0;">Your vault is empty</div>
+                  <div style="font-size:13px;color:#475569;line-height:1.7;">Hit <strong style="color:#c4b5fd;">Save to Vault</strong> on any AI response to save it here for future use.</div>
+                </div>
+              </div>
+
               <!-- SITE ANALYZER MODAL FORM -->
               <div class="modalForm" id="siteAnalyzerForm" style="display:none;">
                 <div class="modalInner" style="max-width:900px;">
@@ -18598,6 +18620,7 @@ function applyModalPos(){
       if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = "none";
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
       if($("teamForm")) $("teamForm").style.display = "none";
+      if($("responseVaultForm")) $("responseVaultForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       // Restore scroll for non-library modals
       const sc = $("modalScroll");
@@ -22981,74 +23004,21 @@ Challenge weak assumptions. Surface risks.`;
 
     // ===== RESPONSE VAULT =====
     (function(){
-      var _vaultOpen = false;
 
       function openResponseVault(){
-        if(_vaultOpen) return;
-        _vaultOpen = true;
         saToggleDrop('saManageDrop');
-
-        // Build overlay
-        var overlay = document.createElement('div');
-        overlay.id = '_rvOverlay';
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;';
-        overlay.onclick = function(e){ if(e.target===overlay) closeVault(); };
-
-        overlay.innerHTML = [
-          '<div id="_rvPanel" style="background:#0f172a;border:1px solid rgba(124,58,237,.45);border-radius:20px;',
-          'width:min(1400px,97vw);height:min(900px,92vh);display:flex;flex-direction:column;',
-          'box-shadow:0 24px 64px rgba(0,0,0,.7);overflow:hidden;">',
-
-            // Header
-            '<div style="display:flex;align-items:center;gap:10px;padding:18px 24px 14px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;">',
-              '<span style="font-size:24px;">🗄️</span>',
-              '<div style="flex:1;">',
-                '<div style="font-size:18px;font-weight:800;color:#e2e8f0;">Response Vault</div>',
-                '<div style="font-size:12px;color:#475569;margin-top:1px;">Your saved AI responses — browse, copy, or delete</div>',
-              '</div>',
-              '<div id="_rvPinBtnWrap" style="margin-right:6px;"></div>',
-              '<button onclick="closeVault()" ',
-              'style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;',
-              'color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:4px 10px;">&#215;</button>',
-            '</div>',
-
-            // Search bar
-            '<div style="padding:12px 22px 0;">',
-              '<input id="_rvSearch" placeholder="Search your vault…" ',
-              'style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid rgba(255,255,255,.1);',
-              'border-radius:10px;color:#e2e8f0;padding:10px 14px;font-size:14px;outline:none;" />',
-            '</div>',
-
-            // Count + list
-            '<div id="_rvCount" style="padding:10px 24px 4px;font-size:12px;color:#334155;flex-shrink:0;"></div>',
-            '<div id="_rvList" style="flex:1;overflow-y:auto;padding:0 16px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:10px;align-content:start;"></div>',
-
-            // Empty state
-            '<div id="_rvEmpty" style="display:none;flex:1;align-items:center;justify-content:center;',
-            'flex-direction:column;gap:10px;padding:40px;text-align:center;">',
-              '<div style="font-size:40px;">🗄️</div>',
-              '<div style="font-size:16px;font-weight:700;color:#e2e8f0;">Your vault is empty</div>',
-              '<div style="font-size:13px;color:#475569;line-height:1.6;">',
-                'Hit <strong style="color:#c4b5fd;">Save to Vault</strong> on any AI response<br>to save it here for future use.',
-              '</div>',
-            '</div>',
-
-          '</div>',
-        ].join('');
-
-        document.body.appendChild(overlay);
-
-        // Inject pin button
-        var pinWrap = document.getElementById('_rvPinBtnWrap');
-        if(pinWrap && typeof window.saCreatePinBtn === 'function'){
-          var pb = window.saCreatePinBtn('response_vault');
-          if(pb) pinWrap.appendChild(pb);
-        }
-
-        // Search handler
+        // Use the shared full-screen modal system (same as Calendar, Email Console, etc.)
+        if(typeof showModal === 'function') showModal('🗄️ Response Vault', '');
+        if(typeof hideAllModalForms === 'function') hideAllModalForms();
+        var form = document.getElementById('responseVaultForm');
+        if(form) form.style.display = 'flex';
+        if(window.saSetModalPin) window.saSetModalPin('response_vault');
+        // Wire search
         var searchEl = document.getElementById('_rvSearch');
-        if(searchEl) searchEl.addEventListener('input', function(){ renderVaultList(this.value.toLowerCase()); });
-
+        if(searchEl){
+          searchEl.value = '';
+          searchEl.oninput = function(){ renderVaultList(this.value.toLowerCase()); };
+        }
         loadAndRenderVault();
       }
 
@@ -23164,9 +23134,7 @@ Challenge weak assumptions. Surface risks.`;
       };
 
       function closeVault(){
-        _vaultOpen = false;
-        var o = document.getElementById('_rvOverlay');
-        if(o){ o.style.opacity='0'; o.style.transition='opacity .2s'; setTimeout(function(){ try{o.remove();}catch(_){} },220); }
+        if(typeof hideModal === 'function') hideModal();
       }
 
       window.openResponseVault = openResponseVault;
