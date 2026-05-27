@@ -3831,6 +3831,18 @@ def _clean_teammate_name(name: str) -> str:
     return n
 
 
+def _avatar_for_installed(defn: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the avatar dict, injecting glyph from PREBUILT_LOCKED for built-ins that lack one."""
+    av = dict(defn.get("avatar") or {"bg": "#1f2a44", "fg": "#e6edff",
+                                      "sigil": (defn.get("name") or "T")[:1].upper()})
+    if not av.get("glyph"):
+        pb = PREBUILT_LOCKED.get(defn.get("name", ""), {})
+        glyph = (pb.get("avatar") or {}).get("glyph", "")
+        if glyph:
+            av["glyph"] = glyph
+    return av
+
+
 def _sanitize_svg(raw: str) -> str:
     """Strip SVG to only safe elements and attributes. Reject anything suspicious."""
     import re as _re
@@ -5798,7 +5810,7 @@ def api_state():
             "thinking_style": v.get("thinking_style", ""),
             "will_not_do": v.get("will_not_do", []),
             "goal": v.get("goal", ""),
-            "avatar": v.get("avatar", {"bg": "#1f2a44", "fg": "#e6edff", "sigil": v["name"][:1].upper()}),
+            "avatar": _avatar_for_installed(v),
         } for k, v in installed.items()},
         "prebuilt_names": DEFAULT_ORDER,
         "email": {
