@@ -12828,15 +12828,15 @@ HTML = r"""
 .seatPulse{
       animation: seatPulse 1.9s ease-in-out infinite;
       animation-delay: -0.95s;
-      border-color: rgba(124,58,237,.95) !important;
-      background: rgba(22,18,70,.96) !important;
+      border-color: var(--sc, rgba(124,58,237,.95)) !important;
+      background: rgba(8,12,32,.93) !important;
       box-shadow:
-        0 0 0 1px rgba(124,58,237,.22) inset,
-        0 0 28px rgba(124,58,237,.45),
-        0 0 52px rgba(255,215,105,.14),
+        0 0 0 1px color-mix(in srgb, var(--sc,#7c3aed) 30%, transparent) inset,
+        inset 0 1px 0 rgba(255,255,255,.20),
+        0 0 30px color-mix(in srgb, var(--sc,#7c3aed) 50%, transparent),
         0 6px 32px rgba(0,0,0,.5) !important;
     }
-.seatPulse::before{ opacity: 1 !important; background: rgba(124,58,237,.9) !important; }
+.seatPulse::before{ opacity: 1 !important; background: var(--sc, rgba(124,58,237,.9)) !important; }
 .seatPulse::after{
       content:'';position:absolute;inset:-6px;border-radius:inherit;
       border:2px solid rgba(124,58,237,.0);
@@ -14906,22 +14906,17 @@ body {
 }
 .seatPulse { animation: seatPulseV2 1.75s cubic-bezier(.4,0,.6,1) infinite !important; }
 
-/* Shimmer sweep on thinking seat */
+/* Top-edge highlight on active seat — symmetric, no sweep */
 .seatPulse::after {
   content: '' !important;
   position: absolute !important;
   inset: 0 !important;
   border-radius: inherit !important;
-  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.09) 50%, transparent 70%) !important;
-  background-size: 200% 100% !important;
-  animation: seatShimmer 1.5s linear infinite !important;
+  background: radial-gradient(ellipse 80% 40% at 50% 0%, rgba(255,255,255,.10) 0%, transparent 100%) !important;
   pointer-events: none !important;
   z-index: 2 !important;
   border: none !important;
-}
-@keyframes seatShimmer {
-  from { background-position: 200% 0; }
-  to   { background-position: -200% 0; }
+  animation: none !important;
 }
 
 /* Seat name — tighter, bolder */
