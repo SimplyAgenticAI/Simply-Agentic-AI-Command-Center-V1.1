@@ -14726,6 +14726,283 @@ label         { font-size: 14px !important; }
 .wcSecondary:hover{border-color:rgba(124,58,237,.6);color:#c4b5fd;}
 
 </style>
+
+<!-- ① TYPOGRAPHY — Inter font (CSP already allows fonts.googleapis.com) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+
+<style>
+/* ══════════════════════════════════════════════════════════════
+   VISUAL UPGRADE — All 10 improvements
+   ══════════════════════════════════════════════════════════════ */
+
+/* ① Typography — Inter everywhere */
+body, button, input, textarea, select, .btn, .btnMini,
+.who, .msg-body, .seatName, .topbar, .side, label,
+.plCard, .tiny, .sub, h1, h2, h3, p, span, div {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+}
+
+/* ④ Layered depth background */
+body {
+  background:
+    radial-gradient(ellipse 80% 55% at 20% 0%,   rgba(124,58,237,.13) 0%, transparent 60%),
+    radial-gradient(ellipse 65% 45% at 82% 90%,  rgba(59,130,246,.10) 0%, transparent 55%),
+    radial-gradient(ellipse 110% 70% at 50% 48%, rgba(124,58,237,.06) 0%, transparent 65%),
+    linear-gradient(180deg, #06091c 0%, #07091f 45%, #080a22 100%) !important;
+}
+
+/* ③ Oval table — refined hover + active + spring scale */
+.seat {
+  transition:
+    transform .2s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .2s ease,
+    border-color .22s ease !important;
+  will-change: transform;
+}
+.seat:hover {
+  transform: scale(1.08) translateY(-3px) !important;
+  z-index: 10;
+}
+.seat:active { transform: scale(1.03) translateY(-1px) !important; }
+
+/* Thinking pulse — larger, more vivid */
+@keyframes seatPulseV2 {
+  0%,100% { box-shadow: 0 0 0 0 rgba(124,58,237,.55), 0 0 22px rgba(124,58,237,.3), 0 6px 24px rgba(0,0,0,.5); }
+  50%      { box-shadow: 0 0 0 16px rgba(124,58,237,0), 0 0 52px rgba(124,58,237,.6), 0 6px 24px rgba(0,0,0,.5); }
+}
+.seatPulse { animation: seatPulseV2 1.75s cubic-bezier(.4,0,.6,1) infinite !important; }
+
+/* Shimmer sweep on thinking seat */
+.seatPulse::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: inherit !important;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.09) 50%, transparent 70%) !important;
+  background-size: 200% 100% !important;
+  animation: seatShimmer 1.5s linear infinite !important;
+  pointer-events: none !important;
+  z-index: 2 !important;
+  border: none !important;
+}
+@keyframes seatShimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Seat name — tighter, bolder */
+.seatName {
+  font-weight: 700 !important;
+  letter-spacing: -.01em !important;
+}
+
+/* ② Teammate color identities — CSS vars set per seat by JS below */
+/* Seats: border + glow use --sc variable */
+.seat { border-color: var(--sc, rgba(124,58,237,.7)) !important; }
+.seat:hover {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--sc,#7c3aed) 20%, transparent) inset,
+    0 0 36px color-mix(in srgb, var(--sc,#7c3aed) 50%, transparent),
+    0 14px 40px rgba(0,0,0,.55) !important;
+}
+.seatPulse {
+  border-color: var(--sc, rgba(124,58,237,.95)) !important;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--sc,#7c3aed) 22%, transparent) inset,
+    0 0 28px color-mix(in srgb, var(--sc,#7c3aed) 45%, transparent),
+    0 6px 32px rgba(0,0,0,.5) !important;
+}
+/* Operator seat stays cyan */
+.seatOperator { border-color: rgba(34,211,238,.65) !important; }
+
+/* ⑤ Chat bubbles — depth, polish, breathing room */
+.msg { margin-bottom: 4px; }
+.msg.user + .msg.assistant,
+.msg.assistant + .msg.user { margin-top: 18px !important; }
+
+.msg .who {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: .07em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 5px !important;
+  opacity: 1 !important;
+}
+
+.msg.user .msg-body {
+  background: linear-gradient(135deg, rgba(124,58,237,.94) 0%, rgba(79,70,229,.86) 100%) !important;
+  box-shadow:
+    0 4px 22px rgba(99,60,255,.32),
+    0 0 0 1px rgba(196,181,253,.18),
+    inset 0 1px 0 rgba(255,255,255,.14) !important;
+  border-radius: 18px 18px 4px 18px !important;
+  padding: 11px 16px !important;
+  line-height: 1.62 !important;
+  font-size: 14px !important;
+}
+.msg.assistant .msg-body {
+  background: linear-gradient(160deg, rgba(16,24,60,.42) 0%, rgba(12,18,46,.32) 100%) !important;
+  border-left: 3px solid var(--seat-msg-color, rgba(148,88,255,.7)) !important;
+  border-radius: 0 12px 12px 0 !important;
+  padding: 10px 14px 10px 16px !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  font-size: 14px !important;
+  line-height: 1.7 !important;
+  box-shadow: 0 2px 14px rgba(0,0,0,.16) !important;
+}
+/* Who label color — overridden per-seat by JS */
+.msg.assistant .who { color: var(--seat-msg-color, #a78bfa) !important; }
+
+/* ⑥ Micro-animations — tactile buttons, list items */
+.btn, .btnMini, button {
+  transition:
+    transform .11s cubic-bezier(.34,1.56,.64,1),
+    box-shadow .11s ease,
+    opacity .12s ease,
+    background .14s ease,
+    border-color .14s ease !important;
+}
+.btn:hover, .btnMini:hover { transform: translateY(-1px) scale(1.01) !important; }
+.btn:active, .btnMini:active, button:active { transform: scale(.97) !important; }
+
+/* List item staggered entrance */
+.sa-li {
+  animation: listItemIn .16s ease both;
+}
+@keyframes listItemIn {
+  from { opacity: 0; transform: translateX(-5px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+/* Thread message entrance */
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ⑦ Glass panel consistency — all floating surfaces unified */
+.modal-box, #modalBox,
+[id$="Panel"]:not(#thread):not(#gcBox),
+.emailConsole, .notifPanel,
+.gcToolsDrop, .moreMenuDrop, .dmAttachDrop {
+  backdrop-filter: blur(20px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+  background: rgba(8,14,38,.85) !important;
+  border: 1px solid rgba(80,104,180,.28) !important;
+  box-shadow:
+    0 28px 72px rgba(0,0,0,.55),
+    0 0 0 1px rgba(124,58,237,.07) inset !important;
+}
+.gcToolsDrop, .moreMenuDrop, .dmAttachDrop { border-radius: 14px !important; }
+
+/* ⑧ Streaming cursor — glowing */
+.sa-cursor {
+  background: rgba(196,181,253,.95) !important;
+  box-shadow: 0 0 8px rgba(196,181,253,.7) !important;
+  animation: cursorBlink .55s step-end infinite !important;
+}
+@keyframes cursorBlink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+
+/* ⑨ Topbar — premium glass nav */
+.topbar {
+  backdrop-filter: blur(22px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+  border-bottom: 1px solid rgba(80,100,180,.2) !important;
+  background: rgba(5,8,22,.84) !important;
+}
+.topbar .brand {
+  font-weight: 800 !important;
+  letter-spacing: -.025em !important;
+}
+.topbar button, .topbar .btn { border-radius: 10px !important; }
+
+/* ⑩ Scrollbars — thin purple-tinted */
+* { scrollbar-width: thin; scrollbar-color: rgba(124,58,237,.38) transparent; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(124,58,237,.38);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(124,58,237,.65); }
+
+/* Input focus rings */
+input:focus, textarea:focus, select:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 2px rgba(124,58,237,.42) !important;
+  border-color: rgba(124,58,237,.6) !important;
+}
+
+/* Text selection */
+::selection { background: rgba(124,58,237,.32); color: #f0e8ff; }
+
+/* Consistent radius tokens */
+.btn { border-radius: 10px !important; }
+.btnMini { border-radius: 8px !important; }
+
+/* Smooth everything */
+* { transition-timing-function: cubic-bezier(.4,0,.2,1); }
+</style>
+
+<!-- ② Teammate color identity JS -->
+<script>
+(function(){
+  /* Signature accent color per teammate name (lowercase) */
+  var COLORS = {
+    ava:      '#f43f5e',
+    willow:   '#34d399',
+    max:      '#60a5fa',
+    atlas:    '#22d3ee',
+    sunshine: '#fbbf24',
+    relay:    '#a78bfa',
+    rex:      '#f87171',
+    nova:     '#f472b6',
+    sage:     '#4ade80',
+    river:    '#38bdf8',
+    luna:     '#c084fc',
+    blaze:    '#fb923c',
+  };
+  function colorFor(name){
+    return COLORS[(name||'').toLowerCase().trim()] || '#7c3aed';
+  }
+  function applyColors(){
+    /* Seat cards — read name from .seatName child */
+    document.querySelectorAll('.seat').forEach(function(s){
+      var nm = (s.querySelector('.seatName')||{}).innerText||'';
+      if(!nm) return;
+      var c = colorFor(nm);
+      s.style.setProperty('--sc', c);
+    });
+    /* Thread assistant messages — color who label + left border */
+    document.querySelectorAll('.msg.assistant').forEach(function(m){
+      var who = (m.querySelector('.who')||{}).innerText||'';
+      if(!who) return;
+      var c = colorFor(who);
+      m.style.setProperty('--seat-msg-color', c);
+    });
+  }
+  /* Run now, after DOM ready, and watch for new nodes */
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', applyColors);
+  } else { applyColors(); }
+  setTimeout(applyColors, 600);
+  setTimeout(applyColors, 2000);
+  if(window.MutationObserver){
+    var _saColorObs = new MutationObserver(function(muts){
+      if(muts.some(function(m){ return m.addedNodes.length>0; })) applyColors();
+    });
+    function _startObs(){
+      var t = document.body||document.documentElement;
+      if(t) _saColorObs.observe(t,{childList:true,subtree:true});
+      else setTimeout(_startObs,200);
+    }
+    _startObs();
+  }
+})();
+</script>
+
 </head>
 <body>
   {{trial_banner|safe}}
