@@ -15339,15 +15339,7 @@ input:focus, textarea:focus, select:focus {
   -webkit-text-fill-color: transparent !important;
   font-weight: 900 !important; letter-spacing: -.02em !important;
 }
-#thread:empty::before {
-  content: '' !important;
-  display: block !important;
-  width: 140px !important; height: 140px !important;
-  border-radius: 50% !important;
-  background: radial-gradient(ellipse at center, rgba(124,58,237,.14) 0%, transparent 70%) !important;
-  margin: 40px auto !important;
-  pointer-events: none !important;
-}
+#thread:empty::before { content: none !important; display: none !important; }
 
 /* ⑩ Typography hierarchy — size / weight / opacity differentiation */
 .sideTitle .h1 {
