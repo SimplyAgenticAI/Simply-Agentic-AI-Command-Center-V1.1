@@ -15003,6 +15003,337 @@ input:focus, textarea:focus, select:focus {
 })();
 </script>
 
+<!-- TOOL WINDOW VISUAL UPGRADE — All 10 Improvements -->
+<style>
+/* ══════════════════════════════════════════════════════════════
+   SA TOOL WINDOWS — Visual Upgrade v1
+   ══════════════════════════════════════════════════════════════ */
+
+/* 8. Tool-specific accent color per form (cascades to all children) */
+#siteAnalyzerForm    { --tool-accent:#22d3ee; }
+#marketScannerForm   { --tool-accent:#34d399; }
+#prospectDossierForm { --tool-accent:#60a5fa; }
+#intentSignalsForm   { --tool-accent:#f59e0b; }
+#emailConsoleForm    { --tool-accent:#a78bfa; }
+#crmForm             { --tool-accent:#f472b6; }
+#leadHandoffForm     { --tool-accent:#a78bfa; }
+#calendarForm        { --tool-accent:#4ade80; }
+#teamForm            { --tool-accent:#c084fc; }
+
+/* 10. Glass container — dark premium background for all tool panels */
+#siteAnalyzerForm, #marketScannerForm, #prospectDossierForm,
+#intentSignalsForm, #emailConsoleForm, #crmForm,
+#leadHandoffForm, #teamForm {
+  background: linear-gradient(160deg, rgba(6,10,28,.97) 0%, rgba(4,7,20,.99) 100%) !important;
+}
+
+/* 1. Branded tool header card */
+.sa-tool-hdr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px 16px;
+  margin: 0 0 22px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 26%, transparent);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 11%, transparent),
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 4%, transparent)
+  );
+  position: relative;
+  overflow: hidden;
+}
+/* Subtle shimmer sweep on header */
+.sa-tool-hdr::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg,
+    transparent 0%,
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 7%, transparent) 48%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: saHdrGlow 4.5s linear infinite;
+  pointer-events: none;
+}
+@keyframes saHdrGlow {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* Header icon */
+.sa-tool-hdr-icon {
+  width: 46px; height: 46px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  background: color-mix(in srgb, var(--tool-accent,#7c3aed) 15%, rgba(0,0,0,.55));
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 30%, transparent);
+  box-shadow: 0 0 20px color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, transparent);
+  flex-shrink: 0;
+}
+
+/* Header text block */
+.sa-tool-hdr-text { flex: 1; min-width: 0; }
+.sa-tool-hdr-name {
+  font-size: 17px; font-weight: 800;
+  color: #f1f5f9; letter-spacing: -.025em; line-height: 1.2;
+}
+.sa-tool-hdr-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--tool-accent,#a78bfa);
+  margin-top: 3px;
+}
+
+/* AI-Powered badge */
+.sa-tool-hdr-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 3px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--tool-accent,#7c3aed) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 28%, transparent);
+  color: var(--tool-accent,#c4b5fd);
+  letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
+}
+
+/* 2. Input redesign — glass pill with glow focus */
+#saUrl, #msNiche, #pdQuery, #isQuery {
+  background: rgba(6,10,30,.82) !important;
+  border: 1px solid rgba(42,58,106,.5) !important;
+  border-radius: 12px !important;
+  padding: 12px 16px !important;
+  font-size: 14px !important;
+  color: #e2e8f0 !important;
+  transition: border-color .18s ease, box-shadow .18s ease !important;
+}
+#saUrl::placeholder, #msNiche::placeholder,
+#pdQuery::placeholder, #isQuery::placeholder {
+  color: #2a3748 !important;
+}
+#saUrl:focus, #msNiche:focus, #pdQuery:focus, #isQuery:focus {
+  border-color: var(--tool-accent,rgba(124,58,237,.7)) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--tool-accent,#7c3aed) 16%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.05) !important;
+  background: rgba(8,14,42,.9) !important;
+}
+
+/* 3. Run button upgrade — gradient glow pill */
+#saAnalyzeBtn, #msRunBtn, #pdRunBtn, #isRunBtn {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 80%, #08021a),
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 52%, #040110)
+  ) !important;
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 50%, transparent) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  padding: 12px 22px !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  box-shadow:
+    0 4px 18px color-mix(in srgb, var(--tool-accent,#7c3aed) 30%, transparent),
+    0 2px 6px rgba(0,0,0,.4) !important;
+  transition: all .18s ease !important;
+  position: relative; overflow: hidden;
+}
+#saAnalyzeBtn:hover, #msRunBtn:hover, #pdRunBtn:hover, #isRunBtn:hover {
+  transform: translateY(-2px) scale(1.025) !important;
+  box-shadow:
+    0 8px 28px color-mix(in srgb, var(--tool-accent,#7c3aed) 44%, transparent),
+    0 2px 8px rgba(0,0,0,.45) !important;
+}
+#saAnalyzeBtn:active, #msRunBtn:active, #pdRunBtn:active, #isRunBtn:active {
+  transform: scale(.97) !important;
+}
+
+/* 4. Shimmer sweep while button is disabled (running) */
+@keyframes saRunShim {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+#saAnalyzeBtn:disabled, #msRunBtn:disabled, #pdRunBtn:disabled, #isRunBtn:disabled {
+  cursor: not-allowed;
+  opacity: .7;
+  background-image: linear-gradient(
+    105deg, transparent 20%, rgba(255,255,255,.15) 45%, transparent 72%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: saRunShim 1.1s linear infinite !important;
+  transform: none !important;
+}
+
+/* 5. Results containers — glass card treatment */
+#saResults, #msResults, #pdResults, #isResults {
+  background: rgba(5,8,22,.7) !important;
+  border: 1px solid rgba(36,52,100,.5) !important;
+  border-radius: 16px !important;
+  min-height: 160px;
+  transition: border-color .3s ease;
+  overflow: auto;
+}
+
+/* 7. Empty state component */
+.sa-tool-empty {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 52px 24px; gap: 10px; text-align: center;
+}
+.sa-tool-empty-icon {
+  font-size: 40px; opacity: .6; margin-bottom: 4px;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--tool-accent,#7c3aed) 42%, transparent));
+}
+.sa-tool-empty-title { font-size: 15px; font-weight: 700; color: #3d4f68; }
+.sa-tool-empty-sub   { font-size: 12px; color: #283244; max-width: 290px; line-height: 1.55; }
+
+/* 9. Toast micro-feedback element */
+#_saTst {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%) translateY(18px);
+  background: rgba(8,14,40,.97);
+  border: 1px solid rgba(124,58,237,.5);
+  border-radius: 12px; padding: 9px 22px;
+  font-size: 13px; font-weight: 600; color: #c4b5fd;
+  z-index: 99999; opacity: 0;
+  transition: opacity .22s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none;
+  box-shadow: 0 8px 28px rgba(0,0,0,.45); white-space: nowrap;
+}
+#_saTst.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* 6. Score bar utility (for results sections) */
+.sa-score-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
+.sa-score-lbl { font-size:11px; color:#64748b; width:110px; flex-shrink:0; text-transform:capitalize; }
+.sa-score-track { flex:1; height:6px; background:rgba(255,255,255,.06); border-radius:99px; overflow:hidden; }
+.sa-score-fill  {
+  height:100%; border-radius:99px;
+  background: linear-gradient(90deg,
+    var(--tool-accent,#7c3aed),
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 50%, #fff)
+  );
+  transition: width .85s cubic-bezier(.4,0,.2,1);
+}
+
+/* Entrance animation for newly injected headers */
+.sa-tool-hdr {
+  animation: saHdrIn .28s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes saHdrIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+</style>
+
+<script>
+/* Tool Window Visual — header injection, empty states, toast */
+(function(){
+  var TOOLS = {
+    siteAnalyzerForm:    {icon:'🔬',name:'Site Analyzer',    tag:'Competitive Intelligence', badge:'AI-Powered',
+                          res:'saResults', emptyIcon:'🔬',
+                          emptyTitle:'No report yet',
+                          emptySub:'Paste any URL above to get a full competitive intelligence report — scores, SEO signals, tech stack, and how to win.'},
+    marketScannerForm:   {icon:'📊',name:'Market Scanner',   tag:'Market Research',          badge:'AI-Powered',
+                          res:'msResults', emptyIcon:'📊',
+                          emptyTitle:'Market awaiting scan',
+                          emptySub:'Enter a niche or industry above to reveal top players, pricing gaps, and buyer pain points.'},
+    prospectDossierForm: {icon:'🎯',name:'Prospect Dossier', tag:'Lead Intelligence',        badge:'AI-Powered',
+                          res:'pdResults', emptyIcon:'🎯',
+                          emptyTitle:'No prospect researched',
+                          emptySub:'Enter a company name or URL above to build a full intel brief before outreach.'},
+    intentSignalsForm:   {icon:'📡',name:'Intent Signals',   tag:'Active Buyer Detection',   badge:'AI-Powered',
+                          res:'isResults', emptyIcon:'📡',
+                          emptyTitle:'No signals found yet',
+                          emptySub:'Describe what you sell above to find companies actively signaling they need it right now.'},
+    emailConsoleForm:    {icon:'📧',name:'Email Console',    tag:'Smart Outreach',           badge:'Live'},
+    crmForm:             {icon:'👥',name:'Client CRM',       tag:'Relationship Hub',         badge:'Live'},
+    leadHandoffForm:     {icon:'🤝',name:'Lead Handoff',     tag:'Teammate Outreach',        badge:'AI-Powered'},
+    teamForm:            {icon:'🏆',name:'Your Team',        tag:'Seats & Invites',          badge:'Live'},
+  };
+
+  /* Inject a branded header bar as the first child of .modalInner */
+  function injectHeader(id){
+    var form=document.getElementById(id);
+    if(!form||form.querySelector('.sa-tool-hdr'))return;
+    var t=TOOLS[id]; if(!t)return;
+    var inner=form.querySelector('.modalInner')||form;
+    var h=document.createElement('div');
+    h.className='sa-tool-hdr';
+    h.innerHTML=
+      '<div class="sa-tool-hdr-icon">'+t.icon+'</div>'+
+      '<div class="sa-tool-hdr-text">'+
+        '<div class="sa-tool-hdr-name">'+t.name+'</div>'+
+        '<div class="sa-tool-hdr-tag">'+t.tag+'</div>'+
+      '</div>'+
+      '<div class="sa-tool-hdr-badge">'+(t.badge||'AI')+'</div>';
+    inner.insertBefore(h,inner.firstChild);
+  }
+
+  /* Replace the plain boring placeholder text with a styled empty state */
+  function upgradeEmpty(id){
+    var t=TOOLS[id]; if(!t||!t.res)return;
+    var res=document.getElementById(t.res); if(!res)return;
+    var html=res.innerHTML;
+    /* Only replace if it's still the original short placeholder */
+    if(!html.includes('text-align:center')||(res.innerText||'').trim().length>280)return;
+    res.innerHTML=
+      '<div class="sa-tool-empty">'+
+        '<div class="sa-tool-empty-icon">'+t.emptyIcon+'</div>'+
+        '<div class="sa-tool-empty-title">'+t.emptyTitle+'</div>'+
+        '<div class="sa-tool-empty-sub">'+t.emptySub+'</div>'+
+      '</div>';
+  }
+
+  /* Global toast utility — call window._saToast("Copied!") anywhere */
+  window._saToast=function(msg,color){
+    var el=document.getElementById('_saTst');
+    if(!el){
+      el=document.createElement('div');
+      el.id='_saTst';
+      document.body.appendChild(el);
+    }
+    el.textContent='✓ '+msg;
+    if(color)el.style.borderColor=color;
+    el.classList.add('on');
+    clearTimeout(window._saToastT);
+    window._saToastT=setTimeout(function(){el.classList.remove('on');},2600);
+  };
+
+  function setupAll(){
+    Object.keys(TOOLS).forEach(function(id){
+      injectHeader(id);
+      upgradeEmpty(id);
+    });
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',setupAll);
+  }else{setupAll();}
+  setTimeout(setupAll,650);
+  setTimeout(setupAll,2200);
+
+  /* Re-run whenever a tool form's display style changes (becomes visible) */
+  if(window.MutationObserver){
+    var _twO=new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        var el=m.target;
+        if(m.type==='attributes'&&m.attributeName==='style'&&el&&TOOLS[el.id]&&el.style.display!=='none'){
+          setTimeout(function(){injectHeader(el.id);upgradeEmpty(el.id);},55);
+        }
+      });
+    });
+    function startTWO(){
+      Object.keys(TOOLS).forEach(function(id){
+        var el=document.getElementById(id);
+        if(el)_twO.observe(el,{attributes:true,attributeFilter:['style']});
+      });
+    }
+    if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',startTWO);}
+    else{startTWO();}
+    setTimeout(startTWO,900);
+  }
+})();
+</script>
+
 </head>
 <body>
   {{trial_banner|safe}}
