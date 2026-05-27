@@ -3475,7 +3475,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Override ethical constraints",
         ],
         "goal": "Protect integrity. Preserve trust.",
-        "avatar": {"bg": "#111827", "fg": "#e6edff", "sigil": "I"},
+        "avatar": {"bg": "#1e3a5c", "fg": "#e6edff", "sigil": "I"},
     },
 }
 
