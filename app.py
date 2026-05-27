@@ -3314,7 +3314,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Pure execution work",
         ],
         "goal": "Strategy before tactics. Systems over hacks.",
-        "avatar": {"bg": "#1e3a8a", "fg": "#e6edff", "sigil": "A"},
+        "avatar": {"bg": "#1e3a8a", "fg": "#e6edff", "sigil": "A", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="13" stroke="rgba(255,255,255,.85)" stroke-width="1.5"/><circle cx="20" cy="20" r="6" stroke="rgba(255,255,255,.7)" stroke-width="1.5"/><circle cx="20" cy="20" r="2.5" fill="rgba(255,255,255,.9)"/><line x1="20" y1="4" x2="20" y2="10" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="30" x2="20" y2="36" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="4" y1="20" x2="10" y2="20" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="30" y1="20" x2="36" y2="20" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/></svg>'},
     },
     "Willow": {
         "name": "Willow",
@@ -3343,7 +3343,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Write sales, hype, or persuasive language",
         ],
         "goal": "Architect language. Preserve meaning. Optimize clarity.",
-        "avatar": {"bg": "#5b21b6", "fg": "#e6edff", "sigil": "W"},
+        "avatar": {"bg": "#5b21b6", "fg": "#e6edff", "sigil": "W", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M22 8C26 10 30 16 28 24C26 30 20 34 20 34C20 34 14 30 12 24C10 18 13 11 18 8L20 13L22 8Z" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linejoin="round"/><line x1="20" y1="13" x2="20" y2="34" stroke="rgba(255,255,255,.4)" stroke-width="1" stroke-linecap="round" stroke-dasharray="2 3"/></svg>'},
     },
     "Ava": {
         "name": "Ava",
@@ -3369,7 +3369,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Drift into persuasion or strategy",
         ],
         "goal": "Signal over noise. Evidence over assumption.",
-        "avatar": {"bg": "#0f766e", "fg": "#e6edff", "sigil": "A"},
+        "avatar": {"bg": "#0f766e", "fg": "#e6edff", "sigil": "A", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 20C6 20 12 10 20 10C28 10 34 20 34 20C34 20 28 30 20 30C12 30 6 20 6 20Z" stroke="rgba(255,255,255,.85)" stroke-width="1.5" fill="rgba(255,255,255,.07)"/><circle cx="20" cy="20" r="5.5" stroke="rgba(255,255,255,.85)" stroke-width="1.5"/><circle cx="20" cy="20" r="2" fill="rgba(255,255,255,.9)"/></svg>'},
     },
     "Luna": {
         "name": "Luna",
@@ -3397,7 +3397,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Effects over substance",
         ],
         "goal": "Enhancement without distortion.",
-        "avatar": {"bg": "#7c2d12", "fg": "#e6edff", "sigil": "L"},
+        "avatar": {"bg": "#7c2d12", "fg": "#e6edff", "sigil": "L", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M26 7C26 7 22 9 18 13C14 17 13 22 15 26C17 30 22 33 26 33C22 32 19 28 19 23C19 18 22 13 26 7Z" fill="rgba(255,255,255,.15)" stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linejoin="round"/><circle cx="30" cy="12" r="1.5" fill="rgba(255,255,255,.8)"/><circle cx="33" cy="19" r="1" fill="rgba(255,255,255,.55)"/><circle cx="29" cy="7" r="0.9" fill="rgba(255,255,255,.45)"/></svg>'},
     },
     "Orion": {
         "name": "Orion",
@@ -3423,7 +3423,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Prioritize speed over reliability",
         ],
         "goal": "Failure prevention first.",
-        "avatar": {"bg": "#374151", "fg": "#e6edff", "sigil": "O"},
+        "avatar": {"bg": "#374151", "fg": "#e6edff", "sigil": "O", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon points="20,6 32,13 32,27 20,34 8,27 8,13" stroke="rgba(255,255,255,.85)" stroke-width="1.5" fill="rgba(255,255,255,.07)"/><circle cx="20" cy="6" r="2" fill="rgba(255,255,255,.7)"/><circle cx="32" cy="13" r="2" fill="rgba(255,255,255,.7)"/><circle cx="32" cy="27" r="2" fill="rgba(255,255,255,.7)"/><circle cx="20" cy="34" r="2" fill="rgba(255,255,255,.7)"/><circle cx="8" cy="27" r="2" fill="rgba(255,255,255,.7)"/><circle cx="8" cy="13" r="2" fill="rgba(255,255,255,.7)"/><circle cx="20" cy="20" r="3.5" stroke="rgba(255,255,255,.65)" stroke-width="1.2" fill="rgba(255,255,255,.18)"/></svg>'},
     },
     "Sunshine": {
         "name": "Sunshine",
@@ -3449,7 +3449,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Force a close",
         ],
         "goal": "Right offer. Right time. Right tone.",
-        "avatar": {"bg": "#9a3412", "fg": "#e6edff", "sigil": "S"},
+        "avatar": {"bg": "#9a3412", "fg": "#e6edff", "sigil": "S", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="7" stroke="rgba(255,255,255,.9)" stroke-width="1.5" fill="rgba(255,255,255,.18)"/><line x1="20" y1="5" x2="20" y2="10" stroke="rgba(255,255,255,.8)" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="30" x2="20" y2="35" stroke="rgba(255,255,255,.8)" stroke-width="1.5" stroke-linecap="round"/><line x1="5" y1="20" x2="10" y2="20" stroke="rgba(255,255,255,.8)" stroke-width="1.5" stroke-linecap="round"/><line x1="30" y1="20" x2="35" y2="20" stroke="rgba(255,255,255,.8)" stroke-width="1.5" stroke-linecap="round"/><line x1="9.4" y1="9.4" x2="13" y2="13" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="27" y1="27" x2="30.6" y2="30.6" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="9.4" y1="30.6" x2="13" y2="27" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/><line x1="27" y1="13" x2="30.6" y2="9.4" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-linecap="round"/></svg>'},
     },
     "Atlis": {
         "name": "Atlis",
@@ -3475,7 +3475,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Override ethical constraints",
         ],
         "goal": "Protect integrity. Preserve trust.",
-        "avatar": {"bg": "#1e3a5c", "fg": "#e6edff", "sigil": "I"},
+        "avatar": {"bg": "#1e3a5c", "fg": "#e6edff", "sigil": "I", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 6L32 11V21C32 27.5 26.5 32.5 20 35C13.5 32.5 8 27.5 8 21V11L20 6Z" fill="rgba(255,255,255,.09)" stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 20.5L18 24.5L26 16" stroke="rgba(255,255,255,.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
     },
 }
 
@@ -3803,7 +3803,15 @@ def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) 
             updated[k] = _normalize_lines_to_list(payload.get(k))
 
     updated["name"] = current.get("name", "")
-    updated["avatar"] = current.get("avatar", current.get("avatar", {}))
+    updated["avatar"] = dict(current.get("avatar") or {})
+    if "avatar" in payload and isinstance(payload.get("avatar"), dict):
+        glyph_raw = (payload["avatar"].get("glyph") or "").strip()
+        if glyph_raw:
+            clean = _sanitize_svg(glyph_raw)
+            if clean:
+                updated["avatar"]["glyph"] = clean
+        elif payload["avatar"].get("glyph") == "":
+            updated["avatar"].pop("glyph", None)
 
     for k, v in current.items():
         if k not in updated:
@@ -3821,6 +3829,20 @@ def _clean_teammate_name(name: str) -> str:
     n = (name or "").strip()
     n = re.sub(r"\s+", " ", n)
     return n
+
+
+def _sanitize_svg(raw: str) -> str:
+    """Strip SVG to only safe elements and attributes. Reject anything suspicious."""
+    import re as _re
+    m = _re.search(r'<svg[\s\S]*?</svg>', raw, _re.IGNORECASE)
+    if not m:
+        return ""
+    svg = m.group(0)
+    svg = _re.sub(r'\son\w+\s*=\s*(?:"[^"]*"|\'[^\']*\')', '', svg, flags=_re.IGNORECASE)
+    svg = _re.sub(r'javascript\s*:', '', svg, flags=_re.IGNORECASE)
+    SAFE = r'(?:svg|circle|ellipse|line|path|polygon|polyline|rect|g|defs|stop|linearGradient|radialGradient)'
+    svg = _re.sub(r'<(?!\/?(?:' + SAFE + r')\b)[^>]+>', '', svg, flags=_re.IGNORECASE)
+    return svg.strip()
 
 
 def _make_avatar_for(name: str) -> Dict[str, str]:
@@ -15193,6 +15215,23 @@ input:focus, textarea:focus, select:focus {
    VISUAL UPGRADE PACK — 10 improvements
 ═══════════════════════════════════════════════════ */
 
+/* Avatar SVG glyph sizing */
+.avatar svg, .av svg {
+  width: 24px !important; height: 24px !important;
+  display: block !important; flex-shrink: 0 !important;
+  pointer-events: none !important;
+}
+#etAvatarGlyph {
+  width: 56px !important; height: 56px !important;
+  border-radius: 15px !important;
+  display: flex !important; align-items: center !important; justify-content: center !important;
+  font-size: 22px !important; font-weight: 900 !important;
+  margin: 0 auto 8px !important;
+  border: 2px solid rgba(255,255,255,.18) !important;
+  box-shadow: 0 0 20px rgba(124,58,237,.25), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+#etAvatarGlyph svg { width: 28px !important; height: 28px !important; }
+
 /* ① Teammate avatar badges — gradient gloss + per-seat glow */
 .av {
   width: 38px !important; height: 38px !important;
@@ -16088,6 +16127,21 @@ label {
                       <div id="etAvatarGlyph">?</div>
                       <div id="etNameDisplay"></div>
                       <div id="editHint" style="margin-top:5px;font-size:11px;color:rgba(148,163,184,.5);">Name is locked.</div>
+                    </div>
+
+                    <button class="btn btnMini" id="etGlyphBtn" onclick="saToggleGlyphDesigner()" style="width:100%;margin-bottom:6px;border-color:rgba(167,139,250,.4);color:#c4b5fd;font-size:12px;">✦ Design Glyph</button>
+                    <div id="etGlyphPanel" style="display:none;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:12px;margin-bottom:8px;">
+                      <div style="font-size:11px;font-weight:700;color:rgba(196,181,253,.85);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">✦ Luna Glyph Designer</div>
+                      <textarea id="etGlyphDesc" placeholder="Describe the glyph... e.g. 'a compass rose', 'two interlocked rings', 'a flame inside a hexagon'" style="width:100%;height:72px;font-size:12px;resize:none;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.25);color:#e2e8f0;padding:8px;"></textarea>
+                      <div style="display:flex;gap:6px;margin-top:8px;">
+                        <button class="btn btnMini btnPrimary" id="etGlyphGenBtn" onclick="saGenerateGlyph()" style="flex:1;font-size:12px;">Generate</button>
+                        <button class="btn btnMini" id="etGlyphUseBtn" onclick="saUseGlyph()" style="display:none;flex:1;font-size:12px;border-color:rgba(52,211,153,.4);color:#6ee7b7;">✓ Use This</button>
+                      </div>
+                      <div id="etGlyphPreviewWrap" style="display:none;margin-top:10px;text-align:center;">
+                        <div style="font-size:10px;color:rgba(148,163,184,.6);margin-bottom:6px;">PREVIEW</div>
+                        <div id="etGlyphPreview" style="width:52px;height:52px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;background:#1e3a8a;border:1px solid rgba(255,255,255,.18);"></div>
+                      </div>
+                      <div id="etGlyphStatus" style="font-size:11px;color:rgba(148,163,184,.6);margin-top:6px;min-height:14px;text-align:center;"></div>
                     </div>
 
                     <label>Name</label>
@@ -19799,7 +19853,13 @@ window.showModal = function showModal(title, body, imgUrl){
       if($("editPreferredModel")) $("editPreferredModel").value = t.preferred_model || "";
       if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
       if($("etNameDisplay")) $("etNameDisplay").textContent = t.name || name || "";
-      if($("etAvatarGlyph")) $("etAvatarGlyph").textContent = (t.name || name || "?")[0].toUpperCase();
+      var _av = t.avatar || {};
+      if($("etAvatarGlyph")){
+        if(_av.glyph){ $("etAvatarGlyph").innerHTML = _av.glyph; }
+        else { $("etAvatarGlyph").textContent = (t.name || name || "?")[0].toUpperCase(); }
+        $("etAvatarGlyph").style.background = _av.bg || "#1f2a44";
+      }
+      window._saEditingGlyph = _av.glyph || null;
       setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 80);
 
       $("editStatus").innerText = "";
@@ -19826,6 +19886,7 @@ window.showModal = function showModal(title, body, imgUrl){
         will_not_do: $("editWillNotDo").value || "",
         preferred_model: ($("editPreferredModel") ? $("editPreferredModel").value : "") || "",
         tts_voice: ($("editTtsVoice") ? $("editTtsVoice").value : "") || "alloy",
+        avatar: {glyph: window._saEditingGlyph || ""},
       };
 
       const res = await fetch("/api/teammate/" + encodeURIComponent(editingTeammate), {
@@ -19873,8 +19934,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       avatar.className = "avatar";
       avatar.style.background = av.bg;
       avatar.style.color = av.fg;
-      avatar.style.fontSize = "17px";
-      avatar.innerText = av.sigil || defn.name.slice(0,1).toUpperCase();
+      if(av.glyph){
+        avatar.innerHTML = av.glyph;
+        avatar.style.fontSize = "0";
+      } else {
+        avatar.style.fontSize = "17px";
+        avatar.innerText = av.sigil || defn.name.slice(0,1).toUpperCase();
+      }
       // Accent bar color from avatar
       seat.style.setProperty("--seat-accent", av.bg);
 
@@ -40140,6 +40206,61 @@ window.toggleNotifPanel = function(){
 </script>
 
 <script>
+/* Glyph designer logic */
+window._saEditingGlyph = null;
+window._saGeneratedGlyph = null;
+
+function saToggleGlyphDesigner(){
+  var p = document.getElementById('etGlyphPanel');
+  if(!p) return;
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saGenerateGlyph(){
+  var desc = (document.getElementById('etGlyphDesc')||{}).value || '';
+  if(!desc.trim()){ document.getElementById('etGlyphStatus').textContent='Describe the glyph first.'; return; }
+  var name = (document.getElementById('editName')||{}).value || 'Teammate';
+  var btn = document.getElementById('etGlyphGenBtn');
+  var status = document.getElementById('etGlyphStatus');
+  btn.disabled = true; btn.textContent = 'Generating...';
+  status.textContent = 'Luna is designing your glyph...';
+  document.getElementById('etGlyphUseBtn').style.display = 'none';
+  document.getElementById('etGlyphPreviewWrap').style.display = 'none';
+  try {
+    var res = await fetch('/api/teammate/design_glyph', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: name, description: desc})
+    });
+    var d = await res.json();
+    if(!d.ok){ status.textContent = d.error || 'Generation failed.'; return; }
+    window._saGeneratedGlyph = d.svg;
+    var prev = document.getElementById('etGlyphPreview');
+    var av = (window._saEditingGlyph !== undefined && document.getElementById('etAvatarGlyph'))
+      ? (document.getElementById('etAvatarGlyph').style.background || '#1e3a8a') : '#1e3a8a';
+    prev.style.background = av;
+    prev.innerHTML = d.svg;
+    prev.querySelectorAll('svg').forEach(function(s){ s.style.width='28px'; s.style.height='28px'; });
+    document.getElementById('etGlyphPreviewWrap').style.display = 'block';
+    document.getElementById('etGlyphUseBtn').style.display = 'inline-block';
+    status.textContent = 'Happy with it? Click "Use This" to apply.';
+  } catch(e){
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generate';
+  }
+}
+
+function saUseGlyph(){
+  if(!window._saGeneratedGlyph) return;
+  window._saEditingGlyph = window._saGeneratedGlyph;
+  var ag = document.getElementById('etAvatarGlyph');
+  if(ag){ ag.innerHTML = window._saEditingGlyph; ag.querySelectorAll('svg').forEach(function(s){ s.style.width='28px'; s.style.height='28px'; }); }
+  document.getElementById('etGlyphStatus').textContent = '✓ Glyph applied — save to keep it.';
+  document.getElementById('etGlyphUseBtn').style.display = 'none';
+}
+</script>
+
+<script>
 /* Cosmic neural-web background */
 (function(){
   var cv=document.getElementById('saNeuralCanvas');
@@ -45513,6 +45634,42 @@ def api_teammate_dream():
         return jsonify({"ok": True, "name": name, "reflection": reflection.strip()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/api/teammate/design_glyph")
+def api_design_glyph():
+    """Ask Luna to design an SVG badge glyph for a teammate."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    description = (payload.get("description") or "").strip()
+    if not description:
+        return jsonify({"ok": False, "error": "Description required"}), 400
+    system = (
+        "You are an SVG icon designer specialising in minimal badge glyphs. "
+        "Generate a clean, recognisable SVG symbol for a teammate avatar badge. "
+        "Hard rules: viewBox MUST be '0 0 40 40'. Use ONLY white fill/stroke values "
+        "(e.g. 'rgba(255,255,255,.85)' or 'white'). No background rectangle. "
+        "No text or font elements. Simple geometric shapes only — paths, circles, lines, polygons. "
+        "Keep stroke-width between 1 and 2. Output ONLY the raw <svg>...</svg> element. "
+        "No markdown, no explanation, no code fences. Under 700 characters total."
+    )
+    user_msg = f"Design a glyph badge for a teammate named '{name}'. Visual description: {description}"
+    try:
+        svg_raw = call_llm(
+            system,
+            [{"role": "user", "content": user_msg}],
+            temperature=0.7,
+        )
+        svg_clean = _sanitize_svg(svg_raw)
+        if not svg_clean:
+            return jsonify({"ok": False, "error": "Model did not return a valid SVG. Try rephrasing."}), 400
+        return jsonify({"ok": True, "svg": svg_clean})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 @app.post("/api/teammate/second_opinion")
 def api_teammate_second_opinion():
