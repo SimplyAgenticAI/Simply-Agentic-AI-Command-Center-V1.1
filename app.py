@@ -12757,6 +12757,8 @@ HTML = r"""
       display:grid;
       grid-template-columns: minmax(0, 1fr) 680px;
       align-items:start;
+      position:relative;
+      z-index:2;
     }
 
     .arena{
@@ -15772,7 +15774,7 @@ label {
 </script>
 
 <style>
-#saNeuralCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;}
+#saNeuralCanvas{position:fixed;inset:0;z-index:1;pointer-events:none;}
 </style>
 </head>
 <body>
@@ -40153,16 +40155,16 @@ window.toggleNotifPanel = function(){
   var cx=cv.getContext('2d');
   var W,H;
   var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
-  var N=72, MAXD=170;
+  var N=80, MAXD=185;
   var pts=[];
 
   function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
 
   function mkPt(){
-    var a=Math.random()*Math.PI*2, sp=Math.random()*0.20+0.06;
+    var a=Math.random()*Math.PI*2, sp=Math.random()*0.22+0.06;
     var c=COLS[Math.floor(Math.random()*COLS.length)];
     return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
-           r:Math.random()*1.4+0.7,c:c,al:Math.random()*0.28+0.14,
+           r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.38+0.32,
            tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
   }
 
@@ -40183,11 +40185,11 @@ window.toggleNotifPanel = function(){
         dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
         d=Math.sqrt(dx*dx+dy*dy);
         if(d<MAXD){
-          la=0.13*(1-d/MAXD);
+          la=0.28*(1-d/MAXD);
           var ci=pts[i].c;
           cx.beginPath();
           cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
-          cx.lineWidth=0.65;
+          cx.lineWidth=0.8;
           cx.moveTo(pts[i].x,pts[i].y);
           cx.lineTo(pts[j].x,pts[j].y);
           cx.stroke();
