@@ -32628,9 +32628,10 @@ if(typeof maybeAutoShowOnboarding === "function"){
         .seatRole { font-size: ${sc(10)}px !important; }
         .seatNum  { font-size: ${sc(9)}px !important; }
 
-        /* Thread & chat */
-        .thread, .msg-body, .followBox, .followMsg { font-size: ${sz}px !important; }
-        .who     { font-size: ${sc(12)}px !important; }
+        /* Thread & chat — include high-specificity selectors so they beat visual-upgrade overrides */
+        .thread, .msg-body, .followBox, .followMsg,
+        .msg.user .msg-body, .msg.assistant .msg-body { font-size: ${sz}px !important; }
+        .who, .msg .who { font-size: ${sc(10)}px !important; }
         .dmMsg   { font-size: ${sz}px !important; }
         #dmInput { font-size: ${sz}px !important; }
 
