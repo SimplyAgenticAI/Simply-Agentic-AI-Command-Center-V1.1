@@ -21798,6 +21798,7 @@ function _saJobNotify(seatName, status){
         prospect_dossier: { icon:'🎯', label:'Prospect Dossier',  fn:'showProspectDossierModal' },
         market_scanner:   { icon:'📊', label:'Market Scanner',    fn:'showMarketScannerModal' },
         intent_signals:   { icon:'📡', label:'Intent Signals',    fn:'showIntentSignalsModal' },
+        response_vault:   { icon:'🗄️', label:'Response Vault',    fn:'openResponseVault' },
       };
 
       let _pinned = [];
@@ -22995,17 +22996,18 @@ Challenge weak assumptions. Surface risks.`;
 
         overlay.innerHTML = [
           '<div id="_rvPanel" style="background:#0f172a;border:1px solid rgba(124,58,237,.45);border-radius:20px;',
-          'width:min(680px,96vw);max-height:82vh;display:flex;flex-direction:column;',
+          'width:min(1400px,97vw);height:min(900px,92vh);display:flex;flex-direction:column;',
           'box-shadow:0 24px 64px rgba(0,0,0,.7);overflow:hidden;">',
 
             // Header
-            '<div style="display:flex;align-items:center;gap:10px;padding:18px 22px 14px;border-bottom:1px solid rgba(255,255,255,.07);">',
-              '<span style="font-size:22px;">🗄️</span>',
+            '<div style="display:flex;align-items:center;gap:10px;padding:18px 24px 14px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;">',
+              '<span style="font-size:24px;">🗄️</span>',
               '<div style="flex:1;">',
-                '<div style="font-size:17px;font-weight:800;color:#e2e8f0;">Response Vault</div>',
+                '<div style="font-size:18px;font-weight:800;color:#e2e8f0;">Response Vault</div>',
                 '<div style="font-size:12px;color:#475569;margin-top:1px;">Your saved AI responses — browse, copy, or delete</div>',
               '</div>',
-              '<button onclick="document.getElementById(\'_rvOverlay\').dispatchEvent(new MouseEvent(\'click\'))" ',
+              '<div id="_rvPinBtnWrap" style="margin-right:6px;"></div>',
+              '<button onclick="closeVault()" ',
               'style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;',
               'color:#94a3b8;cursor:pointer;font-size:18px;line-height:1;padding:4px 10px;">&#215;</button>',
             '</div>',
@@ -23018,8 +23020,8 @@ Challenge weak assumptions. Surface risks.`;
             '</div>',
 
             // Count + list
-            '<div id="_rvCount" style="padding:8px 22px 4px;font-size:12px;color:#334155;"></div>',
-            '<div id="_rvList" style="flex:1;overflow-y:auto;padding:0 14px 14px;"></div>',
+            '<div id="_rvCount" style="padding:10px 24px 4px;font-size:12px;color:#334155;flex-shrink:0;"></div>',
+            '<div id="_rvList" style="flex:1;overflow-y:auto;padding:0 16px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:10px;align-content:start;"></div>',
 
             // Empty state
             '<div id="_rvEmpty" style="display:none;flex:1;align-items:center;justify-content:center;',
@@ -23035,6 +23037,13 @@ Challenge weak assumptions. Surface risks.`;
         ].join('');
 
         document.body.appendChild(overlay);
+
+        // Inject pin button
+        var pinWrap = document.getElementById('_rvPinBtnWrap');
+        if(pinWrap && typeof window.saCreatePinBtn === 'function'){
+          var pb = window.saCreatePinBtn('response_vault');
+          if(pb) pinWrap.appendChild(pb);
+        }
 
         // Search handler
         var searchEl = document.getElementById('_rvSearch');
@@ -23089,7 +23098,7 @@ Challenge weak assumptions. Surface risks.`;
           return [
             '<div class="_rvCard" data-id="'+e.id+'" ',
             'style="background:#1e293b;border:1px solid rgba(255,255,255,.07);border-radius:14px;',
-            'padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .18s;"',
+            'padding:14px 16px;cursor:pointer;transition:border-color .18s;"',
             ' onmouseenter="this.style.borderColor=\'rgba(124,58,237,.5)\'"',
             ' onmouseleave="this.style.borderColor=\'rgba(255,255,255,.07)\'">',
 
