@@ -19849,14 +19849,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const raw=lines[i];
         if(raw.trimStart().startsWith('```')){
           if(inPre){ out.push('</code></pre>'); inPre=false; }
-          else{ closeList(); out.push('<pre style="background:rgba(0,0,0,.35);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;"><code style="font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre;">'); inPre=true; }
+          else{ closeList(); out.push('<pre style="background:rgba(0,0,0,.35);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:6px 0;"><code style="font-family:monospace;font-size:.82em;color:#e2e8f0;white-space:pre;">'); inPre=true; }
           continue;
         }
         if(inPre){ out.push(esc(raw)); continue; }
         const e=esc(raw);
-        if(/^### /.test(e)){ closeList(); out.push('<div style="font-size:13px;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
-        if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:14px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
-        if(/^# /.test(e)){   closeList(); out.push('<div style="font-size:15px;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
+        if(/^### /.test(e)){ closeList(); out.push('<div style="font-size:.95em;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
+        if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:1.07em;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
+        if(/^# /.test(e)){   closeList(); out.push('<div style="font-size:1.18em;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(2))+'</div>'); continue; }
         if(/^-{3,}$/.test(raw.trim())){ closeList(); out.push('<hr style="border:none;border-top:1px solid rgba(124,58,237,.3);margin:8px 0;">'); continue; }
         // Numbered list — strip optional leading ** so "**1. Text**" also matches
         const _olStrip=raw.replace(/^\s*\*{0,3}\s*/,'');
