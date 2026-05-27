@@ -13298,9 +13298,11 @@ HTML = r"""
       max-height: 100vh;
       background: #030511;
       background-image:
-        radial-gradient(ellipse 72% 52% at 88% 6%,  rgba(14,165,233,.22)  0%, rgba(56,189,248,.09) 40%, transparent 65%),
-        radial-gradient(ellipse 62% 48% at 6%  92%,  rgba(124,58,237,.30)  0%, rgba(99,58,200,.12)  34%, transparent 62%),
-        radial-gradient(ellipse 46% 36% at 50% 50%, rgba(79,50,180,.08)   0%, transparent 70%);
+        radial-gradient(ellipse 82% 64% at 94% 0%,    rgba(14,165,233,.48)  0%, rgba(56,189,248,.18) 36%, transparent 62%),
+        radial-gradient(ellipse 70% 56% at 4%  98%,   rgba(124,58,237,.56)  0%, rgba(99,58,200,.22)  32%, transparent 60%),
+        radial-gradient(ellipse 40% 32% at 50% 48%,   rgba(79,50,180,.13)   0%, transparent 70%),
+        radial-gradient(ellipse 32% 26% at 76% 78%,   rgba(139,92,246,.22)  0%, transparent 54%),
+        radial-gradient(ellipse 26% 20% at 20% 26%,   rgba(6,182,212,.18)   0%, transparent 52%);
       background-attachment: fixed;
       border: none;
       border-radius: 0;
@@ -13324,9 +13326,10 @@ HTML = r"""
       padding: 10px 18px;
       border-radius: 0;
       border: none;
-      border-bottom: 1px solid rgba(255,255,255,.07);
-      background: rgba(3,5,17,.85);
-      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(124,58,237,.30);
+      background: rgba(3,5,17,.68);
+      backdrop-filter: blur(24px) saturate(1.5);
+      box-shadow: 0 1px 0 rgba(124,58,237,.20), 0 2px 18px rgba(0,0,0,.38);
       cursor: default;
       user-select:none;
       flex-shrink:0;
@@ -13351,9 +13354,18 @@ HTML = r"""
     .modalBodyWrap{
       flex: 1 1 auto;
       overflow: auto;
-      padding: 24px 28px;
+      padding: 20px 22px;
       display: flex;
       flex-direction: column;
+    }
+    .modalBodyWrap::-webkit-scrollbar{ width:5px; }
+    .modalBodyWrap::-webkit-scrollbar-track{ background:transparent; }
+    .modalBodyWrap::-webkit-scrollbar-thumb{
+      background: linear-gradient(180deg, rgba(124,58,237,.62), rgba(14,165,233,.52));
+      border-radius:99px;
+    }
+    .modalBodyWrap::-webkit-scrollbar-thumb:hover{
+      background: linear-gradient(180deg, rgba(167,139,250,.92), rgba(34,211,238,.82));
     }
 
     .modal pre{
@@ -13372,7 +13384,18 @@ HTML = r"""
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
     /* All modal content: centered column, comfortable reading width */
-    .modalForm .modalInner{ max-width:860px; margin:0 auto; }
+    .modalForm .modalInner{
+      max-width:900px; margin:0 auto;
+      background: rgba(255,255,255,.034);
+      backdrop-filter: blur(28px) saturate(1.35);
+      border: 1px solid rgba(255,255,255,.09);
+      border-top: 1px solid rgba(255,255,255,.14);
+      border-radius: 22px;
+      box-shadow:
+        0 8px 36px rgba(0,0,0,.30),
+        inset 0 1px 0 rgba(255,255,255,.08);
+      padding: 24px 28px;
+    }
     /* 2-column field pairs inside the centered column */
     .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
     .formGrid2 .spanFull{ grid-column:1/-1; }
@@ -13395,13 +13418,23 @@ HTML = r"""
     .modalForm input, .modalForm textarea, .modalForm select{
       width:100%;
       border-radius: 12px;
-      border:1px solid rgba(42,58,106,.9);
-      background: rgba(11,16,36,.92);
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.07);
+      backdrop-filter: blur(10px);
       color: var(--text);
       padding:13px 14px;
       outline:none;
       font-size:15px;
       line-height:1.4;
+      transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+    }
+    .modalForm input::placeholder, .modalForm textarea::placeholder{
+      color: rgba(148,163,184,.42);
+    }
+    .modalForm input:focus, .modalForm textarea:focus, .modalForm select:focus{
+      border-color: rgba(124,58,237,.58);
+      box-shadow: 0 0 0 3px rgba(124,58,237,.20), inset 0 1px 0 rgba(255,255,255,.07);
+      background: rgba(255,255,255,.10);
     }
     .modalForm textarea{ height: 140px; resize: vertical; }
     .modalForm select{ padding:12px 14px; }
@@ -15035,12 +15068,16 @@ input:focus, textarea:focus, select:focus {
   gap: 14px;
   padding: 18px 22px 16px;
   margin: 0 0 22px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 26%, transparent);
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 40%, rgba(255,255,255,.07));
   background: linear-gradient(135deg,
-    color-mix(in srgb, var(--tool-accent,#7c3aed) 11%, transparent),
-    color-mix(in srgb, var(--tool-accent,#7c3aed) 4%, transparent)
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, rgba(255,255,255,.03)),
+    color-mix(in srgb, var(--tool-accent,#7c3aed) 7%, rgba(255,255,255,.015))
   );
+  backdrop-filter: blur(22px) saturate(1.4);
+  box-shadow:
+    0 4px 32px color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.10);
   position: relative;
   overflow: hidden;
 }
@@ -15066,12 +15103,14 @@ input:focus, textarea:focus, select:focus {
 /* Header icon */
 .sa-tool-hdr-icon {
   width: 46px; height: 46px;
-  border-radius: 12px;
+  border-radius: 13px;
   display: flex; align-items: center; justify-content: center;
   font-size: 22px;
-  background: color-mix(in srgb, var(--tool-accent,#7c3aed) 15%, rgba(0,0,0,.55));
-  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 30%, transparent);
-  box-shadow: 0 0 20px color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, transparent);
+  background: color-mix(in srgb, var(--tool-accent,#7c3aed) 22%, rgba(255,255,255,.04));
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 42%, rgba(255,255,255,.08));
+  box-shadow:
+    0 0 32px color-mix(in srgb, var(--tool-accent,#7c3aed) 40%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.12);
   flex-shrink: 0;
 }
 
@@ -15098,26 +15137,28 @@ input:focus, textarea:focus, select:focus {
   letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
 }
 
-/* 2. Input redesign — glass pill with glow focus */
+/* 2. Input redesign — frosted glass pill with accent glow focus */
 #saUrl, #msNiche, #pdQuery, #isQuery {
-  background: rgba(6,10,30,.82) !important;
-  border: 1px solid rgba(42,58,106,.5) !important;
+  background: rgba(255,255,255,.07) !important;
+  backdrop-filter: blur(14px) !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
   border-radius: 12px !important;
   padding: 12px 16px !important;
   font-size: 14px !important;
   color: #e2e8f0 !important;
-  transition: border-color .18s ease, box-shadow .18s ease !important;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease !important;
 }
 #saUrl::placeholder, #msNiche::placeholder,
 #pdQuery::placeholder, #isQuery::placeholder {
-  color: #2a3748 !important;
+  color: rgba(148,163,184,.38) !important;
 }
 #saUrl:focus, #msNiche:focus, #pdQuery:focus, #isQuery:focus {
-  border-color: var(--tool-accent,rgba(124,58,237,.7)) !important;
+  border-color: color-mix(in srgb, var(--tool-accent,#7c3aed) 72%, rgba(255,255,255,.28)) !important;
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--tool-accent,#7c3aed) 16%, transparent),
-    inset 0 1px 0 rgba(255,255,255,.05) !important;
-  background: rgba(8,14,42,.9) !important;
+    0 0 0 3px color-mix(in srgb, var(--tool-accent,#7c3aed) 22%, transparent),
+    0 0 22px color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.09) !important;
+  background: rgba(255,255,255,.10) !important;
 }
 
 /* 3. Run button upgrade — gradient glow pill */
@@ -15164,13 +15205,18 @@ input:focus, textarea:focus, select:focus {
   transform: none !important;
 }
 
-/* 5. Results containers — glass card treatment */
+/* 5. Results containers — frosted glass with accent border glow */
 #saResults, #msResults, #pdResults, #isResults {
-  background: rgba(5,8,22,.7) !important;
-  border: 1px solid rgba(36,52,100,.5) !important;
-  border-radius: 16px !important;
-  min-height: 160px;
-  transition: border-color .3s ease;
+  background: rgba(255,255,255,.026) !important;
+  backdrop-filter: blur(20px) saturate(1.25) !important;
+  border: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 26%, rgba(255,255,255,.06)) !important;
+  border-top: 1px solid color-mix(in srgb, var(--tool-accent,#7c3aed) 18%, rgba(255,255,255,.11)) !important;
+  border-radius: 18px !important;
+  min-height: 200px;
+  box-shadow:
+    0 4px 32px rgba(0,0,0,.24),
+    inset 0 1px 0 rgba(255,255,255,.06) !important;
+  transition: border-color .3s ease, box-shadow .3s ease;
   overflow: auto;
 }
 
@@ -15184,8 +15230,8 @@ input:focus, textarea:focus, select:focus {
   font-size: 40px; opacity: .6; margin-bottom: 4px;
   filter: drop-shadow(0 0 18px color-mix(in srgb, var(--tool-accent,#7c3aed) 42%, transparent));
 }
-.sa-tool-empty-title { font-size: 15px; font-weight: 700; color: #3d4f68; }
-.sa-tool-empty-sub   { font-size: 12px; color: #283244; max-width: 290px; line-height: 1.55; }
+.sa-tool-empty-title { font-size: 15px; font-weight: 700; color: #64748b; }
+.sa-tool-empty-sub   { font-size: 12px; color: #475569; max-width: 290px; line-height: 1.55; }
 
 /* 9. Toast micro-feedback element */
 #_saTst {
