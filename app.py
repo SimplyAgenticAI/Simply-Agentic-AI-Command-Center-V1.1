@@ -4703,16 +4703,25 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "rest of body on additional lines\n"
         "```\n"
         "\n"
-        "EMAIL IDEAS / SERIES: When asked for multiple email ideas or an email sequence:\n"
-        "- Give ONLY a short numbered list. Each item = email name in bold + one sentence description. Nothing more.\n"
-        "- Do NOT write full email bodies, subject lines, or append any email blocks.\n"
-        "- The user will click the one they want and you will draft just that single email.\n"
-        "- Example:\n"
-        "  1. **Welcome Email**: Warm intro that shares your story and sets expectations.\n"
-        "  2. **Value Bomb**: Teaches one high-value tip with no pitch — pure value.\n"
-        "  3. **Social Proof**: Short case study showing a real result from a past client.\n"
+        "MULTIPLE EMAILS — when asked to write/create/draft N emails:\n"
+        "Write a short numbered intro list (bold name + one sentence each), then append ALL machine-readable blocks in order at the very end:\n"
+        "1. **Welcome Email**: Warm intro establishing trust.\n"
+        "2. **Value Email**: Pure value, no pitch.\n"
+        "```email\n"
+        "Subject: subject line for email 1\n"
+        "Body: full body of email 1\n"
+        "```\n"
+        "```email\n"
+        "Subject: subject line for email 2\n"
+        "Body: full body of email 2\n"
+        "```\n"
+        "(one block per email, same numbered order, ALL blocks placed after the list)\n"
+        "\n"
+        "EMAIL IDEAS ONLY — when asked for ideas/suggestions, NOT actual drafts:\n"
+        "Give ONLY a short numbered list (bold name + one sentence). No blocks. User clicks one to get the full draft.\n"
         "\n"
         "IMPORTANT EMAIL RULES:\n"
+        "- Machine-readable blocks are hidden from chat — the UI renders them as styled email cards with an Open in Console button.\n"
         "- Do NOT include 'To:', 'From:', or header lines inside the Body section.\n"
         "- Body must start directly with the greeting or first sentence (e.g. 'Hi Sarah,' or 'Hello,').\n"
         f"- Always sign off with the operator's real name: {_op_name_for_email}. Never use placeholder text like '[Your Name]'.\n"
@@ -19320,6 +19329,39 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         .replace(/```email[\s\S]*$/i, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+
+      // Fallback: detect inline "Subject: X\nBody: Y" pairs when LLM skips machine-readable blocks
+      if(emails.length === 0){
+        var _fbParts = text.split(/\n?\s*Subject:\s*/i);
+        if(_fbParts.length > 1){
+          for(var _fbi = 1; _fbi < _fbParts.length; _fbi++){
+            var _fbChunk = _fbParts[_fbi];
+            var _fbLines = _fbChunk.split('\n');
+            var _fbSubj = (_fbLines[0]||'').trim();
+            if(!_fbSubj) continue;
+            var _fbBodyIdx = -1;
+            for(var _fbl = 1; _fbl < _fbLines.length; _fbl++){
+              if(/^\s*Body:\s*/i.test(_fbLines[_fbl])){ _fbBodyIdx = _fbl; break; }
+            }
+            if(_fbBodyIdx === -1) continue;
+            var _fbBodyTxt = _fbLines[_fbBodyIdx].replace(/^\s*Body:\s*/i,'');
+            for(var _fbl2 = _fbBodyIdx+1; _fbl2 < _fbLines.length; _fbl2++){
+              if(/^\s*(?:Let me know|Feel free|I hope|Reach out|Please let|Do you|Hope this|If you)/i.test(_fbLines[_fbl2])) break;
+              _fbBodyTxt += '\n' + _fbLines[_fbl2];
+            }
+            _fbBodyTxt = _fbBodyTxt.trim();
+            if(_fbSubj && _fbBodyTxt) emails.push({num:emails.length+1, subject:_fbSubj, body:_fbBodyTxt});
+          }
+          if(emails.length > 0){
+            cleanText = text
+              .replace(/\s*Subject:\s*[^\n]+/gi, '')
+              .replace(/\s*Body:\s*[^\n]+(\n(?!\s*Subject:)[^\n]+)*/gi, '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+          }
+        }
+      }
+
       return {cleanText:cleanText, emails:emails};
     };
 
