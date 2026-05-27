@@ -19323,6 +19323,43 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return {cleanText:cleanText, emails:emails};
     };
 
+    // Build a styled email preview card — subject + scrollable body + "Open in Console" button
+    window._saEmailCard = function(em, seatName){
+      function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      var card = document.createElement('div');
+      card.style.cssText = 'margin-top:12px;background:rgba(10,18,40,.75);border:1px solid rgba(124,58,237,.4);border-radius:12px;overflow:hidden;';
+
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;align-items:center;gap:8px;padding:9px 14px;background:rgba(124,58,237,.18);border-bottom:1px solid rgba(124,58,237,.25);';
+      hdr.innerHTML = '<span style="font-size:12px;pointer-events:none;">📧</span><span style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#c4b5fd;text-transform:uppercase;pointer-events:none;">Email Draft</span>';
+      card.appendChild(hdr);
+
+      if(em.subject){
+        var subjWrap = document.createElement('div');
+        subjWrap.style.cssText = 'padding:10px 14px 8px;border-bottom:1px solid rgba(124,58,237,.15);';
+        subjWrap.innerHTML = '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;pointer-events:none;">Subject</div><div style="font-size:13px;font-weight:600;color:#e2e8f0;pointer-events:none;">'+_e(em.subject)+'</div>';
+        card.appendChild(subjWrap);
+      }
+
+      var bodyWrap = document.createElement('div');
+      bodyWrap.style.cssText = 'padding:12px 14px;font-size:13px;color:#cbd5e1;line-height:1.65;white-space:pre-wrap;max-height:220px;overflow-y:auto;';
+      bodyWrap.innerText = em.body || '';
+      card.appendChild(bodyWrap);
+
+      var footer = document.createElement('div');
+      footer.style.cssText = 'padding:8px 14px;border-top:1px solid rgba(124,58,237,.2);display:flex;justify-content:flex-end;background:rgba(124,58,237,.07);';
+      var btn = document.createElement('button');
+      btn.style.cssText = 'font-size:12px;padding:5px 16px;border-radius:8px;background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.55);color:#c4b5fd;cursor:pointer;font-weight:600;';
+      btn.innerText = 'Open in Console →';
+      btn.onclick = (function(e,s){ return function(ev){
+        ev.stopPropagation();
+        if(typeof window.applyEmailDraft==='function') window.applyEmailDraft({to:'',subject:e.subject,body:e.body},s);
+      }; })(em, seatName||window.selectedSeat||'');
+      footer.appendChild(btn);
+      card.appendChild(footer);
+      return card;
+    };
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -19518,22 +19555,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               ? window.saParseEmailBlocks(raw)
               : {cleanText: raw, emails: []};
             content.innerHTML = saMarkdown(_ep2.cleanText || raw);
-            // Wire numbered list items as direct email openers for history view
-            if(_ep2.emails.length > 0){
-              content.querySelectorAll('.sa-li').forEach(function(li2, idx2){
-                const _em2 = _ep2.emails[idx2];
-                if(!_em2) return;
-                li2._saChoiceWired = true;
-                li2.style.cursor = 'pointer';
-                li2.style.userSelect = 'none';
-                li2.addEventListener('mouseover', function(){ li2.style.background='rgba(124,58,237,.2)'; li2.style.borderColor='rgba(124,58,237,.45)'; });
-                li2.addEventListener('mouseout',  function(){ li2.style.background=''; li2.style.borderColor='transparent'; });
-                li2.addEventListener('click', (function(e2){ return function(ev2){
-                  ev2.stopPropagation();
-                  if(typeof window.applyEmailDraft==='function')
-                    window.applyEmailDraft({to:'',subject:e2.subject,body:e2.body}, window.selectedSeat||'');
-                }; })(_em2));
-              });
+            // Render each email as a styled preview card
+            if(_ep2.emails.length > 0 && typeof window._saEmailCard==='function'){
+              _ep2.emails.forEach(function(em2){ content.appendChild(window._saEmailCard(em2, window.selectedSeat||'')); });
             }
           }
           // CRM name detection — if response mentions a known contact, show quick-open button
@@ -33581,22 +33605,9 @@ window._streamTtsFired = false;
                   aBody.innerText = _ep.cleanText || _finalText;
                 }
               }
-              // Wire each numbered list item as a direct email opener (click item → loads that email)
-              if(_ep.emails.length > 0){
-                aBody.querySelectorAll('.sa-li').forEach(function(li, idx){
-                  const _em = _ep.emails[idx];
-                  if(!_em) return;
-                  li._saChoiceWired = true; // prevent saWireThreadClicks from overriding
-                  li.style.cursor = 'pointer';
-                  li.style.userSelect = 'none';
-                  li.addEventListener('mouseover', function(){ li.style.background='rgba(124,58,237,.2)'; li.style.borderColor='rgba(124,58,237,.45)'; });
-                  li.addEventListener('mouseout',  function(){ li.style.background=''; li.style.borderColor='transparent'; });
-                  li.addEventListener('click', (function(e){ return function(ev){
-                    ev.stopPropagation();
-                    if(typeof window.applyEmailDraft==='function')
-                      window.applyEmailDraft({to:'',subject:e.subject,body:e.body}, seat);
-                  }; })(_em));
-                });
+              // Render each email as a styled preview card (no clickable list items inside email)
+              if(_ep.emails.length > 0 && typeof window._saEmailCard==='function'){
+                _ep.emails.forEach(function(em){ aBody.appendChild(window._saEmailCard(em, seat)); });
               }
             }
             if(typeof setSeatLive==="function") setSeatLive(seat,"done");
