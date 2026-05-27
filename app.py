@@ -238,7 +238,7 @@ def _startup_check() -> None:
 _startup_check()
 
 # Uploads
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "12"))
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "25"))
 MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 MAX_INLINE_TEXT_BYTES = int(os.getenv("MAX_INLINE_TEXT_BYTES", "60000"))  # only inline small text files
 
