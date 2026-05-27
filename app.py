@@ -17089,27 +17089,33 @@ input:focus, textarea:focus, select:focus {
 
   <div id="crmViewSocialStudio" style="display:none;">
     <div class="modalInner">
-      <div class="toolHint">Generate entrepreneur-ready social assets fast: posts, hooks, comments, DMs, and CTAs.</div>
+      <div class="toolHint">Generate ready-to-post social content in seconds — hooks, full posts, DMs, and 7-day content plans.</div>
       <div class="formGrid2">
         <div><label>Platform</label>
           <select id="socialStudioPlatform">
-            <option value="Facebook">Facebook</option><option value="LinkedIn">LinkedIn</option>
-            <option value="Instagram">Instagram</option><option value="X">X</option>
+            <option value="Instagram">📸 Instagram</option>
+            <option value="Facebook">📘 Facebook</option>
+            <option value="LinkedIn">💼 LinkedIn</option>
+            <option value="X">✖ X (Twitter)</option>
+            <option value="TikTok">🎵 TikTok</option>
           </select>
         </div>
-        <div><label>Asset set</label>
+        <div><label>Content type</label>
           <select id="socialStudioAsset">
-            <option value="content_pack">Content pack</option><option value="dm_pack">DM pack</option>
-            <option value="comment_pack">Comment pack</option><option value="launch_pack">Launch pack</option>
+            <option value="content_pack">🎯 Content Pack (6 posts)</option>
+            <option value="full_week_plan">📅 Full Week Plan (7 days)</option>
+            <option value="dm_pack">💬 DM Pack</option>
+            <option value="comment_pack">💭 Comment Pack</option>
+            <option value="launch_pack">🚀 Launch Pack</option>
           </select>
         </div>
       </div>
-      <label style="margin-top:14px;">Audience</label>
-      <input id="socialStudioAudience" placeholder="solo real estate agents" />
-      <label style="margin-top:18px;">Offer / angle</label>
-      <textarea id="socialStudioOffer" class="primaryArea" style="height:200px;" placeholder="What do you sell and why should people care?"></textarea>
+      <label style="margin-top:14px;">Your audience</label>
+      <input id="socialStudioAudience" placeholder="e.g. solo real estate agents, fitness coaches, online course creators" />
+      <label style="margin-top:18px;">Your offer / angle</label>
+      <textarea id="socialStudioOffer" class="primaryArea" style="height:150px;" placeholder="What do you sell? What result do you help people get? Why should they choose you?"></textarea>
       <div class="toolRunBar">
-        <button class="btn btnPrimary" id="socialStudioRunBtn">Generate assets</button>
+        <button class="btn btnPrimary" id="socialStudioRunBtn">✨ Generate Content</button>
       </div>
       <div class="tiny" id="socialStudioStatus" style="margin-top:8px;text-align:center;"></div>
     </div>
@@ -25644,6 +25650,30 @@ Challenge weak assumptions. Surface risks.`;
         const output = data.output || '';
         if(box){
           box.innerHTML = crmRenderRichBlocks(output);
+          // Social Studio — char count badge + refine-with-teammate button per post card
+          if(statusId === 'socialStudioStatus'){
+            var _ssPl = (payload && payload.platform) || 'social media';
+            box.querySelectorAll('[style*="border-radius:12px"]').forEach(function(card){
+              var _cTxt = (card.innerText||'').trim();
+              var _cLines = _cTxt.split('\n').filter(function(l){return l.trim();});
+              var _charCount = _cLines.slice(1).join('\n').length;
+              var _cf = document.createElement('div');
+              _cf.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid rgba(42,58,106,.3);';
+              var _cb = document.createElement('span');
+              _cb.style.cssText = 'font-size:10px;color:#475569;font-weight:600;letter-spacing:.03em;';
+              _cb.textContent = _charCount + ' chars';
+              var _rb = document.createElement('button');
+              _rb.style.cssText = 'font-size:11px;font-weight:600;padding:4px 11px;border-radius:7px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#6ee7b7;cursor:pointer;white-space:nowrap;';
+              _rb.textContent = '💬 Refine with teammate';
+              (function(_c,_p){ _rb.onclick = function(){
+                var _t=(_c.innerText||'').trim();
+                var _fm=document.getElementById('followMsg');
+                if(_fm){_fm.value='Please refine and improve this '+_p+' post for me:\n\n'+_t.slice(0,1200);_fm.focus();}
+                if(typeof hideModal==='function') hideModal();
+              }; })(card, _ssPl);
+              _cf.appendChild(_cb); _cf.appendChild(_rb); card.appendChild(_cf);
+            });
+          }
           // Add "Generate →" button to each playbook step card
           if(statusId === 'playbookStatus'){
             box.querySelectorAll('div[style*="border-radius:12px"]').forEach(function(card){
@@ -29012,12 +29042,46 @@ async function vtStartTranscribe(file) {
     var fd=new FormData();
     fd.append('file', file);
     var resp=await fetch('/api/transcribe',{method:'POST',body:fd});
+
+    // Stream the response — server sends heartbeat lines to survive proxy timeouts,
+    // then a final JSON line with the result.
+    var reader=resp.body.getReader();
+    var decoder=new TextDecoder();
+    var buf='';
+    var data=null;
+    while(true){
+      var chunk=await reader.read();
+      if(chunk.done) break;
+      buf+=decoder.decode(chunk.value,{stream:true});
+      var nl=buf.lastIndexOf('\n');
+      if(nl>=0){
+        var lines=buf.slice(0,nl).split('\n');
+        for(var _li=0;_li<lines.length;_li++){
+          var _ln=lines[_li].trim();
+          if(_ln && _ln.startsWith('{') && _ln.endsWith('}')){
+            try{ var _p=JSON.parse(_ln); if(_p.ok===true||_p.ok===false){ data=_p; } }catch(e){}
+          }
+        }
+        buf=buf.slice(nl+1);
+      }
+      if(data) break;
+    }
+    // Check anything left in buffer
+    var _rem=(buf||'').trim();
+    if(!data && _rem.startsWith('{') && _rem.endsWith('}')){
+      try{ data=JSON.parse(_rem); }catch(e){}
+    }
+
     clearInterval(pInterval);
     pBar.style.width='100%';
     await new Promise(function(r){setTimeout(r,350);});
     progress.style.display='none';
 
-    var data=await resp.json();
+    if(!data){
+      dropZone.style.display='block';
+      errEl.textContent='No response received — please try again or use a shorter clip.';
+      errEl.style.display='block'; return;
+    }
     if(!data.ok){
       dropZone.style.display='block';
       errEl.textContent=data.error||'Transcription failed. Please try again.';
@@ -29062,7 +29126,7 @@ async function vtStartTranscribe(file) {
     clearInterval(pInterval);
     progress.style.display='none';
     dropZone.style.display='block';
-    errEl.textContent='Network error — please try again.';
+    errEl.textContent='Upload error: '+(err.message||'please try again.');
     errEl.style.display='block';
   }
 }
@@ -42156,19 +42220,35 @@ def api_crm_social_studio():
         "Use numbered sections (1. **Section Name**) for each piece of content. "
         "Never describe what the content should say — write the content itself."
     )
-    prompt = (
-        f"Platform: {platform}\n"
-        f"Audience: {audience}\n"
-        f"Offer/angle: {offer}\n\n"
-        f"Write a complete, ready-to-post {asset_type.replace('_',' ')} with these sections:\n"
-        f"1. **Hook Post** — an attention-grabbing opening post (3-5 sentences, includes hashtags)\n"
-        f"2. **Value Post** — a post that teaches or shares insight related to the offer (4-6 sentences)\n"
-        f"3. **Story Post** — a short relatable story or before/after that leads into the offer\n"
-        f"4. **Engagement Post** — a question or conversation-starter that gets comments\n"
-        f"5. **DM Opener** — a short direct message to send to a cold or warm prospect (2-3 sentences max)\n"
-        f"6. **Call to Action Post** — a direct post asking people to take the next step\n\n"
-        f"Write every single word. Do not use placeholders. Do not add visual directions or size specs."
-    )
+    if asset_type == "full_week_plan":
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            f"Write a complete 7-day {platform} content plan. For each day write the fully written, ready-to-post piece:\n"
+            f"1. **Monday** — Hook post (3-5 sentences, end with relevant hashtags)\n"
+            f"2. **Tuesday** — Value or teaching post (4-6 sentences, share a specific insight or tip)\n"
+            f"3. **Wednesday** — Story or before/after post (relatable journey, 4-6 sentences)\n"
+            f"4. **Thursday** — Engagement or question post (get comments, 2-4 sentences)\n"
+            f"5. **Friday** — Social proof or result post (a win, outcome, or testimonial angle, 3-5 sentences)\n"
+            f"6. **Saturday** — Behind-the-scenes or personal post (build trust and connection, 3-5 sentences)\n"
+            f"7. **Sunday** — CTA post (direct call to action, 2-4 sentences, one clear next step)\n\n"
+            f"Write every single word for every day. No placeholders. No visual directions."
+        )
+    else:
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            f"Write a complete, ready-to-post {asset_type.replace('_',' ')} with these sections:\n"
+            f"1. **Hook Post** — an attention-grabbing opening post (3-5 sentences, includes hashtags)\n"
+            f"2. **Value Post** — a post that teaches or shares insight related to the offer (4-6 sentences)\n"
+            f"3. **Story Post** — a short relatable story or before/after that leads into the offer\n"
+            f"4. **Engagement Post** — a question or conversation-starter that gets comments\n"
+            f"5. **DM Opener** — a short direct message to send to a cold or warm prospect (2-3 sentences max)\n"
+            f"6. **Call to Action Post** — a direct post asking people to take the next step\n\n"
+            f"Write every single word. Do not use placeholders. Do not add visual directions or size specs."
+        )
     fallback = (
         f"Content pack for {platform}\n"
         f"- Hook: The fastest way to lose good leads is to sound like everyone else.\n"
@@ -47001,8 +47081,9 @@ def api_tts():
 
 @app.post("/api/transcribe")
 def api_transcribe():
-    """Transcribe a video or audio file via OpenAI Whisper-1."""
-    import io
+    """Transcribe via OpenAI Whisper-1. Streams heartbeat lines to survive proxy timeouts,
+    then sends a final JSON line with the result."""
+    import io, threading, queue as _tq, json as _tj
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -47021,25 +47102,48 @@ def api_transcribe():
     if len(data) > 25 * 1024 * 1024:
         return jsonify({"ok": False, "error": "File exceeds the 25 MB limit."}), 400
 
-    username  = u.get("username", "unknown")
-    user_key  = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    username   = u.get("username", "unknown")
+    user_key   = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     openai_key = user_key or (OPENAI_API_KEY or "").strip()
     if not openai_key:
         return jsonify({"ok": False, "error": "Transcription requires an OpenAI API key. Add yours in Settings → API Keys."}), 400
 
     print(f"[TRANSCRIBE] user={username} file={filename} size={len(data)} ext={ext}", flush=True)
-    try:
-        oai = OpenAI(api_key=openai_key.strip())
-        buf = io.BytesIO(data)
-        buf.name = filename  # Whisper uses filename to detect format
-        result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
-        transcript = (result.text or "").strip()
-        print(f"[TRANSCRIBE] done user={username} chars={len(transcript)}", flush=True)
-        return jsonify({"ok": True, "transcript": transcript})
-    except Exception as exc:
-        print(f"[TRANSCRIBE] EXCEPTION: {exc}", flush=True)
-        code, msg = _classify_openai_error(exc)
-        return jsonify({"ok": False, "error": msg}), code
+
+    result_q: _tq.Queue = _tq.Queue()
+
+    def _do_transcribe():
+        try:
+            oai = OpenAI(api_key=openai_key.strip())
+            buf = io.BytesIO(data)
+            buf.name = filename
+            result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
+            transcript = (result.text or "").strip()
+            print(f"[TRANSCRIBE] done user={username} chars={len(transcript)}", flush=True)
+            result_q.put({"ok": True, "transcript": transcript})
+        except Exception as exc:
+            print(f"[TRANSCRIBE] EXCEPTION: {exc}", flush=True)
+            _, msg = _classify_openai_error(exc)
+            result_q.put({"ok": False, "error": msg})
+
+    threading.Thread(target=_do_transcribe, daemon=True).start()
+
+    def _stream():
+        # Send a heartbeat space+newline every 5 s to keep Render's proxy alive.
+        # When Whisper finishes, yield the JSON result line and stop.
+        while True:
+            try:
+                res = result_q.get(timeout=5)
+                yield _tj.dumps(res) + "\n"
+                return
+            except _tq.Empty:
+                yield " \n"   # heartbeat — keeps the HTTP connection open
+
+    return Response(
+        _stream(),
+        mimetype="text/plain",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
