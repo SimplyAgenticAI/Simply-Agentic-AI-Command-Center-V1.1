@@ -15771,8 +15771,12 @@ label {
 })();
 </script>
 
+<style>
+#saNeuralCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;}
+</style>
 </head>
 <body>
+<canvas id="saNeuralCanvas" aria-hidden="true"></canvas>
   {{trial_banner|safe}}
   <div class="topbar">
     <div class="topbarMain">
@@ -40138,6 +40142,76 @@ window.toggleNotifPanel = function(){
       +'</div>'
     );
   }
+})();
+</script>
+
+<script>
+/* Cosmic neural-web background */
+(function(){
+  var cv=document.getElementById('saNeuralCanvas');
+  if(!cv)return;
+  var cx=cv.getContext('2d');
+  var W,H;
+  var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
+  var N=72, MAXD=170;
+  var pts=[];
+
+  function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
+
+  function mkPt(){
+    var a=Math.random()*Math.PI*2, sp=Math.random()*0.20+0.06;
+    var c=COLS[Math.floor(Math.random()*COLS.length)];
+    return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+           r:Math.random()*1.4+0.7,c:c,al:Math.random()*0.28+0.14,
+           tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
+  }
+
+  function init(){resize();pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
+
+  function frame(){
+    cx.clearRect(0,0,W,H);
+    var i,j,p,dx,dy,d,la;
+    for(i=0;i<N;i++){
+      p=pts[i];
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
+      if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
+      p.tp+=p.ts;
+    }
+    for(i=0;i<N;i++){
+      for(j=i+1;j<N;j++){
+        dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
+        d=Math.sqrt(dx*dx+dy*dy);
+        if(d<MAXD){
+          la=0.13*(1-d/MAXD);
+          var ci=pts[i].c;
+          cx.beginPath();
+          cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
+          cx.lineWidth=0.65;
+          cx.moveTo(pts[i].x,pts[i].y);
+          cx.lineTo(pts[j].x,pts[j].y);
+          cx.stroke();
+        }
+      }
+    }
+    for(i=0;i<N;i++){
+      p=pts[i];
+      var tw=p.al*(0.70+0.30*Math.sin(p.tp));
+      cx.beginPath();
+      cx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';
+      cx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize',function(){
+    resize();
+    pts.forEach(function(p){if(p.x>W)p.x=Math.random()*W;if(p.y>H)p.y=Math.random()*H;});
+  });
+
+  init();
+  requestAnimationFrame(frame);
 })();
 </script>
 
