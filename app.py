@@ -15071,6 +15071,188 @@ input:focus, textarea:focus, select:focus {
 
 /* Smooth everything */
 * { transition-timing-function: cubic-bezier(.4,0,.2,1); }
+
+/* ═══════════════════════════════════════════════════
+   VISUAL UPGRADE PACK — 10 improvements
+═══════════════════════════════════════════════════ */
+
+/* ① Teammate avatar badges — gradient gloss + per-seat glow */
+.av {
+  width: 38px !important; height: 38px !important;
+  border-radius: 12px !important;
+  font-size: 15px !important; font-weight: 900 !important;
+  border: 1.5px solid color-mix(in srgb, var(--sc,#7c3aed) 55%, rgba(255,255,255,.35)) !important;
+  box-shadow:
+    0 3px 14px rgba(0,0,0,.50),
+    0 0 14px color-mix(in srgb, var(--sc,#7c3aed) 40%, transparent),
+    inset 0 1px 0 rgba(255,255,255,.28) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+.av::after {
+  content: '' !important;
+  position: absolute !important; inset: 0 !important;
+  border-radius: inherit !important;
+  background: linear-gradient(155deg, rgba(255,255,255,.20) 0%, transparent 55%) !important;
+  pointer-events: none !important;
+}
+
+/* ② Chat input bar — glowing send button + styled wrapper */
+#sendFollow {
+  background: linear-gradient(135deg, rgba(124,58,237,.72) 0%, rgba(99,102,241,.60) 100%) !important;
+  border: 1px solid rgba(148,88,255,.75) !important;
+  box-shadow: 0 0 20px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.22) !important;
+  font-weight: 700 !important; letter-spacing: .02em !important;
+  border-radius: 11px !important;
+  transition: box-shadow .2s, transform .12s !important;
+}
+#sendFollow:hover {
+  box-shadow: 0 0 32px rgba(148,88,255,.55), inset 0 1px 0 rgba(255,255,255,.30) !important;
+  transform: translateY(-1px) !important;
+}
+#sendFollow:active { transform: scale(.96) !important; }
+#followMsg {
+  border-color: rgba(255,255,255,.14) !important;
+  transition: border-color .2s, box-shadow .2s !important;
+}
+#followMsg:focus {
+  border-color: rgba(148,88,255,.60) !important;
+  box-shadow: 0 0 0 2px rgba(124,58,237,.20), inset 0 1px 0 rgba(255,255,255,.16) !important;
+}
+
+/* ③ Assistant message cards — richer glass + teammate color glow */
+.msg.assistant .msg-body {
+  background: rgba(255,255,255,.055) !important;
+  backdrop-filter: blur(16px) saturate(170%) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(170%) !important;
+  border-left: 3px solid var(--seat-msg-color, rgba(148,88,255,.80)) !important;
+  border-radius: 0 14px 14px 0 !important;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.06),
+    0 2px 18px rgba(0,0,0,.18),
+    -2px 0 18px color-mix(in srgb, var(--seat-msg-color,#a78bfa) 16%, transparent) !important;
+  padding: 11px 16px 11px 17px !important;
+}
+.msg.assistant .who {
+  font-size: 10px !important; font-weight: 800 !important;
+  letter-spacing: .06em !important; text-transform: uppercase !important;
+  color: var(--seat-msg-color, #a78bfa) !important;
+  opacity: 1 !important;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--seat-msg-color,#a78bfa) 55%, transparent) !important;
+}
+
+/* ④ Nav dropdown items — hover accent bar + tighter group feel */
+.saDropItem {
+  position: relative !important;
+  padding: 9px 14px 9px 16px !important;
+  border-radius: 9px !important;
+  transition: background .14s, color .14s, padding-left .14s !important;
+}
+.saDropItem:hover {
+  background: rgba(124,58,237,.20) !important;
+  color: #d4bbff !important;
+  padding-left: 20px !important;
+  box-shadow: inset 3px 0 0 rgba(148,88,255,.80), inset 0 0 0 1px rgba(124,58,237,.22) !important;
+}
+.saDrop hr, .saDropDivider {
+  height: 1px !important; background: rgba(255,255,255,.08) !important;
+  border: none !important; margin: 4px 8px !important;
+}
+
+/* ⑤ Thinking pulse — more vivid breathing glow */
+@keyframes seatPulseV2 {
+  0%,100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--sc,#7c3aed) 55%, transparent),
+      0 0 22px color-mix(in srgb, var(--sc,#7c3aed) 35%, transparent),
+      0 6px 24px rgba(0,0,0,.5);
+  }
+  50% {
+    box-shadow:
+      0 0 0 18px color-mix(in srgb, var(--sc,#7c3aed) 0%, transparent),
+      0 0 52px color-mix(in srgb, var(--sc,#7c3aed) 65%, transparent),
+      0 6px 24px rgba(0,0,0,.5);
+  }
+}
+
+/* ⑥ Button consistency — unified glass tokens */
+.btn {
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+.btnPrimary {
+  background: linear-gradient(150deg, rgba(124,58,237,.58) 0%, rgba(79,70,229,.38) 100%) !important;
+  border-color: rgba(148,88,255,.80) !important;
+  box-shadow: 0 0 26px rgba(124,58,237,.28), inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+.btnPrimary:hover {
+  background: linear-gradient(150deg, rgba(148,88,255,.70) 0%, rgba(99,102,241,.50) 100%) !important;
+  box-shadow: 0 0 36px rgba(148,88,255,.44), inset 0 1px 0 rgba(255,255,255,.30) !important;
+}
+
+/* ⑦ Modal headers — gradient title bar with glow accent line */
+.modalBar {
+  background: linear-gradient(90deg, rgba(12,8,42,.88) 0%, rgba(8,12,32,.82) 100%) !important;
+  border-bottom: 1px solid rgba(124,58,237,.45) !important;
+  box-shadow:
+    0 1px 0 rgba(148,88,255,.22),
+    0 2px 24px rgba(0,0,0,.45),
+    inset 0 1px 0 rgba(255,255,255,.08) !important;
+}
+.modalBarTitle {
+  font-size: 14px !important; font-weight: 800 !important;
+  background: linear-gradient(90deg, #e2e8f0 0%, #c4b5fd 100%) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  letter-spacing: -.01em !important;
+}
+
+/* ⑧ Scrollbars — already global, boosting thumb visibility */
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(124,58,237,.45), rgba(14,165,233,.35)) !important;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(167,139,250,.80), rgba(34,211,238,.65)) !important;
+}
+
+/* ⑨ Empty / idle state — soft radial glow + styled placeholder */
+#seatTitle {
+  background: linear-gradient(90deg, #e2e8f0 0%, #c4b5fd 60%, #7dd3fc 100%) !important;
+  -webkit-background-clip: text !important; background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  font-weight: 900 !important; letter-spacing: -.02em !important;
+}
+#thread:empty::before {
+  content: '' !important;
+  display: block !important;
+  width: 140px !important; height: 140px !important;
+  border-radius: 50% !important;
+  background: radial-gradient(ellipse at center, rgba(124,58,237,.14) 0%, transparent 70%) !important;
+  margin: 40px auto !important;
+  pointer-events: none !important;
+}
+
+/* ⑩ Typography hierarchy — size / weight / opacity differentiation */
+.sideTitle .h1 {
+  font-size: 15px !important; font-weight: 900 !important;
+  letter-spacing: -.02em !important;
+  color: #f0f4ff !important;
+}
+.sideTitle .h2 {
+  font-size: 11px !important; font-weight: 500 !important;
+  color: rgba(148,163,184,.70) !important; letter-spacing: .02em !important;
+}
+label {
+  font-size: 12px !important; font-weight: 700 !important;
+  color: rgba(196,181,253,.85) !important; letter-spacing: .04em !important;
+  text-transform: uppercase !important;
+}
+.tiny {
+  font-size: 11px !important; color: rgba(100,116,139,.65) !important;
+}
+.muted, .sub, [class*="muted"] {
+  color: rgba(148,163,184,.60) !important;
+}
 </style>
 
 <!-- ② Teammate color identity JS -->
