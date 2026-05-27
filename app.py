@@ -39262,21 +39262,62 @@ function _saPopulateInjectPicker(){
   if(!row) return;
   row.innerHTML = '';
   _saInjectThread = [];
-  document.getElementById('saInjectChat').style.display = 'none';
-  document.getElementById('saInjectThread').innerHTML = '';
-  var allSeats = document.querySelectorAll('.seat[data-name]');
-  allSeats.forEach(function(s){
-    var name = s.dataset.name;
-    if(!name) return;
-    var accentColor = s.style.getPropertyValue('--sc') || s.style.getPropertyValue('--seat-accent') || '#7c3aed';
+  var chatWrap = document.getElementById('saInjectChat');
+  var threadWrap = document.getElementById('saInjectThread');
+  if(chatWrap) chatWrap.style.display = 'none';
+  if(threadWrap) threadWrap.innerHTML = '';
+
+  // Collect names from all available sources — deduped
+  var seen = {};
+  var names = [];
+
+  // Source 1: JS-built seats with data-name
+  document.querySelectorAll('.seat[data-name]').forEach(function(s){
+    var n = (s.dataset.name || '').trim();
+    if(n && n !== 'Operator' && !seen[n]){ seen[n] = true; names.push({name:n, el:s}); }
+  });
+
+  // Source 2: static HTML seats — read name from .sn or .seatName child
+  document.querySelectorAll('.seat').forEach(function(s){
+    var label = s.querySelector('.sn, .seatName');
+    var n = label ? (label.innerText || label.textContent || '').trim() : '';
+    if(n && n !== 'Operator' && !seen[n]){ seen[n] = true; names.push({name:n, el:s}); }
+  });
+
+  // Source 3: window.state.installed (most reliable fallback)
+  try{
+    var inst = (window.state && window.state.installed) ? window.state.installed : {};
+    var order = (window.state && window.state.active_order && window.state.active_order.length)
+      ? window.state.active_order
+      : (window.state && window.state.installed_order ? window.state.installed_order : Object.keys(inst));
+    order.forEach(function(n){
+      if(n && n !== 'Operator' && inst[n] && !seen[n]){ seen[n] = true; names.push({name:n, el:null}); }
+    });
+  }catch(e){}
+
+  if(!names.length){
+    row.innerHTML = '<div style="color:rgba(148,163,184,.5);font-size:13px;">No teammates found. Make sure you have teammates installed.</div>';
+    return;
+  }
+
+  names.forEach(function(item){
+    var name = item.name;
+    var accentColor = '#7c3aed';
+    if(item.el){
+      accentColor = item.el.style.getPropertyValue('--sc') || item.el.style.getPropertyValue('--seat-accent') || '#7c3aed';
+    }
     var btn = document.createElement('button');
     btn.textContent = name;
-    btn.style.cssText = 'padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;transition:all .14s;'
+    btn.style.cssText = 'padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;transition:all .14s;'
       +'border:1.5px solid '+accentColor+';background:rgba(255,255,255,.06);color:#e2e8f0;';
+    btn.addEventListener('mouseenter', function(){ btn.style.background='rgba(255,255,255,.13)'; });
+    btn.addEventListener('mouseleave', function(){ if(btn !== _saSelectedInjectBtn) btn.style.background='rgba(255,255,255,.06)'; });
     btn.addEventListener('click', function(){ _saSelectInjectSeat(name, btn, row); });
     row.appendChild(btn);
   });
 }
+
+var _saSelectedInjectBtn = null;
 
 function _saSelectInjectSeat(name, btn, row){
   _saInjectSeat = name;
