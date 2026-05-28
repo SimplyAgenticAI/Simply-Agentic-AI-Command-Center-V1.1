@@ -18619,14 +18619,12 @@ input[type="range"]::-moz-range-progress {
         </div>
         <!-- Input always visible at bottom -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
-          <!-- Length mode toggle + dictate -->
+          <!-- Length mode toggle -->
           <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">
             <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;margin-right:2px;">REPLY LENGTH</span>
             <button id="dmBriefBtn" title="Brief replies" onclick="window._saSetLengthMode('brief')" style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">Brief</button>
             <button id="dmAutoBtn"  title="Auto length (default)" onclick="window._saSetLengthMode('auto')"  style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#c4b5fd;cursor:pointer;transition:all .15s;">Auto</button>
             <button id="dmDeepBtn"  title="Deep / detailed replies" onclick="window._saSetLengthMode('deep')"  style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">Deep</button>
-            <div style="flex:1;"></div>
-            <button id="dmDictateBtn" title="Dictate message (speech to text)" onclick="window._saDictate()" style="padding:2px 9px;font-size:12px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">🎤 Dictate</button>
           </div>
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
           <div class="pillRow" style="margin-top:5px;display:flex;align-items:center;gap:6px;">
@@ -22648,44 +22646,6 @@ function _saJobNotify(seatName, status){
       });
     };
     window._saSetLengthMode("auto"); // init highlight
-
-    // ── Voice dictation ────────────────────────────────────────────────────────
-    window._saDictate = function(){
-      const btn = document.getElementById("dmDictateBtn");
-      const field = document.getElementById("followMsg");
-      if(!field) return;
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if(!SpeechRecognition){
-        if(typeof showToast === "function") showToast("⚠️ Speech recognition not supported in this browser");
-        return;
-      }
-      if(window._saDictateActive){
-        window._saDictateActive.stop();
-        return;
-      }
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = "en-US";
-      window._saDictateActive = rec;
-      if(btn){ btn.innerText = "🔴 Stop"; btn.style.color = "#fca5a5"; btn.style.borderColor = "rgba(239,68,68,.5)"; }
-      rec.onresult = function(e){
-        let interim = "", final = "";
-        for(let i = e.resultIndex; i < e.results.length; i++){
-          const t = e.results[i][0].transcript;
-          if(e.results[i].isFinal) final += t; else interim += t;
-        }
-        field.value = (field.value || "").replace(/\[\[interim:[^\]]*\]\]/g, "") + final + (interim ? `[[interim:${interim}]]` : "");
-        field.value = field.value.replace(/\[\[interim:[^\]]*\]\]/g, interim ? interim : "");
-      };
-      rec.onend = function(){
-        window._saDictateActive = null;
-        field.value = field.value.replace(/\[\[interim:[^\]]*\]\]/g, "").trim();
-        if(btn){ btn.innerText = "🎤 Dictate"; btn.style.color = "#94a3b8"; btn.style.borderColor = "rgba(255,255,255,.14)"; }
-      };
-      rec.onerror = function(){ rec.stop(); };
-      rec.start();
-    };
 
     window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
