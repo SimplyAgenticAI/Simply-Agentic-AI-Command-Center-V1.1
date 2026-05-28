@@ -13613,6 +13613,21 @@ HTML = r"""
     /* 2-column field pairs inside the centered column */
     .formGrid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px 24px; align-items:start; }
     .formGrid2 .spanFull{ grid-column:1/-1; }
+    /* Dark-theme all selects inside tool/modal forms */
+    .modalForm select, .modalInner select, .formGrid2 select {
+      background: rgba(8,12,32,.9);
+      border: 1px solid rgba(42,58,106,.7);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #e2e8f0;
+      width: 100%;
+      cursor: pointer;
+    }
+    .modalForm select option, .modalInner select option, .formGrid2 select option {
+      background: #0f172a;
+      color: #e2e8f0;
+    }
     /* Tool results area — wider than the form so output has room */
     .toolResults{ max-width:1000px; margin:24px auto 0; }
     /* Primary textarea in each tool form grows to fill available vertical space */
@@ -17680,21 +17695,21 @@ label {
       <div class="toolHint">Generate ready-to-post social content in seconds — hooks, full posts, DMs, and 7-day content plans.</div>
       <div class="formGrid2">
         <div><label>Platform</label>
-          <select id="socialStudioPlatform">
-            <option value="Instagram">📸 Instagram</option>
-            <option value="Facebook">📘 Facebook</option>
-            <option value="LinkedIn">💼 LinkedIn</option>
-            <option value="X">✖ X (Twitter)</option>
-            <option value="TikTok">🎵 TikTok</option>
+          <select id="socialStudioPlatform" style="width:100%;background:rgba(8,12,32,.9);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;cursor:pointer;appearance:auto;-webkit-appearance:auto;">
+            <option value="Instagram" style="background:#0f172a;color:#e2e8f0;">📸 Instagram</option>
+            <option value="Facebook" style="background:#0f172a;color:#e2e8f0;">📘 Facebook</option>
+            <option value="LinkedIn" style="background:#0f172a;color:#e2e8f0;">💼 LinkedIn</option>
+            <option value="X" style="background:#0f172a;color:#e2e8f0;">✖ X (Twitter)</option>
+            <option value="TikTok" style="background:#0f172a;color:#e2e8f0;">🎵 TikTok</option>
           </select>
         </div>
         <div><label>Content type</label>
-          <select id="socialStudioAsset">
-            <option value="content_pack">🎯 Content Pack (6 posts)</option>
-            <option value="full_week_plan">📅 Full Week Plan (7 days)</option>
-            <option value="dm_pack">💬 DM Pack</option>
-            <option value="comment_pack">💭 Comment Pack</option>
-            <option value="launch_pack">🚀 Launch Pack</option>
+          <select id="socialStudioAsset" style="width:100%;background:rgba(8,12,32,.9);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;cursor:pointer;appearance:auto;-webkit-appearance:auto;">
+            <option value="content_pack" style="background:#0f172a;color:#e2e8f0;">🎯 Content Pack (6 posts)</option>
+            <option value="full_week_plan" style="background:#0f172a;color:#e2e8f0;">📅 Full Week Plan (7 days)</option>
+            <option value="dm_pack" style="background:#0f172a;color:#e2e8f0;">💬 DM Pack</option>
+            <option value="comment_pack" style="background:#0f172a;color:#e2e8f0;">💭 Comment Pack</option>
+            <option value="launch_pack" style="background:#0f172a;color:#e2e8f0;">🚀 Launch Pack</option>
           </select>
         </div>
       </div>
@@ -18593,6 +18608,8 @@ input[type="range"]::-moz-range-progress {
             <div id="ctxBar" style="height:100%;width:0%;background:#22c55e;border-radius:2px;transition:width .45s ease,background .45s ease;"></div>
           </div>
         </div>
+        <!-- Pinned messages banner — sits above thread, never scrolls away -->
+        <div id="saPinnedBanner" style="display:none;flex-shrink:0;margin-bottom:5px;padding:8px 10px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:10px;"></div>
         <!-- Thread — flex:1 so it fills remaining space without external scroll -->
         <div class="thread" id="thread" style="flex:1;min-height:0;overflow-y:auto;"></div>
         <!-- Monthly usage bar (hidden when user has own key) -->
@@ -20387,6 +20404,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       setEmailFrom(selectedSeat);
 
       await refreshThread();
+      // Load pinned banner for this teammate
+      try{ _renderPinnedBanner(); }catch(_){}
       // Extra scroll pass after teammate switch — catches cases where renderThread fires before panel is sized
       var _th = $("thread");
       if(_th){ setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 250); setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 600); }
@@ -20574,34 +20593,59 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return card;
     };
 
-    // Render pinned messages banner at top of thread
+    // Render pinned messages banner in the dedicated fixed slot above the thread
     async function _renderPinnedBanner(){
       if(!selectedSeat || selectedSeat === "Operator") return;
-      const box = document.getElementById("thread");
-      if(!box) return;
+      const banner = document.getElementById("saPinnedBanner");
+      if(!banner) return;
       try{
         const r = await fetch("/api/thread/pins?name=" + encodeURIComponent(selectedSeat));
         const d = await r.json();
-        const existing = document.getElementById("_saPinnedBanner");
-        if(existing) existing.remove();
-        if(!d.ok || !d.pins || !d.pins.length) return;
-        const banner = document.createElement("div");
-        banner.id = "_saPinnedBanner";
-        banner.style.cssText = "flex-shrink:0;padding:8px 10px;margin-bottom:6px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.25);border-radius:10px;";
+        if(!d.ok || !d.pins || !d.pins.length){
+          banner.style.display = "none";
+          banner.innerHTML = "";
+          return;
+        }
+        banner.innerHTML = "";
+        banner.style.display = "block";
         const hdr = document.createElement("div");
-        hdr.style.cssText = "font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;";
-        hdr.innerText = "📌 Pinned";
+        hdr.style.cssText = "font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;";
+        hdr.innerHTML = '<span>📌 Pinned</span>';
         banner.appendChild(hdr);
-        d.pins.slice(0,3).forEach(txt => {
+        d.pins.slice(0,5).forEach(txt => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);";
           const item = document.createElement("div");
-          item.style.cssText = "font-size:12px;color:#e2e8f0;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;";
-          item.title = "Click to see full response";
-          item.innerText = txt.slice(0,120) + (txt.length > 120 ? "…" : "");
-          item.onclick = () => { if(typeof showToast==="function") showToast(txt.slice(0,300)); };
-          banner.appendChild(item);
+          item.style.cssText = "font-size:12px;color:#e2e8f0;flex:1;cursor:pointer;line-height:1.4;";
+          item.title = "Click to expand";
+          const preview = txt.slice(0, 100) + (txt.length > 100 ? "…" : "");
+          item.innerText = preview;
+          item.onclick = () => {
+            // Show full text in an expandable overlay
+            const ov = document.createElement("div");
+            ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;";
+            ov.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(251,191,36,.3);border-radius:14px;padding:20px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.7);">
+              <div style="font-size:11px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">📌 Pinned message</div>
+              <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;">${txt.replace(/</g,"&lt;")}</div>
+              <button onclick="this.closest('div[style*=fixed]').remove()" style="margin-top:16px;padding:6px 18px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;font-size:12px;">Close</button>
+            </div>`;
+            ov.onclick = e => { if(e.target === ov) ov.remove(); };
+            document.body.appendChild(ov);
+          };
+          const unpinBtn = document.createElement("button");
+          unpinBtn.style.cssText = "flex-shrink:0;padding:1px 7px;font-size:10px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;white-space:nowrap;";
+          unpinBtn.innerText = "✕ Unpin";
+          unpinBtn.onclick = async () => {
+            await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({name: selectedSeat, text: txt, action:"unpin"})});
+            if(typeof showToast==="function") showToast("📌 Unpinned");
+            _renderPinnedBanner();
+          };
+          row.appendChild(item);
+          row.appendChild(unpinBtn);
+          banner.appendChild(row);
         });
-        box.insertBefore(banner, box.firstChild);
-      }catch(_){}
+      }catch(_){ banner.style.display="none"; }
     }
     window._renderPinnedBanner = _renderPinnedBanner;
 
@@ -21002,10 +21046,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             threadPinBtn.onclick = async (e) => {
               e.stopPropagation();
               try{
-                await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"},
+                const r2 = await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"},
                   body: JSON.stringify({name: selectedSeat, text: raw, action:"toggle"})});
-                await _checkIfPinned();
-                if(typeof refreshThread==="function") refreshThread();
+                const d2 = await r2.json();
+                const nowPinned = d2.pinned;
+                threadPinBtn.innerText = nowPinned ? "📌 Unpin" : "📌 Pin";
+                threadPinBtn.style.opacity = nowPinned ? "1" : ".55";
+                threadPinBtn.style.color = nowPinned ? "#fde68a" : "";
+                if(typeof showToast==="function") showToast(nowPinned ? "📌 Pinned — see it above the thread" : "📌 Unpinned");
+                _renderPinnedBanner();
               }catch(_){}
             };
 
