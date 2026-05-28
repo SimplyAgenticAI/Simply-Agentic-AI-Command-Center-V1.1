@@ -4254,7 +4254,7 @@ def summarize_attachments_for_prompt(file_ids: List[str]) -> Tuple[str, List[Dic
                         "mimetype": mimetype,
                         "data_url": data_url
                     })
-                    lines.append(f"[Attachment: {filename}] (image included for vision models when supported)")
+                    lines.append(f"[image attached: {filename}] (visible to you in this message — analyze it directly)")
                     continue
 
         lines.append(f"[Attachment: {filename}] (non text file, included as reference)")
@@ -4783,6 +4783,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Simply acknowledge the request enthusiastically and describe what you will create.\n"
     )
 
+    vision_analysis_rules = (
+        "IMAGE ANALYSIS CAPABILITY\n"
+        "You CAN see and analyze images that users attach to their messages. "
+        "When a message contains '[image attached' or '[Attachment:' referencing an image, "
+        "the actual image is embedded in this conversation and IS visible to you — analyze it directly. "
+        "NEVER ask the user to send or re-send an image they already attached. "
+        "NEVER say you cannot see images or lack vision capability. "
+        "If an image is attached: describe it, analyze it, and answer questions about it immediately.\n"
+    )
+
     visual_rules = (
         "ANIMATION & VISUAL REQUESTS: When a user asks for any animation, slideshow, carousel, "
         "presentation, or interactive visual, respond with ONLY this single short line: "
@@ -5023,6 +5033,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "No em dashes.\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
+        f"{vision_analysis_rules}\n"
         f"{visual_rules}\n"
         f"{web_search_rules}\n"
         f"{email_rules}\n"
@@ -7813,7 +7824,6 @@ def _api_followup_impl(data):
         msg2 = _inject_url_content(msg2)
     except Exception:
         pass
-    user_content = _build_user_content(msg2, vision_images)
 
     defn = installed[name]
 
@@ -7821,6 +7831,27 @@ def _api_followup_impl(data):
         uname = _get_session_username()
     except Exception:
         uname = "anon"
+
+    # Auto re-attach last uploaded image when no new files but image was previously sent
+    if not vision_images and not file_ids:
+        try:
+            _img_state = load_image_state(name, uname)
+            _last_upload_id = (_img_state.get("last_uploaded_image_id") or "").strip()
+            if _last_upload_id:
+                _last_rec = get_upload_record(_last_upload_id)
+                if _last_rec and _is_image_record(_last_rec):
+                    _raw = safe_read_binary_file(
+                        UPLOADS_DIR / _last_rec.get("relpath", ""),
+                        MAX_INLINE_IMAGE_BYTES
+                    )
+                    if _raw:
+                        _du = _guess_data_url(_last_rec.get("mimetype", "image/jpeg"), _raw)
+                        if _du:
+                            vision_images = [{"filename": _last_rec.get("filename", "photo"), "mimetype": _last_rec.get("mimetype", "image/jpeg"), "data_url": _du}]
+        except Exception:
+            pass
+
+    user_content = _build_user_content(msg2, vision_images)
 
     thread = load_thread(name, uname)
     thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
@@ -18588,6 +18619,15 @@ input[type="range"]::-moz-range-progress {
         </div>
         <!-- Input always visible at bottom -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
+          <!-- Length mode toggle + dictate -->
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+            <span style="font-size:10px;color:#475569;font-weight:600;letter-spacing:.5px;margin-right:2px;">REPLY LENGTH</span>
+            <button id="dmBriefBtn" title="Brief replies" onclick="window._saSetLengthMode('brief')" style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">Brief</button>
+            <button id="dmAutoBtn"  title="Auto length (default)" onclick="window._saSetLengthMode('auto')"  style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#c4b5fd;cursor:pointer;transition:all .15s;">Auto</button>
+            <button id="dmDeepBtn"  title="Deep / detailed replies" onclick="window._saSetLengthMode('deep')"  style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">Deep</button>
+            <div style="flex:1;"></div>
+            <button id="dmDictateBtn" title="Dictate message (speech to text)" onclick="window._saDictate()" style="padding:2px 9px;font-size:12px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#94a3b8;cursor:pointer;transition:all .15s;">🎤 Dictate</button>
+          </div>
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
           <div class="pillRow" style="margin-top:5px;display:flex;align-items:center;gap:6px;">
             <input type="file" id="dmFiles" multiple style="display:none" />
@@ -20536,11 +20576,44 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return card;
     };
 
+    // Render pinned messages banner at top of thread
+    async function _renderPinnedBanner(){
+      if(!selectedSeat || selectedSeat === "Operator") return;
+      const box = document.getElementById("thread");
+      if(!box) return;
+      try{
+        const r = await fetch("/api/thread/pins?name=" + encodeURIComponent(selectedSeat));
+        const d = await r.json();
+        const existing = document.getElementById("_saPinnedBanner");
+        if(existing) existing.remove();
+        if(!d.ok || !d.pins || !d.pins.length) return;
+        const banner = document.createElement("div");
+        banner.id = "_saPinnedBanner";
+        banner.style.cssText = "flex-shrink:0;padding:8px 10px;margin-bottom:6px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.25);border-radius:10px;";
+        const hdr = document.createElement("div");
+        hdr.style.cssText = "font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;";
+        hdr.innerText = "📌 Pinned";
+        banner.appendChild(hdr);
+        d.pins.slice(0,3).forEach(txt => {
+          const item = document.createElement("div");
+          item.style.cssText = "font-size:12px;color:#e2e8f0;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;";
+          item.title = "Click to see full response";
+          item.innerText = txt.slice(0,120) + (txt.length > 120 ? "…" : "");
+          item.onclick = () => { if(typeof showToast==="function") showToast(txt.slice(0,300)); };
+          banner.appendChild(item);
+        });
+        box.insertBefore(banner, box.firstChild);
+      }catch(_){}
+    }
+    window._renderPinnedBanner = _renderPinnedBanner;
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
       const box = $("thread");
       box.innerHTML = "";
+      // Load and show pinned messages banner after render
+      setTimeout(_renderPinnedBanner, 50);
       if(selectedSeat && selectedSeat !== "Operator" && lastImageState && (lastImageState.current_image_url || lastImageState.approved_image_url)) {
         const stateCard = document.createElement("div");
         stateCard.className = "msg assistant";
@@ -20616,6 +20689,33 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         empty.appendChild(emptyWho);
         empty.appendChild(emptyBody);
         box.appendChild(empty);
+        // Conversation starters
+        const _starterMap = {
+          "Alex":    ["What's the biggest lever we should be pulling right now?", "Help me build a go-to-market strategy for this month.", "Where are we leaving money on the table?"],
+          "Willow":  ["Rewrite this copy so it lands harder:", "What's weak about this headline?", "Help me write a 5-email nurture sequence."],
+          "Ava":     ["Research the top 3 competitors in my space and what they're doing.", "What are the latest trends in my industry I should know about?", "Summarize this article and pull out the key insights:"],
+          "Luna":    ["Design a content campaign around this idea:", "Write 10 creative captions for this post.", "Give me 5 unexpected angles for this topic:"],
+          "Orion":   ["Map out this workflow step by step so nothing breaks.", "What could go wrong with this plan and how do we prevent it?", "Build me a simple automation idea for this process:"],
+          "Sunshine":["Write a DM that feels human and gets a reply.", "Help me handle this objection:", "What's a warm follow-up message for someone who went cold?"],
+          "Atlis":   ["Is there anything about this plan that could backfire?", "Review this contract clause for red flags.", "What's the ethical risk I might be missing here?"],
+        };
+        const starters = _starterMap[selectedSeat] || ["What can I help you with today?", "Ask me anything.", "Let's get to work."];
+        const starterCard = document.createElement("div");
+        starterCard.style.cssText = "padding:12px 0 4px;";
+        const starterLabel = document.createElement("div");
+        starterLabel.style.cssText = "font-size:10px;font-weight:700;color:#475569;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;";
+        starterLabel.innerText = "Quick starts";
+        starterCard.appendChild(starterLabel);
+        starters.forEach(s => {
+          const chip = document.createElement("button");
+          chip.style.cssText = "display:block;width:100%;text-align:left;padding:8px 12px;margin-bottom:5px;border-radius:9px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#c4b5fd;font-size:12px;cursor:pointer;transition:all .15s;white-space:normal;line-height:1.4;";
+          chip.innerText = s;
+          chip.onmouseenter = ()=>{ chip.style.background="rgba(124,58,237,.15)"; chip.style.borderColor="rgba(124,58,237,.4)"; };
+          chip.onmouseleave = ()=>{ chip.style.background="rgba(255,255,255,.05)"; chip.style.borderColor="rgba(255,255,255,.12)"; };
+          chip.onclick = ()=>{ const el=document.getElementById("followMsg"); if(el){ el.value=s; el.focus(); } };
+          starterCard.appendChild(chip);
+        });
+        box.appendChild(starterCard);
         return;
       }
       msgs.forEach((m, msgIdx) => {
@@ -20835,9 +20935,89 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               }
             };
 
+            // ── Thumbs up ──────────────────────────────────────────────────────
+            const thumbUpBtn = document.createElement("button");
+            thumbUpBtn.className = "btn btnMini";
+            thumbUpBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 7px;";
+            thumbUpBtn.title = "Good response (adds to memory)";
+            thumbUpBtn.innerText = "👍";
+            thumbUpBtn.onclick = async (e) => {
+              e.stopPropagation();
+              thumbUpBtn.style.opacity = "1"; thumbUpBtn.innerText = "👍✓";
+              try{
+                await fetch("/api/teammate/feedback", {method:"POST",headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({name: selectedSeat, sentiment:"up", snippet: raw.slice(0,160)})});
+              }catch(_){}
+              setTimeout(()=>{ thumbUpBtn.innerText="👍"; thumbUpBtn.style.opacity=".55"; }, 1500);
+            };
+
+            // ── Thumbs down ────────────────────────────────────────────────────
+            const thumbDnBtn = document.createElement("button");
+            thumbDnBtn.className = "btn btnMini";
+            thumbDnBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 7px;";
+            thumbDnBtn.title = "Not helpful (adds to memory)";
+            thumbDnBtn.innerText = "👎";
+            thumbDnBtn.onclick = async (e) => {
+              e.stopPropagation();
+              thumbDnBtn.style.opacity = "1"; thumbDnBtn.innerText = "👎✓";
+              try{
+                await fetch("/api/teammate/feedback", {method:"POST",headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({name: selectedSeat, sentiment:"down", snippet: raw.slice(0,160)})});
+              }catch(_){}
+              setTimeout(()=>{ thumbDnBtn.innerText="👎"; thumbDnBtn.style.opacity=".55"; }, 1500);
+            };
+
+            // ── Regenerate ─────────────────────────────────────────────────────
+            const regenBtn = document.createElement("button");
+            regenBtn.className = "btn btnMini";
+            regenBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 9px;";
+            regenBtn.title = "Regenerate this response";
+            regenBtn.innerText = "↩ Redo";
+            regenBtn.onclick = (e) => {
+              e.stopPropagation();
+              // Find preceding user message
+              const prevUser = (msgs[msgIdx-1] || {});
+              const lastUserMsg = prevUser.role === "user" ? (prevUser.content || "") : "";
+              if(!lastUserMsg){ if(typeof showToast==="function") showToast("⚠️ No prior message to regenerate"); return; }
+              const field = document.getElementById("followMsg");
+              if(field){ field.value = lastUserMsg; }
+              if(typeof window.sendFollow === "function") window.sendFollow();
+            };
+
+            // ── Pin ────────────────────────────────────────────────────────────
+            const threadPinBtn = document.createElement("button");
+            threadPinBtn.className = "btn btnMini";
+            threadPinBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 7px;";
+            threadPinBtn.title = "Pin this response";
+            threadPinBtn.innerText = "📌 Pin";
+            const _checkIfPinned = async () => {
+              try{
+                const r = await fetch("/api/thread/pins?name=" + encodeURIComponent(selectedSeat));
+                const d = await r.json();
+                const pinKey = raw.slice(0,120);
+                const isPinned = (d.pins||[]).some(p => p.slice(0,120) === pinKey);
+                threadPinBtn.innerText = isPinned ? "📌 Unpin" : "📌 Pin";
+                threadPinBtn.style.opacity = isPinned ? "1" : ".55";
+                threadPinBtn.style.color = isPinned ? "#fde68a" : "";
+              }catch(_){}
+            };
+            threadPinBtn.onclick = async (e) => {
+              e.stopPropagation();
+              try{
+                await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({name: selectedSeat, text: raw, action:"toggle"})});
+                await _checkIfPinned();
+                if(typeof refreshThread==="function") refreshThread();
+              }catch(_){}
+            };
+
             actRow.appendChild(copyBtn);
             actRow.appendChild(speakBtn);
             actRow.appendChild(pinBtn);
+            actRow.appendChild(thumbUpBtn);
+            actRow.appendChild(thumbDnBtn);
+            actRow.appendChild(regenBtn);
+            actRow.appendChild(threadPinBtn);
             content.appendChild(actRow);
           }
         }
@@ -22077,58 +22257,61 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
       }
 
-      // NEW: client-side fanout using the working single-teammate endpoint (/api/followup)
-      // This prevents the server from timing out on long multi-call requests, and ensures
-      // each teammate completes (or fails) independently without freezing the UI.
+      // Streaming fanout: each teammate streams tokens in real time before moving to the next
       const outputs = {};
       const drafts = {};
       const images = {};
 
       for(const n of order){
+        setSeatLive(n, "thinking");
+        // Show live streaming placeholder in group panel
+        outputs[n] = "…";
+        renderGroupReplies(outputs, drafts, images);
+
         try{
           const controller = new AbortController();
-          const t = setTimeout(() => controller.abort(), 120000); // 120s safety
-          const res = await fetch("/api/followup", {
+          const t = setTimeout(() => controller.abort(), 120000);
+          const res = await fetch("/api/followup/stream", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds}),
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn}),
             signal: controller.signal
           });
           clearTimeout(t);
 
-          let data = null;
-          try{
-            data = await res.json();
-          }catch(_){
-            // Non-JSON response from server: mark as failed but do not freeze
+          if(!res.ok || !res.body){
             setSeatLive(n, "waiting");
+            outputs[n] = "(error)";
+            renderGroupReplies(outputs, drafts, images);
             continue;
           }
 
-          if(!data.ok){
-            setSeatLive(n, "waiting");
-            continue;
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "", full = "";
+          while(true){
+            const {done, value} = await reader.read();
+            if(done) break;
+            buf += dec.decode(value, {stream:true});
+            const lines = buf.split("\n"); buf = lines.pop();
+            for(const line of lines){
+              if(!line.startsWith("data:")) continue;
+              try{
+                const ev = JSON.parse(line.slice(5).trim());
+                if(ev.token){ full += ev.token; outputs[n] = full; renderGroupReplies(outputs, drafts, images); }
+                if(ev.done && ev.email_draft) drafts[n] = ev.email_draft;
+                if(ev.done && ev.job_id){ try{ pollImageJob(ev.job_id, n); }catch(_){} }
+              }catch(_){}
+            }
           }
 
-          const text = data.response || "";
-          outputs[n] = text;
-          if(data.email_draft){
-            drafts[n] = data.email_draft;
-          }
-          if(data.image_url){
-            images[n] = data.image_url;
-          }
-
-          // Update the group panel incrementally
-          renderGroupReplies(outputs, drafts, images);
+          if(full) outputs[n] = full;
           setSeatLive(n, "done");
-
-          // If server triggered an image job, poll for it so the result appears
-          if(data.job_id){
-            try{ pollImageJob(data.job_id, n); }catch(_){}
-          }
+          renderGroupReplies(outputs, drafts, images);
         }catch(e){
           setSeatLive(n, "waiting");
+          if(!outputs[n] || outputs[n] === "…") outputs[n] = "(timed out)";
+          renderGroupReplies(outputs, drafts, images);
         }
       }
 
@@ -22445,16 +22628,79 @@ function _saJobNotify(seatName, status){
     })();
     // ===== END IMPERSONATION BANNER =====
 
+    // ── Length mode state ──────────────────────────────────────────────────────
+    window._saLengthMode = "auto";
+    window._saSetLengthMode = function(mode){
+      window._saLengthMode = mode;
+      const styles = {
+        brief: {active: "rgba(14,165,233,.22)", activeBorder: "rgba(14,165,233,.5)", activeColor: "#7dd3fc"},
+        auto:  {active: "rgba(124,58,237,.18)", activeBorder: "rgba(124,58,237,.45)", activeColor: "#c4b5fd"},
+        deep:  {active: "rgba(52,211,153,.16)", activeBorder: "rgba(52,211,153,.4)", activeColor: "#6ee7b7"},
+      };
+      ["brief","auto","deep"].forEach(m => {
+        const btn = document.getElementById("dm" + m.charAt(0).toUpperCase() + m.slice(1) + "Btn");
+        if(!btn) return;
+        const isActive = m === mode;
+        const s = styles[m];
+        btn.style.background = isActive ? s.active : "rgba(255,255,255,.06)";
+        btn.style.borderColor = isActive ? s.activeBorder : "rgba(255,255,255,.14)";
+        btn.style.color = isActive ? s.activeColor : "#94a3b8";
+      });
+    };
+    window._saSetLengthMode("auto"); // init highlight
+
+    // ── Voice dictation ────────────────────────────────────────────────────────
+    window._saDictate = function(){
+      const btn = document.getElementById("dmDictateBtn");
+      const field = document.getElementById("followMsg");
+      if(!field) return;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if(!SpeechRecognition){
+        if(typeof showToast === "function") showToast("⚠️ Speech recognition not supported in this browser");
+        return;
+      }
+      if(window._saDictateActive){
+        window._saDictateActive.stop();
+        return;
+      }
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.lang = "en-US";
+      window._saDictateActive = rec;
+      if(btn){ btn.innerText = "🔴 Stop"; btn.style.color = "#fca5a5"; btn.style.borderColor = "rgba(239,68,68,.5)"; }
+      rec.onresult = function(e){
+        let interim = "", final = "";
+        for(let i = e.resultIndex; i < e.results.length; i++){
+          const t = e.results[i][0].transcript;
+          if(e.results[i].isFinal) final += t; else interim += t;
+        }
+        field.value = (field.value || "").replace(/\[\[interim:[^\]]*\]\]/g, "") + final + (interim ? `[[interim:${interim}]]` : "");
+        field.value = field.value.replace(/\[\[interim:[^\]]*\]\]/g, interim ? interim : "");
+      };
+      rec.onend = function(){
+        window._saDictateActive = null;
+        field.value = field.value.replace(/\[\[interim:[^\]]*\]\]/g, "").trim();
+        if(btn){ btn.innerText = "🎤 Dictate"; btn.style.color = "#94a3b8"; btn.style.borderColor = "rgba(255,255,255,.14)"; }
+      };
+      rec.onerror = function(){ rec.stop(); };
+      rec.start();
+    };
+
     window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
         showToast("⚠️ Click a teammate card first");
         return;
       }
-      const msg = $("followMsg").value.trim();
+      let msg = $("followMsg").value.trim();
       if(!msg){
         showModal("Missing message", "Type a message for the selected teammate.");
         return;
       }
+
+      // Inject length mode instruction
+      if(window._saLengthMode === "brief") msg = msg + "\n\n[Keep your reply concise — 2 to 4 sentences max.]";
+      if(window._saLengthMode === "deep")  msg = msg + "\n\n[Give a thorough, detailed reply — cover all angles fully.]";
 
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
@@ -22536,6 +22782,14 @@ function _saJobNotify(seatName, status){
             applyEmailDraft(emailDraft, selectedSeat);
           }
           window._saUserRequestedEmailDraft = false;
+          // Auto-extract memory in background (every ~5 messages)
+          try{
+            window._saMsgCountSinceExtract = (window._saMsgCountSinceExtract || 0) + 1;
+            if(window._saMsgCountSinceExtract >= 5){
+              window._saMsgCountSinceExtract = 0;
+              fetch("/api/teammate/extract_memory", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: selectedSeat})}).catch(()=>{});
+            }
+          }catch(e){}
         }
 
       }catch(err){
@@ -48269,9 +48523,29 @@ def api_followup_stream():
 
     defn = installed[name]
     msg2, attach_meta, vision_images = build_prompt_with_attachments(msg, file_ids)
-    user_content = _build_user_content(msg2, vision_images)
 
     uname = _get_session_username()
+
+    # Auto re-attach last uploaded image when no new files but image was previously sent
+    if not vision_images and not file_ids:
+        try:
+            _img_state = load_image_state(name, uname)
+            _last_upload_id = (_img_state.get("last_uploaded_image_id") or "").strip()
+            if _last_upload_id:
+                _last_rec = get_upload_record(_last_upload_id)
+                if _last_rec and _is_image_record(_last_rec):
+                    _raw = safe_read_binary_file(
+                        UPLOADS_DIR / _last_rec.get("relpath", ""),
+                        MAX_INLINE_IMAGE_BYTES
+                    )
+                    if _raw:
+                        _du = _guess_data_url(_last_rec.get("mimetype", "image/jpeg"), _raw)
+                        if _du:
+                            vision_images = [{"filename": _last_rec.get("filename", "photo"), "mimetype": _last_rec.get("mimetype", "image/jpeg"), "data_url": _du}]
+        except Exception:
+            pass
+
+    user_content = _build_user_content(msg2, vision_images)
 
     # ── Message usage limit check ─────────────────────────────────────────────
     try:
@@ -51585,6 +51859,115 @@ def sp_callback_tiktok():
                              f"<h2>TikTok connect error</h2><p>{e}</p>"
                              f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 500)
 
+
+# =============================================================================
+# TEAMMATE FEEDBACK (thumbs up / down)
+# =============================================================================
+
+def _thread_pins_path(name: str, uname: str) -> Path:
+    return DATA / f"thread_pins_{_safe(uname)}_{_safe(name)}.json"
+
+def load_thread_pins(name: str, uname: str) -> List[str]:
+    try:
+        d = load_json(_thread_pins_path(name, uname), [])
+        return d if isinstance(d, list) else []
+    except Exception:
+        return []
+
+def save_thread_pins(name: str, uname: str, pins: List[str]) -> None:
+    try:
+        save_json(_thread_pins_path(name, uname), pins[:50])
+    except Exception:
+        pass
+
+@app.post("/api/teammate/feedback")
+def api_teammate_feedback():
+    """Record a thumbs-up or thumbs-down on a teammate reply."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = _get_session_username()
+    data = request.get_json(silent=True) or {}
+    name      = (data.get("name") or "").strip()
+    sentiment = (data.get("sentiment") or "").strip()   # "up" | "down"
+    snippet   = (data.get("snippet") or "").strip()[:200]
+    if not name or sentiment not in ("up", "down"):
+        return jsonify({"ok": False, "error": "Missing name or sentiment"}), 400
+    try:
+        mem = load_teammate_memory(uname, name)
+        style = mem.get("style_notes") or []
+        if sentiment == "up":
+            note = f"User liked this response style: {snippet}" if snippet else "User gave a thumbs up"
+        else:
+            note = f"User disliked this response style: {snippet}" if snippet else "User gave a thumbs down"
+        if not any(note[:40] in s for s in style):
+            style.insert(0, note)
+            mem["style_notes"] = style[:20]
+            save_teammate_memory(uname, name, mem)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.post("/api/thread/pin")
+def api_thread_pin():
+    """Toggle a pinned message in a teammate thread."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = _get_session_username()
+    data = request.get_json(silent=True) or {}
+    name    = (data.get("name") or "").strip()
+    text    = (data.get("text") or "").strip()
+    action  = (data.get("action") or "toggle").strip()   # "pin" | "unpin" | "toggle"
+    if not name or not text:
+        return jsonify({"ok": False, "error": "Missing name or text"}), 400
+    pins = load_thread_pins(name, uname)
+    key = text[:120]
+    exists = any(p[:120] == key for p in pins)
+    if action == "pin" or (action == "toggle" and not exists):
+        if not exists:
+            pins.insert(0, text[:500])
+        save_thread_pins(name, uname, pins)
+        return jsonify({"ok": True, "pinned": True, "pins": pins})
+    else:
+        pins = [p for p in pins if p[:120] != key]
+        save_thread_pins(name, uname, pins)
+        return jsonify({"ok": True, "pinned": False, "pins": pins})
+
+@app.get("/api/thread/pins")
+def api_thread_pins_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = _get_session_username()
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    return jsonify({"ok": True, "pins": load_thread_pins(name, uname)})
+
+@app.post("/api/teammate/extract_memory")
+def api_teammate_extract_memory():
+    """Trigger a background memory extraction from recent thread."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = _get_session_username()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Missing name"}), 400
+    try:
+        thread = load_thread(name, uname)
+        if len(thread) < 4:
+            return jsonify({"ok": True, "skipped": True})
+        new_data = _extract_memory_from_thread(name, thread[-20:])
+        if new_data:
+            existing = load_teammate_memory(uname, name)
+            merged = _merge_teammate_memory(existing, new_data)
+            save_teammate_memory(uname, name, merged)
+        return jsonify({"ok": True, "extracted": bool(new_data)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
