@@ -270,6 +270,12 @@ CALENDAR_SCOPES = [
 ]
 GOOGLE_ALL_SCOPES = list(dict.fromkeys(GMAIL_SCOPES + CALENDAR_SCOPES))
 
+# Social Media Content Planner — set these on Render as env vars
+META_APP_ID      = os.getenv("META_APP_ID", "")
+META_APP_SECRET  = os.getenv("META_APP_SECRET", "")
+TIKTOK_CLIENT_KEY    = os.getenv("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET = os.getenv("TIKTOK_CLIENT_SECRET", "")
+
 # =========================
 # STRIPE BILLING
 # =========================
@@ -15894,6 +15900,8 @@ label {
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
+            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+            <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
           </div>
         </div>
 
@@ -16046,6 +16054,7 @@ label {
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
             <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
             <button class="btn" data-click="responseVaultBtn" onclick="closeMobileDrawer()">🗄️ Response Vault</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showContentPlannerModal,200);">📅 Content Planner</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var p=document.getElementById('notifPanel');if(p){p.style.position='fixed';p.style.top='0';p.style.left='0';p.style.right='0';p.style.bottom='0';p.style.width='100%';p.style.maxHeight='100vh';p.style.borderRadius='0';p.style.zIndex='99999';p.style.display='block';if(typeof loadNotifs==='function')loadNotifs();}},200);">🔔 Notifications</button>
           </div>
         </div>
@@ -40272,6 +40281,652 @@ function saUseGlyph(){
 }
 </script>
 
+<!-- ===== CONTENT PLANNER MODAL ===== -->
+<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.97);flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
+
+  <!-- Header -->
+  <div id="cpHeader" style="display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(8,14,36,.98);flex-shrink:0;gap:12px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+      <div style="font-size:20px;">📅</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Content Planner</div>
+        <div style="font-size:11px;color:#64748b;">Schedule & publish across all platforms</div>
+      </div>
+    </div>
+
+    <!-- Platform status pills -->
+    <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+
+    <!-- Controls -->
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+      <div style="display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;">
+        <button id="cpViewCalBtn" onclick="cpSetView('calendar')" style="padding:5px 12px;font-size:12px;font-weight:600;background:rgba(124,58,237,.5);border:none;color:#c4b5fd;cursor:pointer;">📅 Calendar</button>
+        <button id="cpViewQueueBtn" onclick="cpSetView('queue')" style="padding:5px 12px;font-size:12px;font-weight:600;background:transparent;border:none;color:#94a3b8;cursor:pointer;">📋 Queue</button>
+      </div>
+      <button onclick="cpOpenImportCSV()" style="padding:5px 12px;font-size:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;">⬆ Import CSV</button>
+      <button onclick="cpOpenComposer(null)" style="padding:6px 14px;font-size:12px;font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);border-radius:8px;color:#fff;cursor:pointer;">+ New Post</button>
+      <button onclick="closeContentPlannerModal()" style="padding:5px 12px;font-size:12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:#fca5a5;cursor:pointer;">✕ Close</button>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+
+    <!-- Main area (calendar or queue) -->
+    <div id="cpMain" style="flex:1;overflow:auto;padding:18px;min-width:0;">
+
+      <!-- Calendar view -->
+      <div id="cpCalendarView">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <button onclick="cpMonthNav(-1)" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;font-size:14px;">‹</button>
+          <div id="cpMonthLabel" style="font-size:16px;font-weight:700;color:#e2e8f0;"></div>
+          <button onclick="cpMonthNav(1)" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;font-size:14px;">›</button>
+        </div>
+        <div id="cpCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;"></div>
+      </div>
+
+      <!-- Queue view -->
+      <div id="cpQueueView" style="display:none;">
+        <div id="cpQueueList"></div>
+      </div>
+
+    </div>
+
+    <!-- Composer panel -->
+    <div id="cpComposer" style="display:none;width:380px;min-width:340px;max-width:420px;flex-shrink:0;border-left:1px solid rgba(42,58,106,.5);background:rgba(8,14,36,.98);overflow-y:auto;display:flex;flex-direction:column;">
+      <div style="padding:16px 16px 0;border-bottom:1px solid rgba(42,58,106,.3);padding-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+        <div id="cpComposerTitle" style="font-size:14px;font-weight:700;color:#e2e8f0;">New Post</div>
+        <button onclick="cpCloseComposer()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:#94a3b8;padding:3px 8px;cursor:pointer;font-size:12px;">✕</button>
+      </div>
+      <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:12px;">
+
+        <!-- Caption -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Caption</div>
+          <textarea id="cpCaption" placeholder="Write your post caption..." style="width:100%;height:120px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
+          <div id="cpCaptionCount" style="font-size:10px;color:#475569;text-align:right;margin-top:2px;">0 chars</div>
+        </div>
+
+        <!-- AI Draft -->
+        <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;">
+          <div style="font-size:11px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">✦ Draft with AI</div>
+          <input id="cpAiTopic" placeholder="Topic / idea for this post..." style="width:100%;background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
+          <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+            <select id="cpAiTeammate" style="flex:1;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;cursor:pointer;">
+              <option value="Luna">✦ Luna</option>
+              <option value="Alex">⚡ Alex</option>
+              <option value="Sunshine">☀ Sunshine</option>
+            </select>
+            <select id="cpAiTone" style="flex:1;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;cursor:pointer;">
+              <option value="engaging">Engaging</option>
+              <option value="professional">Professional</option>
+              <option value="casual">Casual</option>
+              <option value="educational">Educational</option>
+              <option value="promotional">Promotional</option>
+            </select>
+            <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" style="padding:5px 10px;background:rgba(124,58,237,.7);border:1px solid rgba(124,58,237,.5);border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Draft</button>
+          </div>
+          <div id="cpAiStatus" style="font-size:11px;color:#64748b;margin-top:4px;min-height:14px;"></div>
+        </div>
+
+        <!-- Platforms -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em;">Platforms</div>
+          <div id="cpPlatformChecks" style="display:flex;flex-wrap:wrap;gap:7px;">
+            <label id="cpPlatFb" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(24,119,242,.1);border:1px solid rgba(24,119,242,.25);border-radius:8px;cursor:pointer;font-size:12px;color:#93c5fd;">
+              <input type="checkbox" value="facebook" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#1877F2;"> 𝔣 Facebook
+            </label>
+            <label id="cpPlatIg" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(225,48,108,.1);border:1px solid rgba(225,48,108,.25);border-radius:8px;cursor:pointer;font-size:12px;color:#fda4af;">
+              <input type="checkbox" value="instagram" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#E1306C;"> ◎ Instagram
+            </label>
+            <label id="cpPlatYt" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(255,0,0,.08);border:1px solid rgba(255,0,0,.2);border-radius:8px;cursor:pointer;font-size:12px;color:#fca5a5;">
+              <input type="checkbox" value="youtube" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#FF0000;"> ▶ YouTube
+            </label>
+            <label id="cpPlatTt" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(238,29,82,.08);border:1px solid rgba(238,29,82,.2);border-radius:8px;cursor:pointer;font-size:12px;color:#fca5a5;">
+              <input type="checkbox" value="tiktok" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#EE1D52;"> ♪ TikTok
+            </label>
+          </div>
+        </div>
+
+        <!-- Schedule -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Schedule Date &amp; Time</div>
+          <input id="cpScheduledAt" type="datetime-local" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;"/>
+        </div>
+
+        <!-- Media URL -->
+        <div>
+          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Media URL <span style="font-weight:400;text-transform:none;color:#475569;">(image or video)</span></div>
+          <input id="cpMediaUrl" type="url" placeholder="https://..." style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;"/>
+          <div class="tiny" style="margin-top:3px;opacity:.6;">Required for Instagram. Optional for Facebook.</div>
+        </div>
+
+        <!-- Hidden post ID -->
+        <input type="hidden" id="cpEditingPostId" value="" />
+
+        <!-- Action buttons -->
+        <div style="display:flex;flex-direction:column;gap:7px;padding-top:4px;">
+          <button onclick="cpSavePost('draft')" style="padding:9px;border-radius:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#e2e8f0;font-size:13px;font-weight:600;cursor:pointer;">💾 Save as Draft</button>
+          <button onclick="cpSavePost('scheduled')" style="padding:9px;border-radius:9px;background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);color:#93c5fd;font-size:13px;font-weight:700;cursor:pointer;">🗓 Schedule</button>
+          <button onclick="cpPublishNow()" style="padding:9px;border-radius:9px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">🚀 Publish Now</button>
+        </div>
+        <div id="cpComposerStatus" style="font-size:12px;color:#64748b;min-height:16px;text-align:center;"></div>
+
+        <!-- Delete (only when editing existing) -->
+        <div id="cpDeleteWrap" style="display:none;border-top:1px solid rgba(42,58,106,.3);padding-top:10px;">
+          <button onclick="cpDeleteCurrentPost()" style="width:100%;padding:7px;border-radius:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:12px;cursor:pointer;">🗑 Delete Post</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CSV import hidden input -->
+  <input type="file" id="cpCsvInput" accept=".csv" style="display:none;" onchange="cpHandleCsvUpload(event)"/>
+
+</div>
+
+<script>
+/* ── Content Planner ─────────────────────────────────────────── */
+(function(){
+
+var _cpView = 'calendar';
+var _cpPosts = [];
+var _cpConns = {};
+var _cpCurYear = new Date().getFullYear();
+var _cpCurMonth = new Date().getMonth(); // 0-indexed
+var _cpEditingId = null;
+
+var PLAT_COLORS = {
+  facebook:  {bg:'rgba(24,119,242,.18)', border:'rgba(24,119,242,.4)', dot:'#1877F2', label:'Facebook'},
+  instagram: {bg:'rgba(225,48,108,.15)', border:'rgba(225,48,108,.35)', dot:'#E1306C', label:'Instagram'},
+  youtube:   {bg:'rgba(255,0,0,.12)',    border:'rgba(255,0,0,.3)',     dot:'#FF0000', label:'YouTube'},
+  tiktok:    {bg:'rgba(238,29,82,.12)',  border:'rgba(238,29,82,.3)',   dot:'#EE1D52', label:'TikTok'},
+};
+
+var STATUS_COLORS = {
+  draft:       '#64748b',
+  scheduled:   '#3b82f6',
+  publishing:  '#f59e0b',
+  published:   '#10b981',
+  partial:     '#f59e0b',
+  failed:      '#ef4444',
+};
+
+function $(id){ return document.getElementById(id); }
+
+window.showContentPlannerModal = function(){
+  var m = $('contentPlannerModal');
+  if(!m) return;
+  m.style.display = 'flex';
+  cpLoadState();
+};
+
+window.closeContentPlannerModal = function(){
+  var m = $('contentPlannerModal');
+  if(m) m.style.display = 'none';
+};
+
+async function cpLoadState(){
+  try{
+    var [postsRes, connsRes] = await Promise.all([
+      fetch('/api/social/posts'),
+      fetch('/api/social/connections'),
+    ]);
+    var postsData = await postsRes.json();
+    var connsData = await connsRes.json();
+    _cpPosts = (postsData.ok && postsData.posts) ? postsData.posts : [];
+    _cpConns = (connsData.ok && connsData.connections) ? connsData.connections : {};
+    cpRenderPlatformPills();
+    cpRender();
+  } catch(e){
+    console.error('cpLoadState', e);
+  }
+}
+
+function cpRenderPlatformPills(){
+  var el = $('cpPlatformPills');
+  if(!el) return;
+  var platforms = ['facebook','instagram','youtube','tiktok'];
+  var icons = {facebook:'𝔣', instagram:'◎', youtube:'▶', tiktok:'♪'};
+  el.innerHTML = platforms.map(function(p){
+    var c = _cpConns[p] || {};
+    var connected = c.connected;
+    var name = c.page_name || c.name || '';
+    var label = connected
+      ? (icons[p] + ' ' + (name || PLAT_COLORS[p].label))
+      : (icons[p] + ' ' + PLAT_COLORS[p].label);
+    var col = PLAT_COLORS[p];
+    var style = connected
+      ? 'background:'+col.bg+';border:1px solid '+col.border+';color:#e2e8f0;'
+      : 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#475569;';
+    var btn = connected
+      ? '<button onclick="cpDisconnect(\''+p+'\')" style="margin-left:4px;font-size:9px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.35);border-radius:4px;color:#fca5a5;padding:1px 5px;cursor:pointer;line-height:1.4;">✕</button>'
+      : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:4px;font-size:9px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:4px;color:#94a3b8;padding:1px 5px;cursor:pointer;line-height:1.4;">Connect</button>';
+    return '<div style="display:flex;align-items:center;padding:4px 9px;border-radius:20px;font-size:11px;font-weight:600;cursor:default;'+style+'">'+label+btn+'</div>';
+  }).join('');
+}
+
+window.cpConnect = function(platform){
+  window.open('/social/connect/'+platform, '_blank', 'width=600,height=700');
+  setTimeout(function(){ cpLoadState(); }, 4000);
+};
+
+window.cpDisconnect = function(platform){
+  if(!confirm('Disconnect '+platform+'?')) return;
+  fetch('/api/social/disconnect/'+platform, {method:'POST'})
+    .then(function(){ cpLoadState(); });
+};
+
+function cpRender(){
+  if(_cpView === 'calendar') cpRenderCalendar();
+  else cpRenderQueue();
+}
+
+window.cpSetView = function(v){
+  _cpView = v;
+  var cal = $('cpCalendarView'), queue = $('cpQueueView');
+  var calBtn = $('cpViewCalBtn'), queueBtn = $('cpViewQueueBtn');
+  if(v === 'calendar'){
+    if(cal) cal.style.display = 'block';
+    if(queue) queue.style.display = 'none';
+    if(calBtn){ calBtn.style.background='rgba(124,58,237,.5)'; calBtn.style.color='#c4b5fd'; }
+    if(queueBtn){ queueBtn.style.background='transparent'; queueBtn.style.color='#94a3b8'; }
+  } else {
+    if(cal) cal.style.display = 'none';
+    if(queue) queue.style.display = 'block';
+    if(calBtn){ calBtn.style.background='transparent'; calBtn.style.color='#94a3b8'; }
+    if(queueBtn){ queueBtn.style.background='rgba(124,58,237,.5)'; queueBtn.style.color='#c4b5fd'; }
+  }
+  cpRender();
+};
+
+window.cpMonthNav = function(dir){
+  _cpCurMonth += dir;
+  if(_cpCurMonth < 0){ _cpCurMonth = 11; _cpCurYear--; }
+  if(_cpCurMonth > 11){ _cpCurMonth = 0; _cpCurYear++; }
+  cpRenderCalendar();
+};
+
+function cpRenderCalendar(){
+  var label = $('cpMonthLabel');
+  var grid = $('cpCalGrid');
+  if(!label || !grid) return;
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  label.textContent = months[_cpCurMonth] + ' ' + _cpCurYear;
+
+  // Build map: dateKey -> posts
+  var postMap = {};
+  _cpPosts.forEach(function(p){
+    var dt = p.scheduled_at || p.created_at || '';
+    if(!dt) return;
+    var key = dt.slice(0,10);
+    if(!postMap[key]) postMap[key] = [];
+    postMap[key].push(p);
+  });
+
+  var today = new Date();
+  var todayKey = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+
+  // Day headers
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var html = days.map(function(d){
+    return '<div style="text-align:center;font-size:11px;font-weight:700;color:#475569;padding:6px 0;text-transform:uppercase;letter-spacing:.05em;">'+d+'</div>';
+  }).join('');
+
+  // Days in month
+  var firstDay = new Date(_cpCurYear, _cpCurMonth, 1).getDay();
+  var daysInMonth = new Date(_cpCurYear, _cpCurMonth+1, 0).getDate();
+  var prevDays = new Date(_cpCurYear, _cpCurMonth, 0).getDate();
+
+  // Prev month filler
+  for(var i=0; i<firstDay; i++){
+    html += '<div style="min-height:80px;padding:4px;border-radius:8px;background:rgba(255,255,255,.02);opacity:.3;"><div style="font-size:11px;color:#334155;">'+(prevDays-firstDay+1+i)+'</div></div>';
+  }
+
+  // Current month days
+  for(var d=1; d<=daysInMonth; d++){
+    var key = _cpCurYear+'-'+String(_cpCurMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    var isToday = key === todayKey;
+    var dayPosts = postMap[key] || [];
+
+    var postDots = dayPosts.slice(0,4).map(function(p){
+      var plats = p.platforms || [];
+      var dotColor = plats.length > 0 ? (PLAT_COLORS[plats[0]] || {dot:'#94a3b8'}).dot : '#94a3b8';
+      var statusColor = STATUS_COLORS[p.status] || '#64748b';
+      return '<div onclick="cpOpenComposer(\''+p.id+'\')" title="'+_esc(p.caption.slice(0,60))+'" style="display:flex;align-items:center;gap:3px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:2px 5px;margin-top:3px;cursor:pointer;" >'
+        +'<div style="width:6px;height:6px;border-radius:50%;background:'+dotColor+';flex-shrink:0;"></div>'
+        +'<div style="font-size:10px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;">'+_esc(p.caption.slice(0,18))+'</div>'
+        +'<div style="width:5px;height:5px;border-radius:50%;background:'+statusColor+';flex-shrink:0;margin-left:auto;"></div>'
+        +'</div>';
+    }).join('');
+
+    var more = dayPosts.length > 4 ? '<div style="font-size:10px;color:#64748b;margin-top:2px;">+' + (dayPosts.length-4) + ' more</div>' : '';
+
+    var bg = isToday ? 'rgba(124,58,237,.15)' : 'rgba(255,255,255,.04)';
+    var border = isToday ? '1px solid rgba(124,58,237,.5)' : '1px solid rgba(255,255,255,.07)';
+
+    html += '<div style="min-height:80px;padding:5px;border-radius:8px;background:'+bg+';border:'+border+';cursor:pointer;" onclick="cpDayClick(event,\''+key+'\');">'
+      +'<div style="font-size:12px;font-weight:'+(isToday?'800':'600')+';color:'+(isToday?'#c4b5fd':'#94a3b8')+';">'+d+'</div>'
+      +postDots+more
+      +'</div>';
+  }
+
+  // Trailing filler
+  var total = firstDay + daysInMonth;
+  var remaining = 7 - (total % 7);
+  if(remaining < 7){
+    for(var t=1; t<=remaining; t++){
+      html += '<div style="min-height:80px;padding:4px;border-radius:8px;background:rgba(255,255,255,.02);opacity:.3;"><div style="font-size:11px;color:#334155;">'+t+'</div></div>';
+    }
+  }
+
+  grid.innerHTML = html;
+}
+
+window.cpDayClick = function(e, dateKey){
+  if(e.target !== e.currentTarget) return;
+  cpOpenComposer(null, dateKey);
+};
+
+function cpRenderQueue(){
+  var el = $('cpQueueList');
+  if(!el) return;
+
+  var sorted = _cpPosts.slice().sort(function(a,b){
+    var da = a.scheduled_at || a.created_at || '';
+    var db = b.scheduled_at || b.created_at || '';
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+
+  if(sorted.length === 0){
+    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#475569;">'
+      +'<div style="font-size:36px;margin-bottom:12px;">📭</div>'
+      +'<div style="font-size:15px;font-weight:700;color:#64748b;margin-bottom:6px;">No posts yet</div>'
+      +'<div style="font-size:13px;">Click <strong>+ New Post</strong> to create your first scheduled post.</div></div>';
+    return;
+  }
+
+  var groups = {scheduled:[], draft:[], published:[], failed:[]};
+  sorted.forEach(function(p){
+    var s = p.status || 'draft';
+    if(s==='published' || s==='partial') groups.published.push(p);
+    else if(s==='failed') groups.failed.push(p);
+    else if(s==='scheduled' || s==='publishing') groups.scheduled.push(p);
+    else groups.draft.push(p);
+  });
+
+  var html = '';
+  var sections = [
+    {key:'scheduled', label:'🗓 Scheduled', color:'#3b82f6'},
+    {key:'draft',     label:'📝 Drafts',    color:'#64748b'},
+    {key:'published', label:'✅ Published', color:'#10b981'},
+    {key:'failed',    label:'❌ Failed',    color:'#ef4444'},
+  ];
+  sections.forEach(function(sec){
+    var posts = groups[sec.key];
+    if(!posts.length) return;
+    html += '<div style="margin-bottom:20px;">'
+      +'<div style="font-size:12px;font-weight:700;color:'+sec.color+';margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">'+sec.label+' ('+posts.length+')</div>';
+    posts.forEach(function(p){
+      var plats = (p.platforms||[]).map(function(pl){
+        var c = PLAT_COLORS[pl] || {dot:'#94a3b8'};
+        return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c.dot+';"></span>';
+      }).join('');
+      var dt = p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : (p.status==='draft'?'Draft':'—');
+      var statusColor = STATUS_COLORS[p.status] || '#64748b';
+      html += '<div style="display:flex;align-items:flex-start;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;margin-bottom:6px;">'
+        +'<div style="flex:1;min-width:0;">'
+        +'<div style="font-size:13px;color:#e2e8f0;line-height:1.4;margin-bottom:4px;">'+_esc(p.caption.length>120?p.caption.slice(0,120)+'…':p.caption)+'</div>'
+        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+        +'<div style="display:flex;gap:4px;">'+plats+'</div>'
+        +'<div style="font-size:11px;color:#475569;">'+dt+'</div>'
+        +'<div style="width:6px;height:6px;border-radius:50%;background:'+statusColor+';"></div>'
+        +'</div></div>'
+        +'<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
+        +'<button onclick="cpOpenComposer(\''+p.id+'\')" style="padding:3px 8px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:#94a3b8;cursor:pointer;">Edit</button>'
+        +(p.status!=='published'?'<button onclick="cpPublishNowById(\''+p.id+'\')" style="padding:3px 8px;font-size:11px;background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.4);border-radius:6px;color:#c4b5fd;cursor:pointer;">Publish</button>':'')
+        +'</div>'
+        +'</div>';
+    });
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+window.cpOpenComposer = function(postId, prefillDate){
+  var composer = $('cpComposer');
+  if(!composer) return;
+  composer.style.display = 'flex';
+  composer.style.flexDirection = 'column';
+
+  var post = postId ? _cpPosts.find(function(p){ return p.id===postId; }) : null;
+  _cpEditingId = post ? post.id : null;
+
+  var titleEl = $('cpComposerTitle');
+  if(titleEl) titleEl.textContent = post ? 'Edit Post' : 'New Post';
+
+  var capEl = $('cpCaption');
+  if(capEl){ capEl.value = post ? (post.caption||'') : ''; cpUpdateCharCount(); }
+
+  var dtEl = $('cpScheduledAt');
+  if(dtEl){
+    if(post && post.scheduled_at){
+      dtEl.value = post.scheduled_at.slice(0,16);
+    } else if(prefillDate){
+      dtEl.value = prefillDate + 'T09:00';
+    } else {
+      dtEl.value = '';
+    }
+  }
+
+  var mediaEl = $('cpMediaUrl');
+  if(mediaEl) mediaEl.value = post ? (post.media_url||'') : '';
+
+  var idEl = $('cpEditingPostId');
+  if(idEl) idEl.value = _cpEditingId || '';
+
+  // Set platform checkboxes
+  var plats = post ? (post.platforms||[]) : [];
+  ['facebook','instagram','youtube','tiktok'].forEach(function(p){
+    var cb = document.querySelector('#cpPlatform'+_cap(p)+' input, #cpPlatformChecks input[value="'+p+'"]');
+    if(cb) cb.checked = plats.indexOf(p) >= 0;
+  });
+
+  var delWrap = $('cpDeleteWrap');
+  if(delWrap) delWrap.style.display = post ? 'block' : 'none';
+
+  var statusEl = $('cpComposerStatus');
+  if(statusEl) statusEl.textContent = '';
+
+  var aiStatusEl = $('cpAiStatus');
+  if(aiStatusEl) aiStatusEl.textContent = '';
+};
+
+function _cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+window.cpCloseComposer = function(){
+  var composer = $('cpComposer');
+  if(composer) composer.style.display = 'none';
+  _cpEditingId = null;
+};
+
+window.cpPlatformToggle = function(cb){ /* visual feedback handled by CSS */ };
+
+window.cpUpdateCharCount = function(){
+  var el = $('cpCaption'), cnt = $('cpCaptionCount');
+  if(el && cnt) cnt.textContent = (el.value||'').length + ' chars';
+};
+
+window.cpSavePost = async function(status){
+  var caption = ($('cpCaption')||{}).value || '';
+  if(!caption.trim()){ cpSetStatus('Caption is required'); return; }
+
+  var platforms = [];
+  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
+  if(!platforms.length && status !== 'draft'){ cpSetStatus('Select at least one platform'); return; }
+
+  var scheduledAt = ($('cpScheduledAt')||{}).value || '';
+  if(status === 'scheduled' && !scheduledAt){ cpSetStatus('Select a date/time to schedule'); return; }
+
+  var mediaUrl = ($('cpMediaUrl')||{}).value || '';
+  var postId = _cpEditingId || '';
+
+  cpSetStatus('Saving…');
+  try{
+    var body = {
+      id: postId || undefined,
+      caption: caption,
+      platforms: platforms,
+      media_url: mediaUrl,
+      scheduled_at: scheduledAt ? (scheduledAt.length===16 ? scheduledAt+':00' : scheduledAt) : '',
+      status: status,
+    };
+    var res = await fetch('/api/social/posts', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    var d = await res.json();
+    if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }
+    cpSetStatus('✓ Saved');
+    await cpLoadState();
+    setTimeout(cpCloseComposer, 800);
+  } catch(e){
+    cpSetStatus('Error: '+e.message);
+  }
+};
+
+window.cpPublishNow = async function(){
+  var postId = _cpEditingId;
+  if(!postId){
+    // Save first then publish
+    var caption = ($('cpCaption')||{}).value || '';
+    if(!caption.trim()){ cpSetStatus('Caption is required'); return; }
+    var platforms = [];
+    document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
+    if(!platforms.length){ cpSetStatus('Select at least one platform'); return; }
+    var mediaUrl = ($('cpMediaUrl')||{}).value || '';
+    cpSetStatus('Saving…');
+    try{
+      var res = await fetch('/api/social/posts', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({caption:caption, platforms:platforms, media_url:mediaUrl, status:'scheduled'}),
+      });
+      var d = await res.json();
+      if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }
+      postId = d.post.id;
+      _cpEditingId = postId;
+    } catch(e){ cpSetStatus('Error: '+e.message); return; }
+  }
+  await cpPublishNowById(postId);
+};
+
+window.cpPublishNowById = async function(postId){
+  cpSetStatus('Publishing…');
+  try{
+    var res = await fetch('/api/social/publish/'+postId, {method:'POST'});
+    var d = await res.json();
+    if(!d.ok){ cpSetStatus(d.error||'Publish failed'); return; }
+    var msgs = [];
+    Object.keys(d.results||{}).forEach(function(p){
+      var r = d.results[p];
+      msgs.push(p+': '+(r.ok?'✓':'✗ '+r.info));
+    });
+    cpSetStatus(msgs.join(' | ') || '✓ Published');
+    await cpLoadState();
+  } catch(e){
+    cpSetStatus('Error: '+e.message);
+  }
+};
+
+window.cpDeleteCurrentPost = async function(){
+  if(!_cpEditingId || !confirm('Delete this post?')) return;
+  try{
+    await fetch('/api/social/posts/'+_cpEditingId, {method:'DELETE'});
+    await cpLoadState();
+    cpCloseComposer();
+  } catch(e){ cpSetStatus('Delete failed'); }
+};
+
+window.cpDraftWithAI = async function(){
+  var topic = ($('cpAiTopic')||{}).value || '';
+  if(!topic.trim()){ $('cpAiStatus').textContent='Enter a topic first.'; return; }
+  var teammate = ($('cpAiTeammate')||{}).value || 'Luna';
+  var tone = ($('cpAiTone')||{}).value || 'engaging';
+  var platforms = [];
+  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
+  if(!platforms.length) platforms = ['facebook'];
+
+  var btn = $('cpAiDraftBtn');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  $('cpAiStatus').textContent = teammate+' is writing…';
+
+  try{
+    var res = await fetch('/api/social/draft_ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({topic:topic, platforms:platforms, tone:tone, teammate:teammate}),
+    });
+    var d = await res.json();
+    if(!d.ok){ $('cpAiStatus').textContent = d.error||'Draft failed'; return; }
+    var capEl = $('cpCaption');
+    if(capEl){ capEl.value = d.draft; cpUpdateCharCount(); }
+    $('cpAiStatus').textContent = '✓ Draft applied — edit as needed';
+  } catch(e){
+    $('cpAiStatus').textContent = 'Error: '+e.message;
+  } finally {
+    if(btn){ btn.disabled=false; btn.textContent='Draft'; }
+  }
+};
+
+window.cpOpenImportCSV = function(){
+  var inp = $('cpCsvInput');
+  if(inp) inp.click();
+};
+
+window.cpHandleCsvUpload = async function(e){
+  var file = e.target.files && e.target.files[0];
+  if(!file) return;
+  var fd = new FormData();
+  fd.append('file', file);
+  try{
+    var res = await fetch('/api/social/import_csv', {method:'POST', body:fd});
+    var d = await res.json();
+    if(d.ok){
+      alert('✓ Imported ' + d.imported + ' posts' + (d.errors&&d.errors.length?' ('+d.errors.length+' errors)':''));
+      await cpLoadState();
+    } else {
+      alert('Import failed: '+(d.error||'unknown'));
+    }
+  } catch(ex){
+    alert('Import error: '+ex.message);
+  }
+  e.target.value='';
+};
+
+function cpSetStatus(msg){
+  var el = $('cpComposerStatus');
+  if(el) el.textContent = msg;
+}
+
+function _esc(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Wire up caption char counter
+document.addEventListener('DOMContentLoaded', function(){
+  var cap = document.getElementById('cpCaption');
+  if(cap) cap.addEventListener('input', window.cpUpdateCharCount);
+});
+
+// Refresh connections after OAuth popup closes
+window.addEventListener('focus', function(){
+  var m = document.getElementById('contentPlannerModal');
+  if(m && m.style.display !== 'none') cpLoadState();
+});
+
+})();
+</script>
+
 <script>
 /* Cosmic neural-web background */
 (function(){
@@ -50294,6 +50949,555 @@ def api_extension_tag_contact():
         _crm_save(uname, crm)
         return jsonify({"ok": True, "matched": True, "client_id": matched_cid, "tags": new_tags})
     return jsonify({"ok": True, "matched": False, "auto_created": False})
+
+
+# =========================
+# SOCIAL MEDIA CONTENT PLANNER
+# =========================
+import uuid as _uuid_mod
+
+def _sp_posts_path(uname: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", uname or "anon")
+    return Path(DATA_DIR) / f"social_posts_{safe}.json"
+
+def _sp_conns_path(uname: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", uname or "anon")
+    return Path(DATA_DIR) / f"social_conns_{safe}.json"
+
+def _load_sp_posts(uname: str) -> list:
+    try:
+        p = _sp_posts_path(uname)
+        if p.exists():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, list) else []
+    except Exception:
+        pass
+    return []
+
+def _save_sp_posts(uname: str, posts: list) -> None:
+    p = _sp_posts_path(uname)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(posts, indent=2), encoding="utf-8")
+    tmp.replace(p)
+
+def _load_sp_conns(uname: str) -> dict:
+    try:
+        p = _sp_conns_path(uname)
+        if p.exists():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _save_sp_conns(uname: str, conns: dict) -> None:
+    p = _sp_conns_path(uname)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(conns, indent=2), encoding="utf-8")
+    tmp.replace(p)
+
+def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
+    fb = conns.get("facebook") or {}
+    pages = fb.get("pages") or []
+    if not pages:
+        return False, "No Facebook Pages connected"
+    page = pages[0]
+    page_id = page.get("id")
+    page_token = page.get("access_token")
+    if not page_id or not page_token:
+        return False, "Missing page credentials"
+    text = (post.get("caption") or "").strip()
+    media_url = (post.get("media_url") or "").strip()
+    data = {"message": text, "access_token": page_token}
+    if media_url:
+        endpoint = f"https://graph.facebook.com/v19.0/{page_id}/photos"
+        data["url"] = media_url
+    else:
+        endpoint = f"https://graph.facebook.com/v19.0/{page_id}/feed"
+    try:
+        r = requests.post(endpoint, data=data, timeout=20)
+        result = r.json()
+        if r.status_code == 200 and (result.get("id") or result.get("post_id")):
+            return True, result.get("id") or result.get("post_id", "ok")
+        return False, (result.get("error") or {}).get("message", "Facebook API error")
+    except Exception as e:
+        return False, str(e)
+
+def _sp_publish_instagram(post: dict, conns: dict) -> Tuple[bool, str]:
+    ig = conns.get("instagram") or {}
+    ig_user_id = ig.get("ig_user_id")
+    ig_token = ig.get("access_token")
+    if not ig_user_id or not ig_token:
+        return False, "Instagram not connected"
+    media_url = (post.get("media_url") or "").strip()
+    caption = (post.get("caption") or "").strip()
+    if not media_url:
+        return False, "Instagram requires a media URL"
+    is_video = any(media_url.lower().endswith(ext) for ext in (".mp4", ".mov", ".avi"))
+    container_data: dict = {"caption": caption, "access_token": ig_token}
+    if is_video:
+        container_data["video_url"] = media_url
+        container_data["media_type"] = "REELS"
+    else:
+        container_data["image_url"] = media_url
+    try:
+        r1 = requests.post(f"https://graph.facebook.com/v19.0/{ig_user_id}/media", data=container_data, timeout=30)
+        res1 = r1.json()
+        if r1.status_code != 200 or not res1.get("id"):
+            return False, (res1.get("error") or {}).get("message", "Failed to create media container")
+        container_id = res1["id"]
+        r2 = requests.post(f"https://graph.facebook.com/v19.0/{ig_user_id}/media_publish",
+                           data={"creation_id": container_id, "access_token": ig_token}, timeout=30)
+        res2 = r2.json()
+        if r2.status_code == 200 and res2.get("id"):
+            return True, res2["id"]
+        return False, (res2.get("error") or {}).get("message", "Instagram publish failed")
+    except Exception as e:
+        return False, str(e)
+
+@app.get("/api/social/posts")
+def api_sp_posts_get():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "posts": _load_sp_posts(uname)})
+
+@app.post("/api/social/posts")
+def api_sp_posts_create():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    body = request.get_json(silent=True) or {}
+    posts = _load_sp_posts(uname)
+    post_id = (body.get("id") or "").strip() or str(_uuid_mod.uuid4())[:8]
+    idx = next((i for i, p in enumerate(posts) if p.get("id") == post_id), -1)
+    post = {
+        "id": post_id,
+        "caption": (body.get("caption") or "").strip(),
+        "platforms": body.get("platforms") or [],
+        "media_url": (body.get("media_url") or "").strip(),
+        "scheduled_at": (body.get("scheduled_at") or "").strip(),
+        "status": body.get("status") or "draft",
+        "created_at": body.get("created_at") or now_iso(),
+        "updated_at": now_iso(),
+        "published_ids": body.get("published_ids") or {},
+        "error": "",
+    }
+    if idx >= 0:
+        posts[idx] = post
+    else:
+        posts.append(post)
+    _save_sp_posts(uname, posts)
+    return jsonify({"ok": True, "post": post})
+
+@app.delete("/api/social/posts/<post_id>")
+def api_sp_post_delete(post_id):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    posts = [p for p in _load_sp_posts(uname) if p.get("id") != post_id]
+    _save_sp_posts(uname, posts)
+    return jsonify({"ok": True})
+
+@app.post("/api/social/publish/<post_id>")
+def api_sp_publish(post_id):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    posts = _load_sp_posts(uname)
+    conns = _load_sp_conns(uname)
+    post = next((p for p in posts if p.get("id") == post_id), None)
+    if not post:
+        return jsonify({"ok": False, "error": "Post not found"}), 404
+    platforms = post.get("platforms") or []
+    results: dict = {}
+    for platform in platforms:
+        if platform == "facebook":
+            ok, info = _sp_publish_facebook(post, conns)
+        elif platform == "instagram":
+            ok, info = _sp_publish_instagram(post, conns)
+        elif platform in ("youtube", "tiktok"):
+            ok, info = False, f"{platform.title()} auto-publish not supported — copy content and post manually."
+        else:
+            ok, info = False, f"Unknown platform: {platform}"
+        results[platform] = {"ok": ok, "info": info}
+    all_ok = all(r["ok"] for r in results.values()) if results else False
+    any_ok = any(r["ok"] for r in results.values())
+    post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
+    post["published_at"] = now_iso()
+    post["publish_results"] = results
+    _save_sp_posts(uname, posts)
+    return jsonify({"ok": True, "results": results, "status": post["status"]})
+
+@app.post("/api/social/import_csv")
+def api_sp_import_csv():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    f = request.files.get("file")
+    if not f: return jsonify({"ok": False, "error": "No file uploaded"}), 400
+    import csv, io
+    content = f.read().decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+    posts = _load_sp_posts(uname)
+    imported = 0
+    errors: list = []
+    for row in reader:
+        try:
+            caption = (row.get("caption") or row.get("text") or "").strip()
+            if not caption:
+                continue
+            plat_raw = (row.get("platforms") or row.get("platform") or "facebook").strip()
+            platforms = [p.strip().lower() for p in plat_raw.split(";") if p.strip()]
+            scheduled_at = (row.get("scheduled_at") or row.get("date") or "").strip()
+            media_url = (row.get("media_url") or row.get("image") or "").strip()
+            posts.append({
+                "id": str(_uuid_mod.uuid4())[:8],
+                "caption": caption,
+                "platforms": platforms,
+                "media_url": media_url,
+                "scheduled_at": scheduled_at,
+                "status": "scheduled" if scheduled_at else "draft",
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+                "published_ids": {},
+                "error": "",
+            })
+            imported += 1
+        except Exception as e:
+            errors.append(str(e))
+    _save_sp_posts(uname, posts)
+    return jsonify({"ok": True, "imported": imported, "errors": errors})
+
+@app.get("/api/social/connections")
+def api_sp_connections():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    conns = _load_sp_conns(uname)
+    summary = {}
+    for platform in ("facebook", "instagram", "youtube", "tiktok"):
+        c = conns.get(platform) or {}
+        pages = c.get("pages") or []
+        summary[platform] = {
+            "connected": bool(c.get("access_token")),
+            "name": c.get("name") or "",
+            "page_name": pages[0].get("name") if pages else "",
+        }
+    return jsonify({"ok": True, "connections": summary})
+
+@app.post("/api/social/disconnect/<platform>")
+def api_sp_disconnect(platform):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    conns = _load_sp_conns(uname)
+    conns.pop(platform, None)
+    _save_sp_conns(uname, conns)
+    return jsonify({"ok": True})
+
+@app.post("/api/social/draft_ai")
+def api_sp_draft_ai():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    body = request.get_json(silent=True) or {}
+    topic = (body.get("topic") or "").strip()
+    if not topic:
+        return jsonify({"ok": False, "error": "Topic required"}), 400
+    platforms = body.get("platforms") or ["facebook"]
+    tone = (body.get("tone") or "engaging").strip()
+    teammate = (body.get("teammate") or "Luna").strip()
+    reg = load_registry(uname)
+    installed = (reg.get("installed") or {})
+    t_defn = installed.get(teammate) or PREBUILT_LOCKED.get(teammate) or {}
+    system = teammate_system_prompt(t_defn) if t_defn else f"You are {teammate}, a social media content specialist."
+    platform_str = " and ".join(p.title() for p in platforms)
+    prompt = (
+        f"Write a {tone} social media post for {platform_str} about: {topic}.\n"
+        "Include relevant hashtags at the end. Keep it concise, authentic, and engaging. "
+        "Return ONLY the post text — no preamble, no explanation."
+    )
+    try:
+        draft = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.75)
+        return jsonify({"ok": True, "draft": draft.strip()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# ── OAuth: Facebook / Instagram ──
+
+@app.get("/social/connect/facebook")
+def sp_connect_facebook():
+    u = current_user()
+    if not u: return redirect("/login")
+    if not META_APP_ID or not META_APP_SECRET:
+        return make_response(
+            "<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
+            "<h2>Meta App not configured</h2>"
+            "<p>Set <code>META_APP_ID</code> and <code>META_APP_SECRET</code> as environment variables on Render.</p>"
+            "<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+    state = secrets.token_urlsafe(24)
+    session["sp_fb_state"] = state
+    session.modified = True
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try: _store_oauth_state("sp_fb_" + state, uname)
+    except Exception: pass
+    redirect_uri = f"{PUBLIC_BASE_URL}/social/callback/facebook"
+    from urllib.parse import urlencode
+    params = {
+        "client_id": META_APP_ID,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "scope": "pages_manage_posts,pages_read_engagement,instagram_basic,instagram_content_publish,pages_show_list",
+        "response_type": "code",
+    }
+    return redirect(f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}")
+
+@app.get("/social/callback/facebook")
+def sp_callback_facebook():
+    u = current_user()
+    if not u: return redirect("/login")
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    error = request.args.get("error")
+    if error:
+        desc = request.args.get("error_description", error)
+        return make_response(
+            f"<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
+            f"<h2 style='color:#f87171;'>Facebook Connect Cancelled</h2><p>{desc}</p>"
+            f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>")
+    code = request.args.get("code", "")
+    state = request.args.get("state", "")
+    state_ok = session.get("sp_fb_state") == state
+    if not state_ok:
+        try:
+            rec = _consume_oauth_state("sp_fb_" + state)
+            if rec: state_ok = True
+        except Exception: pass
+    if not state_ok:
+        return make_response("<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
+                             "<h2>State mismatch — please try connecting again.</h2>"
+                             "<a href='/social/connect/facebook' style='color:#818cf8;'>Try again</a></body></html>", 400)
+    redirect_uri = f"{PUBLIC_BASE_URL}/social/callback/facebook"
+    try:
+        r = requests.get(
+            "https://graph.facebook.com/v19.0/oauth/access_token",
+            params={"client_id": META_APP_ID, "redirect_uri": redirect_uri,
+                    "client_secret": META_APP_SECRET, "code": code},
+            timeout=20)
+        data = r.json()
+        if not data.get("access_token"):
+            return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                                 f"<h2>Facebook token error</h2><pre>{data}</pre>"
+                                 f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+        short_token = data["access_token"]
+        r2 = requests.get(
+            "https://graph.facebook.com/v19.0/oauth/access_token",
+            params={"grant_type": "fb_exchange_token", "client_id": META_APP_ID,
+                    "client_secret": META_APP_SECRET, "fb_exchange_token": short_token},
+            timeout=20)
+        long_token = r2.json().get("access_token", short_token)
+        me = requests.get("https://graph.facebook.com/v19.0/me",
+                          params={"access_token": long_token, "fields": "name"}, timeout=10).json()
+        pages_resp = requests.get(
+            "https://graph.facebook.com/v19.0/me/accounts",
+            params={"access_token": long_token,
+                    "fields": "id,name,access_token,instagram_business_account"},
+            timeout=20)
+        pages_data = pages_resp.json()
+        pages = []
+        ig_user_id = None
+        ig_token = None
+        for pg in (pages_data.get("data") or []):
+            pages.append({"id": pg.get("id"), "name": pg.get("name"), "access_token": pg.get("access_token")})
+            if pg.get("instagram_business_account") and not ig_user_id:
+                ig_user_id = (pg.get("instagram_business_account") or {}).get("id")
+                ig_token = pg.get("access_token")
+        conns = _load_sp_conns(uname)
+        conns["facebook"] = {"access_token": long_token, "name": me.get("name", ""), "pages": pages, "connected_at": now_iso()}
+        if ig_user_id:
+            conns["instagram"] = {"access_token": ig_token, "ig_user_id": ig_user_id, "name": me.get("name", ""), "connected_at": now_iso()}
+        _save_sp_conns(uname, conns)
+        ig_note = " Instagram Business also connected!" if ig_user_id else ""
+        return make_response(
+            f"<html><head><meta http-equiv='refresh' content='3;url=/'></head>"
+            f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
+            f"<h2 style='color:#6ee7b7;'>✓ Facebook Connected!</h2>"
+            f"<p>{len(pages)} page(s) connected.{ig_note}</p>"
+            f"<p style='color:#64748b;'>Redirecting…</p>"
+            f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
+    except Exception as e:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2>Facebook connect error</h2><p>{e}</p>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 500)
+
+# ── OAuth: YouTube ──
+
+@app.get("/social/connect/youtube")
+def sp_connect_youtube():
+    u = current_user()
+    if not u: return redirect("/login")
+    ok, reason = _google_oauth_ready()
+    if not ok:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2>Google OAuth not configured</h2><p>{reason}</p>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+    state = secrets.token_urlsafe(24)
+    session["sp_yt_state"] = state
+    session.modified = True
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try: _store_oauth_state("sp_yt_" + state, uname)
+    except Exception: pass
+    auth_url = _oauth_auth_url(
+        ["https://www.googleapis.com/auth/youtube.force-ssl",
+         "https://www.googleapis.com/auth/youtube.readonly"],
+        "/social/callback/youtube", state)
+    return redirect(auth_url)
+
+@app.get("/social/callback/youtube")
+def sp_callback_youtube():
+    u = current_user()
+    if not u: return redirect("/login")
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    error = request.args.get("error")
+    if error:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2 style='color:#f87171;'>YouTube Connect Cancelled</h2>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>")
+    state = request.args.get("state", "")
+    state_ok = session.get("sp_yt_state") == state
+    if not state_ok:
+        try:
+            rec = _consume_oauth_state("sp_yt_" + state)
+            if rec: state_ok = True
+        except Exception: pass
+    if not state_ok:
+        return make_response("<h2>State mismatch — try again.</h2>", 400)
+    token_data, err = _oauth_exchange_code(request.args.get("code", ""), "/social/callback/youtube")
+    if err:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2>YouTube OAuth error</h2><p>{err}</p>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+    channel_name = "YouTube Channel"
+    channel_id = ""
+    try:
+        r = requests.get("https://www.googleapis.com/youtube/v3/channels",
+                         params={"part": "snippet", "mine": "true"},
+                         headers={"Authorization": f"Bearer {token_data['access_token']}"}, timeout=20)
+        items = (r.json().get("items") or [])
+        if items:
+            channel_name = items[0].get("snippet", {}).get("title", "YouTube Channel")
+            channel_id = items[0].get("id", "")
+    except Exception:
+        pass
+    conns = _load_sp_conns(uname)
+    conns["youtube"] = {
+        "access_token": token_data.get("access_token", ""),
+        "refresh_token": token_data.get("refresh_token", ""),
+        "expires_at": token_data.get("expires_at", 0),
+        "channel_name": channel_name, "channel_id": channel_id,
+        "name": channel_name, "connected_at": now_iso(),
+    }
+    _save_sp_conns(uname, conns)
+    return make_response(
+        f"<html><head><meta http-equiv='refresh' content='3;url=/'></head>"
+        f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
+        f"<h2 style='color:#6ee7b7;'>✓ YouTube Connected!</h2>"
+        f"<p>Channel: <strong>{channel_name}</strong></p>"
+        f"<p style='color:#64748b;'>Redirecting…</p>"
+        f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
+
+# ── OAuth: TikTok ──
+
+@app.get("/social/connect/tiktok")
+def sp_connect_tiktok():
+    u = current_user()
+    if not u: return redirect("/login")
+    if not TIKTOK_CLIENT_KEY or not TIKTOK_CLIENT_SECRET:
+        return make_response(
+            "<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
+            "<h2>TikTok not configured</h2>"
+            "<p>Set <code>TIKTOK_CLIENT_KEY</code> and <code>TIKTOK_CLIENT_SECRET</code> on Render.</p>"
+            "<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+    state = secrets.token_urlsafe(24)
+    session["sp_tt_state"] = state
+    session.modified = True
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try: _store_oauth_state("sp_tt_" + state, uname)
+    except Exception: pass
+    redirect_uri = f"{PUBLIC_BASE_URL}/social/callback/tiktok"
+    from urllib.parse import urlencode
+    params = {
+        "client_key": TIKTOK_CLIENT_KEY,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "user.info.basic,video.upload,video.publish",
+        "state": state,
+    }
+    return redirect(f"https://www.tiktok.com/v2/auth/authorize?{urlencode(params)}")
+
+@app.get("/social/callback/tiktok")
+def sp_callback_tiktok():
+    u = current_user()
+    if not u: return redirect("/login")
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    error = request.args.get("error")
+    if error:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2 style='color:#f87171;'>TikTok Connect Cancelled</h2>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>")
+    code = request.args.get("code", "")
+    state = request.args.get("state", "")
+    state_ok = session.get("sp_tt_state") == state
+    if not state_ok:
+        try:
+            rec = _consume_oauth_state("sp_tt_" + state)
+            if rec: state_ok = True
+        except Exception: pass
+    if not state_ok:
+        return make_response("<h2>State mismatch — try again.</h2>", 400)
+    redirect_uri = f"{PUBLIC_BASE_URL}/social/callback/tiktok"
+    try:
+        r = requests.post(
+            "https://open.tiktokapis.com/v2/oauth/token/",
+            data={"client_key": TIKTOK_CLIENT_KEY, "client_secret": TIKTOK_CLIENT_SECRET,
+                  "code": code, "grant_type": "authorization_code", "redirect_uri": redirect_uri},
+            headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=20)
+        data = r.json()
+        if not data.get("access_token"):
+            return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                                 f"<h2>TikTok token error</h2><pre>{data}</pre>"
+                                 f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+        access_token = data["access_token"]
+        display_name = "TikTok User"
+        open_id = ""
+        try:
+            ur = requests.post("https://open.tiktokapis.com/v2/user/info/",
+                               json={"fields": ["display_name", "open_id"]},
+                               headers={"Authorization": f"Bearer {access_token}",
+                                        "Content-Type": "application/json"}, timeout=15)
+            ud = ur.json()
+            display_name = ud.get("data", {}).get("user", {}).get("display_name", "TikTok User")
+            open_id = ud.get("data", {}).get("user", {}).get("open_id", "")
+        except Exception:
+            pass
+        conns = _load_sp_conns(uname)
+        conns["tiktok"] = {
+            "access_token": access_token,
+            "refresh_token": data.get("refresh_token", ""),
+            "open_id": open_id, "name": display_name, "connected_at": now_iso(),
+        }
+        _save_sp_conns(uname, conns)
+        return make_response(
+            f"<html><head><meta http-equiv='refresh' content='3;url=/'></head>"
+            f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
+            f"<h2 style='color:#6ee7b7;'>✓ TikTok Connected!</h2>"
+            f"<p>Account: <strong>{display_name}</strong></p>"
+            f"<p style='color:#64748b;'>Redirecting…</p>"
+            f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
+    except Exception as e:
+        return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
+                             f"<h2>TikTok connect error</h2><p>{e}</p>"
+                             f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 500)
 
 
 if __name__ == "__main__":
