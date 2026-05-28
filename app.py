@@ -18531,6 +18531,8 @@ input[type="range"]::-moz-range-progress {
             <div class="h2" id="seatSub">Click any teammate for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+          <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
+          <button class="btn btnMini" id="threadVoiceTopBtn" title="Voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
           <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
         </div>
         <!-- Conversation history search bar (hidden by default) -->
@@ -36283,7 +36285,10 @@ document.addEventListener('click',e=>{
     <div id="orchResults" style="display:none;padding:0 22px 20px;">
       <div style="border-top:1px solid rgba(42,58,106,.4);padding-top:14px;margin-bottom:10px;">
         <div id="orchPassLog" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
-        <div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:8px;">Final unified output</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:12px;font-weight:700;color:#c4b5fd;">Final unified output</div>
+          <button id="orchFullscreenBtn" onclick="_saOrchToggleFullscreen()" title="Expand to full screen" style="background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:7px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:600;">⛶ Full Screen</button>
+        </div>
         <div id="orchFinalOutput" style="background:rgba(9,12,24,.7);border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:14px;font-size:13px;color:#cbd5e1;white-space:pre-wrap;line-height:1.65;max-height:320px;overflow-y:auto;"></div>
         <div style="display:flex;gap:8px;margin-top:10px;">
           <button onclick="_saOrchCopyFinal()" style="flex:1;padding:8px;border:1px solid rgba(42,58,106,.6);border-radius:8px;background:rgba(14,22,48,.7);color:#94a3b8;font-size:12px;cursor:pointer;">📋 Copy</button>
@@ -36362,8 +36367,8 @@ document.addEventListener('click',e=>{
       <textarea id="pipelinePrompt" rows="3" placeholder="What should the pipeline work on? e.g. 'Our invoicing SaaS for freelancers — write a landing page'" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:10px;padding:11px 13px;color:#e2e8f0;font-size:13px;font-family:inherit;resize:vertical;box-sizing:border-box;outline:none;line-height:1.5;"></textarea>
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:20px;margin-bottom:10px;">
-        <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Pipeline steps</div>
-        <button onclick="_saAddPlStep()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:8px;padding:5px 13px;font-size:12px;cursor:pointer;font-weight:600;">+ Add step</button>
+        <div style="font-size:11px;color:#64748b;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Relay Steps</div>
+        <button onclick="_saAddPlStep()" style="background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;border-radius:8px;padding:5px 13px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Teammate</button>
       </div>
       <div id="plStepBuilder" style="display:flex;flex-direction:column;gap:8px;"></div>
       <div id="plBuilderHint" style="text-align:center;padding:24px 0;color:#334155;font-size:12px;">Add at least 2 steps — select a teammate and optionally give each one a custom instruction</div>
@@ -36749,6 +36754,32 @@ document.addEventListener('click',e=>{
     var t = (ge('orchFinalOutput')||{}).innerText||'';
     var fm = ge('followMsg'); if(fm){ fm.value = t; fm.focus(); }
     _saCloseModal('orchestraModal');
+  };
+
+  var _orchFullscreen = false;
+  window._saOrchToggleFullscreen = function(){
+    var inner = ge('orchInner');
+    var output = ge('orchFinalOutput');
+    var btn = ge('orchFullscreenBtn');
+    if(!inner || !output) return;
+    _orchFullscreen = !_orchFullscreen;
+    if(_orchFullscreen){
+      inner.style.cssText += ';position:fixed;inset:0;border-radius:0;width:100%;max-width:100%;margin:0;height:100vh;overflow-y:auto;z-index:99999;';
+      output.style.maxHeight = 'calc(100vh - 260px)';
+      if(btn){ btn.textContent = '✕ Exit Full Screen'; btn.style.background='rgba(239,68,68,.18)'; btn.style.borderColor='rgba(239,68,68,.4)'; btn.style.color='#fca5a5'; }
+    } else {
+      inner.style.position = '';
+      inner.style.inset = '';
+      inner.style.borderRadius = '18px';
+      inner.style.width = 'min(660px,100%)';
+      inner.style.maxWidth = '';
+      inner.style.margin = 'auto';
+      inner.style.height = '';
+      inner.style.overflow = '';
+      inner.style.zIndex = '';
+      output.style.maxHeight = '320px';
+      if(btn){ btn.textContent = '⛶ Full Screen'; btn.style.background='rgba(124,58,237,.18)'; btn.style.borderColor='rgba(124,58,237,.4)'; btn.style.color='#c4b5fd'; }
+    }
   };
 
   /* ══════════════════════════════════════════════════════════════════
@@ -40381,7 +40412,7 @@ function saUseGlyph(){
 </style>
 
 <!-- ===== CONTENT PLANNER MODAL ===== -->
-<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,6,18,.96);flex-direction:column;color:#e2e8f0;">
+<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:#040612;flex-direction:column;color:#e2e8f0;">
 
   <!-- Header -->
   <div id="cpHeader" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;flex-shrink:0;gap:12px;flex-wrap:wrap;">
