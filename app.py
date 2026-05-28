@@ -40281,149 +40281,258 @@ function saUseGlyph(){
 }
 </script>
 
+<style>
+/* ── Content Planner styles ── */
+#contentPlannerModal { font-family: system-ui, -apple-system, sans-serif; }
+#cpHeader {
+  background: rgba(8,12,32,.75);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 1px 0 rgba(124,58,237,.2), 0 4px 28px rgba(0,0,0,.45);
+}
+.cp-glass {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 4px 24px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.14);
+  border-radius: 14px;
+}
+.cp-glass:hover {
+  background: rgba(255,255,255,.09);
+  border-color: rgba(255,255,255,.22);
+  box-shadow: 0 8px 36px rgba(0,0,0,.38), 0 0 32px rgba(124,58,237,.18), inset 0 1px 0 rgba(255,255,255,.20);
+}
+.cp-btn {
+  padding: 7px 16px; border-radius: 9px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.08); color: #e2e8f0;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14);
+  transition: all .15s ease;
+}
+.cp-btn:hover {
+  background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 0 18px rgba(124,58,237,.22);
+}
+.cp-btn-primary {
+  background: linear-gradient(135deg, rgba(124,58,237,.85), rgba(91,33,182,.85));
+  border-color: rgba(124,58,237,.6); color: #fff;
+  box-shadow: 0 0 20px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.20);
+}
+.cp-btn-primary:hover {
+  background: linear-gradient(135deg, rgba(139,68,255,.95), rgba(109,40,217,.95));
+  box-shadow: 0 0 30px rgba(124,58,237,.55), inset 0 1px 0 rgba(255,255,255,.28);
+}
+.cp-btn-blue {
+  background: rgba(59,130,246,.2); border-color: rgba(59,130,246,.45); color: #93c5fd;
+  box-shadow: 0 0 14px rgba(59,130,246,.2), inset 0 1px 0 rgba(255,255,255,.10);
+}
+.cp-btn-blue:hover { background: rgba(59,130,246,.32); border-color: rgba(59,130,246,.65); box-shadow: 0 0 24px rgba(59,130,246,.35), inset 0 1px 0 rgba(255,255,255,.16); }
+.cp-btn-red { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.3); color: #fca5a5; }
+.cp-btn-red:hover { background: rgba(239,68,68,.22); border-color: rgba(239,68,68,.5); }
+.cp-input {
+  width: 100%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 9px; padding: 9px 12px; font-size: 13px; color: #e2e8f0;
+  box-sizing: border-box; outline: none; font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  transition: border-color .15s, box-shadow .15s;
+}
+.cp-input:focus {
+  border-color: rgba(124,58,237,.7);
+  box-shadow: 0 0 0 3px rgba(124,58,237,.18), inset 0 1px 0 rgba(255,255,255,.10);
+}
+.cp-label {
+  font-size: 10px; font-weight: 700; color: #64748b;
+  text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; display: block;
+}
+.cp-day {
+  min-height: 88px; padding: 7px 6px; border-radius: 12px; cursor: pointer;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+  transition: all .15s ease; position: relative;
+}
+.cp-day:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.20); box-shadow: 0 4px 18px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.14); transform: translateY(-1px); }
+.cp-day.today {
+  background: rgba(124,58,237,.14); border-color: rgba(124,58,237,.50);
+  box-shadow: 0 0 18px rgba(124,58,237,.22), inset 0 1px 0 rgba(255,255,255,.14);
+}
+.cp-day.other-month { opacity: .28; }
+.cp-post-pill {
+  display: flex; align-items: center; gap: 3px; border-radius: 5px; padding: 2px 6px;
+  margin-top: 3px; cursor: pointer; font-size: 10px; color: #cbd5e1; max-width: 100%;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  transition: background .12s;
+  overflow: hidden;
+}
+.cp-post-pill:hover { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); }
+.cp-queue-card {
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.11);
+  border-radius: 14px; padding: 12px 14px; margin-bottom: 7px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.10);
+  transition: all .18s ease;
+}
+.cp-queue-card:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.20); transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.35), 0 0 24px rgba(124,58,237,.14), inset 0 1px 0 rgba(255,255,255,.16); }
+.cp-section-head { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+.cp-section-head::after { content:''; flex:1; height:1px; background:currentColor; opacity:.2; }
+</style>
+
 <!-- ===== CONTENT PLANNER MODAL ===== -->
-<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.97);flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
+<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,6,18,.96);flex-direction:column;color:#e2e8f0;">
 
   <!-- Header -->
-  <div id="cpHeader" style="display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(8,14,36,.98);flex-shrink:0;gap:12px;flex-wrap:wrap;">
+  <div id="cpHeader" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;flex-shrink:0;gap:12px;flex-wrap:wrap;">
+
+    <!-- Left: branding -->
     <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
-      <div style="font-size:20px;">📅</div>
+      <div style="width:38px;height:38px;border-radius:11px;background:linear-gradient(135deg,rgba(124,58,237,.6),rgba(79,70,229,.5));border:1px solid rgba(124,58,237,.5);display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 0 18px rgba(124,58,237,.35);">📅</div>
       <div>
-        <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Content Planner</div>
-        <div style="font-size:11px;color:#64748b;">Schedule & publish across all platforms</div>
+        <div style="font-size:15px;font-weight:800;color:#f1f5f9;letter-spacing:-.01em;">Content Planner</div>
+        <div style="font-size:11px;color:#64748b;margin-top:1px;">Schedule &amp; publish across all platforms</div>
       </div>
     </div>
 
-    <!-- Platform status pills -->
-    <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    <!-- Center: platform pills -->
+    <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:center;"></div>
 
-    <!-- Controls -->
-    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-      <div style="display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;overflow:hidden;">
-        <button id="cpViewCalBtn" onclick="cpSetView('calendar')" style="padding:5px 12px;font-size:12px;font-weight:600;background:rgba(124,58,237,.5);border:none;color:#c4b5fd;cursor:pointer;">📅 Calendar</button>
-        <button id="cpViewQueueBtn" onclick="cpSetView('queue')" style="padding:5px 12px;font-size:12px;font-weight:600;background:transparent;border:none;color:#94a3b8;cursor:pointer;">📋 Queue</button>
+    <!-- Right: controls -->
+    <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;">
+      <!-- Segmented view toggle -->
+      <div style="display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);">
+        <button id="cpViewCalBtn" onclick="cpSetView('calendar')" style="padding:6px 14px;font-size:12px;font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(79,70,229,.6));border:none;border-right:1px solid rgba(255,255,255,.1);color:#ddd6fe;cursor:pointer;letter-spacing:.01em;">📅 Calendar</button>
+        <button id="cpViewQueueBtn" onclick="cpSetView('queue')" style="padding:6px 14px;font-size:12px;font-weight:600;background:transparent;border:none;color:#64748b;cursor:pointer;">📋 Queue</button>
       </div>
-      <button onclick="cpOpenImportCSV()" style="padding:5px 12px;font-size:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;">⬆ Import CSV</button>
-      <button onclick="cpOpenComposer(null)" style="padding:6px 14px;font-size:12px;font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);border-radius:8px;color:#fff;cursor:pointer;">+ New Post</button>
-      <button onclick="closeContentPlannerModal()" style="padding:5px 12px;font-size:12px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:#fca5a5;cursor:pointer;">✕ Close</button>
+      <button onclick="cpOpenImportCSV()" class="cp-btn" style="font-size:12px;color:#94a3b8;">⬆ Import CSV</button>
+      <button onclick="cpOpenComposer(null)" class="cp-btn cp-btn-primary" style="font-size:13px;padding:7px 16px;">✦ New Post</button>
+      <button onclick="closeContentPlannerModal()" class="cp-btn cp-btn-red" style="font-size:13px;">✕ Close</button>
     </div>
   </div>
 
   <!-- Body -->
   <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
 
-    <!-- Main area (calendar or queue) -->
-    <div id="cpMain" style="flex:1;overflow:auto;padding:18px;min-width:0;">
+    <!-- Main area -->
+    <div id="cpMain" style="flex:1;overflow:auto;padding:20px;min-width:0;">
 
       <!-- Calendar view -->
       <div id="cpCalendarView">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-          <button onclick="cpMonthNav(-1)" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;font-size:14px;">‹</button>
-          <div id="cpMonthLabel" style="font-size:16px;font-weight:700;color:#e2e8f0;"></div>
-          <button onclick="cpMonthNav(1)" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#94a3b8;cursor:pointer;font-size:14px;">›</button>
+        <!-- Month nav -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+          <button onclick="cpMonthNav(-1)" class="cp-btn" style="padding:7px 18px;font-size:16px;line-height:1;">‹</button>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div id="cpMonthLabel" style="font-size:18px;font-weight:800;color:#f1f5f9;letter-spacing:-.02em;"></div>
+            <button onclick="cpGoToday()" class="cp-btn" style="font-size:11px;padding:4px 10px;color:#a78bfa;">Today</button>
+          </div>
+          <button onclick="cpMonthNav(1)" class="cp-btn" style="padding:7px 18px;font-size:16px;line-height:1;">›</button>
         </div>
-        <div id="cpCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;"></div>
+        <div id="cpCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;"></div>
       </div>
 
       <!-- Queue view -->
-      <div id="cpQueueView" style="display:none;">
+      <div id="cpQueueView" style="display:none;max-width:800px;margin:0 auto;">
         <div id="cpQueueList"></div>
       </div>
 
     </div>
 
     <!-- Composer panel -->
-    <div id="cpComposer" style="display:none;width:380px;min-width:340px;max-width:420px;flex-shrink:0;border-left:1px solid rgba(42,58,106,.5);background:rgba(8,14,36,.98);overflow-y:auto;display:flex;flex-direction:column;">
-      <div style="padding:16px 16px 0;border-bottom:1px solid rgba(42,58,106,.3);padding-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
-        <div id="cpComposerTitle" style="font-size:14px;font-weight:700;color:#e2e8f0;">New Post</div>
-        <button onclick="cpCloseComposer()" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:#94a3b8;padding:3px 8px;cursor:pointer;font-size:12px;">✕</button>
+    <div id="cpComposer" style="display:none;width:390px;min-width:340px;flex-shrink:0;border-left:1px solid rgba(255,255,255,.10);background:rgba(8,12,28,.80);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);overflow-y:auto;flex-direction:column;">
+
+      <!-- Composer header -->
+      <div style="padding:16px 18px 14px;border-bottom:1px solid rgba(255,255,255,.09);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:rgba(255,255,255,.03);">
+        <div id="cpComposerTitle" style="font-size:14px;font-weight:800;color:#f1f5f9;letter-spacing:-.01em;">✦ New Post</div>
+        <button onclick="cpCloseComposer()" class="cp-btn" style="padding:4px 10px;font-size:12px;color:#64748b;">✕</button>
       </div>
-      <div style="padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:12px;">
+
+      <div style="padding:16px 18px;flex:1;display:flex;flex-direction:column;gap:14px;">
 
         <!-- Caption -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Caption</div>
-          <textarea id="cpCaption" placeholder="Write your post caption..." style="width:100%;height:120px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
-          <div id="cpCaptionCount" style="font-size:10px;color:#475569;text-align:right;margin-top:2px;">0 chars</div>
+          <div class="cp-label">Caption</div>
+          <textarea id="cpCaption" placeholder="Write your post caption…" class="cp-input" style="height:115px;resize:vertical;"></textarea>
+          <div id="cpCaptionCount" style="font-size:10px;color:#334155;text-align:right;margin-top:3px;">0 chars</div>
         </div>
 
-        <!-- AI Draft -->
-        <div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;">
-          <div style="font-size:11px;font-weight:600;color:#c4b5fd;margin-bottom:8px;">✦ Draft with AI</div>
-          <input id="cpAiTopic" placeholder="Topic / idea for this post..." style="width:100%;background:rgba(14,22,48,.7);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
-          <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
-            <select id="cpAiTeammate" style="flex:1;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;cursor:pointer;">
+        <!-- AI Draft panel -->
+        <div style="background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.28);border-radius:12px;padding:12px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(124,58,237,.12);">
+          <div style="font-size:12px;font-weight:800;color:#c4b5fd;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:14px;">✦</span> Draft with AI
+          </div>
+          <input id="cpAiTopic" placeholder="Topic / idea for this post…" class="cp-input" style="font-size:12px;padding:7px 10px;background:rgba(255,255,255,.06);"/>
+          <div style="display:flex;gap:6px;margin-top:7px;">
+            <select id="cpAiTeammate" class="cp-input" style="flex:1;padding:6px 8px;font-size:11px;cursor:pointer;background:rgba(255,255,255,.07);">
               <option value="Luna">✦ Luna</option>
               <option value="Alex">⚡ Alex</option>
               <option value="Sunshine">☀ Sunshine</option>
             </select>
-            <select id="cpAiTone" style="flex:1;background:rgba(14,22,48,.8);border:1px solid rgba(42,58,106,.5);border-radius:7px;padding:5px 8px;font-size:11px;color:#e2e8f0;cursor:pointer;">
+            <select id="cpAiTone" class="cp-input" style="flex:1;padding:6px 8px;font-size:11px;cursor:pointer;background:rgba(255,255,255,.07);">
               <option value="engaging">Engaging</option>
               <option value="professional">Professional</option>
               <option value="casual">Casual</option>
               <option value="educational">Educational</option>
               <option value="promotional">Promotional</option>
             </select>
-            <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" style="padding:5px 10px;background:rgba(124,58,237,.7);border:1px solid rgba(124,58,237,.5);border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Draft</button>
+            <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" class="cp-btn cp-btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap;">Draft</button>
           </div>
-          <div id="cpAiStatus" style="font-size:11px;color:#64748b;margin-top:4px;min-height:14px;"></div>
+          <div id="cpAiStatus" style="font-size:11px;color:#7c6aaa;margin-top:5px;min-height:14px;"></div>
         </div>
 
         <!-- Platforms -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:7px;text-transform:uppercase;letter-spacing:.05em;">Platforms</div>
-          <div id="cpPlatformChecks" style="display:flex;flex-wrap:wrap;gap:7px;">
-            <label id="cpPlatFb" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(24,119,242,.1);border:1px solid rgba(24,119,242,.25);border-radius:8px;cursor:pointer;font-size:12px;color:#93c5fd;">
-              <input type="checkbox" value="facebook" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#1877F2;"> 𝔣 Facebook
+          <div class="cp-label">Platforms</div>
+          <div id="cpPlatformChecks" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(24,119,242,.10);border:1px solid rgba(24,119,242,.28);border-radius:10px;cursor:pointer;font-size:12px;font-weight:600;color:#93c5fd;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
+              <input type="checkbox" value="facebook" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#1877F2;width:14px;height:14px;"> 𝔣 Facebook
             </label>
-            <label id="cpPlatIg" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(225,48,108,.1);border:1px solid rgba(225,48,108,.25);border-radius:8px;cursor:pointer;font-size:12px;color:#fda4af;">
-              <input type="checkbox" value="instagram" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#E1306C;"> ◎ Instagram
+            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(225,48,108,.10);border:1px solid rgba(225,48,108,.28);border-radius:10px;cursor:pointer;font-size:12px;font-weight:600;color:#fda4af;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
+              <input type="checkbox" value="instagram" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#E1306C;width:14px;height:14px;"> ◎ Instagram
             </label>
-            <label id="cpPlatYt" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(255,0,0,.08);border:1px solid rgba(255,0,0,.2);border-radius:8px;cursor:pointer;font-size:12px;color:#fca5a5;">
-              <input type="checkbox" value="youtube" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#FF0000;"> ▶ YouTube
+            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(255,0,0,.08);border:1px solid rgba(255,60,60,.24);border-radius:10px;cursor:pointer;font-size:12px;font-weight:600;color:#fca5a5;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
+              <input type="checkbox" value="youtube" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#FF0000;width:14px;height:14px;"> ▶ YouTube
             </label>
-            <label id="cpPlatTt" style="display:flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(238,29,82,.08);border:1px solid rgba(238,29,82,.2);border-radius:8px;cursor:pointer;font-size:12px;color:#fca5a5;">
-              <input type="checkbox" value="tiktok" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#EE1D52;"> ♪ TikTok
+            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(238,29,82,.08);border:1px solid rgba(238,29,82,.24);border-radius:10px;cursor:pointer;font-size:12px;font-weight:600;color:#fda4af;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
+              <input type="checkbox" value="tiktok" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#EE1D52;width:14px;height:14px;"> ♪ TikTok
             </label>
           </div>
         </div>
 
-        <!-- Schedule -->
+        <!-- Schedule Date/Time -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Schedule Date &amp; Time</div>
-          <input id="cpScheduledAt" type="datetime-local" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;"/>
+          <div class="cp-label">Schedule Date &amp; Time</div>
+          <input id="cpScheduledAt" type="datetime-local" class="cp-input"/>
         </div>
 
         <!-- Media URL -->
         <div>
-          <div style="font-size:11px;font-weight:600;color:#94a3b8;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;">Media URL <span style="font-weight:400;text-transform:none;color:#475569;">(image or video)</span></div>
-          <input id="cpMediaUrl" type="url" placeholder="https://..." style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;"/>
-          <div class="tiny" style="margin-top:3px;opacity:.6;">Required for Instagram. Optional for Facebook.</div>
+          <div class="cp-label">Media URL <span style="font-weight:400;text-transform:none;color:#334155;">(image / video)</span></div>
+          <input id="cpMediaUrl" type="url" placeholder="https://…" class="cp-input"/>
+          <div style="font-size:10px;color:#334155;margin-top:4px;">Required for Instagram · Optional for Facebook</div>
         </div>
 
-        <!-- Hidden post ID -->
         <input type="hidden" id="cpEditingPostId" value="" />
 
         <!-- Action buttons -->
-        <div style="display:flex;flex-direction:column;gap:7px;padding-top:4px;">
-          <button onclick="cpSavePost('draft')" style="padding:9px;border-radius:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);color:#e2e8f0;font-size:13px;font-weight:600;cursor:pointer;">💾 Save as Draft</button>
-          <button onclick="cpSavePost('scheduled')" style="padding:9px;border-radius:9px;background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.4);color:#93c5fd;font-size:13px;font-weight:700;cursor:pointer;">🗓 Schedule</button>
-          <button onclick="cpPublishNow()" style="padding:9px;border-radius:9px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.5);color:#fff;font-size:13px;font-weight:700;cursor:pointer;">🚀 Publish Now</button>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:2px;">
+          <button onclick="cpSavePost('draft')" class="cp-btn" style="width:100%;padding:10px;font-size:13px;justify-content:center;">💾 Save as Draft</button>
+          <button onclick="cpSavePost('scheduled')" class="cp-btn cp-btn-blue" style="width:100%;padding:10px;font-size:13px;font-weight:700;">🗓 Schedule</button>
+          <button onclick="cpPublishNow()" class="cp-btn cp-btn-primary" style="width:100%;padding:10px;font-size:13px;font-weight:700;">🚀 Publish Now</button>
         </div>
         <div id="cpComposerStatus" style="font-size:12px;color:#64748b;min-height:16px;text-align:center;"></div>
 
-        <!-- Delete (only when editing existing) -->
-        <div id="cpDeleteWrap" style="display:none;border-top:1px solid rgba(42,58,106,.3);padding-top:10px;">
-          <button onclick="cpDeleteCurrentPost()" style="width:100%;padding:7px;border-radius:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5;font-size:12px;cursor:pointer;">🗑 Delete Post</button>
+        <!-- Delete -->
+        <div id="cpDeleteWrap" style="display:none;border-top:1px solid rgba(255,255,255,.07);padding-top:12px;">
+          <button onclick="cpDeleteCurrentPost()" class="cp-btn cp-btn-red" style="width:100%;padding:8px;font-size:12px;">🗑 Delete Post</button>
         </div>
+
       </div>
     </div>
 
   </div>
 
-  <!-- CSV import hidden input -->
   <input type="file" id="cpCsvInput" accept=".csv" style="display:none;" onchange="cpHandleCsvUpload(event)"/>
-
 </div>
 
 <script>
@@ -40493,17 +40602,19 @@ function cpRenderPlatformPills(){
     var c = _cpConns[p] || {};
     var connected = c.connected;
     var name = c.page_name || c.name || '';
-    var label = connected
-      ? (icons[p] + ' ' + (name || PLAT_COLORS[p].label))
-      : (icons[p] + ' ' + PLAT_COLORS[p].label);
+    var displayName = connected ? (name || PLAT_COLORS[p].label) : PLAT_COLORS[p].label;
     var col = PLAT_COLORS[p];
-    var style = connected
-      ? 'background:'+col.bg+';border:1px solid '+col.border+';color:#e2e8f0;'
-      : 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#475569;';
-    var btn = connected
-      ? '<button onclick="cpDisconnect(\''+p+'\')" style="margin-left:4px;font-size:9px;background:rgba(239,68,68,.2);border:1px solid rgba(239,68,68,.35);border-radius:4px;color:#fca5a5;padding:1px 5px;cursor:pointer;line-height:1.4;">✕</button>'
-      : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:4px;font-size:9px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:4px;color:#94a3b8;padding:1px 5px;cursor:pointer;line-height:1.4;">Connect</button>';
-    return '<div style="display:flex;align-items:center;padding:4px 9px;border-radius:20px;font-size:11px;font-weight:600;cursor:default;'+style+'">'+label+btn+'</div>';
+    var connStyle = connected
+      ? 'background:'+col.bg+';border:1px solid '+col.border+';color:#f1f5f9;box-shadow:0 0 14px '+col.dot+'33,inset 0 1px 0 rgba(255,255,255,.12);'
+      : 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);color:#334155;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);';
+    var dot = connected
+      ? '<span style="width:7px;height:7px;border-radius:50%;background:'+col.dot+';display:inline-block;box-shadow:0 0 6px '+col.dot+'88;flex-shrink:0;"></span>'
+      : '<span style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);display:inline-block;flex-shrink:0;"></span>';
+    var actionBtn = connected
+      ? '<button onclick="cpDisconnect(\''+p+'\')" style="margin-left:6px;font-size:9px;background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.32);border-radius:5px;color:#fca5a5;padding:1px 6px;cursor:pointer;font-weight:700;line-height:1.6;">✕</button>'
+      : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:6px;font-size:9px;background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);border-radius:5px;color:#c4b5fd;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;">Connect</button>';
+    return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:22px;font-size:11px;font-weight:700;'+connStyle+'backdrop-filter:blur(10px);">'
+      +dot+'<span>'+icons[p]+' '+_esc(displayName)+'</span>'+actionBtn+'</div>';
   }).join('');
 }
 
@@ -40527,16 +40638,18 @@ window.cpSetView = function(v){
   _cpView = v;
   var cal = $('cpCalendarView'), queue = $('cpQueueView');
   var calBtn = $('cpViewCalBtn'), queueBtn = $('cpViewQueueBtn');
+  var activeStyle  = 'background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(79,70,229,.6));color:#ddd6fe;border-right:1px solid rgba(255,255,255,.1);';
+  var inactiveStyle = 'background:transparent;color:#64748b;border-right:none;';
   if(v === 'calendar'){
     if(cal) cal.style.display = 'block';
     if(queue) queue.style.display = 'none';
-    if(calBtn){ calBtn.style.background='rgba(124,58,237,.5)'; calBtn.style.color='#c4b5fd'; }
-    if(queueBtn){ queueBtn.style.background='transparent'; queueBtn.style.color='#94a3b8'; }
+    if(calBtn) calBtn.style.cssText += activeStyle;
+    if(queueBtn) queueBtn.style.cssText += inactiveStyle;
   } else {
     if(cal) cal.style.display = 'none';
     if(queue) queue.style.display = 'block';
-    if(calBtn){ calBtn.style.background='transparent'; calBtn.style.color='#94a3b8'; }
-    if(queueBtn){ queueBtn.style.background='rgba(124,58,237,.5)'; queueBtn.style.color='#c4b5fd'; }
+    if(calBtn) calBtn.style.cssText += inactiveStyle;
+    if(queueBtn) queueBtn.style.cssText += activeStyle;
   }
   cpRender();
 };
@@ -40548,6 +40661,13 @@ window.cpMonthNav = function(dir){
   cpRenderCalendar();
 };
 
+window.cpGoToday = function(){
+  var now = new Date();
+  _cpCurYear = now.getFullYear();
+  _cpCurMonth = now.getMonth();
+  cpRenderCalendar();
+};
+
 function cpRenderCalendar(){
   var label = $('cpMonthLabel');
   var grid = $('cpCalGrid');
@@ -40555,7 +40675,6 @@ function cpRenderCalendar(){
   var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   label.textContent = months[_cpCurMonth] + ' ' + _cpCurYear;
 
-  // Build map: dateKey -> posts
   var postMap = {};
   _cpPosts.forEach(function(p){
     var dt = p.scheduled_at || p.created_at || '';
@@ -40568,47 +40687,47 @@ function cpRenderCalendar(){
   var today = new Date();
   var todayKey = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
 
-  // Day headers
+  // Day header row
   var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   var html = days.map(function(d){
-    return '<div style="text-align:center;font-size:11px;font-weight:700;color:#475569;padding:6px 0;text-transform:uppercase;letter-spacing:.05em;">'+d+'</div>';
+    return '<div style="text-align:center;font-size:10px;font-weight:800;color:#475569;padding:8px 0 6px;text-transform:uppercase;letter-spacing:.09em;">'+d+'</div>';
   }).join('');
 
-  // Days in month
   var firstDay = new Date(_cpCurYear, _cpCurMonth, 1).getDay();
   var daysInMonth = new Date(_cpCurYear, _cpCurMonth+1, 0).getDate();
   var prevDays = new Date(_cpCurYear, _cpCurMonth, 0).getDate();
 
   // Prev month filler
   for(var i=0; i<firstDay; i++){
-    html += '<div style="min-height:80px;padding:4px;border-radius:8px;background:rgba(255,255,255,.02);opacity:.3;"><div style="font-size:11px;color:#334155;">'+(prevDays-firstDay+1+i)+'</div></div>';
+    html += '<div class="cp-day other-month"><div style="font-size:11px;color:#1e293b;font-weight:600;">'+(prevDays-firstDay+1+i)+'</div></div>';
   }
 
-  // Current month days
+  // Current month
   for(var d=1; d<=daysInMonth; d++){
     var key = _cpCurYear+'-'+String(_cpCurMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
     var isToday = key === todayKey;
     var dayPosts = postMap[key] || [];
 
-    var postDots = dayPosts.slice(0,4).map(function(p){
+    var pills = dayPosts.slice(0,3).map(function(p){
       var plats = p.platforms || [];
       var dotColor = plats.length > 0 ? (PLAT_COLORS[plats[0]] || {dot:'#94a3b8'}).dot : '#94a3b8';
       var statusColor = STATUS_COLORS[p.status] || '#64748b';
-      return '<div onclick="cpOpenComposer(\''+p.id+'\')" title="'+_esc(p.caption.slice(0,60))+'" style="display:flex;align-items:center;gap:3px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:4px;padding:2px 5px;margin-top:3px;cursor:pointer;" >'
-        +'<div style="width:6px;height:6px;border-radius:50%;background:'+dotColor+';flex-shrink:0;"></div>'
-        +'<div style="font-size:10px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;">'+_esc(p.caption.slice(0,18))+'</div>'
-        +'<div style="width:5px;height:5px;border-radius:50%;background:'+statusColor+';flex-shrink:0;margin-left:auto;"></div>'
+      return '<div class="cp-post-pill" onclick="event.stopPropagation();cpOpenComposer(\''+p.id+'\')" title="'+_esc((p.caption||'').slice(0,80))+'">'
+        +'<span style="width:6px;height:6px;border-radius:50%;background:'+dotColor+';flex-shrink:0;box-shadow:0 0 5px '+dotColor+'99;"></span>'
+        +'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 24px);">'+_esc((p.caption||'').slice(0,20))+'</span>'
+        +'<span style="width:5px;height:5px;border-radius:50%;background:'+statusColor+';flex-shrink:0;margin-left:auto;"></span>'
         +'</div>';
     }).join('');
 
-    var more = dayPosts.length > 4 ? '<div style="font-size:10px;color:#64748b;margin-top:2px;">+' + (dayPosts.length-4) + ' more</div>' : '';
+    var more = dayPosts.length > 3
+      ? '<div style="font-size:9px;color:#64748b;margin-top:3px;padding-left:2px;">+' + (dayPosts.length-3) + ' more</div>'
+      : '';
 
-    var bg = isToday ? 'rgba(124,58,237,.15)' : 'rgba(255,255,255,.04)';
-    var border = isToday ? '1px solid rgba(124,58,237,.5)' : '1px solid rgba(255,255,255,.07)';
-
-    html += '<div style="min-height:80px;padding:5px;border-radius:8px;background:'+bg+';border:'+border+';cursor:pointer;" onclick="cpDayClick(event,\''+key+'\');">'
-      +'<div style="font-size:12px;font-weight:'+(isToday?'800':'600')+';color:'+(isToday?'#c4b5fd':'#94a3b8')+';">'+d+'</div>'
-      +postDots+more
+    html += '<div class="cp-day'+(isToday?' today':'')+'" onclick="cpDayClick(event,\''+key+'\')">'
+      +'<div style="font-size:12px;font-weight:'+(isToday?'900':'600')+';color:'+(isToday?'#c4b5fd':'#64748b')+';margin-bottom:3px;display:flex;align-items:center;gap:4px;">'
+      +d+(isToday?'<span style="font-size:9px;background:rgba(124,58,237,.5);border-radius:4px;padding:1px 5px;color:#ddd6fe;font-weight:700;">Today</span>':'')
+      +'</div>'
+      +pills+more
       +'</div>';
   }
 
@@ -40617,7 +40736,7 @@ function cpRenderCalendar(){
   var remaining = 7 - (total % 7);
   if(remaining < 7){
     for(var t=1; t<=remaining; t++){
-      html += '<div style="min-height:80px;padding:4px;border-radius:8px;background:rgba(255,255,255,.02);opacity:.3;"><div style="font-size:11px;color:#334155;">'+t+'</div></div>';
+      html += '<div class="cp-day other-month"><div style="font-size:11px;color:#1e293b;font-weight:600;">'+t+'</div></div>';
     }
   }
 
@@ -40640,54 +40759,60 @@ function cpRenderQueue(){
   });
 
   if(sorted.length === 0){
-    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#475569;">'
-      +'<div style="font-size:36px;margin-bottom:12px;">📭</div>'
-      +'<div style="font-size:15px;font-weight:700;color:#64748b;margin-bottom:6px;">No posts yet</div>'
-      +'<div style="font-size:13px;">Click <strong>+ New Post</strong> to create your first scheduled post.</div></div>';
+    el.innerHTML = '<div style="text-align:center;padding:80px 20px;">'
+      +'<div style="font-size:52px;margin-bottom:16px;filter:grayscale(.5) opacity(.4);">📭</div>'
+      +'<div style="font-size:16px;font-weight:800;color:#334155;margin-bottom:8px;">No posts yet</div>'
+      +'<div style="font-size:13px;color:#1e293b;line-height:1.6;">Click <strong style="color:#a78bfa;">✦ New Post</strong> to schedule your first post<br>or import a CSV for bulk scheduling.</div></div>';
     return;
   }
 
   var groups = {scheduled:[], draft:[], published:[], failed:[]};
   sorted.forEach(function(p){
     var s = p.status || 'draft';
-    if(s==='published' || s==='partial') groups.published.push(p);
+    if(s==='published'||s==='partial') groups.published.push(p);
     else if(s==='failed') groups.failed.push(p);
-    else if(s==='scheduled' || s==='publishing') groups.scheduled.push(p);
+    else if(s==='scheduled'||s==='publishing') groups.scheduled.push(p);
     else groups.draft.push(p);
   });
 
-  var html = '';
   var sections = [
     {key:'scheduled', label:'🗓 Scheduled', color:'#3b82f6'},
     {key:'draft',     label:'📝 Drafts',    color:'#64748b'},
     {key:'published', label:'✅ Published', color:'#10b981'},
     {key:'failed',    label:'❌ Failed',    color:'#ef4444'},
   ];
+
+  var html = '';
   sections.forEach(function(sec){
     var posts = groups[sec.key];
     if(!posts.length) return;
-    html += '<div style="margin-bottom:20px;">'
-      +'<div style="font-size:12px;font-weight:700;color:'+sec.color+';margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">'+sec.label+' ('+posts.length+')</div>';
+    html += '<div style="margin-bottom:28px;">'
+      +'<div class="cp-section-head" style="color:'+sec.color+';">'+sec.label
+      +' <span style="font-size:10px;background:'+sec.color+'22;border:1px solid '+sec.color+'44;border-radius:20px;padding:1px 8px;font-weight:800;">'+posts.length+'</span></div>';
     posts.forEach(function(p){
-      var plats = (p.platforms||[]).map(function(pl){
-        var c = PLAT_COLORS[pl] || {dot:'#94a3b8'};
-        return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+c.dot+';"></span>';
+      var plats = (p.platforms||[]);
+      var platDots = plats.map(function(pl){
+        var c = PLAT_COLORS[pl] || {dot:'#94a3b8',label:pl};
+        return '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:700;color:'+c.dot+';background:'+c.dot+'18;border:1px solid '+c.dot+'38;border-radius:5px;padding:1px 6px;">'
+          +'<span style="width:5px;height:5px;border-radius:50%;background:'+c.dot+';"></span>'+c.label+'</span>';
       }).join('');
-      var dt = p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : (p.status==='draft'?'Draft':'—');
+      var dt = p.scheduled_at ? new Date(p.scheduled_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : (p.status==='draft'?'Draft':'—');
       var statusColor = STATUS_COLORS[p.status] || '#64748b';
-      html += '<div style="display:flex;align-items:flex-start;gap:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;margin-bottom:6px;">'
+      var statusLabel = {draft:'Draft',scheduled:'Scheduled',publishing:'Publishing…',published:'Published',partial:'Partial',failed:'Failed'}[p.status] || p.status;
+      html += '<div class="cp-queue-card">'
+        +'<div style="display:flex;align-items:flex-start;gap:12px;">'
         +'<div style="flex:1;min-width:0;">'
-        +'<div style="font-size:13px;color:#e2e8f0;line-height:1.4;margin-bottom:4px;">'+_esc(p.caption.length>120?p.caption.slice(0,120)+'…':p.caption)+'</div>'
-        +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
-        +'<div style="display:flex;gap:4px;">'+plats+'</div>'
-        +'<div style="font-size:11px;color:#475569;">'+dt+'</div>'
-        +'<div style="width:6px;height:6px;border-radius:50%;background:'+statusColor+';"></div>'
+        +'<div style="font-size:13px;color:#e2e8f0;line-height:1.55;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">'+_esc(p.caption||'')+'</div>'
+        +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
+        +platDots
+        +'<span style="font-size:10px;color:#475569;display:flex;align-items:center;gap:3px;"><span>🕐</span>'+dt+'</span>'
+        +'<span style="font-size:10px;font-weight:700;background:'+statusColor+'22;border:1px solid '+statusColor+'44;border-radius:5px;padding:1px 7px;color:'+statusColor+';">'+statusLabel+'</span>'
         +'</div></div>'
-        +'<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">'
-        +'<button onclick="cpOpenComposer(\''+p.id+'\')" style="padding:3px 8px;font-size:11px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:#94a3b8;cursor:pointer;">Edit</button>'
-        +(p.status!=='published'?'<button onclick="cpPublishNowById(\''+p.id+'\')" style="padding:3px 8px;font-size:11px;background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.4);border-radius:6px;color:#c4b5fd;cursor:pointer;">Publish</button>':'')
+        +'<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">'
+        +'<button onclick="cpOpenComposer(\''+p.id+'\')" class="cp-btn" style="font-size:11px;padding:4px 10px;">Edit</button>'
+        +(p.status!=='published'?'<button onclick="cpPublishNowById(\''+p.id+'\')" class="cp-btn cp-btn-primary" style="font-size:11px;padding:4px 10px;">Publish</button>':'')
         +'</div>'
-        +'</div>';
+        +'</div></div>';
     });
     html += '</div>';
   });
@@ -40704,7 +40829,7 @@ window.cpOpenComposer = function(postId, prefillDate){
   _cpEditingId = post ? post.id : null;
 
   var titleEl = $('cpComposerTitle');
-  if(titleEl) titleEl.textContent = post ? 'Edit Post' : 'New Post';
+  if(titleEl) titleEl.textContent = post ? '✏️ Edit Post' : '✦ New Post';
 
   var capEl = $('cpCaption');
   if(capEl){ capEl.value = post ? (post.caption||'') : ''; cpUpdateCharCount(); }
