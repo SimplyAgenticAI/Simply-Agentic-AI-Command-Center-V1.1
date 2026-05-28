@@ -18576,6 +18576,15 @@ input[type="range"]::-moz-range-progress {
           <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
           <button class="btn btnMini" id="threadVoiceTopBtn" title="Voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
           <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
+          <button class="btn btnMini" id="saPinsBtn" onclick="window._saTogglePinsDrawer()" title="View pinned messages" style="font-size:12px;padding:3px 9px;display:none;">📌</button>
+        </div>
+        <!-- Pins drawer — absolute overlay, opens when 📌 is clicked in header -->
+        <div id="saPinsDrawer" style="display:none;position:absolute;left:0;right:0;z-index:200;background:rgba(8,13,33,.97);border-bottom:2px solid rgba(251,191,36,.3);padding:10px 14px;max-height:300px;overflow-y:auto;backdrop-filter:blur(22px);box-shadow:0 10px 40px rgba(0,0,0,.6);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase;">📌 Pinned Messages</span>
+            <button onclick="window._saTogglePinsDrawer()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1;padding:0 3px;">&times;</button>
+          </div>
+          <div id="saPinsDrawerBody" style="font-size:12px;color:#94a3b8;"></div>
         </div>
         <!-- Conversation history search bar (hidden by default) -->
         <div id="threadSearchBar" style="display:none;flex-shrink:0;padding:6px 0;border-bottom:1px solid rgba(42,58,106,.4);">
@@ -18608,8 +18617,6 @@ input[type="range"]::-moz-range-progress {
             <div id="ctxBar" style="height:100%;width:0%;background:#22c55e;border-radius:2px;transition:width .45s ease,background .45s ease;"></div>
           </div>
         </div>
-        <!-- Pinned messages banner — sits above thread, never scrolls away -->
-        <div id="saPinnedBanner" style="display:none;flex-shrink:0;margin-bottom:5px;padding:8px 10px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.22);border-radius:10px;"></div>
         <!-- Thread — flex:1 so it fills remaining space without external scroll -->
         <div class="thread" id="thread" style="flex:1;min-height:0;overflow-y:auto;"></div>
         <!-- Monthly usage bar (hidden when user has own key) -->
@@ -20403,9 +20410,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       setEmailFrom(selectedSeat);
 
+      // Close pins drawer when switching teammates
+      const _pd = document.getElementById("saPinsDrawer");
+      if(_pd) _pd.style.display = "none";
       await refreshThread();
-      // Load pinned banner for this teammate
-      try{ _renderPinnedBanner(); }catch(_){}
+      // Update pins button badge for this teammate
+      try{ _updatePinsPanel(); }catch(_){}
       // Extra scroll pass after teammate switch — catches cases where renderThread fires before panel is sized
       var _th = $("thread");
       if(_th){ setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 250); setTimeout(function(){ _th.scrollTop = _th.scrollHeight; }, 600); }
@@ -20593,69 +20603,87 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return card;
     };
 
-    // Render pinned messages banner in the dedicated fixed slot above the thread
-    async function _renderPinnedBanner(){
+    // Toggle the pins drawer open/closed
+    window._saTogglePinsDrawer = function(){
+      const drawer = document.getElementById("saPinsDrawer");
+      if(!drawer) return;
+      if(drawer.style.display !== "none"){ drawer.style.display = "none"; return; }
+      // Position dynamically: bottom of sideHead relative to .side container
+      const side = document.querySelector(".side");
+      const head = document.querySelector(".sideCard .sideHead");
+      if(side && head){
+        const sideTop = side.getBoundingClientRect().top;
+        const headBottom = head.getBoundingClientRect().bottom;
+        drawer.style.top = Math.round(headBottom - sideTop) + "px";
+      }
+      drawer.style.display = "block";
+      _updatePinsPanel();
+    };
+
+    // Update pins drawer content and the 📌 button badge
+    async function _updatePinsPanel(){
       if(!selectedSeat || selectedSeat === "Operator") return;
-      const banner = document.getElementById("saPinnedBanner");
-      if(!banner) return;
+      const body = document.getElementById("saPinsDrawerBody");
+      const btn = document.getElementById("saPinsBtn");
       try{
         const r = await fetch("/api/thread/pins?name=" + encodeURIComponent(selectedSeat));
         const d = await r.json();
-        if(!d.ok || !d.pins || !d.pins.length){
-          banner.style.display = "none";
-          banner.innerHTML = "";
+        const pins = d.ok ? (d.pins || []) : [];
+        if(btn){
+          if(pins.length){ btn.style.display = ""; btn.innerText = "📌 " + pins.length; }
+          else { btn.style.display = "none"; }
+        }
+        if(!body) return;
+        if(!pins.length){
+          body.innerHTML = '<span style="color:#475569;font-style:italic;">No pinned messages yet. Click "📌 Pin" on any teammate reply.</span>';
           return;
         }
-        banner.innerHTML = "";
-        banner.style.display = "block";
-        const hdr = document.createElement("div");
-        hdr.style.cssText = "font-size:10px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;";
-        hdr.innerHTML = '<span>📌 Pinned</span>';
-        banner.appendChild(hdr);
-        d.pins.slice(0,5).forEach(txt => {
+        body.innerHTML = "";
+        pins.forEach(txt => {
           const row = document.createElement("div");
-          row.style.cssText = "display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);";
-          const item = document.createElement("div");
-          item.style.cssText = "font-size:12px;color:#e2e8f0;flex:1;cursor:pointer;line-height:1.4;";
-          item.title = "Click to expand";
-          const preview = txt.slice(0, 100) + (txt.length > 100 ? "…" : "");
-          item.innerText = preview;
-          item.onclick = () => {
-            // Show full text in an expandable overlay
+          row.style.cssText = "display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06);";
+          const textEl = document.createElement("div");
+          textEl.style.cssText = "flex:1;font-size:12px;color:#e2e8f0;line-height:1.45;cursor:pointer;";
+          textEl.title = "Click to read full message";
+          textEl.innerText = txt.slice(0, 130) + (txt.length > 130 ? "…" : "");
+          textEl.onclick = () => {
             const ov = document.createElement("div");
-            ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;";
-            ov.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(251,191,36,.3);border-radius:14px;padding:20px;max-width:600px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.7);">
-              <div style="font-size:11px;font-weight:700;color:#fbbf24;letter-spacing:.06em;text-transform:uppercase;margin-bottom:12px;">📌 Pinned message</div>
-              <div style="font-size:13px;color:#e2e8f0;line-height:1.6;white-space:pre-wrap;">${txt.replace(/</g,"&lt;")}</div>
-              <button onclick="this.closest('div[style*=fixed]').remove()" style="margin-top:16px;padding:6px 18px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;font-size:12px;">Close</button>
+            ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;";
+            ov.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(251,191,36,.3);border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 24px 70px rgba(0,0,0,.8);">
+              <div style="font-size:11px;font-weight:700;color:#fbbf24;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px;">📌 Pinned Message</div>
+              <div style="font-size:13px;color:#e2e8f0;line-height:1.7;white-space:pre-wrap;">${txt.replace(/</g,"&lt;")}</div>
+              <button onclick="this.closest('div[style*=fixed]').remove()" style="margin-top:18px;padding:6px 20px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;font-size:12px;">Close</button>
             </div>`;
             ov.onclick = e => { if(e.target === ov) ov.remove(); };
             document.body.appendChild(ov);
           };
           const unpinBtn = document.createElement("button");
-          unpinBtn.style.cssText = "flex-shrink:0;padding:1px 7px;font-size:10px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;white-space:nowrap;";
+          unpinBtn.style.cssText = "flex-shrink:0;padding:2px 8px;font-size:10px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;white-space:nowrap;";
           unpinBtn.innerText = "✕ Unpin";
           unpinBtn.onclick = async () => {
             await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"},
               body: JSON.stringify({name: selectedSeat, text: txt, action:"unpin"})});
             if(typeof showToast==="function") showToast("📌 Unpinned");
-            _renderPinnedBanner();
+            _updatePinsPanel();
           };
-          row.appendChild(item);
+          row.appendChild(textEl);
           row.appendChild(unpinBtn);
-          banner.appendChild(row);
+          body.appendChild(row);
         });
-      }catch(_){ banner.style.display="none"; }
+      }catch(_){
+        if(body) body.innerHTML = '<span style="color:#475569;font-style:italic;">Could not load pins.</span>';
+      }
     }
-    window._renderPinnedBanner = _renderPinnedBanner;
+    window._updatePinsPanel = _updatePinsPanel;
+    window._renderPinnedBanner = function(){ _updatePinsPanel(); };
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
       const box = $("thread");
       box.innerHTML = "";
-      // Load and show pinned messages banner after render
-      setTimeout(_renderPinnedBanner, 50);
+      // Refresh the pins button badge after render
+      setTimeout(_updatePinsPanel, 50);
       if(selectedSeat && selectedSeat !== "Operator" && lastImageState && (lastImageState.current_image_url || lastImageState.approved_image_url)) {
         const stateCard = document.createElement("div");
         stateCard.className = "msg assistant";
@@ -21053,8 +21081,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 threadPinBtn.innerText = nowPinned ? "📌 Unpin" : "📌 Pin";
                 threadPinBtn.style.opacity = nowPinned ? "1" : ".55";
                 threadPinBtn.style.color = nowPinned ? "#fde68a" : "";
-                if(typeof showToast==="function") showToast(nowPinned ? "📌 Pinned — see it above the thread" : "📌 Unpinned");
-                _renderPinnedBanner();
+                if(typeof showToast==="function") showToast(nowPinned ? "📌 Pinned! Click 📌 in the header to view." : "📌 Unpinned");
+                _updatePinsPanel();
               }catch(_){}
             };
 
