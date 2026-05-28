@@ -13641,8 +13641,6 @@ HTML = r"""
       display:none;
     }
 
-    .modal.minimized{ height: auto !important; resize: none !important; overflow: hidden !important; }
-    .modal.minimized .modalBodyWrap{ display:none; }
 
     /* ── Edit Teammate two-panel layout ── */
     #etLayout{
@@ -16114,8 +16112,6 @@ label {
               <!-- Teammate injection button -->
               <button id="saInjectTeammateBtn" title="Bring a teammate into this window" style="padding:4px 10px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;transition:all .15s;white-space:nowrap;flex-shrink:0;display:none;" onclick="saToggleTeammateInject()">+ Teammate</button>
               <div class="modalBarBtns">
-                <button class="btn btnTiny" id="minModal">Minimize</button>
-                <button class="btn btnTiny" id="restoreModal" style="display:none">Restore</button>
                 <button class="btn btnTiny" id="closeModal">Close</button>
               </div>
             </div>
@@ -19032,7 +19028,6 @@ if (typeof window.showToast !== "function") {
     let assemblyPulseActive = false;
 
     let editingTeammate = "";
-    let modalMinimized = false;
     let modalDragging = false;
 
     let manageDraftActive = [];
@@ -19208,11 +19203,6 @@ window.showModal = function showModal(title, body, imgUrl){
         img.style.display = "none";
       }
 
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-
       document.body.classList.add('modal-open');
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
@@ -19229,11 +19219,6 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("modalForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
 
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
@@ -19249,11 +19234,6 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("manageForm").style.display = "block";
       $("manageStatus").innerText = "";
-
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
 
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
@@ -19280,11 +19260,6 @@ window.showModal = function showModal(title, body, imgUrl){
       $("newResponsibilities").value = "";
       $("newWillNotDo").value = "";
 
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
@@ -19300,11 +19275,6 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").style.display = "none";
       $("frameworkForm").style.display = "block";
       $("frameworkStatus").innerText = "Loading...";
-
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
 
       $("overlay").classList.add("show");
       try{ ensureModalMinSize(1100, 820); }catch(e){}
@@ -19335,35 +19305,6 @@ window.showModal = function showModal(title, body, imgUrl){
     $("overlay").addEventListener("click", (e) => {
       if(e.target.id === "overlay") hideModal();
     });
-
-    $("minModal").onclick = () => {
-      // Check if a background tool is currently running — if so, dock it instead of minimizing
-      const toolDockMap = {
-        'Lead Lab':       { id:'leadLab',       reopen:()=> showLeadLabModal() },
-        'Social Studio':  { id:'socialStudio',  reopen:()=> showSocialStudioModal() },
-        'Offer Builder':  { id:'offerBuilder',  reopen:()=> showOfferBuilderModal() },
-        'Growth Playbook':{ id:'growthPlaybook',reopen:()=> showGrowthPlaybookModal() },
-      };
-      const currentTitle = ($("modalTitle")||{}).innerText || '';
-      const toolEntry = toolDockMap[currentTitle];
-      if(toolEntry && typeof window.toolDockAdd === 'function'){
-        // Dock it — modal hides, tool keeps running
-        window.toolDockAdd(toolEntry.id, currentTitle, toolEntry.reopen);
-        return;
-      }
-      // Default behaviour for non-tool modals (Round Table, CRM, etc.)
-      modalMinimized = true;
-      $("modalWin").classList.add("minimized");
-      $("minModal").style.display = "none";
-      $("restoreModal").style.display = "inline-block";
-    };
-
-    $("restoreModal").onclick = () => {
-      modalMinimized = false;
-      $("modalWin").classList.remove("minimized");
-      $("minModal").style.display = "inline-block";
-      $("restoreModal").style.display = "none";
-    };
 
     (function initModalWindowControls(){
       const bar = $("modalBar");
@@ -19401,8 +19342,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
-        if(t && (t.id === "closeModal" || t.id === "minModal" || t.id === "restoreModal" || t.id === "saModalPinBtn" || t.closest?.("#saModalPinBtn"))) return;
-        if(modalMinimized) return;
+        if(t && (t.id === "closeModal" || t.id === "saModalPinBtn" || t.closest?.("#saModalPinBtn"))) return;
         const r = normalizeWinRect();
         modalDragging = true;
         dragState.active = true;
@@ -19438,7 +19378,6 @@ window.showModal = function showModal(title, body, imgUrl){
 
       if(grip){
         grip.addEventListener("pointerdown", (e) => {
-          if(modalMinimized) return;
           try{ e.preventDefault(); e.stopPropagation(); }catch(_){ }
           const r = normalizeWinRect();
           resizeState.active = true;
@@ -22937,11 +22876,6 @@ $("draftWithSelected").onclick = async () => {
       applyModalPos();
       const sc = $("modalScroll");
       if(sc) sc.style.overflow = "hidden";
-      const modalMinimizedEl = $("modalWin");
-      if(modalMinimizedEl) modalMinimizedEl.classList.remove("minimized");
-      if($("minModal")) $("minModal").style.display = "inline-block";
-      if($("restoreModal")) $("restoreModal").style.display = "none";
-
       const installedMap = (state && state.installed) ? state.installed : {};
       const order = (state && Array.isArray(state.installed_order) && state.installed_order.length)
         ? state.installed_order.slice() : Object.keys(installedMap);
@@ -36021,10 +35955,6 @@ document.addEventListener('click',e=>{
     if(overlay) overlay.classList.remove('show');
     const modalWin = document.getElementById('modalWin');
     if(modalWin) modalWin.classList.remove('minimized');
-    const minBtn = document.getElementById('minModal');
-    if(minBtn) minBtn.style.display = 'inline-block';
-    const restBtn = document.getElementById('restoreModal');
-    if(restBtn) restBtn.style.display = 'none';
 
     // Remove existing pill for this tool if any
     if(_dockItems[toolId]){
