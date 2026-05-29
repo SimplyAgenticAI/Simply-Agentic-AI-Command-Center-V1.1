@@ -1236,17 +1236,23 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
         pass
 
 def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> None:
+    import threading as _thr
     _image_job_set(job_id, {"status": "running", "stage": "refining_prompt", "stage_label": "✨ Refining your prompt..."})
     try:
         with app.app_context():
             _image_job_set(job_id, {"status": "running", "stage": "generating", "stage_label": "🎨 Generating image..."})
             rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
+            # Capture refined prompt that generate_image_for_teammate stored
+            refined = _LAST_REFINED_PROMPT.pop(str(_thr.current_thread().ident), "") or raw_prompt
         if err or not url:
             _image_job_set(job_id, {"status": "error", "stage": "error", "stage_label": "❌ Generation failed", "error": err or "Image generation failed"})
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}", username=username)
             return
-        _image_job_set(job_id, {"status": "done", "stage": "done", "stage_label": "✅ Done!", "url": url, "image": rec})
-        _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}", username=username)
+        _image_job_set(job_id, {"status": "done", "stage": "done", "stage_label": "✅ Done!", "url": url, "image": rec, "refined_prompt": refined})
+        note = f"[Image generated] {url}"
+        if refined and refined.strip() != raw_prompt.strip():
+            note += f"\n[refined_prompt] {refined.strip()}"
+        _thread_replace_or_append_image_note(teammate, job_id, note, username=username)
         try: _increment_msg_usage(username, images=True)
         except Exception: pass
     except Exception as e:
@@ -6115,10 +6121,13 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
+_LAST_REFINED_PROMPT: Dict[str, str] = {}  # thread-safe enough for single-worker; keyed by thread id
+
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
     """
+    import threading as _thr
     prompt = (raw_prompt or "").strip()
     if not prompt:
         return None, None, "Missing image prompt"
@@ -6126,6 +6135,8 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     source_rec = get_upload_record(source_file_id) if source_file_id else None
 
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
+    # Store refined prompt keyed by calling thread so _run_image_job can retrieve it
+    _LAST_REFINED_PROMPT[str(_thr.current_thread().ident)] = prompt2
 
     model = _pick_image_model()
     try:
@@ -16478,6 +16489,19 @@ label {
 </div>
 <!-- ===== END WHISPER HUD ===== -->
 
+<!-- ===== MEMORY PANEL ===== -->
+<div id="saMemoryPanel" style="display:none;position:absolute;left:0;right:0;z-index:210;background:rgba(7,11,28,.98);border-bottom:2px solid rgba(124,58,237,.3);padding:14px 16px;max-height:380px;overflow-y:auto;backdrop-filter:blur(24px);box-shadow:0 12px 40px rgba(0,0,0,.6);">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <div style="display:flex;align-items:center;gap:7px;">
+      <span style="font-size:10px;font-weight:800;color:#a78bfa;letter-spacing:.1em;text-transform:uppercase;">🧠 Memory</span>
+      <span id="saMemoryTeammateName" style="font-size:11px;color:#64748b;"></span>
+    </div>
+    <button onclick="window._saToggleMemoryPanel()" style="background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+  </div>
+  <div id="saMemoryBody" style="font-size:12px;color:#94a3b8;"></div>
+</div>
+<!-- ===== END MEMORY PANEL ===== -->
+
   {{trial_banner|safe}}
   <div class="topbar">
     <div class="topbarMain">
@@ -17465,11 +17489,14 @@ label {
               <!-- RESPONSE VAULT MODAL FORM -->
               <div class="modalForm" id="responseVaultForm" style="display:none;flex-direction:column;height:100%;padding:0;">
                 <!-- Toolbar -->
-                <div style="display:flex;align-items:center;gap:12px;padding:14px 24px 12px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;">
-                  <input id="_rvSearch" placeholder="🔍  Search saved responses…"
-                    style="flex:1;max-width:520px;background:rgba(30,41,59,.8);border:1px solid rgba(255,255,255,.1);
-                    border-radius:10px;color:#e2e8f0;padding:9px 14px;font-size:14px;outline:none;" />
-                  <div id="_rvCount" style="font-size:12px;color:#475569;white-space:nowrap;"></div>
+                <div style="padding:14px 24px 10px;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                    <input id="_rvSearch" placeholder="🔍  Search saved responses…"
+                      style="flex:1;max-width:520px;background:rgba(30,41,59,.8);border:1px solid rgba(255,255,255,.1);
+                      border-radius:10px;color:#e2e8f0;padding:9px 14px;font-size:14px;outline:none;" />
+                    <div id="_rvCount" style="font-size:12px;color:#475569;white-space:nowrap;"></div>
+                  </div>
+                  <div id="_rvTagBar" style="display:flex;gap:5px;flex-wrap:wrap;min-height:20px;"></div>
                 </div>
                 <!-- Grid of cards -->
                 <div id="_rvList" style="flex:1;overflow-y:auto;padding:18px 24px;
@@ -19180,10 +19207,13 @@ input[type="range"]::-moz-range-progress {
             <div class="h2" id="seatSub">Click any teammate for individual chat.</div>
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
+          <button class="btn btnMini" id="threadCompressBtn" title="Summarize & compress this conversation" style="font-size:12px;padding:3px 9px;display:none;" onclick="window._saCompressThread()">⚡ Compress</button>
+          <button class="btn btnMini" id="threadExportBtn" title="Export conversation" style="font-size:12px;padding:3px 9px;display:none;" onclick="window._saExportThread()">⬇ Export</button>
           <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
           <button class="btn btnMini" id="threadVoiceTopBtn" title="Whisper — voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
           <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
           <button class="btn btnMini" id="saPinsBtn" onclick="window._saTogglePinsDrawer()" title="View pinned messages" style="font-size:12px;padding:3px 9px;display:none;">📌</button>
+          <button class="btn btnMini" id="saMemoryBtn" onclick="window._saToggleMemoryPanel()" title="View & edit teammate memory" style="font-size:12px;padding:3px 9px;display:none;">🧠</button>
         </div>
         <!-- Pins drawer — absolute overlay, opens when 📌 is clicked in header -->
         <div id="saPinsDrawer" style="display:none;position:absolute;left:0;right:0;z-index:200;background:rgba(8,13,33,.97);border-bottom:2px solid rgba(251,191,36,.3);padding:10px 14px;max-height:300px;overflow-y:auto;backdrop-filter:blur(22px);box-shadow:0 10px 40px rgba(0,0,0,.6);">
@@ -21019,9 +21049,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       setEmailFrom(selectedSeat);
 
-      // Close pins drawer when switching teammates
+      // Close pins/memory drawers when switching teammates
       const _pd = document.getElementById("saPinsDrawer");
       if(_pd) _pd.style.display = "none";
+      const _mp = document.getElementById("saMemoryPanel");
+      if(_mp) _mp.style.display = "none";
+      // Show the 🧠 memory, compress, and export buttons whenever a real teammate is selected
+      const _mb = document.getElementById("saMemoryBtn");
+      if(_mb) _mb.style.display = (name && name !== "Operator") ? "" : "none";
+      const _cb = document.getElementById("threadCompressBtn");
+      if(_cb) _cb.style.display = (name && name !== "Operator") ? "" : "none";
+      const _eb = document.getElementById("threadExportBtn");
+      if(_eb) _eb.style.display = (name && name !== "Operator") ? "" : "none";
       await refreshThread();
       // Update pins button badge for this teammate
       try{ _updatePinsPanel(); }catch(_){}
@@ -21286,6 +21325,173 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     window._updatePinsPanel = _updatePinsPanel;
     window._renderPinnedBanner = function(){ _updatePinsPanel(); };
 
+    // ── Thread Compress ──────────────────────────────────────────
+    window._saCompressThread = async function(){
+      const seat = window.selectedSeat || selectedSeat;
+      if(!seat) return;
+      const fm = $("followMsg");
+      if(!fm) return;
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.innerHTML = `<div style="background:rgba(7,11,28,.97);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:24px;max-width:380px;width:90%;backdrop-filter:blur(20px);text-align:center;">
+        <div style="font-size:28px;margin-bottom:10px;">⚡</div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Compress Conversation?</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:18px;">${escapeHtml(seat)} will summarize the key points of this conversation, then the thread will be trimmed to just that summary. Older messages will be archived.</div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button id="_ccCancel" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(42,58,106,.5);background:transparent;color:#94a3b8;cursor:pointer;">Cancel</button>
+          <button id="_ccConfirm" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.18);color:#c4b5fd;font-weight:700;cursor:pointer;">Compress</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      ov.querySelector("#_ccCancel").onclick = ()=>ov.remove();
+      ov.querySelector("#_ccConfirm").onclick = async()=>{
+        ov.remove();
+        showToast("⚡ Compressing conversation...");
+        // Send a special message asking for compression summary
+        const msg = "Please summarize our entire conversation above into a compact, well-organized context summary — key decisions, facts established, open items, and where we left off. Be thorough but concise. This will replace the conversation history.";
+        try{
+          const ctrl = new AbortController();
+          const res = await fetch("/api/followup/stream",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({name:seat,message:msg,lighting_mode:true}),
+            signal:ctrl.signal
+          });
+          const reader=res.body.getReader(); const dec=new TextDecoder();
+          let buf="",summary="";
+          while(true){
+            const {done,value}=await reader.read(); if(done)break;
+            buf+=dec.decode(value,{stream:true});
+            const lines=buf.split("\n");buf=lines.pop();
+            for(const line of lines){
+              if(!line.startsWith("data:"))continue;
+              try{ const ev=JSON.parse(line.slice(5).trim()); if(ev.token)summary+=ev.token; }catch(_){}
+            }
+          }
+          if(summary.trim()){
+            // Save compressed thread: system context + summary only
+            await fetch("/api/thread/"+encodeURIComponent(seat)+"/clear",{method:"POST",headers:{"Content-Type":"application/json"}});
+            // Inject the summary as the first assistant message
+            await fetch("/api/thread/"+encodeURIComponent(seat)+"/inject",{
+              method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({role:"assistant",content:"[Conversation Summary]\n\n"+summary.trim()})
+            });
+            await refreshThread();
+            showToast("✅ Conversation compressed. History archived.");
+          } else {
+            showToast("Could not compress — try again","error");
+          }
+        }catch(e){ showToast("Compress failed","error"); }
+      };
+    };
+
+    // ── Thread Export ─────────────────────────────────────────────
+    window._saExportThread = async function(){
+      const seat = window.selectedSeat || selectedSeat;
+      if(!seat) return;
+      try{
+        const res = await fetch("/api/thread/"+encodeURIComponent(seat));
+        const d = await res.json();
+        const thread = d.thread || [];
+        if(!thread.length){ showToast("No messages to export."); return; }
+        const lines = thread.map(m=>{
+          const role = m.role==="user"?"You":seat;
+          const content = typeof m.content==="string"?m.content:(Array.isArray(m.content)?m.content.map(c=>typeof c==="string"?c:(c.text||'')).join('\n'):'');
+          return role+":\n"+content+"\n";
+        });
+        const text = "Conversation with "+seat+"\nExported: "+new Date().toLocaleString()+"\n\n---\n\n"+lines.join("\n---\n\n");
+        const a = document.createElement("a");
+        a.href = "data:text/plain;charset=utf-8," + encodeURIComponent(text);
+        a.download = "conversation-"+seat.toLowerCase()+"-"+Date.now()+".txt";
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        showToast("⬇ Conversation exported as .txt");
+      }catch(e){ showToast("Export failed","error"); }
+    };
+
+    // ── Memory Panel ─────────────────────────────────────────────
+    window._saToggleMemoryPanel = async function(){
+      const panel = document.getElementById("saMemoryPanel");
+      if(!panel) return;
+      if(panel.style.display !== "none"){ panel.style.display = "none"; return; }
+      const side = document.querySelector(".side");
+      const head = document.querySelector(".sideCard .sideHead");
+      if(side && head){
+        const sideTop = side.getBoundingClientRect().top;
+        panel.style.top = Math.round(head.getBoundingClientRect().bottom - sideTop) + "px";
+      }
+      panel.style.display = "block";
+      const nameEl = document.getElementById("saMemoryTeammateName");
+      const body = document.getElementById("saMemoryBody");
+      const seat = window.selectedSeat || selectedSeat || "";
+      if(nameEl) nameEl.textContent = seat ? "— " + seat : "";
+      if(!seat || seat === "Operator"){ if(body) body.innerHTML = '<span style="color:#475569;">Select a teammate to view their memory.</span>'; return; }
+      if(body) body.innerHTML = '<span style="color:#475569;font-style:italic;">Loading memory…</span>';
+      try{
+        const res = await fetch("/api/teammate/memory?name=" + encodeURIComponent(seat));
+        const d = await res.json();
+        if(!d.ok){ if(body) body.innerHTML = '<span style="color:#f87171;">Could not load memory.</span>'; return; }
+        const mem = d.memory || {};
+        const sections = [
+          {key:"facts", label:"📌 Facts", color:"#7dd3fc"},
+          {key:"style_notes", label:"🎨 Style Notes", color:"#c4b5fd"},
+          {key:"preferences", label:"⚡ Preferences", color:"#6ee7b7"},
+          {key:"open_loops", label:"🔄 Open Loops", color:"#fbbf24"},
+        ];
+        let html = "";
+        let hasAny = false;
+        sections.forEach(s=>{
+          const items = mem[s.key] || [];
+          if(!items.length) return;
+          hasAny = true;
+          html += `<div style="margin-bottom:10px;"><div style="font-size:10px;font-weight:700;color:${s.color};letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px;">${s.label}</div>`;
+          html += items.map((item,i)=>`
+            <div style="display:flex;align-items:flex-start;gap:6px;padding:4px 0;border-bottom:1px solid rgba(42,58,106,.25);">
+              <span style="flex:1;font-size:12px;color:#cbd5e1;line-height:1.5;">${escapeHtml(String(item||''))}</span>
+              <button onclick="window._saDeleteMemoryItem('${escapeHtml(seat)}','${s.key}',${i})" style="flex-shrink:0;background:none;border:none;color:rgba(248,113,113,.4);cursor:pointer;font-size:13px;padding:0 3px;transition:color .12s;" title="Delete this memory" onmouseenter="this.style.color='rgba(248,113,113,.9)'" onmouseleave="this.style.color='rgba(248,113,113,.4)'">×</button>
+            </div>`).join('');
+          html += '</div>';
+        });
+        if(!hasAny) html = '<span style="color:#475569;font-style:italic;">No memory stored yet — it builds automatically as you chat.</span>';
+        else html += `<button onclick="window._saClearAllMemory('${escapeHtml(seat)}')" style="margin-top:6px;font-size:11px;padding:3px 10px;border-radius:7px;border:1px solid rgba(248,113,113,.3);background:rgba(248,113,113,.08);color:#fca5a5;cursor:pointer;">Clear All Memory</button>`;
+        if(body) body.innerHTML = html;
+      }catch(_){ if(body) body.innerHTML = '<span style="color:#f87171;">Error loading memory.</span>'; }
+    };
+
+    window._saDeleteMemoryItem = async function(seat, key, idx){
+      try{
+        const res = await fetch("/api/teammate/memory?name=" + encodeURIComponent(seat));
+        const d = await res.json();
+        if(!d.ok) return;
+        const mem = d.memory || {};
+        if(!mem[key] || idx >= mem[key].length) return;
+        mem[key].splice(idx, 1);
+        await fetch("/api/teammate/memory", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:seat, memory:mem})});
+        await window._saToggleMemoryPanel(); await window._saToggleMemoryPanel();
+        showToast("Memory item deleted");
+      }catch(_){ showToast("Could not delete item","error"); }
+    };
+
+    window._saClearAllMemory = async function(seat){
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.innerHTML = `<div style="background:rgba(8,13,33,.97);border:1px solid rgba(248,113,113,.3);border-radius:16px;padding:24px 28px;max-width:340px;width:90%;backdrop-filter:blur(20px);text-align:center;">
+        <div style="font-size:28px;margin-bottom:10px;">🧠</div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Clear All Memory?</div>
+        <div style="font-size:12px;color:#94a3b8;margin-bottom:18px;">${escapeHtml(seat)} will forget everything learned about you. This cannot be undone.</div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button id="_mcCancel" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(42,58,106,.5);background:transparent;color:#94a3b8;cursor:pointer;">Cancel</button>
+          <button id="_mcConfirm" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.12);color:#f87171;font-weight:700;cursor:pointer;">Clear All</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      ov.querySelector("#_mcCancel").onclick = ()=>ov.remove();
+      ov.querySelector("#_mcConfirm").onclick = async()=>{
+        ov.remove();
+        try{
+          await fetch("/api/teammate/memory", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:seat, memory:{facts:[],style_notes:[],preferences:[],open_loops:[]}})});
+          await window._saToggleMemoryPanel(); await window._saToggleMemoryPanel();
+          showToast("🧠 Memory cleared for " + seat);
+        }catch(_){ showToast("Could not clear memory","error"); }
+      };
+    };
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -21411,14 +21617,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         content.className = "msg-body";
 
         const raw = (m.content || "");
-        const imgMatch = raw.match(/\/uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i) || raw.match(/\/api\/uploads\/[^\s]+/i);
+        // Extract optional refined_prompt metadata stored inline
+        const _rpMatch = raw.match(/\[refined_prompt\]\s*([\s\S]*?)$/);
+        const _refinedPrompt = _rpMatch ? _rpMatch[1].trim() : "";
+        const rawClean = raw.replace(/\[refined_prompt\][\s\S]*$/, "").trim();
+        const imgMatch = rawClean.match(/\/uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i) || rawClean.match(/\/api\/uploads\/[^\s]+/i);
         if(imgMatch){
           const url = imgMatch[0];
           const cap = document.createElement("div");
           cap.className = "tiny";
           cap.style.opacity = ".9";
           cap.style.marginBottom = "6px";
-          cap.innerText = raw.replace(url, "").replace("[Image generated]", "").trim() || "Image generated";
+          cap.innerText = rawClean.replace(url, "").replace("[Image generated]", "").trim() || "Image generated";
           const a = document.createElement("a");
           a.href = url;
           a.target = "_blank";
@@ -21497,9 +21707,31 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           actions.appendChild(shareBtn);
           actions.appendChild(editBtn);
           content.appendChild(actions);
-        }else if(raw.startsWith('__VISUAL__')){
+
+          // Show refined prompt disclosure if it differs from original
+          if(_refinedPrompt){
+            const disc = document.createElement("details");
+            disc.style.cssText = "margin-top:8px;font-size:11px;color:#475569;";
+            const sum = document.createElement("summary");
+            sum.style.cssText = "cursor:pointer;color:#7c3aed;font-weight:600;font-size:11px;user-select:none;list-style:none;";
+            sum.innerText = "✦ Prompt used by DALL-E";
+            const txt = document.createElement("div");
+            txt.style.cssText = "margin-top:6px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;line-height:1.55;color:#94a3b8;white-space:pre-wrap;";
+            txt.innerText = _refinedPrompt;
+            const tryAgainBtn = document.createElement("button");
+            tryAgainBtn.className = "btn btnMini";
+            tryAgainBtn.style.cssText = "margin-top:6px;font-size:11px;";
+            tryAgainBtn.innerText = "✏ Edit & Try Again";
+            tryAgainBtn.onclick = ()=>{
+              const fm = $("followMsg");
+              if(fm){ fm.value = _refinedPrompt; fm.focus(); }
+            };
+            disc.appendChild(sum); disc.appendChild(txt); disc.appendChild(tryAgainBtn);
+            content.appendChild(disc);
+          }
+        }else if(rawClean.startsWith('__VISUAL__')){
           // Live visual/animation — render in sandboxed iframe
-          const htmlSrc = raw.slice('__VISUAL__'.length);
+          const htmlSrc = rawClean.slice('__VISUAL__'.length);
           content._visualPrompt = m.role === 'user' ? '' : ((msgs[msgs.indexOf(m)-1]||{}).content||'').slice(0,120);
           _buildVisualOutput(content, htmlSrc, window.selectedSeat||'');
         }else{
@@ -21996,6 +22228,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         selectBtn.innerText = "Select";
         selectBtn.onclick = () => selectSeat(name);
 
+        const continueBtn = document.createElement("button");
+        continueBtn.className = "btn btnPrimary";
+        continueBtn.innerText = "→ Continue in DM";
+        continueBtn.title = "Switch to this teammate's DM and continue the conversation";
+        continueBtn.onclick = () => {
+          selectSeat(name);
+          // Pre-fill followMsg with a continuation prompt after a brief delay for seat switch
+          setTimeout(()=>{
+            const fm = $("followMsg");
+            if(fm && !fm.value.trim()){
+              fm.value = "";
+              fm.focus();
+            }
+          }, 300);
+          showToast("Switched to " + name + " — continue the conversation below");
+        };
+
         const copyBtn = document.createElement("button");
         copyBtn.className = "btn";
         copyBtn.innerText = "Copy";
@@ -22005,6 +22254,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
         btns.appendChild(openBtn);
         btns.appendChild(selectBtn);
+        btns.appendChild(continueBtn);
         btns.appendChild(copyBtn);
 
         const draft = drafts && drafts[name] ? drafts[name] : null;
@@ -24714,19 +24964,31 @@ Challenge weak assumptions. Surface risks.`;
         });
       }
 
+      var _rvTagFilter = '';
+
       function renderVaultList(query){
         var list    = document.getElementById('_rvList');
         var empty   = document.getElementById('_rvEmpty');
         var countEl = document.getElementById('_rvCount');
+        var tagBar  = document.getElementById('_rvTagBar');
         if(!list) return;
 
-        var filtered = query
-          ? _vaultEntries.filter(function(e){
-              return (e.label||'').toLowerCase().indexOf(query) !== -1 ||
-                     (e.text||'').toLowerCase().indexOf(query) !== -1 ||
-                     (e.teammate||'').toLowerCase().indexOf(query) !== -1;
-            })
-          : _vaultEntries;
+        // Build teammate tag bar
+        if(tagBar){
+          var teammates = [...new Set(_vaultEntries.map(e=>e.teammate||'').filter(Boolean))];
+          tagBar.innerHTML = teammates.map(t=>
+            `<button onclick="window._rvSetTag('${escapeHtmlVault(t)}')" style="padding:2px 9px;border-radius:12px;border:1px solid ${_rvTagFilter===t?'rgba(124,58,237,.7)':'rgba(42,58,106,.5)'};background:${_rvTagFilter===t?'rgba(124,58,237,.2)':'transparent'};color:${_rvTagFilter===t?'#c4b5fd':'#64748b'};font-size:11px;font-weight:600;cursor:pointer;">${escapeHtmlVault(t)}</button>`
+          ).join('') + (_rvTagFilter ? `<button onclick="window._rvSetTag('')" style="padding:2px 9px;border-radius:12px;border:1px solid rgba(239,68,68,.3);background:transparent;color:#f87171;font-size:11px;cursor:pointer;">✕ Clear</button>` : '');
+        }
+
+        var filtered = _vaultEntries.filter(function(e){
+          const matchQuery = !query || (
+            (e.label||'').toLowerCase().indexOf(query) !== -1 ||
+            (e.text||'').toLowerCase().indexOf(query) !== -1 ||
+            (e.teammate||'').toLowerCase().indexOf(query) !== -1);
+          const matchTag = !_rvTagFilter || (e.teammate||'') === _rvTagFilter;
+          return matchQuery && matchTag;
+        });
 
         if(countEl) countEl.textContent = filtered.length + ' saved response' + (filtered.length !== 1 ? 's' : '');
 
@@ -24760,7 +25022,11 @@ Challenge weak assumptions. Surface risks.`;
                     date,
                   '</div>',
                 '</div>',
-                '<div style="display:flex;gap:6px;flex-shrink:0;">',
+                '<div style="display:flex;gap:5px;flex-shrink:0;flex-wrap:wrap;">',
+                  '<button onclick="_rvUseInDm(\''+e.id+'\')" ',
+                  'style="background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.3);border-radius:7px;',
+                  'color:#67e8f9;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
+                  'title="Load into DM message field">→ Use in DM</button>',
                   '<button onclick="_rvCopy(\''+e.id+'\')" ',
                   'style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:7px;',
                   'color:#c4b5fd;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
@@ -24784,6 +25050,24 @@ Challenge weak assumptions. Surface risks.`;
       function escapeHtmlVault(s){
         return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       }
+
+      window._rvSetTag = function(t){
+        _rvTagFilter = t;
+        var q = (document.getElementById('_rvSearch')||{}).value||'';
+        renderVaultList(q.toLowerCase());
+      };
+
+      window._rvUseInDm = function(id){
+        var e = _vaultEntries.find(function(x){ return x.id===id; });
+        if(!e) return;
+        var fm = document.getElementById('followMsg');
+        if(fm){
+          fm.value = e.text||'';
+          if(typeof hideModal==='function') hideModal();
+          fm.focus();
+          if(typeof showToast==='function') showToast('📋 Loaded into message field — edit and send');
+        }
+      };
 
       window._rvCopy = function(id){
         var e = _vaultEntries.find(function(x){ return x.id===id; });
@@ -26820,18 +27104,53 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     async function crmEnroll(){
-      const st = $("crmEnrollStatus"); if(st) st.innerText='Enrolling...';
       const client_id = ($("crmEnrollClient").value||'').trim();
       const sequence_id = ($("crmEnrollSeq").value||'').trim();
-      try{
-        const res = await fetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
-        const data = await res.json();
-        if(!data.ok) throw new Error(data.error||'enroll failed');
-        if(st) st.innerText='Enrolled';
-        showToast('Enrolled');
-      }catch(e){
-        if(st) st.innerText='Enroll failed';
-      }
+      if(!client_id||!sequence_id){ showToast('Select a client and sequence first.'); return; }
+      // Show preview before enrolling
+      const client = (crmCache.clients||[]).find(c=>c.id===client_id);
+      const seq = (crmCache.sequences||[]).find(s=>s.id===sequence_id);
+      if(!client||!seq){ showToast('Could not find client or sequence.'); return; }
+      // Parse steps
+      let steps = [];
+      try{ steps = JSON.parse(seq.steps_json||'[]'); }catch(_){ try{ steps = JSON.parse(seq.steps||'[]'); }catch(_){} }
+      if(!steps.length){ steps = [{subject:'Step 1', body:'(No preview available)'}]; }
+      // Build preview modal
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
+      const inner = document.createElement('div');
+      inner.style.cssText = 'background:rgba(7,11,28,.99);border:1px solid rgba(124,58,237,.3);border-radius:18px;padding:24px;max-width:560px;width:100%;backdrop-filter:blur(20px);box-shadow:0 24px 80px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto;';
+      inner.innerHTML = `
+        <div style="font-size:16px;font-weight:800;color:#e2e8f0;margin-bottom:4px;">📧 Sequence Preview</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Enrolling <strong style="color:#c4b5fd;">${escapeHtml(client.name||client.email||'Contact')}</strong> in <strong style="color:#a78bfa;">${escapeHtml(seq.name||'Sequence')}</strong> (${steps.length} step${steps.length===1?'':'s'})</div>
+        ${steps.map((s,i)=>{
+          const subject = (s.subject||'(no subject)').replace(/\{\{name\}\}/gi, client.name||'[Name]').replace(/\{\{company\}\}/gi, client.company||'[Company]').replace(/\{\{first_name\}\}/gi, (client.name||'').split(' ')[0]||'[Name]');
+          const body = (s.body||'(no content)').replace(/\{\{name\}\}/gi, client.name||'[Name]').replace(/\{\{company\}\}/gi, client.company||'[Company]').replace(/\{\{first_name\}\}/gi, (client.name||'').split(' ')[0]||'[Name]');
+          const delay = s.delay_days ? `<span style="color:#fbbf24;font-size:10px;"> · Day ${i===0?0:(s.delay_days||1)}</span>` : '';
+          return `<div style="margin-bottom:10px;border:1px solid rgba(42,58,106,.5);border-radius:10px;padding:10px 12px;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:4px;">Step ${i+1}${delay}</div>
+            <div style="font-size:13px;font-weight:700;color:#e2e8f0;margin-bottom:4px;">${escapeHtml(subject)}</div>
+            <div style="font-size:12px;color:#64748b;white-space:pre-wrap;max-height:80px;overflow:hidden;line-height:1.5;">${escapeHtml(body.slice(0,300))}${body.length>300?'…':''}</div>
+          </div>`;
+        }).join('')}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button id="_epCancel" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(42,58,106,.5);background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;">Cancel</button>
+          <button id="_epConfirm" style="flex:2;padding:10px;border-radius:10px;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.2);color:#c4b5fd;cursor:pointer;font-size:13px;font-weight:700;">✓ Enroll Now</button>
+        </div>`;
+      ov.appendChild(inner);
+      document.body.appendChild(ov);
+      ov.querySelector('#_epCancel').onclick = ()=>ov.remove();
+      ov.querySelector('#_epConfirm').onclick = async()=>{
+        ov.remove();
+        const st = $("crmEnrollStatus"); if(st) st.innerText='Enrolling...';
+        try{
+          const res = await fetch('/api/crm/enroll', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({client_id, sequence_id})});
+          const data = await res.json();
+          if(!data.ok) throw new Error(data.error||'enroll failed');
+          if(st) st.innerText='Enrolled';
+          showToast('✅ Enrolled in ' + (seq.name||'sequence'));
+        }catch(e){ if(st) st.innerText='Enroll failed'; showToast('Enroll failed','error'); }
+      };
     }
 
     async function crmCreateCalendarEvent(){
@@ -27145,8 +27464,17 @@ Challenge weak assumptions. Surface risks.`;
       }
       const hasEstimated = items.some(it => it.email && it.confidence === 'low');
       const estimatedNote = hasEstimated ? `<div style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#fbbf24;margin-bottom:10px;">⚠ Some leads have no verified public email. Pattern estimates are shown in amber — always verify before outreach.</div>` : '';
-      const exportBar = `<div style="display:flex;justify-content:flex-end;padding:8px 0 4px;">
-        <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">&#x2B07; Export CSV (${items.length})</button></div>`;
+      const _netNewCount = items.filter(it=>{
+        const em=(it.email||'').trim().toLowerCase();
+        const co=(it.company||'').trim().toLowerCase();
+        return !(em&&_crmEmails.has(em)) && !(co&&_crmNames.has(co));
+      }).length;
+      const exportBar = `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0 6px;flex-wrap:wrap;gap:6px;">
+        <span style="font-size:12px;color:#64748b;">${items.length} leads · <span style="color:#6ee7b7;font-weight:700;">${items.length-_netNewCount} already in CRM</span> · <span style="color:#a78bfa;font-weight:700;">${_netNewCount} net new</span></span>
+        <div style="display:flex;gap:6px;">
+          ${_netNewCount>0?`<button class="btn btnMini btnPrimary" onclick="crmAddAllNetNew()" style="font-size:12px;padding:5px 14px;">+ Add All Net New (${_netNewCount})</button>`:''}
+          <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">⬇ Export CSV</button>
+        </div></div>`;
       const _crmClients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
       const _crmEmails = new Set(_crmClients.map(c=>(c.email||'').trim().toLowerCase()).filter(Boolean));
       const _crmNames = new Set(_crmClients.map(c=>(c.company||c.name||'').trim().toLowerCase()).filter(Boolean));
@@ -27196,7 +27524,10 @@ Challenge weak assumptions. Surface risks.`;
             ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
             ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}">📋 Copy phone</button>`:''}
             ${isVerifiedEmail?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
-            <button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>
+            ${inCRM
+              ? `<button class="btn btnMini" disabled style="margin-left:auto;opacity:.5;cursor:default;border-color:rgba(16,185,129,.3);color:#6ee7b7;">✓ In CRM</button>`
+              : `<button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>`
+            }
           </div>
         </div>`;
       }).join('');
@@ -27237,6 +27568,35 @@ Challenge weak assumptions. Surface risks.`;
         };
       });
     }
+
+    window.crmAddAllNetNew = async function(){
+      const _crmClients = Array.isArray(crmCache.clients)?crmCache.clients:[];
+      const _crmEmails2 = new Set(_crmClients.map(c=>(c.email||'').trim().toLowerCase()).filter(Boolean));
+      const _crmNames2  = new Set(_crmClients.map(c=>(c.company||c.name||'').trim().toLowerCase()).filter(Boolean));
+      const netNew = _leadLabItems.filter(it=>{
+        const em=(it.email||'').trim().toLowerCase();
+        const co=(it.company||'').trim().toLowerCase();
+        return !(em&&_crmEmails2.has(em))&&!(co&&_crmNames2.has(co));
+      });
+      if(!netNew.length){showToast('All leads are already in your CRM.');return;}
+      let added=0,failed=0;
+      showToast('Adding '+netNew.length+' leads...');
+      for(const it of netNew){
+        try{
+          const res=await fetch('/api/crm/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            name:it.name||it.company||'New lead',company:it.company||'',email:it.email||'',
+            phone:it.phone||'',status:'lead',pipeline_stage:'Lead',
+            tags:['lead-lab',($("leadLabNiche")?.value||'').trim(),($("leadLabLocation")?.value||'').trim()].filter(Boolean),
+            notes:[it.warm_reason||'',it.website?'Website: '+it.website:'',it.linkedin?'LinkedIn: '+it.linkedin:''].filter(Boolean).join('\n')
+          })});
+          const d=await res.json();
+          if(d.ok)added++; else failed++;
+        }catch(_){failed++;}
+      }
+      await crmFetchClients();
+      _llApplySortFilter(); // re-render with updated CRM state
+      showToast('✅ Added '+added+' leads to CRM'+(failed?' ('+failed+' failed)':''));
+    };
 
     function _llApplySortFilter(){
       if(!_leadLabItems.length) return;
@@ -27551,12 +27911,18 @@ Challenge weak assumptions. Surface risks.`;
           try{
             const client = (crmCache.clients||[]).find(x=>x.id===clientId);
             if(!client) return;
+            const oldStage = client.pipeline_stage || 'Unknown';
             const payload = {...client, pipeline_stage: stage};
             const res = await fetch('/api/crm/clients/' + encodeURIComponent(clientId), {
               method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
             });
             const data = await res.json();
             if(!data.ok) throw new Error(data.error||'Move failed');
+            // Auto-log the stage change to the activity timeline
+            fetch('/api/crm/clients/'+encodeURIComponent(clientId)+'/activity',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({type:'stage_change',detail:oldStage+' → '+stage})
+            }).catch(()=>{});
             await crmFetchClients();
             crmRenderPipelineBoard();
             showToast('📌 Moved to ' + stage);
@@ -52738,10 +53104,22 @@ def api_sp_draft_ai():
     t_defn = installed.get(teammate) or PREBUILT_LOCKED.get(teammate) or {}
     system = teammate_system_prompt(t_defn) if t_defn else f"You are {teammate}, a social media content specialist."
     platform_str = " and ".join(p.title() for p in platforms)
+    # Inject operator brand context so the post sounds like their brand
+    op = _load_operator_profile(uname) or {}
+    brand_ctx = ""
+    if op.get("business") or op.get("audience") or op.get("offers"):
+        brand_ctx = (
+            "\nBRAND CONTEXT (apply to the post):\n"
+            + (f"Business: {op['business']}\n" if op.get("business") else "")
+            + (f"Target audience: {op['audience']}\n" if op.get("audience") else "")
+            + (f"Offers/services: {op['offers']}\n" if op.get("offers") else "")
+            + (f"Brand voice/notes: {op['notes']}\n" if op.get("notes") else "")
+        )
     prompt = (
         f"Write a {tone} social media post for {platform_str} about: {topic}.\n"
         "Include relevant hashtags at the end. Keep it concise, authentic, and engaging. "
         "Return ONLY the post text — no preamble, no explanation."
+        + brand_ctx
     )
     try:
         draft = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.75)
