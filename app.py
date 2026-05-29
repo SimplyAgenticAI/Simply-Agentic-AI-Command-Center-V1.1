@@ -13733,12 +13733,13 @@ HTML = r"""
       pointer-events:none;
     }
     .liveDot.idle{ background: rgba(184,196,255,.28); }
-    .liveDot.thinking{ background: rgba(255,207,112,.55); box-shadow: 0 0 14px rgba(255,207,112,.25); animation: dotPulse 1.1s ease-in-out infinite; }
+    .liveDot.thinking{ background: rgba(255,207,112,.65); box-shadow: 0 0 8px rgba(255,207,112,.35); }
     .liveDot.done{ background: rgba(141,255,179,.60); box-shadow: 0 0 14px rgba(141,255,179,.25); }
     .liveDot.waiting{ background: rgba(255,123,123,.55); box-shadow: 0 0 14px rgba(255,123,123,.22); }
-    @keyframes dotPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.4); box-shadow:0 0 22px rgba(255,207,112,.6); } }
     .typingDots { display:inline-flex; gap:3px; align-items:center; height:14px; }
     .typingDots span { width:5px; height:5px; border-radius:50%; background:rgba(255,207,112,.8); animation:typingBounce 1.1s ease-in-out infinite; }
+    @keyframes saPhrase { from{opacity:0;transform:translateY(3px);} to{opacity:1;transform:none;} }
+    .saPhraseTxt { animation: saPhrase 0.3s ease both; }
     .typingDots span:nth-child(2){ animation-delay:.18s; }
     .typingDots span:nth-child(3){ animation-delay:.36s; }
     @keyframes typingBounce { 0%,80%,100%{ transform:translateY(0); opacity:.5; } 40%{ transform:translateY(-5px); opacity:1; } }
@@ -20302,16 +20303,52 @@ window.showModal = function showModal(title, body, imgUrl){
       setTablePulseAll(allActive);
     }
 
+    // Personality phrase sets shown while each teammate is thinking
+    const _SA_PHRASES = {
+      "Sunshine": ["Strategizing…","Mapping it out…","Crafting…","Dialing in…","Positioning…","Building the play…"],
+      "Aria":     ["Writing…","Polishing…","Finding the words…","Sharpening…","Composing…","Refining…"],
+      "Atlas":    ["Researching…","Digging in…","Cross-referencing…","Verifying…","Sourcing…","Analyzing…"],
+      "Kira":     ["Visualizing…","Composing…","Refining…","Aligning…","Designing…","Structuring…"],
+      "Max":      ["Building…","Systematizing…","Optimizing…","Mapping…","Engineering…","Configuring…"],
+      "Leo":      ["Connecting…","Reading the room…","Calibrating…","Flowing…","Positioning…","Warming up…"],
+      "Sage":     ["Reviewing…","Checking…","Scanning…","Calibrating…","Auditing…","Watching…"],
+      "_default": ["Thinking…","Working…","Processing…","Flowing…","On it…","Almost there…"],
+    };
+
+    function _seatStatusHtml(dotClass, text){
+      return '<span class="liveDot ' + dotClass + '" style="display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>'
+           + '<span>' + text + '</span>';
+    }
+
     function setSeatLive(name, mode){
       seatStatus[name] = mode;
-      const dot = document.getElementById("live_" + name);
+      const dot   = document.getElementById("live_" + name);
       const label = document.getElementById("status_" + name);
+
+      // Stop any running phrase cycle for this seat
+      if(label && label._phraseTimer){
+        clearInterval(label._phraseTimer);
+        label._phraseTimer = null;
+      }
+
       if(dot){ dot.className = "liveDot " + mode; }
+
       if(label){
         if(mode === "thinking"){
-          label.innerHTML = '<span class="typingDots"><span></span><span></span><span></span></span>';
+          const phrases = _SA_PHRASES[name] || _SA_PHRASES["_default"];
+          let pi = Math.floor(Math.random() * phrases.length);
+          const tick = () => {
+            label.innerHTML =
+              '<span class="liveDot thinking" style="display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>'
+              + '<span class="saPhraseTxt" style="color:rgba(255,207,112,.9);">' + phrases[pi % phrases.length] + '</span>';
+            pi++;
+          };
+          tick();
+          label._phraseTimer = setInterval(tick, 1800);
         } else {
-          label.innerText = mode==="done"?"Responded":mode==="waiting"?"Waiting":"Idle";
+          const txt  = mode === "done" ? "Responded" : mode === "waiting" ? "Waiting" : "Idle";
+          const dcls = mode === "done" ? "done"      : mode === "waiting" ? "waiting" : "idle";
+          label.innerHTML = _seatStatusHtml(dcls, txt);
         }
       }
       updateTablePulseFromStatuses();
@@ -20724,7 +20761,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const st = document.createElement("div");
       st.className = "seatStatus";
       st.id = "status_" + defn.name;
-      st.innerHTML = '<span class="liveDot idle" style="display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span><span>Idle</span>';
+      st.innerHTML = _seatStatusHtml("idle", "Idle");
 
       meta.appendChild(nm);
       meta.appendChild(rl);
