@@ -2624,8 +2624,12 @@ def api_debug_key_status():
 
 @app.get("/health")
 def health_check() -> Any:
-    """Health check for Render and uptime monitors. Returns 200 immediately."""
-    return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso()})
+    """Health check for Render and uptime monitors. Verifies storage is accessible."""
+    try:
+        assert DATA.exists(), "DATA directory missing"
+        return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso()})
+    except Exception:
+        return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
 @app.get("/ping")
 def ping() -> Any:
@@ -6986,15 +6990,6 @@ if('serviceWorker' in navigator){
     resp.headers["Pragma"] = "no-cache"
     return resp
 
-
-@app.get("/health")
-def health_check():
-    """Health check endpoint for load balancers and uptime monitors."""
-    try:
-        assert DATA.exists(), "DATA directory missing"
-        return jsonify({"status": "ok", "ts": now_iso()}), 200
-    except Exception as e:
-        return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
 @app.get("/api/me")
 def api_me():
