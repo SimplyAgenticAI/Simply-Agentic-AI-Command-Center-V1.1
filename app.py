@@ -16369,10 +16369,120 @@ label {
 
 <style>
 #saNeuralCanvas{position:fixed;inset:0;z-index:1;pointer-events:none;}
+
+/* ===== WHISPER HUD ===== */
+#whisperHud{
+  position:fixed;
+  bottom:80px;
+  left:50%;
+  transform:translateX(-50%);
+  width:min(500px,96vw);
+  background:rgba(7,11,28,.97);
+  border:1px solid rgba(124,58,237,.35);
+  border-radius:20px;
+  padding:16px 18px 14px;
+  z-index:99998;
+  backdrop-filter:blur(32px);
+  -webkit-backdrop-filter:blur(32px);
+  box-shadow:0 24px 64px rgba(0,0,0,.75),0 0 0 1px rgba(124,58,237,.12),0 0 60px rgba(124,58,237,.08);
+  display:none;
+  flex-direction:column;
+  gap:10px;
+}
+#whisperHud.active{display:flex;animation:whisperSlideIn .22s cubic-bezier(.34,1.28,.64,1) both;}
+@keyframes whisperSlideIn{
+  from{opacity:0;transform:translateX(-50%) translateY(18px) scale(.97);}
+  to{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}
+}
+@keyframes whisperPulse{
+  0%,100%{opacity:1;transform:scale(1);box-shadow:0 0 6px #7c3aed;}
+  50%{opacity:.5;transform:scale(1.4);box-shadow:0 0 14px #7c3aed;}
+}
+/* Waveform */
+.whisper-wave{display:flex;align-items:center;gap:3px;height:40px;flex-shrink:0;}
+.whisper-bar{width:4px;border-radius:3px;background:linear-gradient(180deg,#7c3aed 0%,#06b6d4 100%);transform-origin:center;animation:wbIdle 1.6s ease-in-out infinite;}
+.whisper-bar:nth-child(1){height:10px;animation-delay:0s;}
+.whisper-bar:nth-child(2){height:18px;animation-delay:.12s;}
+.whisper-bar:nth-child(3){height:28px;animation-delay:.24s;}
+.whisper-bar:nth-child(4){height:36px;animation-delay:.36s;}
+.whisper-bar:nth-child(5){height:28px;animation-delay:.48s;}
+.whisper-bar:nth-child(6){height:18px;animation-delay:.60s;}
+.whisper-bar:nth-child(7){height:10px;animation-delay:.72s;}
+@keyframes wbIdle{0%,100%{transform:scaleY(.45);opacity:.3;}50%{transform:scaleY(.85);opacity:.6;}}
+#whisperHud.listening .whisper-bar{animation:wbActive .5s ease-in-out infinite;}
+@keyframes wbActive{0%,100%{transform:scaleY(.6);opacity:.7;}50%{transform:scaleY(1.3);opacity:1;}}
+/* Countdown */
+#whisperCountdown{height:3px;background:rgba(124,58,237,.18);border-radius:2px;overflow:hidden;display:none;}
+#whisperCountdownFill{height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#06b6d4);border-radius:2px;}
+/* PTT */
+#whisperHoldBtn:active{background:rgba(124,58,237,.35);border-color:rgba(148,88,255,.8);transform:scale(.98);}
+/* Transcript scroll */
+#whisperTranscript::-webkit-scrollbar{width:3px;}
+#whisperTranscript::-webkit-scrollbar-thumb{background:rgba(124,58,237,.4);border-radius:2px;}
 </style>
 </head>
 <body>
 <canvas id="saNeuralCanvas" aria-hidden="true"></canvas>
+
+<!-- ===== WHISPER HUD ===== -->
+<div id="whisperHud" role="dialog" aria-label="Whisper voice mode">
+  <!-- Header row -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span id="whisperDot" style="width:8px;height:8px;border-radius:50%;background:#7c3aed;display:inline-block;box-shadow:0 0 8px #7c3aed;animation:whisperPulse 1.4s ease-in-out infinite;"></span>
+      <span style="font-size:11px;font-weight:800;letter-spacing:.12em;color:#a78bfa;text-transform:uppercase;">Whisper</span>
+      <span id="whisperStatusLabel" style="font-size:11px;color:#64748b;">Listening...</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <!-- Push-to-talk toggle -->
+      <button id="whisperPttToggle" title="Push-to-talk mode" style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#64748b;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">PTT</button>
+      <button id="whisperClose" title="Stop Whisper" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#94a3b8;font-size:14px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&times;</button>
+    </div>
+  </div>
+
+  <!-- Teammate chip -->
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+    <span style="font-size:11px;color:#475569;font-weight:600;">Speaking to:</span>
+    <div id="whisperTeammateChip" style="display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);">
+      <span id="whisperTeammateAvatar" style="font-size:14px;">🤖</span>
+      <span id="whisperTeammateName" style="font-size:12px;font-weight:700;color:#c4b5fd;">Select a teammate</span>
+    </div>
+    <span id="whisperModeChip" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.3);color:#67e8f9;display:none;">GROUP</span>
+  </div>
+
+  <!-- Waveform + transcript -->
+  <div style="display:flex;align-items:center;gap:12px;min-height:44px;">
+    <div class="whisper-wave" id="whisperWave">
+      <div class="whisper-bar" id="wb1"></div>
+      <div class="whisper-bar" id="wb2"></div>
+      <div class="whisper-bar" id="wb3"></div>
+      <div class="whisper-bar" id="wb4"></div>
+      <div class="whisper-bar" id="wb5"></div>
+      <div class="whisper-bar" id="wb6"></div>
+      <div class="whisper-bar" id="wb7"></div>
+    </div>
+    <div id="whisperTranscript" style="flex:1;font-size:14px;color:#e2e8f0;line-height:1.5;min-height:22px;max-height:72px;overflow-y:auto;font-style:italic;opacity:.85;">
+      <span id="whisperFinalSpan" style="color:#e2e8f0;font-style:normal;"></span><span id="whisperInterimSpan" style="color:#94a3b8;font-style:italic;"></span>
+    </div>
+  </div>
+
+  <!-- Countdown bar -->
+  <div id="whisperCountdown">
+    <div id="whisperCountdownFill"></div>
+  </div>
+  <div id="whisperCountdownLabel" style="font-size:10px;color:#64748b;text-align:center;margin-top:2px;display:none;">Sending in <span id="whisperCountdownSecs">2</span>s...</div>
+
+  <!-- Push-to-talk hold button (hidden by default) -->
+  <button id="whisperHoldBtn" style="display:none;width:100%;padding:12px;border-radius:12px;border:2px solid rgba(124,58,237,.5);background:rgba(124,58,237,.12);color:#c4b5fd;font-size:13px;font-weight:700;cursor:pointer;user-select:none;">Hold to speak</button>
+
+  <!-- Action row -->
+  <div style="display:flex;gap:8px;margin-top:4px;">
+    <button id="whisperSendNow" style="flex:1;padding:9px 14px;border-radius:10px;border:1px solid rgba(124,58,237,.5);background:linear-gradient(135deg,rgba(124,58,237,.5),rgba(99,102,241,.35));color:#e2e8f0;font-size:13px;font-weight:700;cursor:pointer;">Send Now</button>
+    <button id="whisperCancel" style="padding:9px 14px;border-radius:10px;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.04);color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">Clear</button>
+  </div>
+</div>
+<!-- ===== END WHISPER HUD ===== -->
+
   {{trial_banner|safe}}
   <div class="topbar">
     <div class="topbarMain">
@@ -18984,7 +19094,7 @@ input[type="range"]::-moz-range-progress {
                   <button class="btn btnMini" id="gcToolsBtn" onclick="saToggleGcTools()" style="border-color:rgba(80,110,200,.5);">⋯ Tools</button>
                   <div id="gcToolsDrop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:190px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
                     <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
-                    <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
+                    <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
                     <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
                     <button id="screenGroupBtn"     class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share screen</button>
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
@@ -19017,7 +19127,7 @@ input[type="range"]::-moz-range-progress {
               <div class="tiny" id="opStatus"></div>
               <div class="tiny" id="opHint" title="Say a teammate name to switch. Box clears on each switch." style="display:none;"></div>
             </div>
-            <div class="tiny" id="micStatusGroup" style="display:none;">Mic: idle</div>
+            <div id="micStatusGroup" style="display:none;"></div>
           </div>
 
         
@@ -19076,7 +19186,7 @@ input[type="range"]::-moz-range-progress {
           </div>
           <button class="btn" id="refreshThread">Refresh</button>
           <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
-          <button class="btn btnMini" id="threadVoiceTopBtn" title="Voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
+          <button class="btn btnMini" id="threadVoiceTopBtn" title="Whisper — voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
           <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
           <button class="btn btnMini" id="saPinsBtn" onclick="window._saTogglePinsDrawer()" title="View pinned messages" style="font-size:12px;padding:3px 9px;display:none;">📌</button>
         </div>
@@ -19163,7 +19273,7 @@ input[type="range"]::-moz-range-progress {
                 <button id="screenDmBtn"        class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share Screen</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="talkDmBtn"          style="display:none;position:absolute;left:-9999px;"></button>
-                <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#93c5fd;">🎙 Voice Mode</button>
+                <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
                 <button id="passSeatWeb"        class="saMoreItem" style="display:none;color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
@@ -19185,7 +19295,7 @@ input[type="range"]::-moz-range-progress {
             <button onclick="saSetChatClientCtx('')" style="font-size:11px;padding:1px 7px;border-radius:6px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;">Clear</button>
           </div>
           <div id="dmAttachList" class="pillRow" style="margin-top:4px;"></div>
-          <div class="tiny" id="micStatusDm" style="margin-top:3px;">Mic: idle</div>
+          <div id="micStatusDm" style="display:none;"></div>
         </div>
       </div>
 
@@ -22339,17 +22449,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     function updateAlwaysButtons(){
       const g = $("alwaysListenGroupBtn");
       const d = $("alwaysListenDmBtn");
-
-      if(g){
-        const on = alwaysOn && alwaysMode === "group";
-        g.classList.toggle("btnPrimary", on);
-        g.innerText = on ? "Voice Mode: On" : "Voice Mode";
-      }
-      if(d){
-        const on = alwaysOn && alwaysMode === "dm";
-        d.classList.toggle("btnPrimary", on);
-        d.innerText = on ? "Voice Mode: On" : "Voice Mode";
-      }
+      const vt = $("threadVoiceTopBtn");
+      if(g){ const on=alwaysOn&&alwaysMode==="group"; g.classList.toggle("btnPrimary",on); g.innerText=on?"🎙 Whisper: On":"🎙 Whisper"; }
+      if(d){ const on=alwaysOn&&alwaysMode==="dm";    d.classList.toggle("btnPrimary",on); d.innerText=on?"🎙 Whisper: On":"🎙 Whisper"; }
+      if(vt){ vt.classList.toggle("btnPrimary",!!alwaysOn); }
     }
 
     function getInstalledNamesInOrder(){
@@ -22433,19 +22536,142 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // ALWAYS-LISTEN ENGINE
+    // WHISPER ENGINE — v2
     // ═══════════════════════════════════════════════════════════════
-    // Rules:
-    //  1. Every spoken word fills the box immediately (interim + final).
-    //  2. Saying a name → switch seat, strip name, keep rest in box.
-    //  3. Auto-send calls the API directly — no modals, no guards.
-    //  4. onend restarts immediately, no delay, no ignore window.
-    //  5. Buffer preserved across mic restarts so nothing is lost.
+    // Key design:
+    //  • Interim results NEVER touch the textarea → zero layout thrash → no flashing
+    //  • All live text lives in the Whisper HUD transcript only
+    //  • Web Audio AnalyserNode drives real amplitude-reactive waveform bars
+    //  • Visible countdown bar before auto-send with cancel ability
+    //  • PTT (push-to-talk) mode as alternative to always-on
+    //  • Streaming send via /api/followup/stream
 
-    let _buf = "";          // confirmed finals for current phrase
+    let _buf = "";           // confirmed finals for current phrase
     let _nameDebounce = 0;
-    let _switching = false; // raised during seat switch — blocks ALL box writes and onend snapshots
+    let _switching = false;  // raised during seat switch
+    let _whisperPtt = false; // push-to-talk mode
+    let _whisperAudioCtx = null;
+    let _whisperAnalyser = null;
+    let _whisperStream = null;
+    let _whisperWaveRaf = null;
+    const AUTO_SEND_MS = 2200; // ms after last final before auto-send
 
+    // ── HUD helpers ──────────────────────────────────────────────
+    function _whisperHud(){ return $("whisperHud"); }
+
+    function _whisperShowHud(){
+      const h=_whisperHud(); if(!h)return;
+      h.classList.add("active");
+      h.classList.add("listening");
+    }
+    function _whisperHideHud(){
+      const h=_whisperHud(); if(!h)return;
+      h.classList.remove("active","listening");
+      _whisperStopWaveform();
+    }
+    function _whisperSetStatus(txt){
+      const s=$("whisperStatusLabel"); if(s)s.innerText=txt||"";
+    }
+    function _whisperSetTranscript(finals, interim){
+      const f=$("whisperFinalSpan"); if(f)f.innerText=finals||"";
+      const i=$("whisperInterimSpan"); if(i)i.innerText=interim?" "+interim:"";
+      // Auto-scroll transcript
+      const t=$("whisperTranscript"); if(t)t.scrollTop=t.scrollHeight;
+    }
+    function _whisperUpdateTeammate(){
+      const name=(window.selectedSeat||selectedSeat||"").trim();
+      const chip=$("whisperTeammateName");
+      const av=$("whisperTeammateAvatar");
+      const mc=$("whisperModeChip");
+      if(mc)mc.style.display=alwaysMode==="group"?"inline":"none";
+      if(!name||name===""){
+        if(chip)chip.innerText="Select a teammate";
+        if(av)av.innerText="🤖";
+        return;
+      }
+      if(chip)chip.innerText=name;
+      // Try to get avatar emoji from installed teammates
+      try{
+        const defn=((state&&state.installed)||{})[name]||{};
+        const avatar=defn.avatar||defn.emoji||"🤖";
+        if(av)av.innerText=typeof avatar==="string"&&avatar.length<=4?avatar:"🤖";
+        // Update chip color to teammate bg color
+        const bg=defn.bg||"rgba(124,58,237,.15)";
+        const tc=$("whisperTeammateChip");
+        if(tc){ tc.style.background=bg+"33"; tc.style.borderColor=bg+"88"; }
+      }catch(_){}
+    }
+
+    // ── Waveform (Web Audio API) ─────────────────────────────────
+    function _whisperStartWaveform(stream){
+      try{
+        _whisperAudioCtx=new(window.AudioContext||window.webkitAudioContext)();
+        const src=_whisperAudioCtx.createMediaStreamSource(stream);
+        _whisperAnalyser=_whisperAudioCtx.createAnalyser();
+        _whisperAnalyser.fftSize=64;
+        src.connect(_whisperAnalyser);
+        const bars=[1,2,3,4,5,6,7].map(i=>$("wb"+i)).filter(Boolean);
+        const dataArr=new Uint8Array(_whisperAnalyser.frequencyBinCount);
+        function draw(){
+          if(!_whisperAnalyser){return;}
+          _whisperAnalyser.getByteFrequencyData(dataArr);
+          bars.forEach((b,i)=>{
+            const idx=Math.floor((i/_bars_count)*dataArr.length*(2/3));
+            const val=(dataArr[idx]||0)/255;
+            const h=Math.max(4,Math.round(val*36+4));
+            b.style.height=h+"px";
+            b.style.opacity=(0.4+val*0.6).toFixed(2);
+          });
+          _whisperWaveRaf=requestAnimationFrame(draw);
+        }
+        const _bars_count=bars.length;
+        _whisperWaveRaf=requestAnimationFrame(draw);
+      }catch(_){}
+    }
+    function _whisperStopWaveform(){
+      if(_whisperWaveRaf){cancelAnimationFrame(_whisperWaveRaf);_whisperWaveRaf=null;}
+      if(_whisperAnalyser){try{_whisperAnalyser.disconnect();}catch(_){}; _whisperAnalyser=null;}
+      if(_whisperAudioCtx){try{_whisperAudioCtx.close();}catch(_){}; _whisperAudioCtx=null;}
+      // Reset bars to idle
+      [1,2,3,4,5,6,7].forEach(i=>{
+        const b=$("wb"+i); if(b){b.style.height="";b.style.opacity="";}
+      });
+    }
+
+    // ── Countdown bar ────────────────────────────────────────────
+    function _whisperShowCountdown(ms){
+      const bar=$("whisperCountdown");
+      const fill=$("whisperCountdownFill");
+      const lbl=$("whisperCountdownLabel");
+      const secs=$("whisperCountdownSecs");
+      if(!bar||!fill)return;
+      bar.style.display="block";
+      if(lbl)lbl.style.display="block";
+      fill.style.transition="none";
+      fill.style.width="0%";
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          fill.style.transition="width "+ms+"ms linear";
+          fill.style.width="100%";
+        });
+      });
+      // Tick the seconds label
+      let remaining=Math.ceil(ms/1000);
+      if(secs)secs.innerText=remaining;
+      if(window._whisperCountdownTick)clearInterval(window._whisperCountdownTick);
+      window._whisperCountdownTick=setInterval(()=>{
+        remaining--;
+        if(secs)secs.innerText=Math.max(0,remaining);
+        if(remaining<=0)clearInterval(window._whisperCountdownTick);
+      },1000);
+    }
+    function _whisperHideCountdown(){
+      const bar=$("whisperCountdown"); if(bar)bar.style.display="none";
+      const lbl=$("whisperCountdownLabel"); if(lbl)lbl.style.display="none";
+      if(window._whisperCountdownTick){clearInterval(window._whisperCountdownTick);window._whisperCountdownTick=null;}
+    }
+
+    // ── Core helpers ─────────────────────────────────────────────
     function currentAlwaysTarget(){
       return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
     }
@@ -22453,7 +22679,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
     }
     function _setAlwaysStatus(msg){
-      const s=currentAlwaysStatusEl(); if(s)s.innerText=msg;
+      _whisperSetStatus(msg);
     }
     function resetAlwaysBuffers(){
       _buf="";
@@ -22461,12 +22687,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       alwaysFinalText=""; alwaysInterimText=""; alwaysFinalBaseline="";
       const t=currentAlwaysTarget();
       alwaysBaseText=(t&&t.value)?t.value.trim():"";
+      _whisperSetTranscript("","");
+      _whisperHideCountdown();
     }
+
     function stopAlwaysListening(){
       alwaysOn=false;
-      if($("micStatusGroup"))$("micStatusGroup").innerText="Mic: idle";
-      if($("micStatusDm"))$("micStatusDm").innerText="Mic: idle";
       if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+      _whisperHideCountdown();
+      _whisperHideHud();
+      if(_whisperStream){try{_whisperStream.getTracks().forEach(t=>t.stop());}catch(_){}; _whisperStream=null;}
       try{
         if(alwaysRec){
           alwaysRec.onresult=null;alwaysRec.onerror=null;alwaysRec.onend=null;
@@ -22477,77 +22707,119 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       updateAlwaysButtons();
     }
 
-    // ── Voice-triggered send — calls API directly, no modals ────────────
+    // ── Streaming voice send (DM) ────────────────────────────────
     async function _voiceSendDm(msg, seat){
-      if(!msg||!seat) return;
-      // Show thinking state
+      if(!msg||!seat)return;
+      _whisperSetStatus("Sending...");
+      _whisperHideCountdown();
+      _whisperSetTranscript("","");
+      const hud=_whisperHud();
+      if(hud)hud.classList.remove("listening");
       try{ setSeatLive(seat,"thinking"); }catch(_){}
       try{ setOpStatus("Sending…"); }catch(_){}
       try{
-        const res=await fetch("/api/followup",{
+        const ctrl=new AbortController();
+        const to=setTimeout(()=>ctrl.abort(),120000);
+        const res=await fetch("/api/followup/stream",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({name:seat, message:msg,
-                               file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
-                               lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)})
+          body:JSON.stringify({name:seat,message:msg,
+            file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
+            lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)}),
+          signal:ctrl.signal
         });
-        const data=await res.json();
-        if(data.ok){
-          try{ setSeatLive(seat,"done"); }catch(_){}
-          try{ setOpStatus("Done"); }catch(_){}
-          try{ $("followMsg").value=""; }catch(_){}
-          try{ await refreshThread(); }catch(_){}
-          // Email buttons rendered by refreshThread() above — no auto-open
-          if(data.job_id){ try{ pollImageJob(data.job_id,seat); }catch(_){} }
-        }else{
-          try{ setSeatLive(seat,"waiting"); }catch(_){}
-          try{ setOpStatus("Error"); }catch(_){}
-          try{ showToast("⚠️ "+( data.error||"Send failed")); }catch(_){}
+        clearTimeout(to);
+        if(!res.ok||!res.body){throw new Error("Stream failed");}
+        const reader=res.body.getReader();
+        const dec=new TextDecoder();
+        let buf2="";
+        while(true){
+          const {done,value}=await reader.read();
+          if(done)break;
+          buf2+=dec.decode(value,{stream:true});
+          const lines=buf2.split("\n"); buf2=lines.pop();
+          for(const line of lines){
+            if(!line.startsWith("data:"))continue;
+            try{
+              const ev=JSON.parse(line.slice(5).trim());
+              if(ev.done){
+                try{setSeatLive(seat,"done");}catch(_){}
+                try{setOpStatus("Done");}catch(_){}
+                try{await refreshThread();}catch(_){}
+                if(ev.job_id){try{pollImageJob(ev.job_id,seat);}catch(_){}}
+              }
+            }catch(_){}
+          }
         }
       }catch(e){
-        try{ setSeatLive(seat,"waiting"); }catch(_){}
-        try{ showToast("⚠️ Send failed: "+String(e)); }catch(_){}
+        try{setSeatLive(seat,"waiting");}catch(_){}
+        try{setOpStatus("Error");}catch(_){}
+        if(!String(e).includes("AbortError"))
+          try{showToast("⚠️ Voice send failed: "+String(e));}catch(_){}
       }
+      if(alwaysOn&&hud){hud.classList.add("listening"); _whisperSetStatus("Listening...");}
     }
 
+    // ── Streaming voice send (Group) ─────────────────────────────
     async function _voiceSendGroup(msg){
-      if(!msg) return;
-      const reg=state?.registry||null;
-      const order=(reg?.active_order&&reg.active_order.length)?reg.active_order:(reg?.installed_order||[]);
-      if(!order||!order.length){
-        try{ showToast("⚠️ No teammates at the table"); }catch(_){} return;
-      }
-      order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
-      try{ setOpStatus("Sending to all…"); }catch(_){}
+      if(!msg)return;
+      _whisperSetStatus("Sending to all...");
+      _whisperHideCountdown();
+      _whisperSetTranscript("","");
+      const hud=_whisperHud();
+      if(hud)hud.classList.remove("listening");
+      // Use the same parallel Promise.all pattern as conveneAll
       try{ $("opPrompt").value=""; }catch(_){}
-      const outputs={},drafts={},images={};
-      for(const n of order){
-        try{
-          const res=await fetch("/api/followup",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({name:n, message:msg,
-                                 file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])})
-          });
-          const data=await res.json();
-          if(data.ok){
-            outputs[n]=data.response||"";
-            if(data.email_draft)drafts[n]=data.email_draft;
-            if(data.image_url)images[n]=data.image_url;
-            try{ renderGroupReplies(outputs,drafts,images); }catch(_){}
-            try{ setSeatLive(n,"done"); }catch(_){}
-          }else{
-            try{ setSeatLive(n,"waiting"); }catch(_){}
-          }
-        }catch(_){
-          try{ setSeatLive(n,"waiting"); }catch(_){}
-        }
-      }
-      try{ lastGroupOutputs=outputs; renderGroupReplies(outputs,drafts,images); }catch(_){}
-      try{ setOpStatus("Complete"); }catch(_){}
-      try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+      try{
+        const reg=state?.registry||null;
+        const order=(reg?.active_order&&reg.active_order.length)?reg.active_order:(reg?.installed_order||[]);
+        if(!order||!order.length){ showToast("⚠️ No teammates at the table"); return; }
+        order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
+        const outputs={},drafts={},images={};
+        order.forEach(n=>{outputs[n]="…";});
+        try{renderGroupReplies(outputs,drafts,images);}catch(_){}
+        await Promise.all(order.map(async n=>{
+          try{
+            const ctrl=new AbortController();
+            const to=setTimeout(()=>ctrl.abort(),120000);
+            const res=await fetch("/api/followup/stream",{
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({name:n,message:msg,
+                file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])}),
+              signal:ctrl.signal
+            });
+            clearTimeout(to);
+            if(!res.ok||!res.body){setSeatLive(n,"waiting");outputs[n]="(error)";return;}
+            const reader=res.body.getReader();
+            const dec=new TextDecoder();
+            let buf2="",full="";
+            while(true){
+              const {done,value}=await reader.read();
+              if(done)break;
+              buf2+=dec.decode(value,{stream:true});
+              const lines=buf2.split("\n");buf2=lines.pop();
+              for(const line of lines){
+                if(!line.startsWith("data:"))continue;
+                try{
+                  const ev=JSON.parse(line.slice(5).trim());
+                  if(ev.token){full+=ev.token;outputs[n]=full;try{renderGroupReplies(outputs,drafts,images);}catch(_){}}
+                  if(ev.done&&ev.email_draft)drafts[n]=ev.email_draft;
+                }catch(_){}
+              }
+            }
+            if(full)outputs[n]=full;
+            setSeatLive(n,"done");
+            try{renderGroupReplies(outputs,drafts,images);}catch(_){}
+          }catch(e){ try{setSeatLive(n,"waiting");}catch(_){} }
+        }));
+        try{lastGroupOutputs=outputs;renderGroupReplies(outputs,drafts,images);}catch(_){}
+        try{setOpStatus("Complete");}catch(_){}
+      }catch(e){ showToast("⚠️ Group voice send error"); }
+      if(alwaysOn&&hud){hud.classList.add("listening");_whisperSetStatus("Listening...");}
     }
 
+    // ── Main engine ───────────────────────────────────────────────
     async function startAlwaysListening(mode){
       if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
 
@@ -22555,13 +22827,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       alwaysOn=true;
       updateAlwaysButtons();
       resetAlwaysBuffers();
+      _whisperUpdateTeammate();
 
-      const okPerm=await ensureMicPermission();
-      if(!okPerm){
+      // Request mic permission — also get the stream for Web Audio
+      let micStream=null;
+      try{
+        if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+          micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+          _whisperStream=micStream;
+        }
+      }catch(e){
         alwaysOn=false;updateAlwaysButtons();
         showToast("🎤 Microphone blocked — "+micHelpText());return;
       }
-      _setAlwaysStatus("Mic: active");
+
+      _whisperShowHud();
+      _whisperSetStatus("Listening...");
+      if(micStream)_whisperStartWaveform(micStream);
 
       const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new SR();
@@ -22572,11 +22854,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       alwaysRec=rec;
 
       rec.onresult=async(ev)=>{
-        // Drop everything while a seat switch is in flight
-        if(_switching) return;
+        if(_switching)return;
+        const hud=_whisperHud();
+        if(hud&&!hud.classList.contains("listening"))hud.classList.add("listening");
 
-        // Collect fresh text from this event
-        let newFinals="", interim="";
+        let newFinals="",interim="";
         for(let i=ev.resultIndex;i<ev.results.length;i++){
           const t=(ev.results[i][0].transcript||"");
           if(ev.results[i].isFinal) newFinals+=t+" ";
@@ -22585,102 +22867,156 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         newFinals=newFinals.trim();
         interim=interim.trim();
 
-        // ── Name detection BEFORE adding to buffer — check raw text first ──
+        // ── Name detection ─────────────────────────────────────
         const hit=findFirstNameMention(interim)
                ||findFirstNameMention(newFinals)
                ||findFirstNameMention((_buf+" "+newFinals).trim());
-
         if(hit){
           const now=Date.now();
           if(now-_nameDebounce>600){
             _nameDebounce=now;
-            _switching=true; // block all box writes and onend snapshots
-
-            // Wipe EVERYTHING immediately — name must never appear, nothing carries over
-            const tBefore=currentAlwaysTarget();
-            if(tBefore) tBefore.value="";
+            _switching=true;
             _buf="";
-            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
-
-            // Cancel any pending auto-send from the previous box
-            if(window._alwaysAutoSendTimer){ clearTimeout(window._alwaysAutoSendTimer); window._alwaysAutoSendTimer=null; }
-
-            // Switch seat
-            try{ await selectSeat(hit.name); }catch(_){}
-            try{ forceSeatSelectUI(hit.name); }catch(_){}
-            _setAlwaysStatus("Mic: active → "+hit.name);
-
-            // New box starts completely fresh
-            const tAfter=currentAlwaysTarget();
-            if(tAfter) tAfter.value="";
-            _buf="";
-            alwaysFinalText=""; alwaysInterimText="";
-
-            _switching=false; // lower guard
+            alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+            if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+            _whisperHideCountdown();
+            try{await selectSeat(hit.name);}catch(_){}
+            try{forceSeatSelectUI(hit.name);}catch(_){}
+            _whisperUpdateTeammate();
+            _whisperSetTranscript("","");
+            _whisperSetStatus("Now talking to "+hit.name);
+            _buf="";alwaysFinalText="";alwaysInterimText="";
+            _switching=false;
             return;
           }
         }
 
-        // ── Normal update: name not detected, add to buffer and show ──────
-        if(newFinals) _buf=(_buf+" "+newFinals).trim();
-        const display=(_buf+(interim?" "+interim:"")).trim();
-        const tgt=currentAlwaysTarget();
-        if(tgt)tgt.value=display;
+        // ── Update HUD transcript only — NEVER touch the textarea ─
+        if(newFinals)_buf=(_buf+" "+newFinals).trim();
         alwaysFinalText=_buf;
         alwaysInterimText=interim;
+        _whisperSetTranscript(_buf, interim);
 
-        // ── Auto-send: 2 s after last final result ─────────────────────
+        // ── Auto-send countdown ────────────────────────────────
         if(newFinals){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
+          _whisperShowCountdown(AUTO_SEND_MS);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
             if(!alwaysOn)return;
-            const tgt2=currentAlwaysTarget();
-            const msg=(tgt2?tgt2.value:"").trim();
+            const msg=_buf.trim();
             if(!msg)return;
-            _buf="";
-            alwaysFinalText=""; alwaysInterimText=""; alwaysBaseText="";
-            if(tgt2)tgt2.value="";
+            _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+            _whisperHideCountdown();
             if(alwaysMode==="dm"){
               const seat=window.selectedSeat||selectedSeat||"";
-              if(seat) await _voiceSendDm(msg,seat);
+              if(seat)await _voiceSendDm(msg,seat);
               else showToast("⚠️ Say a teammate name first to select them");
             }else{
               await _voiceSendGroup(msg);
             }
-          },2000);
+          },AUTO_SEND_MS);
         }
       };
 
       rec.onerror=(e)=>{
         const et=(e&&e.error)||"";
         if(et==="no-speech"||et==="aborted")return;
-        _setAlwaysStatus("Mic: error");
-        try{ stopAlwaysListening(); }catch(_){}
+        _whisperSetStatus("Error — restarting...");
         const msg={
           "not-allowed":"Microphone access denied. Allow it in browser site settings.",
           "audio-capture":"No microphone found. Please connect one.",
           "service-not-allowed":"Speech recognition requires HTTPS.",
-          "network":"Network error during speech recognition.",
-        }[et]||("Speech error: "+(et||"unknown"));
-        try{ showToast("🎤 "+msg); }catch(_){}
+          "network":"Network error. Reconnecting...",
+        }[et];
+        if(msg)showToast("🎤 "+msg);
       };
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        // Only snapshot box → buffer when NOT switching seats (prevents name re-entering buf)
-        if(!_switching){
-          const t=currentAlwaysTarget();
-          if(t)_buf=t.value.trim();
+        // Don't snapshot from textarea (we never wrote there) — buf is the truth
+        _whisperSetStatus("Listening...");
+        try{rec.start();}catch(e){
+          // Back-off retry on repeated failures
+          setTimeout(()=>{ if(alwaysOn)try{rec.start();}catch(_){stopAlwaysListening();} },400);
         }
-        _setAlwaysStatus("Mic: active");
-        try{ rec.start(); }catch(e){ stopAlwaysListening(); }
       };
 
-      try{ rec.start(); }catch(e){
+      try{rec.start();}catch(e){
         stopAlwaysListening();
         showToast("🎤 Could not start mic — check site permissions and try again");
       }
     }
+
+    // ── HUD button wiring ────────────────────────────────────────
+    (function(){
+      const hClose=$("whisperClose");
+      if(hClose)hClose.onclick=()=>stopAlwaysListening();
+
+      const hSend=$("whisperSendNow");
+      if(hSend)hSend.onclick=()=>{
+        if(!alwaysOn)return;
+        const msg=_buf.trim();
+        if(!msg){showToast("Nothing to send yet — speak first.");return;}
+        if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+        _buf="";alwaysFinalText="";alwaysInterimText="";
+        _whisperSetTranscript("","");
+        _whisperHideCountdown();
+        if(alwaysMode==="dm"){
+          const seat=window.selectedSeat||selectedSeat||"";
+          if(seat)_voiceSendDm(msg,seat);
+          else showToast("⚠️ Say a teammate name first to select them");
+        }else{
+          _voiceSendGroup(msg);
+        }
+      };
+
+      const hCancel=$("whisperCancel");
+      if(hCancel)hCancel.onclick=()=>{
+        if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+        _buf="";alwaysFinalText="";alwaysInterimText="";
+        _whisperSetTranscript("","");
+        _whisperHideCountdown();
+        _whisperSetStatus("Cleared. Listening...");
+      };
+
+      // Push-to-talk toggle
+      const pttBtn=$("whisperPttToggle");
+      const holdBtn=$("whisperHoldBtn");
+      if(pttBtn)pttBtn.onclick=()=>{
+        _whisperPtt=!_whisperPtt;
+        pttBtn.classList.toggle("btnPrimary",_whisperPtt);
+        if(holdBtn)holdBtn.style.display=_whisperPtt?"block":"none";
+        _whisperSetStatus(_whisperPtt?"Push-to-talk mode":"Listening...");
+        if(_whisperPtt&&alwaysRec){
+          // In PTT mode, pause continuous recognition
+          try{alwaysRec.stop();}catch(_){}
+        }else if(!_whisperPtt&&alwaysOn&&alwaysRec){
+          try{alwaysRec.start();}catch(_){}
+        }
+      };
+
+      // Hold button for PTT
+      if(holdBtn){
+        function pttStart(e){e.preventDefault(); if(!_whisperPtt||!alwaysOn)return; try{alwaysRec.start();}catch(_){} _whisperSetStatus("Recording..."); }
+        function pttEnd(e){ e.preventDefault(); if(!_whisperPtt||!alwaysOn)return; try{alwaysRec.stop();}catch(_){} _whisperSetStatus("Processing..."); }
+        holdBtn.addEventListener("mousedown",pttStart);
+        holdBtn.addEventListener("touchstart",pttStart,{passive:false});
+        holdBtn.addEventListener("mouseup",pttEnd);
+        holdBtn.addEventListener("touchend",pttEnd,{passive:false});
+      }
+
+      // Keyboard shortcuts while HUD is open
+      document.addEventListener("keydown",(e)=>{
+        if(!alwaysOn)return;
+        const hud=_whisperHud();
+        if(!hud||!hud.classList.contains("active"))return;
+        if(e.key==="Escape"){e.preventDefault();stopAlwaysListening();}
+        else if(e.key===" "&&!["INPUT","TEXTAREA"].includes(document.activeElement?.tagName||"")){
+          e.preventDefault();
+          if(hSend)hSend.click();
+        }
+      });
+    })();
 
     $("alwaysListenGroupBtn").onclick=()=>{
       if(alwaysOn&&alwaysMode==="group")stopAlwaysListening();
@@ -22690,10 +23026,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(alwaysOn&&alwaysMode==="dm")stopAlwaysListening();
       else{stopAlwaysListening();startAlwaysListening("dm");}
     };
-    // Release the mic when the user switches to another app — prevents "mic already in use" conflicts
-    document.addEventListener('visibilitychange', function(){
-      if(document.hidden && alwaysOn){ stopAlwaysListening(); }
+
+    // Release mic when app hidden (prevents "mic already in use" on mobile)
+    document.addEventListener("visibilitychange",()=>{
+      if(document.hidden&&alwaysOn)stopAlwaysListening();
     });
+    // Update teammate chip when seat changes
+    const _origSelectSeat=window.selectSeat||(()=>{});
+    window._whisperSeatHook=function(name){
+      if(alwaysOn)_whisperUpdateTeammate();
+    };
 
     // ===== NAV BAR DROPDOWN JS =====
 
