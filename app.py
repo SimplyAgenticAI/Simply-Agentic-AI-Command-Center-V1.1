@@ -147,16 +147,28 @@ def _retry_request(method: str, url: str, retries: int = 3, backoff: float = 0.6
     return resp  # type: ignore[return-value]
 
 
-def _audit_log(uname: str, action: str, details: Dict[str, Any]) -> None:
-    """Write a structured audit entry that survives across log rotations."""
-    try:
-        append_log("audit", {"user": uname, "action": action, "at": now_iso(), **details})
-    except Exception:
-        pass
+# _audit_log defined fully below (after _get_client_ip and auth helpers)
 
 
 # In-memory broadcast job tracker — keys are job UUIDs, values are status dicts
 _BROADCAST_JOBS: Dict[str, Dict[str, Any]] = {}
+_BROADCAST_JOBS_LOCK = threading.Lock()
+
+def _broadcast_jobs_evict_old(max_age_hours: int = 4) -> None:
+    """Evict completed broadcast jobs to prevent unbounded memory growth."""
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        with _BROADCAST_JOBS_LOCK:
+            stale = [
+                jid for jid, job in _BROADCAST_JOBS.items()
+                if job.get("status") in ("done", "error")
+                and job.get("started_at")
+                and datetime.fromisoformat(str(job["started_at"]).replace("Z", "")) < cutoff
+            ]
+            for jid in stale:
+                _BROADCAST_JOBS.pop(jid, None)
+    except Exception:
+        pass
 
 
 # =========================
@@ -1115,16 +1127,27 @@ def _image_job_get(job_id: str) -> Dict[str, Any]:
         return dict(IMAGE_JOBS.get(job_id) or {})
 
 def _image_jobs_evict_old(max_age_hours: int = 2) -> None:
-    """[UPGRADE 1] Remove done/error image jobs older than max_age_hours to prevent unbounded memory growth."""
+    """Remove completed/errored image jobs older than max_age_hours, plus any orphaned
+    queued/running jobs older than 1 hour (client disconnected mid-generation)."""
     try:
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff_done = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff_orphan = datetime.utcnow() - timedelta(hours=1)
         with IMAGE_JOBS_LOCK:
-            stale = [
-                jid for jid, job in IMAGE_JOBS.items()
-                if job.get("status") in ("done", "error")
-                and job.get("created_at")
-                and datetime.fromisoformat(str(job["created_at"]).replace("Z", "")) < cutoff
-            ]
+            stale = []
+            for jid, job in IMAGE_JOBS.items():
+                created_str = str(job.get("created_at") or "")
+                if not created_str:
+                    stale.append(jid)
+                    continue
+                try:
+                    created_dt = datetime.fromisoformat(created_str.replace("Z", ""))
+                except Exception:
+                    stale.append(jid)
+                    continue
+                if job.get("status") in ("done", "error") and created_dt < cutoff_done:
+                    stale.append(jid)
+                elif job.get("status") in ("queued", "running") and created_dt < cutoff_orphan:
+                    stale.append(jid)
             for jid in stale:
                 IMAGE_JOBS.pop(jid, None)
     except Exception:
@@ -1182,7 +1205,7 @@ def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mod
     except Exception:
         pass
     job_id = uuid.uuid4().hex
-    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id})
+    _image_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "mode": mode, "source_file_id": source_file_id, "username": username or ""})
     t = threading.Thread(target=_run_image_job, args=(job_id, raw_prompt, teammate, username, lighting_mode, mode, source_file_id), daemon=True)
     t.start()
     return job_id
@@ -1329,7 +1352,7 @@ def _audit_log(action: str, detail: dict = None, username: str = None) -> None:
             "ts":     now_iso(),
             "action": action,
             "user":   username,
-            "ip":     (request.headers.get("X-Forwarded-For", request.remote_addr or "") if request else "").split(",")[0].strip(),
+            "ip":     (_get_client_ip() if request else ""),
             "detail": detail or {}
         }
         audit_path = Path(DATA_DIR) / f"audit_{username}.json"
@@ -1511,6 +1534,15 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 # =========================
 # LOGIN BRUTE-FORCE PROTECTION
 # =========================
+def _get_client_ip() -> str:
+    """Return the real client IP. Uses the LAST value in X-Forwarded-For (trusted proxy adds it).
+    The first value is user-controlled and should never be trusted for rate-limiting."""
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        # Last IP is the one appended by Render's trusted load balancer
+        return xff.split(",")[-1].strip()
+    return request.remote_addr or ""
+
 # In-memory store: { username_key -> {"count": int, "locked_until": iso_str|None} }
 # Persisted to DATA/login_attempts.json so lockouts survive server restarts.
 _LOGIN_ATTEMPTS: Dict[str, Any] = {}
@@ -1658,6 +1690,7 @@ def _rl_background_flusher() -> None:
         time.sleep(30)
         try:
             _rl_flush_to_disk()
+            _daemon_heartbeat("rl-flusher")
         except Exception:
             pass
 
@@ -1691,7 +1724,7 @@ def _get_rate_key(category: str) -> str:
             return f"rl:{category}:{uname}"
     except Exception:
         pass
-    ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "unknown").split(",")[0].strip()
+    ip = _get_client_ip() or "unknown"
     return f"rl:{category}:ip:{ip}"
 
 def _check_rate_limit(category: str, limit: int):
@@ -1703,17 +1736,37 @@ def _check_rate_limit(category: str, limit: int):
     return None
 
 
+_USERS_CACHE: Optional[Dict[str, Any]] = None
+_USERS_CACHE_TS: float = 0.0
+_USERS_CACHE_TTL: float = 3.0  # seconds — short enough to stay consistent, long enough to cut I/O
+_USERS_CACHE_LOCK = threading.Lock()
+
 def load_users() -> Dict[str, Any]:
+    global _USERS_CACHE, _USERS_CACHE_TS
+    import time as _t
+    with _USERS_CACHE_LOCK:
+        if _USERS_CACHE is not None and (_t.monotonic() - _USERS_CACHE_TS) < _USERS_CACHE_TTL:
+            return dict(_USERS_CACHE)  # return a shallow copy so callers don't mutate the cache
     data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
     if not isinstance(data, dict):
         data = {"users": {}, "updated_at": None}
     data.setdefault("users", {})
+    with _USERS_CACHE_LOCK:
+        _USERS_CACHE = data
+        _USERS_CACHE_TS = __import__("time").monotonic()
     return data
+
+def _invalidate_users_cache() -> None:
+    global _USERS_CACHE, _USERS_CACHE_TS
+    with _USERS_CACHE_LOCK:
+        _USERS_CACHE = None
+        _USERS_CACHE_TS = 0.0
 
 def save_users(data: Dict[str, Any]) -> None:
     global _HAS_ANY_USER_CACHE
     data["updated_at"] = now_iso()
     save_json(USERS_PATH, data)
+    _invalidate_users_cache()  # Force fresh read after any write
     # Prime the cache — if we just saved at least one user, latch it to True
     if data.get("users"):
         with _HAS_ANY_USER_LOCK:
@@ -2018,7 +2071,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/admin/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -2654,6 +2707,7 @@ def _backup_loop() -> None:
     time.sleep(300)
     while True:
         _run_backup()
+        _daemon_heartbeat("backup-loop")
         time.sleep(BACKUP_INTERVAL_HOURS * 3600)
 
 def _start_backup_thread() -> None:
@@ -2669,6 +2723,28 @@ try:
 except Exception as _be:
     print(f"[BACKUP] Could not start backup thread: {_be}", flush=True)
 
+# =========================
+# DAEMON HEARTBEAT MONITOR
+# =========================
+_DAEMON_HEARTBEATS: Dict[str, float] = {}  # daemon_name -> last heartbeat monotonic timestamp
+_DAEMON_HEARTBEAT_LOCK = threading.Lock()
+
+def _daemon_heartbeat(name: str) -> None:
+    """Call from long-running daemon loops to report liveness."""
+    import time as _t
+    with _DAEMON_HEARTBEAT_LOCK:
+        _DAEMON_HEARTBEATS[name] = _t.monotonic()
+
+def _daemon_status() -> Dict[str, Any]:
+    """Return liveness status for all tracked daemons."""
+    import time as _t
+    now = _t.monotonic()
+    result = {}
+    with _DAEMON_HEARTBEAT_LOCK:
+        for name, ts in _DAEMON_HEARTBEATS.items():
+            age_s = int(now - ts)
+            result[name] = {"last_heartbeat_seconds_ago": age_s, "alive": age_s < 300}
+    return result
 
 
 TASK_LOG_DIR = DATA / "task_logs"
@@ -5262,6 +5338,30 @@ def _pick_model_smart(message: str, preferred_model: str) -> str:
 # URL CONTENT FETCHER (for teammates)
 # =========================
 import urllib.request as _urllib_req
+import ipaddress as _ipaddress
+
+def _is_ssrf_safe(url: str) -> bool:
+    """Block requests to private/loopback/link-local IP ranges (SSRF protection)."""
+    try:
+        from urllib.parse import urlparse
+        import socket
+        parsed = urlparse(url if url.startswith(("http://", "https://")) else "https://" + url)
+        host = parsed.hostname or ""
+        if not host:
+            return False
+        # Resolve hostname to IP
+        try:
+            ip_str = socket.gethostbyname(host)
+        except Exception:
+            return False  # Can't resolve — block it
+        ip = _ipaddress.ip_address(ip_str)
+        # Block private, loopback, link-local, and reserved ranges
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or
+                ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+        return True
+    except Exception:
+        return False
 
 def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     """Fetch and extract text content from a URL. Returns (text, error)."""
@@ -5270,6 +5370,8 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
         url = url.strip()
         if not url.startswith(("http://", "https://")):
             url = "https://" + url
+        if not _is_ssrf_safe(url):
+            return "", "That URL is not accessible from this server."
         # SSL context — verify certs but allow slightly older configs
         ctx = ssl.create_default_context()
         ctx.check_hostname = True
@@ -5326,6 +5428,24 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     except Exception as e:
         return "", f"Could not fetch URL: {e}"
 
+_PROMPT_INJECTION_PATTERNS = re.compile(
+    r"(ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|context)|"
+    r"you\s+are\s+now\s+(a\s+)?different|disregard\s+(all\s+)?(previous|prior)|"
+    r"new\s+instructions?:|override\s+(system|instructions?)|"
+    r"(act|behave)\s+as\s+(if\s+you\s+are|a\s+different)|"
+    r"<\s*/?system\s*>|<\s*/?instruction\s*>|<\s*/?prompt\s*>)",
+    re.IGNORECASE
+)
+
+def _sanitize_url_content(text: str) -> str:
+    """Strip prompt injection attempts from fetched URL content."""
+    if not text:
+        return text
+    # Remove lines containing known injection patterns
+    lines = text.splitlines()
+    clean = [ln for ln in lines if not _PROMPT_INJECTION_PATTERNS.search(ln)]
+    return "\n".join(clean)
+
 def _inject_url_content(message: str) -> str:
     """Detect URLs in message, fetch their content, and prepend to message."""
     url_pattern = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
@@ -5336,6 +5456,7 @@ def _inject_url_content(message: str) -> str:
     for url in urls[:2]:  # max 2 URLs per message
         text, err = _fetch_url_content(url)
         if text:
+            text = _sanitize_url_content(text)
             injected.append(f"[URL CONTENT from {url}]:\n{text}\n[END URL CONTENT]")
     if injected:
         return "\n\n".join(injected) + "\n\n" + message
@@ -6168,6 +6289,13 @@ def api_action_stack_schedules_tick():
         # CRM automations (sequences, reminders) - additive
         try:
             _crm_tick_once()
+            _daemon_heartbeat("crm-tick")
+        except Exception:
+            pass
+        # Evict stale in-memory jobs to prevent memory leaks
+        try:
+            _image_jobs_evict_old()
+            _broadcast_jobs_evict_old()
         except Exception:
             pass
         return jsonify({"ok": True})
@@ -6621,6 +6749,15 @@ if('serviceWorker' in navigator){
     return resp
 
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for load balancers and uptime monitors."""
+    try:
+        assert DATA.exists(), "DATA directory missing"
+        return jsonify({"status": "ok", "ts": now_iso()}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
+
 @app.get("/api/me")
 def api_me():
     u = current_user()
@@ -6903,7 +7040,7 @@ def api_set_user_settings():
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     changed_fields = [k for k in ("openai_key", "claude_key", "global_default_model", "tooltip_level", "smtp") if k in data]
     if changed_fields:
-        _audit_log(uname, "settings_updated", {"changed_fields": changed_fields})
+        _audit_log("settings_updated", {"changed_fields": changed_fields}, username=uname)
     return jsonify({"ok": True})
 
 
@@ -7653,6 +7790,9 @@ def api_image_job_status(job_id: str):
     st = _image_job_get(job_id)
     if not st:
         return jsonify({"ok": False, "error": "Job not found"}), 404
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    if st.get("username") and st["username"] != uname:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": st})
 
 
@@ -7676,7 +7816,7 @@ def api_convene():
             append_log("convene_crash", {"error": str(e)})
         except Exception:
             pass
-        r = jsonify({"ok": False, "error": str(e)})
+        r = jsonify({"ok": False, "error": "Request failed. Please try again."})
         r.headers["Content-Type"] = "application/json"
         return r, 500
 
@@ -7852,7 +7992,7 @@ def api_followup():
             append_log("followup_crash", {"error": str(e)})
         except Exception:
             pass
-        r = jsonify({"ok": False, "error": str(e)})
+        r = jsonify({"ok": False, "error": "Request failed. Please try again."})
         r.headers["Content-Type"] = "application/json"
         return r, 500
 
@@ -11563,12 +11703,19 @@ def verify_2fa_post():
     pending = _get_2fa_pending_user()
     if not pending:
         return redirect(url_for("login"))
+    # Rate-limit 2FA attempts using the same lockout system as login
+    _2fa_key = f"2fa:{pending.lower().strip()}"
+    _allowed, _lock_msg = _check_login_allowed(_2fa_key)
+    if not _allowed:
+        return _2FA_HTML.format(app_title=APP_TITLE, error=f"<div class='err'>{_lock_msg}</div>")
     code = (request.form.get("code") or "").strip()
     data = load_users()
     u = (data.get("users") or {}).get(pending)
     raw_secret = _decrypt_field((u.get("totp") or {}).get("secret", ""))
     if not u or not _totp_verify(raw_secret, code):
+        _record_login_failure(_2fa_key)
         return _2FA_HTML.format(app_title=APP_TITLE, error="<div class='err'>Invalid code. Please try again.</div>")
+    _clear_login_failures(_2fa_key)
     # 2FA passed — complete login
     remember = session.pop("_2fa_remember", False)
     next_url = session.pop("_2fa_next", "")
@@ -11714,7 +11861,7 @@ def register_post():
     if not _signup_enabled():
         return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
     # Rate limit registration attempts by IP — prevents spam account creation
-    _ip_reg = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+    _ip_reg = _get_client_ip() or "unknown"
     _reg_ok, _reg_msg = _rate_limit_check(f"register:{_ip_reg}", 10)
     if not _reg_ok:
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE,
@@ -12298,12 +12445,21 @@ def stripe_webhook():
         details     = obj.get("customer_details") or {}
         email       = (details.get("email") or obj.get("customer_email") or "")
         name        = (details.get("name") or "").strip()
-        # Detect plan from the price ID on the line items
+        # Detect plan from the price ID — must expand line_items via API (not in webhook payload)
         plan = "solo"
-        try:
-            paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
-        except Exception:
-            paid_price = ""
+        paid_price = ""
+        if session_id and STRIPE_SECRET_KEY:
+            try:
+                _st, _sd = _stripe_api("GET", f"/checkout/sessions/{session_id}", {"expand[]": "line_items"})
+                paid_price = ((_sd.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
+            except Exception:
+                paid_price = ""
+        if not paid_price:
+            # Fallback: check metadata or amount_total on the raw object
+            try:
+                paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
+            except Exception:
+                paid_price = ""
         if paid_price:
             for pk, pv in PLANS.items():
                 if pv.get("price_id") == paid_price:
@@ -12557,7 +12713,7 @@ def reset():
 @app.post("/reset")
 def reset_post():
     # Rate-limit password reset requests: 5 per hour per IP to prevent token spam
-    _ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    _ip = _get_client_ip() or "unknown"
     _rl_ok, _rl_msg = _rate_limit_check(f"reset:{_ip}", 5)
     if not _rl_ok:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Too many reset attempts. Please wait before trying again.", token=None, ok=None)
@@ -12605,13 +12761,17 @@ def reset_post():
         ok_msg = f"Reset token sent to {user_email}. Check your inbox (and spam folder)."
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=ok_msg)
     elif user_email:
-        # Email on file but SMTP not configured — show token as fallback with warning
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
-            token=token, ok="Email delivery not configured. Copy your token below (shown once):")
+        # Email on file but SMTP not configured — log token securely, never expose in HTML
+        _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
+        append_log("reset_token_no_smtp", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None,
+            ok="Email delivery is not configured. An admin must retrieve the reset token from the server admin panel (/admin/errors) to complete this reset.")
     else:
-        # No email address on account — show token (admin-managed accounts only)
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
-            token=token, ok="No email on file. Copy your reset token below (shown once):")
+        # No email on account — log token securely, never expose in HTML
+        _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
+        append_log("reset_token_no_email", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None,
+            ok="No email address is on file for this account. An admin must retrieve the reset token from the server admin panel to complete this reset.")
 
 @app.post("/reset_password")
 def reset_password_post():
@@ -17752,7 +17912,7 @@ label {
           <div id="vcSpinner" style="width:48px;height:48px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:vcSpin 0.9s linear infinite;"></div>
           <div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:500;">Generating your visual...</div>
         </div>
-        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts allow-same-origin"></iframe>
+        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts"></iframe>
 
         <!-- Action bar below iframe -->
         <div id="vcActionBar" style="display:none;padding:10px 16px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,16,36,.98);display:none;align-items:center;gap:10px;flex-shrink:0;">
@@ -42212,7 +42372,8 @@ def _validate_crm_client_fields(payload: dict) -> Optional[str]:
 
 
 def _crm_activity_path(uname: str, client_id: str) -> Path:
-    return DATA / "crm" / uname / f"activity_{client_id}.json"
+    safe_cid = re.sub(r"[^a-zA-Z0-9_-]", "_", client_id or "")
+    return DATA / "crm" / uname / f"activity_{safe_cid}.json"
 
 def _crm_activity_log(uname: str, client_id: str) -> List[Dict[str, Any]]:
     return load_json(_crm_activity_path(uname, client_id), [])
@@ -42775,7 +42936,7 @@ def api_crm_broadcast_email():
         if run_async:
             job_id = uuid.uuid4().hex
             _BROADCAST_JOBS[job_id] = {"status": "running", "sent": 0, "failed": 0,
-                                        "count": len(recipients), "progress": 0, "results": []}
+                                        "count": len(recipients), "progress": 0, "results": [], "username": uname}
             threading.Thread(target=_do_send, args=(job_id,), daemon=True).start()
             return jsonify({"ok": True, "async": True, "job_id": job_id, "count": len(recipients)})
 
@@ -42814,6 +42975,9 @@ def api_broadcast_job_status(job_id: str):
     job = _BROADCAST_JOBS.get(job_id)
     if not job:
         return jsonify({"ok": False, "error": "Job not found"}), 404
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    if job.get("username") and job["username"] != uname:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": job})
 
 
@@ -42825,6 +42989,10 @@ def api_broadcast_job_stream(job_id: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _uname_stream = (u.get("username") if isinstance(u, dict) else None) or ""
+    _job_check = _BROADCAST_JOBS.get(job_id)
+    if _job_check and _job_check.get("username") and _job_check["username"] != _uname_stream:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
     import json as _json
     def _generate():
         for _ in range(120):
@@ -42881,7 +43049,7 @@ def api_broadcast_templates_save():
     }
     crm["broadcast_templates"][tid] = template
     _crm_save(uname, crm)
-    _audit_log(uname, "broadcast_template_saved", {"template_id": tid, "name": name, "channel": channel})
+    _audit_log("broadcast_template_saved", {"template_id": tid, "name": name, "channel": channel}, username=uname)
     return jsonify({"ok": True, "template": template})
 
 
@@ -43599,6 +43767,8 @@ def _crm_guess_company(title: str, domain: str) -> str:
 
 def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
     try:
+        if not _is_ssrf_safe(url):
+            return "", url
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
         r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         ctype = (r.headers.get("Content-Type") or "").lower()
@@ -43629,6 +43799,8 @@ def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, 
     results: List[Tuple[str, str]] = []
     def fetch_one(u: str) -> Tuple[str, str]:
         try:
+            if not _is_ssrf_safe(u):
+                return "", u
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
             r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
             ctype = (r.headers.get("Content-Type") or "").lower()
@@ -44465,6 +44637,10 @@ def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    # Strict rate limit — each call triggers hundreds of outbound HTTP requests
+    _rl_ll = _check_rate_limit("lead_lab", 2)  # max 2 calls per minute per user
+    if _rl_ll:
+        return _rl_ll
     try:
         payload = request.get_json(silent=True) or {}
         niche          = (payload.get("niche") or "").strip()
@@ -44995,7 +45171,8 @@ def _handle_exception(e):
         except Exception:
             path = ""
         if path.startswith("/api/"):
-            resp = jsonify({"ok": False, "error": str(e) or "Internal server error"})
+            # Never expose internal exception details to the client — log internally only
+            resp = jsonify({"ok": False, "error": "An internal error occurred. Please try again."})
             resp.headers["Content-Type"] = "application/json"
             resp.headers["Cache-Control"] = "no-store"
             return resp, code
@@ -45076,7 +45253,7 @@ def _admin_audit(admin_username: str, action: str, target: str = "", metadata: O
             "meta":     metadata or {},
         }
         try:
-            entry["ip"] = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+            entry["ip"] = _get_client_ip()
         except Exception:
             pass
         path = _admin_audit_path()
@@ -45151,6 +45328,14 @@ def admin_error_log_clear():
     except Exception:
         pass
     return redirect(url_for("admin_error_log"))
+
+@app.get("/api/admin/daemons")
+def api_admin_daemons():
+    """Admin-only: view background daemon heartbeat status."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    return jsonify({"ok": True, "daemons": _daemon_status(), "ts": now_iso()})
 
 @app.get("/api/admin/errors")
 def api_admin_errors():
@@ -48935,6 +49120,9 @@ def api_followup_stream():
         return jsonify({"ok": False, "error": "No OpenAI API key configured. Go to ⚙️ Settings and add your key."}), 400
 
     def generate():
+        import time as _t
+        _stream_start = _t.monotonic()
+        _STREAM_TIMEOUT = 120  # seconds — bail if LLM hangs mid-stream
         parts = []
         _persisted = False
         try:
@@ -48962,6 +49150,9 @@ def api_followup_stream():
                     messages=clean_thread + [{"role": "user", "content": clean_content}],
                 ) as stream:
                     for token in stream.text_stream:
+                        if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
+                            yield "data: " + json.dumps({"error": "Stream timeout"}) + "\n\n"
+                            return
                         if token:
                             parts.append(token)
                             yield "data: " + json.dumps({"token": token}) + "\n\n"
@@ -48978,6 +49169,9 @@ def api_followup_stream():
                     timeout=90,
                 )
                 for chunk in stream:
+                    if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
+                        yield "data: " + json.dumps({"error": "Stream timeout"}) + "\n\n"
+                        return
                     if not chunk.choices:
                         continue
                     token = getattr(chunk.choices[0].delta, "content", None) or ""
