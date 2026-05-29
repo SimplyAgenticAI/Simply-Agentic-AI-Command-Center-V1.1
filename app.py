@@ -88,6 +88,22 @@ import traceback as _traceback
 _ERROR_LOG_LOCK = threading.Lock()
 _ERROR_LOG_MAX  = 200
 
+# =========================
+# STRUCTURED LOGGING
+# =========================
+_LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+_LOG_MIN_LEVEL = _LOG_LEVELS.get(os.getenv("LOG_LEVEL", "INFO").upper(), 20)
+
+def _log(level: str, msg: str, **ctx) -> None:
+    """Structured logger — emits timestamped, levelled lines to stdout.
+    Set LOG_LEVEL env var to DEBUG/INFO/WARNING/ERROR to filter output."""
+    numeric = _LOG_LEVELS.get(level.upper(), 20)
+    if numeric < _LOG_MIN_LEVEL:
+        return
+    ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    extra = (" " + " ".join(f"{k}={v!r}" for k, v in ctx.items())) if ctx else ""
+    print(f"[{ts}] [{level.upper()}] {msg}{extra}", flush=True)
+
 def _error_log_path() -> "Path":
     # DATA may not be defined yet at import time — resolve lazily
     try:
@@ -2867,7 +2883,9 @@ except Exception:
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))
 BACKUP_KEEP           = int(os.getenv("BACKUP_KEEP", "24"))       # 24 × 6h = 6 days of local history
 BACKUP_S3_BUCKET      = os.getenv("BACKUP_S3_BUCKET", "").strip() # e.g. my-app-backups
-BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "/var/backups/simply_agentic"))
+# Default to DATA/backups so backups land on the same persistent disk as data.
+# Override with BACKUP_DIR=/var/backups/simply_agentic if you have a separate backup volume.
+BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "") or os.path.join(DATA_DIR, "backups"))
 
 def _run_backup() -> None:
     """Create a timestamped .tar.gz of DATA, prune old copies, optionally push to S3."""
@@ -4510,9 +4528,24 @@ def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
             # Fallback: fetch from URL and convert to b64 (for models that ignore response_format)
             url = getattr(first, "url", None) or (first.get("url") if isinstance(first, dict) else None)
             if url:
-                import urllib.request
-                with urllib.request.urlopen(url, timeout=30) as r:
-                    return base64.b64encode(r.read()).decode("utf-8")
+                # Validate URL is from a known OpenAI CDN host before fetching
+                _allowed_hosts = {
+                    "oaidalleapiprodscus.blob.core.windows.net",
+                    "oaidalle.blob.core.windows.net",
+                    "cdn.openai.com",
+                    "api.openai.com",
+                }
+                try:
+                    _parsed = urlparse(url)
+                    _host = (_parsed.netloc or "").lower().split(":")[0]
+                    if not any(_host == h or _host.endswith("." + h) for h in _allowed_hosts):
+                        _log("WARNING", "Blocked image URL fetch from unexpected host", host=_host)
+                        return None
+                except Exception:
+                    return None
+                resp_img = requests.get(url, timeout=30, stream=False)
+                if resp_img.ok:
+                    return base64.b64encode(resp_img.content).decode("utf-8")
     except Exception:
         return None
     return None
@@ -28214,7 +28247,7 @@ window.crmPipelineOpenClient = function(clientId){
             list.appendChild(card);
           });
         }catch(err){
-          list.innerHTML = '<div class="tiny" style="color:#f87171;">Failed to load: ' + (err.message||'error') + '</div>';
+          list.innerHTML = '<div class="tiny" style="color:#f87171;">Failed to load: ' + escapeHtml(err.message||'error') + '</div>';
         }
       };
 
@@ -28314,7 +28347,7 @@ async function wcalFetchRange(start, end){
     const res = await fetch('/api/calendar/events?time_min='+encodeURIComponent(start.toISOString())+'&time_max='+encodeURIComponent(end.toISOString())+'&timezone='+encodeURIComponent(cal.tz));
     const data = await res.json();
     if(!data.ok){
-      if(st) st.innerHTML='<span style="color:#fca5a5;">'+( data.error||'Calendar not connected — connect in Settings')+'</span>';
+      if(st) st.innerHTML='<span style="color:#fca5a5;">'+escapeHtml(data.error||'Calendar not connected — connect in Settings')+'</span>';
       return;
     }
     const events = data.events||[];
@@ -30979,7 +31012,7 @@ async function showImageLibraryModal(startTab){
     const res = await fetch("/api/images");
     const data = await res.json();
     if(!data.ok){
-      pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+(data.error||"Failed to load images")+'</div>';
+      pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+escapeHtml(data.error||"Failed to load images")+'</div>';
       return;
     }
     const imgs = data.images || [];
@@ -35157,10 +35190,10 @@ document.addEventListener("click", function(e) {
       var url=($("saUrl")||{}).value||"";if(!url){alert("Enter a URL first.");return;}
       var btn=$("saAnalyzeBtn"),res=$("saResults");
       if(btn){btn.disabled=true;btn.textContent="Analyzing...";}
-      if(res)res.innerHTML="<div style='text-align:center;padding:60px 0;color:#94a3b8;'>Fetching "+url+"...</div>";
+      if(res)res.innerHTML="<div style='text-align:center;padding:60px 0;color:#94a3b8;'>Fetching "+escapeHtml(url)+"...</div>";
       try{
         var r=await fetch("/api/analyze/website",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url})}),d=await r.json();
-        if(!d.ok){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>"+(d.error||"Failed")+"</div>";return;}
+        if(!d.ok){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>";return;}
         var a=d.analysis,sc=a.score>=80?"#22c55e":a.score>=60?"#f59e0b":"#ef4444";
         var catH=Object.entries(a.categories||{}).map(function(e){return "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'><div style='width:110px;font-size:11px;color:#94a3b8;text-transform:capitalize;'>"+e[0].replace(/_/g," ")+"</div><div style='flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;'><div style='width:"+Math.round(e[1]*10)+"%;height:100%;background:"+sc+";border-radius:3px;'></div></div><div style='font-size:11px;color:#94a3b8;min-width:18px;'>"+e[1]+"</div></div>";}).join("");
         var qwH=(a.quick_wins||[]).map(function(q){var ic=q.impact==="High"?"#22c55e":q.impact==="Medium"?"#f59e0b":"#94a3b8";return "<div style='padding:9px 12px;background:rgba(255,255,255,.03);border-radius:8px;margin-bottom:7px;border-left:3px solid "+ic+";'><div style='font-size:13px;color:#e2e8f0;margin-bottom:3px;'>"+q.action+"</div><div style='font-size:11px;color:#64748b;'>Impact: <span style='color:"+ic+";'>"+q.impact+"</span> | Effort: "+q.effort+"</div></div>";}).join("");
@@ -37525,7 +37558,7 @@ window.closeHumanHelpModal=function(){const m=document.getElementById('humanHelp
     body.innerHTML='<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">Loading…</div>';
     try{
       const r=await fetch('/api/bug_report/list');const d=await r.json();
-      if(!d.ok){body.innerHTML=`<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">${d.error||'Error'}</div>`;return;}
+      if(!d.ok){body.innerHTML=`<div style="padding:24px;text-align:center;opacity:.5;font-size:13px;">${esc(d.error||'Error')}</div>`;return;}
       const rpts=d.reports||[];
       if(!rpts.length){body.innerHTML='<div style="padding:24px;text-align:center;font-size:13px;opacity:.5;">No bug reports yet 🎉</div>';return;}
       const sc={high:'#fca5a5',medium:'#fdba74',low:'#fde68a'};
