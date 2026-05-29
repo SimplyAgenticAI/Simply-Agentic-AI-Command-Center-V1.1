@@ -10345,7 +10345,7 @@ LOGIN_HTML = r"""
     word-break:break-word !important;
   }
 
-  #refreshThread{
+  #threadAttachTopBtn{
     margin-left:auto !important;
   }
 
@@ -19294,14 +19294,22 @@ input[type="range"]::-moz-range-progress {
             <div class="h1" id="seatTitle">Select a seat</div>
             <div class="h2" id="seatSub">Click any teammate for individual chat.</div>
           </div>
-          <button class="btn" id="refreshThread">Refresh</button>
-          <button class="btn btnMini" id="threadCompressBtn" title="Summarize & compress this conversation" style="font-size:12px;padding:3px 9px;display:none;" onclick="window._saCompressThread()">⚡ Compress</button>
-          <button class="btn btnMini" id="threadExportBtn" title="Export conversation" style="font-size:12px;padding:3px 9px;display:none;" onclick="window._saExportThread()">⬇ Export</button>
-          <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
+          <!-- hidden stub keeps the refreshThread event binding alive -->
+          <button id="refreshThread" style="display:none;" aria-hidden="true"></button>
+          <button class="btn btnMini" id="threadAttachTopBtn" title="Attach files" style="font-size:15px;padding:3px 9px;line-height:1.3;margin-left:auto;" onclick="(document.getElementById('dmFiles')||{click:function(){}}).click()">📎</button>
           <button class="btn btnMini" id="threadVoiceTopBtn" title="Whisper — voice mode" style="font-size:14px;padding:3px 9px;line-height:1.3;" onclick="(document.getElementById('alwaysListenDmBtn')||{click:function(){}}).click()">🎙</button>
-          <button class="btn btnMini" id="threadSearchBtn" onclick="saToggleThreadSearch()" title="Search conversation history (Ctrl+K)" style="font-size:13px;padding:4px 10px;">🔍</button>
           <button class="btn btnMini" id="saPinsBtn" onclick="window._saTogglePinsDrawer()" title="View pinned messages" style="font-size:12px;padding:3px 9px;display:none;">📌</button>
-          <button class="btn btnMini" id="saMemoryBtn" onclick="window._saToggleMemoryPanel()" title="View & edit teammate memory" style="font-size:12px;padding:3px 9px;display:none;">🧠</button>
+          <!-- ⋯ More overflow menu -->
+          <div style="position:relative;" id="chatMoreWrap">
+            <button class="btn btnMini" id="chatMoreBtn" onclick="window._saToggleChatMore()" title="More options" style="font-size:15px;letter-spacing:3px;padding:3px 10px;display:none;">···</button>
+            <div id="chatMoreMenu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:rgba(8,13,33,.98);border:1px solid rgba(42,58,106,.8);border-radius:12px;padding:6px;min-width:205px;box-shadow:0 12px 40px rgba(0,0,0,.7);z-index:300;backdrop-filter:blur(20px);">
+              <button class="btn btnMini" onclick="saToggleThreadSearch();window._saCloseChatMore();" title="Search conversation (Ctrl+K)" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;">🔍&nbsp; Search conversation</button>
+              <button class="btn btnMini" id="saMemoryBtn" onclick="window._saToggleMemoryPanel();window._saCloseChatMore();" title="View &amp; edit teammate memory" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">🧠&nbsp; Memory</button>
+              <div style="height:1px;background:rgba(42,58,106,.4);margin:4px 2px;"></div>
+              <button class="btn btnMini" id="threadExportBtn" onclick="window._saExportThread();window._saCloseChatMore();" title="Export conversation" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">⬇&nbsp; Export</button>
+              <button class="btn btnMini" id="threadCompressBtn" onclick="window._saCompressThread();window._saCloseChatMore();" title="Summarize &amp; compress" style="width:100%;text-align:left;font-size:12px;padding:6px 10px;display:none;">⚡&nbsp; Compress</button>
+            </div>
+          </div>
         </div>
         <!-- Pins drawer — absolute overlay, opens when 📌 is clicked in header -->
         <div id="saPinsDrawer" style="display:none;position:absolute;left:0;right:0;z-index:200;background:rgba(8,13,33,.97);border-bottom:2px solid rgba(251,191,36,.3);padding:10px 14px;max-height:300px;overflow-y:auto;backdrop-filter:blur(22px);box-shadow:0 10px 40px rgba(0,0,0,.6);">
@@ -19321,7 +19329,7 @@ input[type="range"]::-moz-range-progress {
         </div>
         <!-- Thread actions toolbar (hidden) -->
         <div class="pillRow" id="threadActionsRow" style="flex-shrink:0;gap:6px;margin-bottom:4px;display:none;">
-          <button class="btn btnMini" id="saMemoryBtn" title="View and edit teammate long-term memory" onclick="saOpenMemoryPanel()" style="border-color:rgba(52,211,153,.4);color:#6ee7b7;">🧠 Memory</button>
+          <button class="btn btnMini" id="saMemoryBtnAlt" title="View and edit teammate long-term memory" onclick="saOpenMemoryPanel()" style="border-color:rgba(52,211,153,.4);color:#6ee7b7;">🧠 Memory</button>
           <button class="btn btnMini" id="saDreamBtn" title="Activate dreaming mode — teammate reflects on your sessions" onclick="saStartDream()" style="border-color:rgba(167,139,250,.4);color:#c4b5fd;">✦ Dream</button>
           <button class="btn btnMini" id="saSecondOpBtn" title="Get a second opinion from another teammate" onclick="saOpenSecondOpinion()" style="border-color:rgba(251,191,36,.4);color:#fde68a;">⚖ 2nd Opinion</button>
           <button class="btn btnMini" id="branchSnapshotBtn" title="Save a named snapshot of this conversation">🌿 Snapshot</button>
@@ -21142,13 +21150,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_pd) _pd.style.display = "none";
       const _mp = document.getElementById("saMemoryPanel");
       if(_mp) _mp.style.display = "none";
-      // Show the 🧠 memory, compress, and export buttons whenever a real teammate is selected
+      // Show ⋯ More button and its menu items when a real teammate is selected
+      const _isReal = !!(name && name !== "Operator");
+      const _moreBtn = document.getElementById("chatMoreBtn");
+      if(_moreBtn) _moreBtn.style.display = _isReal ? "" : "none";
       const _mb = document.getElementById("saMemoryBtn");
-      if(_mb) _mb.style.display = (name && name !== "Operator") ? "" : "none";
+      if(_mb) _mb.style.display = _isReal ? "" : "none";
       const _cb = document.getElementById("threadCompressBtn");
-      if(_cb) _cb.style.display = (name && name !== "Operator") ? "" : "none";
+      if(_cb) _cb.style.display = _isReal ? "" : "none";
       const _eb = document.getElementById("threadExportBtn");
-      if(_eb) _eb.style.display = (name && name !== "Operator") ? "" : "none";
+      if(_eb) _eb.style.display = _isReal ? "" : "none";
       await refreshThread();
       // Update pins button badge for this teammate
       try{ _updatePinsPanel(); }catch(_){}
@@ -22182,8 +22193,25 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       renderThread(data.thread, data.image_state || {});
     }
 
-    $("refreshThread").onclick = refreshThread;
+    if($("refreshThread")) $("refreshThread").onclick = refreshThread;
     window.refreshThread = refreshThread; // expose globally for stack modal
+
+    /* ── ⋯ More dropdown ──────────────────────────────────────────────── */
+    window._saToggleChatMore = function(){
+      const m = document.getElementById("chatMoreMenu");
+      if(!m) return;
+      const open = m.style.display !== "none";
+      m.style.display = open ? "none" : "block";
+    };
+    window._saCloseChatMore = function(){
+      const m = document.getElementById("chatMoreMenu");
+      if(m) m.style.display = "none";
+    };
+    // Close the dropdown when clicking anywhere outside it
+    document.addEventListener("click", function(e){
+      const wrap = document.getElementById("chatMoreWrap");
+      if(wrap && !wrap.contains(e.target)) window._saCloseChatMore();
+    }, true);
 
     /* ── Monthly usage bar ──────────────────────────────────────────── */
     window._saRefreshUsageBar = async function(){
