@@ -4004,7 +4004,7 @@ except Exception:
     pass
 
 def _tm_memory_path(uname: str, name: str) -> Path:
-    return TEAMMATE_MEMORY_DIR / f"{_safe(uname)}_{_safe(name)}.json"
+    return TEAMMATE_MEMORY_DIR / f"{_safe_name(uname)}_{_safe_name(name)}.json"
 
 def load_teammate_memory(uname: str, name: str) -> Dict[str, Any]:
     default = {"facts": [], "style_notes": [], "preferences": [], "open_loops": [], "updated_at": ""}
@@ -5848,7 +5848,6 @@ _IMAGE_TRIGGERS = [
     "render", "illustration", "logo", "poster",
     "image of", "picture of",
     "photo of", "photograph of",
-    "depict", "visualize", "visualise",
 ]
 
 def is_visual_request(prompt: str) -> bool:
@@ -9038,7 +9037,7 @@ def api_calendar_events():
         return jsonify({"ok": False, "error": "Missing time_min/time_max"}), 400
     try:
         events = _calendar_list_events(access_token, time_min=time_min, time_max=time_max, timezone=timezone, max_results=max_results)
-        return jsonify({"ok": True, "events": events})
+        return jsonify({"ok": True, "events": events, "truncated": len(events) >= max_results})
     except Exception as e:
         _capture_error(e, context="calendar_list_events")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -13058,7 +13057,7 @@ def reset_password_post():
     token_created = ((u.get("reset") or {}).get("created_at")) or ""
     if token_created:
         try:
-            created_dt = datetime.fromisoformat(token_created.replace("Z", "+00:00").replace("+00:00", ""))
+            created_dt = datetime.fromisoformat(token_created.replace("Z", ""))
             if datetime.utcnow() > created_dt + timedelta(hours=1):
                 u["reset"]["token_hash"] = ""
                 u["reset"]["created_at"] = None
@@ -21336,7 +21335,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       ov.innerHTML = `<div style="background:rgba(7,11,28,.97);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:24px;max-width:380px;width:90%;backdrop-filter:blur(20px);text-align:center;">
         <div style="font-size:28px;margin-bottom:10px;">⚡</div>
         <div style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Compress Conversation?</div>
-        <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:18px;">${escapeHtml(seat)} will summarize the key points of this conversation, then the thread will be trimmed to just that summary. Older messages will be archived.</div>
+        <div style="font-size:12px;color:#94a3b8;line-height:1.6;margin-bottom:18px;">${escapeHtml(seat)} will summarize the key points of this conversation, then the thread will be replaced with just that summary. <strong style="color:#fbbf24;">The full history will be permanently deleted</strong> — export first if you want to keep it.</div>
         <div style="display:flex;gap:8px;justify-content:center;">
           <button id="_ccCancel" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(42,58,106,.5);background:transparent;color:#94a3b8;cursor:pointer;">Cancel</button>
           <button id="_ccConfirm" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.18);color:#c4b5fd;font-weight:700;cursor:pointer;">Compress</button>
@@ -21375,7 +21374,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               body:JSON.stringify({role:"assistant",content:"[Conversation Summary]\n\n"+summary.trim()})
             });
             await refreshThread();
-            showToast("✅ Conversation compressed. History archived.");
+            showToast("✅ Conversation compressed.");
           } else {
             showToast("Could not compress — try again","error");
           }
@@ -21456,6 +21455,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     };
 
     window._saDeleteMemoryItem = async function(seat, key, idx){
+      if(!confirm('Delete this memory item? This cannot be undone.')) return;
       try{
         const res = await fetch("/api/teammate/memory?name=" + encodeURIComponent(seat));
         const d = await res.json();
@@ -25062,6 +25062,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!e) return;
         var fm = document.getElementById('followMsg');
         if(fm){
+          if((fm.value||'').trim() && !confirm('Replace the text already in your message field?')) return;
           fm.value = e.text||'';
           if(typeof hideModal==='function') hideModal();
           fm.focus();
@@ -27114,7 +27115,7 @@ Challenge weak assumptions. Surface risks.`;
       // Parse steps
       let steps = [];
       try{ steps = JSON.parse(seq.steps_json||'[]'); }catch(_){ try{ steps = JSON.parse(seq.steps||'[]'); }catch(_){} }
-      if(!steps.length){ steps = [{subject:'Step 1', body:'(No preview available)'}]; }
+      if(!steps.length){ showToast('This sequence has no steps. Add at least one step before enrolling.','error'); return; }
       // Build preview modal
       const ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
@@ -27459,7 +27460,10 @@ Challenge weak assumptions. Surface risks.`;
       const box = $("leadLabResults");
       if(!box) return;
       if(!items.length){
-        box.innerHTML = '<div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">No leads match the current filter.</div>';
+        const emptyMsg = _leadLabItems.length
+          ? 'No leads match the current filter — try adjusting or clearing the filters.'
+          : 'No results found for this search. Try a different niche, location, or broader keywords.';
+        box.innerHTML = `<div style="padding:24px;text-align:center;color:#64748b;font-size:13px;">${emptyMsg}</div>`;
         return;
       }
       const hasEstimated = items.some(it => it.email && it.confidence === 'low');
@@ -28269,7 +28273,10 @@ async function wcalFetchRange(start, end){
       map[s]=map[s]||[]; map[s].push(ev);
     });
     cal.events = Object.assign(cal.events, map);
-    if(st) st.innerText='';
+    if(st){
+      if(data.truncated) st.innerHTML = `<span style="color:#fbbf24;font-size:11px;">⚠ Showing first 250 events — some may not appear. Narrow your date range to see all.</span>`;
+      else st.innerText = '';
+    }
 
     // Show reconnect prompt if we got 0 events but calendar IS connected.
     // This usually means the stored token predates the calendar.readonly scope
@@ -53408,7 +53415,7 @@ def sp_callback_tiktok():
 # =============================================================================
 
 def _thread_pins_path(name: str, uname: str) -> Path:
-    return DATA / f"thread_pins_{_safe(uname)}_{_safe(name)}.json"
+    return DATA / f"thread_pins_{_safe_name(uname)}_{_safe_name(name)}.json"
 
 def load_thread_pins(name: str, uname: str) -> List[str]:
     try:
