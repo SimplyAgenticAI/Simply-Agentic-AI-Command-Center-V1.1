@@ -23225,7 +23225,6 @@ $("draftWithSelected").onclick = async () => {
     };
 
     // ── Edit Teammates picker ──
-    // Shows a list of all installed teammates; clicking one opens their edit modal.
     function showEditTeammatesModal(){
       $("modalTitle").innerText = "✏️ Edit Teammates";
       hideAllModalForms();
@@ -23247,145 +23246,140 @@ $("draftWithSelected").onclick = async () => {
       }
       const BUILTINS_ET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
 
-      // Field styles — exactly matches .modalForm input/textarea/select in the stylesheet
-      const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(11,16,36,.92);border:1px solid rgba(42,58,106,.9);border-radius:12px;color:#e6edff;padding:13px 14px;font-size:15px;line-height:1.4;font-family:inherit;outline:none;";
+      const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(7,11,28,.85);border:1px solid rgba(42,58,106,.7);border-radius:10px;color:#e6edff;padding:10px 13px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;transition:border-color .15s;";
       const TA_CSS     = INPUT_CSS + "resize:vertical;";
       const SELECT_CSS = INPUT_CSS + "cursor:pointer;";
-      const LABEL_CSS  = "display:block;font-size:11px;font-weight:700;color:rgba(148,163,184,.65);margin-bottom:6px;letter-spacing:.07em;text-transform:uppercase;";
+      const LABEL_CSS  = "display:block;font-size:10px;font-weight:700;color:rgba(148,163,184,.55);margin-bottom:5px;letter-spacing:.08em;text-transform:uppercase;";
+      const CARD_CSS   = "background:rgba(255,255,255,.035);border:1px solid rgba(42,58,106,.45);border-radius:14px;padding:18px 20px;margin-bottom:14px;backdrop-filter:blur(10px);";
+      const CARD_HDR   = "display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(42,58,106,.4);";
+      const CARD_ICON  = "font-size:15px;";
+      const CARD_TITLE = "font-size:11px;font-weight:800;color:rgba(148,163,184,.7);letter-spacing:.1em;text-transform:uppercase;";
 
       const isMobile = window.innerWidth < 700;
 
-      // ── Outer 2-pane wrapper ──────────────────────────────────────────────────
       const pane = document.createElement("div");
-      pane.style.cssText = isMobile
-        ? "display:flex;flex-direction:column;height:100%;overflow:hidden;"
-        : "display:flex;height:100%;overflow:hidden;";
+      pane.style.cssText = isMobile ? "display:flex;flex-direction:column;height:100%;overflow:hidden;" : "display:flex;height:100%;overflow:hidden;";
 
-      // ── LEFT: roster (hidden on mobile — replaced by select dropdown) ──────────
+      // ── LEFT SIDEBAR ──────────────────────────────────────────────────────────
       const left = document.createElement("div");
-      left.style.cssText = isMobile
-        ? "display:none;"
-        : "width:220px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.45);overflow-y:auto;padding:12px 8px;display:flex;flex-direction:column;gap:3px;background:rgba(6,10,26,.5);";
+      left.style.cssText = isMobile ? "display:none;" : "width:240px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.35);overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:4px;background:rgba(4,7,20,.6);";
 
-      // ── RIGHT: editor ─────────────────────────────────────────────────────────
+      // ── RIGHT EDITOR ──────────────────────────────────────────────────────────
       const right = document.createElement("div");
-      right.style.cssText = isMobile
-        ? "flex:1;overflow-y:auto;padding:16px 14px;background:rgba(10,15,36,.0);"
-        : "flex:1;overflow-y:auto;padding:28px 32px;background:rgba(10,15,36,.0);";
+      right.style.cssText = isMobile ? "flex:1;overflow-y:auto;padding:16px 14px;" : "flex:1;overflow-y:auto;padding:24px 28px;";
 
-      // Mobile teammate selector (replaces hidden left roster on small screens)
+      // Mobile selector
       let mobSel = null;
       if(isMobile){
-        const mobSelWrap = document.createElement("div");
-        mobSelWrap.style.cssText = "margin-bottom:16px;";
-        const mobSelLbl = document.createElement("label");
-        mobSelLbl.style.cssText = LABEL_CSS;
-        mobSelLbl.textContent = "Select Teammate";
-        mobSel = document.createElement("select");
-        mobSel.style.cssText = SELECT_CSS;
-        mobSel.addEventListener("change", function(){
-          const nm = this.value;
-          swapValues(nm, installedMap[nm]||{});
-        });
-        mobSelWrap.appendChild(mobSelLbl);
-        mobSelWrap.appendChild(mobSel);
-        right.appendChild(mobSelWrap);
+        const mw = document.createElement("div"); mw.style.cssText = "margin-bottom:14px;";
+        const ml = document.createElement("label"); ml.style.cssText = LABEL_CSS; ml.textContent = "Select Teammate";
+        mobSel = document.createElement("select"); mobSel.style.cssText = SELECT_CSS;
+        mobSel.addEventListener("change", function(){ swapValues(this.value, installedMap[this.value]||{}); });
+        mw.appendChild(ml); mw.appendChild(mobSel); right.appendChild(mw);
       }
 
-      // -- Right panel DOM structure (built once) --------------------------------
+      // ── RIGHT PANEL: header (avatar + name) ───────────────────────────────────
       const rHdrCircle = document.createElement("div");
-      rHdrCircle.style.cssText = "width:50px;height:50px;border-radius:50%;font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
-      const rHdrText = document.createElement("div");
+      rHdrCircle.style.cssText = "width:62px;height:62px;border-radius:50%;font-size:26px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 20px rgba(0,0,0,.4);";
+      const rHdrBadge = document.createElement("div");
+      rHdrBadge.style.cssText = "display:none;font-size:9px;font-weight:700;color:rgba(196,181,253,.8);background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);border-radius:20px;padding:2px 8px;letter-spacing:.06em;";
+      rHdrBadge.textContent = "CUSTOM";
       const rHdrName = document.createElement("div");
-      rHdrName.style.cssText = "font-weight:800;font-size:20px;color:#e2e8f0;";
+      rHdrName.style.cssText = "font-weight:800;font-size:22px;color:#f0f4ff;letter-spacing:-.01em;";
       const rHdrRole = document.createElement("div");
-      rHdrRole.style.cssText = "font-size:13px;color:rgba(148,163,184,.55);margin-top:3px;";
-      rHdrText.appendChild(rHdrName); rHdrText.appendChild(rHdrRole);
+      rHdrRole.style.cssText = "font-size:13px;color:rgba(148,163,184,.6);margin-top:3px;";
+      const rHdrInfo = document.createElement("div");
+      rHdrInfo.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      rHdrInfo.appendChild(rHdrName); rHdrInfo.appendChild(rHdrRole); rHdrInfo.appendChild(rHdrBadge);
       const rHdr = document.createElement("div");
-      rHdr.style.cssText = "display:flex;align-items:center;gap:14px;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(42,58,106,.5);";
-      rHdr.appendChild(rHdrCircle); rHdr.appendChild(rHdrText);
+      rHdr.style.cssText = "display:flex;align-items:center;gap:18px;margin-bottom:22px;padding-bottom:20px;border-bottom:1px solid rgba(42,58,106,.4);";
+      rHdr.appendChild(rHdrCircle); rHdr.appendChild(rHdrInfo);
       right.appendChild(rHdr);
 
       function mkLbl(txt){ const l=document.createElement("label"); l.style.cssText=LABEL_CSS; l.textContent=txt; return l; }
-      function mkInput(id, readonly){ const el=document.createElement("input"); el.type="text"; el.id=id; el.style.cssText=INPUT_CSS+(readonly?";opacity:.55;cursor:default":""); if(readonly) el.readOnly=true; return el; }
-      function mkTa(id, h){ const el=document.createElement("textarea"); el.id=id; el.style.cssText=TA_CSS+"min-height:"+(h||80)+"px;"; return el; }
-      function mkSel(id, choices){ const sel=document.createElement("select"); sel.id=id; sel.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; sel.appendChild(o); }); return sel; }
-      function fw(el){ const w=document.createElement("div"); w.appendChild(el); return w; }
+      function mkInput(readonly){ const el=document.createElement("input"); el.type="text"; el.style.cssText=INPUT_CSS+(readonly?";opacity:.5;cursor:default":""); if(readonly) el.readOnly=true; return el; }
+      function mkTa(h){ const el=document.createElement("textarea"); el.style.cssText=TA_CSS+"min-height:"+(h||80)+"px;"; return el; }
+      function mkSel(choices){ const s=document.createElement("select"); s.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; s.appendChild(o); }); return s; }
       function wrap(label, el){ const w=document.createElement("div"); w.appendChild(mkLbl(label)); w.appendChild(el); return w; }
+      function mkCard(icon, title){ const c=document.createElement("div"); c.style.cssText=CARD_CSS; const h=document.createElement("div"); h.style.cssText=CARD_HDR; const ic=document.createElement("span"); ic.style.cssText=CARD_ICON; ic.textContent=icon; const tt=document.createElement("span"); tt.style.cssText=CARD_TITLE; tt.textContent=title; h.appendChild(ic); h.appendChild(tt); c.appendChild(h); return c; }
+      function grid(cols, ...els){ const g=document.createElement("div"); g.style.cssText="display:grid;grid-template-columns:"+cols+";gap:12px;"; els.forEach(e=>g.appendChild(e)); return g; }
 
-      // Row 1: Name | Job Title | Version
-      const r1 = document.createElement("div");
-      r1.style.cssText = isMobile
-        ? "display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;"
-        : "display:grid;grid-template-columns:2fr 2fr 1fr;gap:12px;margin-bottom:16px;";
-      const fName = mkInput("_et_name", true);
-      const fJob  = mkInput("_et_job",  false);
-      const fVer  = mkInput("_et_ver",  false);
-      r1.appendChild(wrap("Name", fName));
-      r1.appendChild(wrap("Job Title", fJob));
-      r1.appendChild(wrap("Version", fVer));
-      right.appendChild(r1);
-
-      // Row 2: left col | right col
-      const r2 = document.createElement("div");
-      r2.style.cssText = isMobile
-        ? "display:flex;flex-direction:column;gap:12px;margin-bottom:14px;"
-        : "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;";
-      const lcol = document.createElement("div"); lcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
-      const fMiss  = mkTa("_et_miss",  90);
-      const fGoal  = mkTa("_et_goal",  90);
-      const fThink = mkTa("_et_think", 80);
-      lcol.appendChild(wrap("Mission", fMiss));
-      lcol.appendChild(wrap("Goal", fGoal));
-      lcol.appendChild(wrap("Thinking Style", fThink));
-      const rcol = document.createElement("div"); rcol.style.cssText = "display:flex;flex-direction:column;gap:12px;";
-      const fResp = mkTa("_et_resp", 190);
-      const fWnd  = mkTa("_et_wnd",  110);
-      rcol.appendChild(wrap("Responsibilities (one per line)", fResp));
-      rcol.appendChild(wrap("Will Not Do (one per line)", fWnd));
-      r2.appendChild(lcol); r2.appendChild(rcol);
-      right.appendChild(r2);
-
-      // Row 3: Model | Voice
-      const r3 = document.createElement("div");
-      r3.style.cssText = isMobile
-        ? "display:flex;flex-direction:column;gap:12px;margin-bottom:18px;"
-        : "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;";
-      const fModel = mkSel("_et_model",[
+      // Fields
+      const fName  = mkInput(true);
+      const fJob   = mkInput(false);
+      const fVer   = mkInput(false);
+      const fMiss  = mkTa(80);
+      const fGoal  = mkTa(70);
+      const fThink = mkTa(70);
+      const fResp  = mkTa(100);
+      const fWnd   = mkTa(80);
+      const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
-        ["claude-opus-4-5","Claude Opus"],["claude-sonnet-4-5","Claude Sonnet"],["claude-haiku-4-5-20251001","Claude Haiku"]
+        ["claude-opus-4-5","Claude Opus 4"],["claude-sonnet-4-5","Claude Sonnet 4"],["claude-haiku-4-5-20251001","Claude Haiku 4"]
       ]);
-      const fVoice = mkSel("_et_voice",[
+      const fVoice = mkSel([
         ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
         ["onyx","Onyx — deep male"],["nova","Nova — female, bright"],["shimmer","Shimmer — soft female"]
       ]);
-      r3.appendChild(wrap("AI Model", fModel));
-      r3.appendChild(wrap("TTS Voice", fVoice));
-      right.appendChild(r3);
 
-      // Footer
+      // Card 1 — Identity
+      const c1 = mkCard("🪪", "Identity");
+      c1.appendChild(grid(isMobile?"1fr 1fr":"2fr 2fr 1fr", wrap("Name", fName), wrap("Job Title", fJob), wrap("Version", fVer)));
+      right.appendChild(c1);
+
+      // Card 2 — Personality
+      const c2 = mkCard("🧠", "Personality");
+      if(isMobile){
+        c2.appendChild(wrap("Mission", fMiss));
+        c2.appendChild(Object.assign(document.createElement("div"),{style:"margin-top:12px;"}));
+        c2.appendChild(wrap("Goal", fGoal));
+        c2.appendChild(Object.assign(document.createElement("div"),{style:"margin-top:12px;"}));
+        c2.appendChild(wrap("Thinking Style", fThink));
+      } else {
+        c2.appendChild(grid("1fr 1fr", wrap("Mission", fMiss), wrap("Goal", fGoal)));
+        const ts = document.createElement("div"); ts.style.marginTop="12px"; ts.appendChild(wrap("Thinking Style", fThink));
+        c2.appendChild(ts);
+      }
+      right.appendChild(c2);
+
+      // Card 3 — Behavior
+      const c3 = mkCard("⚡", "Behavior");
+      c3.appendChild(isMobile
+        ? (()=>{ const d=document.createElement("div"); d.style.cssText="display:flex;flex-direction:column;gap:12px;"; d.appendChild(wrap("Responsibilities (one per line)",fResp)); d.appendChild(wrap("Will Not Do (one per line)",fWnd)); return d; })()
+        : grid("1fr 1fr", wrap("Responsibilities (one per line)", fResp), wrap("Will Not Do (one per line)", fWnd))
+      );
+      right.appendChild(c3);
+
+      // Card 4 — Voice & Model
+      const c4 = mkCard("🤖", "Voice & Model");
+      c4.appendChild(grid(isMobile?"1fr":"1fr 1fr", wrap("AI Model", fModel), wrap("TTS Voice", fVoice)));
+      right.appendChild(c4);
+
+      // Save footer
       const saveBtn = document.createElement("button");
       saveBtn.className = "btn btnPrimary";
-      saveBtn.style.cssText = "padding:10px 26px;font-size:14px;";
+      saveBtn.style.cssText = "padding:11px 28px;font-size:14px;font-weight:700;";
       saveBtn.textContent = "💾 Save Changes";
       const statusEl = document.createElement("span");
-      statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:12px;";
+      statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:14px;";
       const footer = document.createElement("div");
-      footer.style.cssText = "display:flex;align-items:center;";
+      footer.style.cssText = "display:flex;align-items:center;padding-bottom:8px;";
       footer.appendChild(saveBtn); footer.appendChild(statusEl);
       right.appendChild(footer);
 
-      // -- Value-swap function (instant, no DOM rebuild, no flash) ---------------
+      // ── Value-swap (no DOM rebuild) ───────────────────────────────────────────
       let currentEditName = "";
       function swapValues(name, t){
         currentEditName = name;
+        const isC = !BUILTINS_ET.has(name);
         const av = t.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
         rHdrCircle.style.background = av.bg;
         rHdrCircle.style.color      = av.fg;
-        rHdrCircle.textContent      = av.sigil || name.slice(0,1).toUpperCase();
+        if(av.glyph){ rHdrCircle.innerHTML = av.glyph; } else { rHdrCircle.textContent = av.sigil || name.slice(0,1).toUpperCase(); }
         rHdrName.textContent = name;
-        rHdrRole.textContent = t.job_title || (!BUILTINS_ET.has(name) ? "Custom teammate" : "Built-in teammate");
+        rHdrRole.textContent = t.job_title || (isC ? "Custom Teammate" : "Built-in Teammate");
+        rHdrBadge.style.display = isC ? "inline-block" : "none";
         fName.value  = name;
         fJob.value   = t.job_title || "";
         fVer.value   = t.version   || "";
@@ -23424,55 +23418,60 @@ $("draftWithSelected").onclick = async () => {
         saveBtn.disabled = false;
       });
 
-      // ── Roster cards ──────────────────────────────────────────────────────────
+      // ── ROSTER CARDS (left sidebar) ───────────────────────────────────────────
       let activeCard = null;
       order.forEach(function(name){
         const defn = installedMap[name] || {};
         const isCustom = !BUILTINS_ET.has(name);
         const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil: name.slice(0,1).toUpperCase()};
+        const accentColor = av.bg || "#1f2a44";
 
         const card = document.createElement("div");
-        card.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid transparent;transition:background .12s,border-color .12s;";
+        card.style.cssText = "position:relative;display:flex;align-items:center;gap:11px;padding:11px 12px 11px 16px;border-radius:12px;cursor:pointer;border:1px solid transparent;transition:background .15s,border-color .15s;overflow:hidden;";
+
+        // Left accent stripe (avatar color)
+        const stripe = document.createElement("div");
+        stripe.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px;background:"+accentColor+";opacity:.7;";
+        card.appendChild(stripe);
 
         const circle = document.createElement("div");
-        circle.style.cssText = "width:38px;height:38px;border-radius:50%;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";";
-        circle.textContent = av.sigil || name.slice(0,1).toUpperCase();
+        circle.style.cssText = "width:42px;height:42px;border-radius:50%;font-size:17px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:"+av.bg+";color:"+av.fg+";box-shadow:0 2px 10px rgba(0,0,0,.35);";
+        if(av.glyph){ circle.innerHTML = av.glyph; } else { circle.textContent = av.sigil || name.slice(0,1).toUpperCase(); }
 
         const info = document.createElement("div");
         info.style.cssText = "min-width:0;flex:1;";
         const nm = document.createElement("div");
-        nm.style.cssText = "font-weight:700;font-size:15px;color:#dde4f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+        nm.style.cssText = "font-weight:700;font-size:14px;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
         nm.textContent = name;
-        const role = document.createElement("div");
-        role.style.cssText = "font-size:11px;color:rgba(148,163,184,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;";
-        role.textContent = defn.job_title || (isCustom ? "Custom" : "Built-in");
-        info.appendChild(nm); info.appendChild(role);
+        const roleEl = document.createElement("div");
+        roleEl.style.cssText = "font-size:10px;color:rgba(148,163,184,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;letter-spacing:.01em;";
+        roleEl.textContent = defn.job_title || (isCustom ? "Custom" : "Built-in");
+        info.appendChild(nm); info.appendChild(roleEl);
         card.appendChild(circle); card.appendChild(info);
 
+        // Delete button (custom only, revealed on hover)
         if(isCustom){
           const delBtn = document.createElement("button");
           delBtn.title = "Delete " + name;
-          delBtn.style.cssText = "flex-shrink:0;background:none;border:none;color:rgba(248,113,113,.0);font-size:15px;cursor:pointer;padding:2px 4px;border-radius:6px;line-height:1;transition:color .15s,background .15s;";
+          delBtn.style.cssText = "flex-shrink:0;background:none;border:none;color:rgba(248,113,113,.0);font-size:14px;cursor:pointer;padding:3px 5px;border-radius:6px;line-height:1;transition:color .15s,background .15s;";
           delBtn.textContent = "🗑";
           delBtn.addEventListener("click", async function(e){
             e.stopPropagation();
-            if(!confirm("Permanently delete \"" + name + "\"? This cannot be undone.")) return;
+            if(!confirm('Permanently delete "' + name + '"? This cannot be undone.')) return;
             delBtn.disabled = true; delBtn.style.opacity = ".4";
             try{
               const r = await fetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
               const d = await r.json();
               if(!d.ok){ alert(d.error || "Delete failed"); delBtn.disabled=false; delBtn.style.opacity="1"; return; }
-              // Remove card from sidebar immediately
               card.remove();
-              // Clear right panel if this was the selected teammate
               if(currentEditName === name){
                 currentEditName = "";
                 rHdrName.textContent = "Select a teammate";
                 rHdrRole.textContent = "";
                 rHdrCircle.textContent = "?";
+                rHdrBadge.style.display = "none";
                 fName.value=""; fJob.value=""; fVer.value=""; fMiss.value=""; fGoal.value=""; fThink.value=""; fResp.value=""; fWnd.value="";
                 statusEl.textContent = "";
-                // Auto-select next available card
                 const next = left.querySelector("div[style*='cursor:pointer']");
                 if(next) next.click();
               }
@@ -23482,17 +23481,18 @@ $("draftWithSelected").onclick = async () => {
             }catch(e2){ alert("Delete failed — check connection"); delBtn.disabled=false; delBtn.style.opacity="1"; }
           });
           card.appendChild(delBtn);
-          card.addEventListener("mouseenter", ()=>{ delBtn.style.color="rgba(248,113,113,.75)"; delBtn.style.background="rgba(239,68,68,.1)"; });
-          card.addEventListener("mouseleave", ()=>{ delBtn.style.color="rgba(248,113,113,.0)"; delBtn.style.background="none"; });
+          card.addEventListener("mouseenter", ()=>{ delBtn.style.color="rgba(248,113,113,.8)"; });
+          card.addEventListener("mouseleave", ()=>{ delBtn.style.color="rgba(248,113,113,.0)"; });
         }
 
-        card.addEventListener("mouseenter", ()=>{ if(card!==activeCard) card.style.background="rgba(255,255,255,.05)"; });
-        card.addEventListener("mouseleave", ()=>{ if(card!==activeCard) card.style.background=""; });
+        card.addEventListener("mouseenter", ()=>{ if(card!==activeCard){ card.style.background="rgba(255,255,255,.045)"; stripe.style.opacity="1"; } });
+        card.addEventListener("mouseleave", ()=>{ if(card!==activeCard){ card.style.background=""; stripe.style.opacity=".7"; } });
         card.addEventListener("click", function(){
-          if(activeCard){ activeCard.style.background=""; activeCard.style.borderColor="transparent"; }
+          if(activeCard){ activeCard.style.background=""; activeCard.style.borderColor="transparent"; activeCard.querySelector("div")&&(activeCard.querySelector("div").style.opacity=".7"); }
           activeCard = card;
-          card.style.background   = "rgba(124,58,237,.2)";
-          card.style.borderColor  = "rgba(124,58,237,.5)";
+          card.style.background  = "rgba(124,58,237,.15)";
+          card.style.borderColor = "rgba(124,58,237,.4)";
+          stripe.style.opacity = "1";
           swapValues(name, defn);
         });
         left.appendChild(card);
