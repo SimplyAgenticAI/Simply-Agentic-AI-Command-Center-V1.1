@@ -23450,10 +23450,40 @@ $("draftWithSelected").onclick = async () => {
         card.appendChild(circle); card.appendChild(info);
 
         if(isCustom){
-          const badge = document.createElement("div");
-          badge.style.cssText = "font-size:9px;font-weight:700;color:rgba(196,181,253,.65);letter-spacing:.05em;flex-shrink:0;";
-          badge.textContent = "✦";
-          card.appendChild(badge);
+          const delBtn = document.createElement("button");
+          delBtn.title = "Delete " + name;
+          delBtn.style.cssText = "flex-shrink:0;background:none;border:none;color:rgba(248,113,113,.0);font-size:15px;cursor:pointer;padding:2px 4px;border-radius:6px;line-height:1;transition:color .15s,background .15s;";
+          delBtn.textContent = "🗑";
+          delBtn.addEventListener("click", async function(e){
+            e.stopPropagation();
+            if(!confirm("Permanently delete \"" + name + "\"? This cannot be undone.")) return;
+            delBtn.disabled = true; delBtn.style.opacity = ".4";
+            try{
+              const r = await fetch("/api/teammate/" + encodeURIComponent(name), {method:"DELETE"});
+              const d = await r.json();
+              if(!d.ok){ alert(d.error || "Delete failed"); delBtn.disabled=false; delBtn.style.opacity="1"; return; }
+              // Remove card from sidebar immediately
+              card.remove();
+              // Clear right panel if this was the selected teammate
+              if(currentEditName === name){
+                currentEditName = "";
+                rHdrName.textContent = "Select a teammate";
+                rHdrRole.textContent = "";
+                rHdrCircle.textContent = "?";
+                fName.value=""; fJob.value=""; fVer.value=""; fMiss.value=""; fGoal.value=""; fThink.value=""; fResp.value=""; fWnd.value="";
+                statusEl.textContent = "";
+                // Auto-select next available card
+                const next = left.querySelector("div[style*='cursor:pointer']");
+                if(next) next.click();
+              }
+              await loadState();
+              if(typeof renderTable==="function") renderTable();
+              if(typeof showToast==="function") showToast("🗑 " + name + " deleted");
+            }catch(e2){ alert("Delete failed — check connection"); delBtn.disabled=false; delBtn.style.opacity="1"; }
+          });
+          card.appendChild(delBtn);
+          card.addEventListener("mouseenter", ()=>{ delBtn.style.color="rgba(248,113,113,.75)"; delBtn.style.background="rgba(239,68,68,.1)"; });
+          card.addEventListener("mouseleave", ()=>{ delBtn.style.color="rgba(248,113,113,.0)"; delBtn.style.background="none"; });
         }
 
         card.addEventListener("mouseenter", ()=>{ if(card!==activeCard) card.style.background="rgba(255,255,255,.05)"; });
@@ -30232,7 +30262,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
         showToast(`🗑 ${name} has been permanently deleted`);
         await loadState();
         renderTable();
-        // Re-open the manage panel so the list updates
         showManageModal();
       }catch(e){
         if(statusEl) statusEl.innerText = "Delete failed — check connection";
