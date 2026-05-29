@@ -7939,7 +7939,7 @@ def _api_followup_impl(data):
 
     if is_image_request(msg2):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
         # Rate limit image generation separately (expensive API calls)
@@ -14828,6 +14828,7 @@ body.modal-open { overflow:hidden !important; }
   border:none !important;
 }
 #modalScroll{ height:calc(100vh - 52px) !important; max-height:none !important; overflow-y:auto !important; flex:1 !important; }
+#saToolCanvas{ position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none; }
 /* Bigger form fields in modals on mobile */
 #modalWin input, #modalWin textarea, #modalWin select{
   font-size:16px !important; padding:12px 14px !important;
@@ -16222,6 +16223,7 @@ label {
       <div class="arena">
         <div class="overlay" id="overlay">
           <div class="modal" id="modalWin">
+            <canvas id="saToolCanvas" aria-hidden="true"></canvas>
             <div class="modalBar" id="modalBar">
               <div class="modalBarTitle" id="modalTitle">Round Table</div>
               <button id="saModalPinBtn" style="display:none;padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.15);color:#c4b5fd;transition:all .15s;white-space:nowrap;flex-shrink:0;" onclick="if(window._saModalPinKey)window.saTogglePin(window._saModalPinKey)">📌 Pin</button>
@@ -19266,6 +19268,7 @@ function applyModalPos(){
       const sc=$("modalScroll");
       if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;"}
       document.body.classList.add('modal-open');
+      if(window._saToolCanvasStart) window._saToolCanvasStart();
     }
 
 
@@ -19420,6 +19423,7 @@ window.showModal = function showModal(title, body, imgUrl){
       try{ document.body.style.overflow = ""; }catch(_){ }
       document.body.classList.remove('modal-open');
       try{ if(window.saSetModalPin) window.saSetModalPin(null); }catch(_){}
+      if(window._saToolCanvasStop) window._saToolCanvasStop();
 
       const _ov = $("overlay");
       if(_ov){
@@ -41492,6 +41496,88 @@ window.addEventListener('focus', function(){
 })();
 </script>
 
+<script>
+/* Cosmic neural-web inside tool modals */
+(function(){
+  var cv=document.getElementById('saToolCanvas');
+  if(!cv)return;
+  var cx=cv.getContext('2d');
+  var W,H;
+  var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
+  var N=70,MAXD=170;
+  var pts=[];
+  var animId=null;
+
+  function resize(){
+    var p=cv.parentElement;
+    var r=p?p.getBoundingClientRect():null;
+    W=cv.width=r&&r.width>0?Math.round(r.width):window.innerWidth;
+    H=cv.height=r&&r.height>0?Math.round(r.height):window.innerHeight;
+  }
+
+  function mkPt(){
+    var a=Math.random()*Math.PI*2,sp=Math.random()*0.22+0.06;
+    var c=COLS[Math.floor(Math.random()*COLS.length)];
+    return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+           r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,
+           tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
+  }
+
+  function frame(){
+    cx.clearRect(0,0,W,H);
+    var i,j,p,dx,dy,d,la;
+    for(i=0;i<N;i++){
+      p=pts[i];p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
+      if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
+      p.tp+=p.ts;
+    }
+    for(i=0;i<N;i++){
+      for(j=i+1;j<N;j++){
+        dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
+        d=Math.sqrt(dx*dx+dy*dy);
+        if(d<MAXD){
+          la=0.22*(1-d/MAXD);
+          var ci=pts[i].c;
+          cx.beginPath();
+          cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
+          cx.lineWidth=0.7;
+          cx.moveTo(pts[i].x,pts[i].y);
+          cx.lineTo(pts[j].x,pts[j].y);
+          cx.stroke();
+        }
+      }
+    }
+    for(i=0;i<N;i++){
+      p=pts[i];
+      var tw=p.al*(0.70+0.30*Math.sin(p.tp));
+      cx.beginPath();
+      cx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';
+      cx.fill();
+    }
+    animId=requestAnimationFrame(frame);
+  }
+
+  window._saToolCanvasStart=function(){
+    resize();
+    if(!pts.length){pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
+    if(animId){cancelAnimationFrame(animId);animId=null;}
+    animId=requestAnimationFrame(frame);
+  };
+
+  window._saToolCanvasStop=function(){
+    if(animId){cancelAnimationFrame(animId);animId=null;}
+  };
+
+  window.addEventListener('resize',function(){
+    if(!animId)return;
+    resize();
+    pts.forEach(function(p){if(p.x>W)p.x=Math.random()*W;if(p.y>H)p.y=Math.random()*H;});
+  });
+})();
+</script>
+
 </body>
 </html>
 """
@@ -48743,7 +48829,7 @@ def api_followup_stream():
         except Exception:
             pass
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
         _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
