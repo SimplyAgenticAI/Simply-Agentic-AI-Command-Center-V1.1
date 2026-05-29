@@ -48685,6 +48685,46 @@ def api_followup_stream():
 
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
+    # ── Image request: bypass LLM, kick off background image job ─────────────
+    if is_image_request(msg2):
+        latest_uploaded_image = None
+        try:
+            _bound = [get_upload_record(fid) for fid in (file_ids or []) if fid]
+            _img_recs = [r for r in _bound if r and _is_image_record(r)]
+            latest_uploaded_image = _img_recs[-1] if _img_recs else None
+        except Exception:
+            pass
+        source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(source_rec), username=uname)
+        source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
+        job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
+        _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
+        if _img_rl:
+            return _img_rl
+        job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
+        mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
+        placeholder = f"[{mode_label}] job:{job_id}"
+        thread_now = load_thread(name, uname)
+        thread_now = thread_now[-14:] if len(thread_now) > 14 else thread_now
+        save_thread(name, thread_now + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}], uname)
+        st0 = load_image_state(name, uname)
+        st0["last_prompt"] = msg
+        st0["last_mode"] = mode
+        save_image_state(name, st0, uname)
+        bind_uploaded_images_to_teammate(name, file_ids, uname)
+        try: _award_points(uname, f"Generated image with {name}", 5)
+        except Exception: pass
+
+        def _img_stream():
+            yield "data: " + json.dumps({"done": True, "job_id": job_id, "mode": mode, "response": placeholder, "attachment_meta": attach_meta}) + "\n\n"
+
+        return Response(
+            stream_with_context(_img_stream()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"},
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+
     thread = load_thread(name, uname)
     thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
 
