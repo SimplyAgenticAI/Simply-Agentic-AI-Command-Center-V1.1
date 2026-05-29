@@ -25501,6 +25501,7 @@ Challenge weak assumptions. Surface risks.`;
       const ed = $("crmClientEditor");
       if(!ed) return;
       ed.style.display = 'block';
+      setTimeout(()=>ed.scrollIntoView({behavior:'smooth', block:'nearest'}), 50);
       crmEditingClientId = id || null;
       const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
       $("crmEditTitle").innerText = id ? 'Edit client' : 'Add client';
@@ -25572,7 +25573,26 @@ Challenge weak assumptions. Surface risks.`;
 
     async function crmDeleteClient(id){
       if(!id) return;
-      if(!confirm('Delete this client?')) return;
+      const c = (crmCache.clients||[]).find(x=>x.id===id);
+      const clientName = c ? (c.name || 'this contact') : 'this contact';
+      const confirmed = await new Promise(resolve=>{
+        const ov = document.createElement('div');
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        ov.innerHTML = `<div style="background:rgba(8,13,33,.97);border:1px solid rgba(248,113,113,.25);border-radius:18px;padding:28px 32px;max-width:360px;width:90%;backdrop-filter:blur(22px);box-shadow:0 20px 60px rgba(0,0,0,.7);text-align:center;">
+          <div style="font-size:32px;margin-bottom:12px;">🗑</div>
+          <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Delete Contact?</div>
+          <div style="font-size:13px;color:#94a3b8;margin-bottom:22px;">This will permanently remove <strong style="color:#e2e8f0;">${escapeHtml(clientName)}</strong> and all their data.</div>
+          <div style="display:flex;gap:10px;justify-content:center;">
+            <button id="_crmDelCancel" style="padding:9px 22px;border-radius:10px;border:1px solid rgba(42,58,106,.6);background:rgba(255,255,255,.05);color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>
+            <button id="_crmDelConfirm" style="padding:9px 22px;border-radius:10px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.15);color:#f87171;font-size:13px;font-weight:700;cursor:pointer;">Delete</button>
+          </div>
+        </div>`;
+        document.body.appendChild(ov);
+        ov.querySelector('#_crmDelCancel').onclick = ()=>{ ov.remove(); resolve(false); };
+        ov.querySelector('#_crmDelConfirm').onclick = ()=>{ ov.remove(); resolve(true); };
+        ov.onclick = e=>{ if(e.target===ov){ ov.remove(); resolve(false); } };
+      });
+      if(!confirmed) return;
       try{
         const res = await fetch('/api/crm/clients/' + encodeURIComponent(id), {method:'DELETE'});
         const data = await res.json();
