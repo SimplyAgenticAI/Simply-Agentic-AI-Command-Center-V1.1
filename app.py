@@ -154,6 +154,31 @@ def _retry_request(method: str, url: str, retries: int = 3, backoff: float = 0.6
 _BROADCAST_JOBS: Dict[str, Dict[str, Any]] = {}
 _BROADCAST_JOBS_LOCK = threading.Lock()
 
+def _broadcast_job_path(job_id: str) -> "Path":
+    d = Path(DATA_DIR) / "broadcast_jobs"
+    d.mkdir(exist_ok=True)
+    return d / f"{job_id}.json"
+
+def _broadcast_job_persist(job_id: str, state: Dict[str, Any]) -> None:
+    """Write final broadcast job state to disk so it survives restarts."""
+    try:
+        p = _broadcast_job_path(job_id)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        tmp.replace(p)
+    except Exception:
+        pass
+
+def _broadcast_job_load(job_id: str) -> Optional[Dict[str, Any]]:
+    """Load a completed broadcast job from disk (fallback when not in memory)."""
+    try:
+        p = _broadcast_job_path(job_id)
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return None
+
 def _broadcast_jobs_evict_old(max_age_hours: int = 4) -> None:
     """Evict completed broadcast jobs to prevent unbounded memory growth."""
     try:
@@ -167,6 +192,20 @@ def _broadcast_jobs_evict_old(max_age_hours: int = 4) -> None:
             ]
             for jid in stale:
                 _BROADCAST_JOBS.pop(jid, None)
+        # Also prune old disk job files
+        try:
+            d = Path(DATA_DIR) / "broadcast_jobs"
+            if d.exists():
+                for f in d.glob("*.json"):
+                    try:
+                        age = datetime.utcnow() - datetime.fromisoformat(
+                            json.loads(f.read_text(encoding="utf-8")).get("finished_at", "").replace("Z", "") or "2000-01-01")
+                        if age.total_seconds() > max_age_hours * 3600:
+                            f.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -238,6 +277,7 @@ def _startup_check() -> None:
         ("FIELD_ENCRYPTION_KEY",  bool(os.getenv("FIELD_ENCRYPTION_KEY")),   "API keys stored as plaintext — set FIELD_ENCRYPTION_KEY"),
         ("STRIPE_SECRET_KEY",     bool(os.getenv("STRIPE_SECRET_KEY")),      "Billing disabled — set STRIPE_SECRET_KEY"),
         ("STRIPE_WEBHOOK_SECRET", bool(os.getenv("STRIPE_WEBHOOK_SECRET")),  "Stripe webhooks unverified — set STRIPE_WEBHOOK_SECRET"),
+        ("DATA_DIR (persistent)",  bool(os.getenv("DATA_DIR")) or Path("/var/data").exists(), "DATA_DIR not set and /var/data not found — data is stored in ./data which is EPHEMERAL on Render. Enable Persistent Disk in Render and set DATA_DIR=/var/data"),
     ]
     ok_count = sum(1 for _, v, _ in checks if v)
     print(f"\n[STARTUP] ── Configuration check ({ok_count}/{len(checks)} critical vars set) ──", flush=True)
@@ -4598,11 +4638,28 @@ def _gmail_libs_ready() -> Tuple[bool, str]:
     # Backward-compatible name used by older code paths.
     return _google_oauth_ready()
 
+def _oauth_token_encrypt(token_info: Dict[str, Any]) -> str:
+    """Serialize + encrypt a token dict. Falls back to JSON string if no encryption key."""
+    raw = json.dumps(token_info)
+    return _encrypt_field(raw) if _FERNET else raw
+
+def _oauth_token_decrypt(stored: Any) -> Dict[str, Any]:
+    """Decrypt a token value — handles encrypted strings, plaintext JSON, and legacy dicts."""
+    if not stored:
+        return {}
+    if isinstance(stored, dict):
+        return stored  # legacy plaintext dict — return as-is
+    try:
+        raw = _decrypt_field(stored) if isinstance(stored, str) else str(stored)
+        return json.loads(raw) if raw else {}
+    except Exception:
+        return {}
+
 def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not u:
         return {}
     settings = (u.get("settings") or {})
-    return (settings.get("gmail_oauth") or {})
+    return _oauth_token_decrypt(settings.get("gmail_oauth"))
 
 def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
     users = load_users()
@@ -4610,9 +4667,8 @@ def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any
     rec = (users.get("users") or {}).get(uname) or u
     rec.setdefault("settings", {})
     if token_info:
-        rec["settings"]["gmail_oauth"] = token_info
+        rec["settings"]["gmail_oauth"] = _oauth_token_encrypt(token_info)
     else:
-        # disconnect
         if "gmail_oauth" in rec.get("settings", {}):
             rec["settings"].pop("gmail_oauth", None)
     rec["updated_at"] = now_iso()
@@ -4632,7 +4688,7 @@ def _user_calendar_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not u:
         return {}
     settings = (u.get("settings") or {})
-    return (settings.get("calendar_oauth") or {})
+    return _oauth_token_decrypt(settings.get("calendar_oauth"))
 
 def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
     users = load_users()
@@ -4640,7 +4696,7 @@ def _save_user_calendar_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, 
     rec = (users.get("users") or {}).get(uname) or u
     rec.setdefault("settings", {})
     if token_info:
-        rec["settings"]["calendar_oauth"] = token_info
+        rec["settings"]["calendar_oauth"] = _oauth_token_encrypt(token_info)
     else:
         if "calendar_oauth" in rec.get("settings", {}):
             rec["settings"].pop("calendar_oauth", None)
@@ -43955,8 +44011,11 @@ def api_crm_broadcast_email():
             if job_id_:
                 _notif_push(uname, "Email broadcast complete",
                             f"Sent {sent_}, failed {failed_} of {total_}", "success")
-                _BROADCAST_JOBS[job_id_] = {"status": "done", "sent": sent_, "failed": failed_,
-                                             "count": total_, "progress": total_, "results": results_}
+                _final = {"status": "done", "sent": sent_, "failed": failed_,
+                          "count": total_, "progress": total_, "results": results_,
+                          "username": uname, "finished_at": now_iso()}
+                _BROADCAST_JOBS[job_id_] = _final
+                _broadcast_job_persist(job_id_, _final)
             return sent_, failed_, results_
 
         if run_async:
@@ -43998,7 +44057,7 @@ def api_broadcast_job_status(job_id: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    job = _BROADCAST_JOBS.get(job_id)
+    job = _BROADCAST_JOBS.get(job_id) or _broadcast_job_load(job_id)
     if not job:
         return jsonify({"ok": False, "error": "Job not found"}), 404
     uname = (u.get("username") if isinstance(u, dict) else None) or ""
