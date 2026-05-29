@@ -1109,22 +1109,83 @@ def _migrate_global_registry_once() -> None:
         admin_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
 # =========================
-# IMAGE JOBS (non-blocking)
+# IMAGE JOBS (non-blocking, disk-persistent)
 # =========================
 # Hosting platforms often kill long-running requests. Image generation can exceed request timeouts.
 # So we run image generation in a background thread and let the UI poll for completion.
+# Jobs are persisted to disk so they survive server restarts and deploys.
 IMAGE_JOBS: Dict[str, Dict[str, Any]] = {}
 IMAGE_JOBS_LOCK = threading.Lock()
+_JOBS_DIR = None  # set after DATA is defined below
+
+def _jobs_dir() -> "Path":
+    global _JOBS_DIR
+    if _JOBS_DIR is None:
+        _JOBS_DIR = DATA / "jobs"
+        try:
+            _JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+    return _JOBS_DIR
+
+def _job_path(job_id: str) -> "Path":
+    return _jobs_dir() / f"img_{job_id}.json"
 
 def _image_job_set(job_id: str, patch: Dict[str, Any]) -> None:
     with IMAGE_JOBS_LOCK:
         cur = IMAGE_JOBS.get(job_id) or {}
         cur.update(patch or {})
         IMAGE_JOBS[job_id] = cur
+    # Persist to disk (non-blocking, best-effort)
+    try:
+        p = _job_path(job_id)
+        p.write_text(json.dumps(IMAGE_JOBS.get(job_id) or {}), encoding="utf-8")
+    except Exception:
+        pass
 
 def _image_job_get(job_id: str) -> Dict[str, Any]:
     with IMAGE_JOBS_LOCK:
-        return dict(IMAGE_JOBS.get(job_id) or {})
+        if job_id in IMAGE_JOBS:
+            return dict(IMAGE_JOBS[job_id])
+    # Not in memory — try disk (survives restarts)
+    try:
+        p = _job_path(job_id)
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            with IMAGE_JOBS_LOCK:
+                IMAGE_JOBS[job_id] = data
+            return dict(data)
+    except Exception:
+        pass
+    return {}
+
+def _load_persisted_jobs() -> None:
+    """On startup: load recent job files from disk into memory so status polls work after restart."""
+    try:
+        jd = _jobs_dir()
+        cutoff = datetime.utcnow() - timedelta(hours=4)
+        for p in jd.glob("img_*.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                created_str = str(data.get("created_at") or "")
+                if created_str:
+                    created_dt = datetime.fromisoformat(created_str.replace("Z", ""))
+                    if created_dt < cutoff:
+                        p.unlink(missing_ok=True)
+                        continue
+                # Mark any running/queued jobs as error — they died mid-generation on restart
+                if data.get("status") in ("running", "queued"):
+                    data["status"] = "error"
+                    data["error"] = "Server restarted during generation. Please try again."
+                    data["stage_label"] = "❌ Server restarted"
+                    p.write_text(json.dumps(data), encoding="utf-8")
+                job_id = p.stem.replace("img_", "")
+                with IMAGE_JOBS_LOCK:
+                    IMAGE_JOBS[job_id] = data
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def _image_jobs_evict_old(max_age_hours: int = 2) -> None:
     """Remove completed/errored image jobs older than max_age_hours, plus any orphaned
@@ -1150,6 +1211,10 @@ def _image_jobs_evict_old(max_age_hours: int = 2) -> None:
                     stale.append(jid)
             for jid in stale:
                 IMAGE_JOBS.pop(jid, None)
+                try:
+                    _job_path(jid).unlink(missing_ok=True)
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -1171,21 +1236,21 @@ def _thread_replace_or_append_image_note(teammate: str, job_id: str, final_note:
         pass
 
 def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> None:
-    _image_job_set(job_id, {"status": "running"})
+    _image_job_set(job_id, {"status": "running", "stage": "refining_prompt", "stage_label": "✨ Refining your prompt..."})
     try:
-        # Background thread needs an application context for any Flask helpers used during image creation
         with app.app_context():
+            _image_job_set(job_id, {"status": "running", "stage": "generating", "stage_label": "🎨 Generating image..."})
             rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
         if err or not url:
-            _image_job_set(job_id, {"status": "error", "error": err or "Image generation failed"})
+            _image_job_set(job_id, {"status": "error", "stage": "error", "stage_label": "❌ Generation failed", "error": err or "Image generation failed"})
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}", username=username)
             return
-        _image_job_set(job_id, {"status": "done", "url": url, "image": rec})
+        _image_job_set(job_id, {"status": "done", "stage": "done", "stage_label": "✅ Done!", "url": url, "image": rec})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image generated] {url}", username=username)
         try: _increment_msg_usage(username, images=True)
         except Exception: pass
     except Exception as e:
-        _image_job_set(job_id, {"status": "error", "error": str(e) or "Image generation failed"})
+        _image_job_set(job_id, {"status": "error", "stage": "error", "stage_label": "❌ Generation failed", "error": str(e) or "Image generation failed"})
         _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {str(e) or 'Image generation failed'}", username=username)
 
 def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mode: bool, mode: str = "new", source_file_id: str = "") -> str:
@@ -1736,9 +1801,67 @@ def _check_rate_limit(category: str, limit: int):
     return None
 
 
+# =========================
+# SQLITE USER STORE
+# =========================
+# Drop-in replacement for users.json — same load_users()/save_users() interface.
+# Each user is stored as a JSON blob in its own row. Concurrent reads are safe;
+# WAL mode allows one writer + multiple readers simultaneously.
+import sqlite3 as _sqlite3
+
+_USERS_DB_PATH: Optional["Path"] = None
+_USERS_DB_LOCK = threading.Lock()
+
+def _users_db_path() -> "Path":
+    global _USERS_DB_PATH
+    if _USERS_DB_PATH is None:
+        _USERS_DB_PATH = DATA / "users.db"
+    return _USERS_DB_PATH
+
+def _users_db_conn():
+    """Get a per-call SQLite connection with WAL mode enabled."""
+    conn = _sqlite3.connect(str(_users_db_path()), timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS users (
+        username TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        updated_at TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )""")
+    conn.commit()
+    return conn
+
+def _migrate_json_to_sqlite() -> None:
+    """One-time migration: import users.json into SQLite if SQLite is empty."""
+    try:
+        conn = _users_db_conn()
+        count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        conn.close()
+        if count > 0:
+            return  # Already migrated
+        json_data = load_json(USERS_PATH, {"users": {}})
+        users = json_data.get("users") or {}
+        if not users:
+            return
+        conn = _users_db_conn()
+        for uname, udata in users.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO users (username, data, updated_at) VALUES (?,?,?)",
+                (uname, json.dumps(udata), udata.get("updated_at") or now_iso())
+            )
+        conn.commit()
+        conn.close()
+        print(f"[DB] Migrated {len(users)} users from users.json to SQLite.", flush=True)
+    except Exception as e:
+        print(f"[DB] Migration failed — falling back to JSON: {e}", flush=True)
+
 _USERS_CACHE: Optional[Dict[str, Any]] = None
 _USERS_CACHE_TS: float = 0.0
-_USERS_CACHE_TTL: float = 3.0  # seconds — short enough to stay consistent, long enough to cut I/O
+_USERS_CACHE_TTL: float = 3.0
 _USERS_CACHE_LOCK = threading.Lock()
 
 def load_users() -> Dict[str, Any]:
@@ -1746,11 +1869,24 @@ def load_users() -> Dict[str, Any]:
     import time as _t
     with _USERS_CACHE_LOCK:
         if _USERS_CACHE is not None and (_t.monotonic() - _USERS_CACHE_TS) < _USERS_CACHE_TTL:
-            return dict(_USERS_CACHE)  # return a shallow copy so callers don't mutate the cache
-    data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
-    if not isinstance(data, dict):
-        data = {"users": {}, "updated_at": None}
-    data.setdefault("users", {})
+            return dict(_USERS_CACHE)
+    try:
+        conn = _users_db_conn()
+        rows = conn.execute("SELECT username, data FROM users").fetchall()
+        conn.close()
+        users = {}
+        for uname, udata_str in rows:
+            try:
+                users[uname] = json.loads(udata_str)
+            except Exception:
+                pass
+        data = {"users": users, "updated_at": now_iso()}
+    except Exception:
+        # SQLite unavailable — fall back to JSON file
+        data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
+        if not isinstance(data, dict):
+            data = {"users": {}, "updated_at": None}
+        data.setdefault("users", {})
     with _USERS_CACHE_LOCK:
         _USERS_CACHE = data
         _USERS_CACHE_TS = __import__("time").monotonic()
@@ -1765,10 +1901,26 @@ def _invalidate_users_cache() -> None:
 def save_users(data: Dict[str, Any]) -> None:
     global _HAS_ANY_USER_CACHE
     data["updated_at"] = now_iso()
-    save_json(USERS_PATH, data)
-    _invalidate_users_cache()  # Force fresh read after any write
-    # Prime the cache — if we just saved at least one user, latch it to True
-    if data.get("users"):
+    users = data.get("users") or {}
+    try:
+        conn = _users_db_conn()
+        for uname, udata in users.items():
+            if isinstance(udata, dict):
+                conn.execute(
+                    "INSERT OR REPLACE INTO users (username, data, updated_at) VALUES (?,?,?)",
+                    (uname, json.dumps(udata), udata.get("updated_at") or now_iso())
+                )
+        # Delete users that were removed from the dict
+        if users:
+            placeholders = ",".join("?" for _ in users)
+            conn.execute(f"DELETE FROM users WHERE username NOT IN ({placeholders})", list(users.keys()))
+        conn.commit()
+        conn.close()
+    except Exception:
+        # SQLite write failed — fall back to JSON
+        save_json(USERS_PATH, data)
+    _invalidate_users_cache()
+    if users:
         with _HAS_ANY_USER_LOCK:
             _HAS_ANY_USER_CACHE = True
 
@@ -2722,6 +2874,17 @@ try:
     _start_backup_thread()
 except Exception as _be:
     print(f"[BACKUP] Could not start backup thread: {_be}", flush=True)
+
+try:
+    _migrate_json_to_sqlite()
+except Exception as _dbe:
+    print(f"[DB] SQLite migration error: {_dbe}", flush=True)
+
+try:
+    _load_persisted_jobs()
+    print("[JOBS] Persisted job state loaded.", flush=True)
+except Exception as _je:
+    print(f"[JOBS] Could not load persisted jobs: {_je}", flush=True)
 
 # =========================
 # DAEMON HEARTBEAT MONITOR
@@ -3762,8 +3925,54 @@ def _truncate_thread_with_note(thread: List[Dict[str, Any]], max_messages: int =
     ] + kept
 
 
+_SEARCH_INDEX: Dict[str, Any] = {}  # uname -> {"index": {word -> [(tm, msg_idx, snippet)]}, "ts": float}
+_SEARCH_INDEX_LOCK = threading.Lock()
+_SEARCH_INDEX_TTL = 60.0
+
+def _invalidate_search_index(uname: str) -> None:
+    with _SEARCH_INDEX_LOCK:
+        _SEARCH_INDEX.pop(uname, None)
+
+def _build_search_index(uname: str, installed: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a word -> [(teammate, msg_idx, snippet)] index for instant search."""
+    import time as _t
+    with _SEARCH_INDEX_LOCK:
+        cached = _SEARCH_INDEX.get(uname)
+        if cached and (_t.monotonic() - cached["ts"]) < _SEARCH_INDEX_TTL:
+            return cached["index"]
+    # Build fresh index
+    idx: Dict[str, List] = {}
+    for tm_name in installed:
+        try:
+            thread = load_thread(tm_name, uname)
+            for i, m in enumerate(thread):
+                content = m.get("content") or ""
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content)
+                content_lower = content.lower()
+                snippet = content[:300].replace("\n", " ")
+                # Index 3-char+ words and bigrams
+                words = re.findall(r'\b\w{3,}\b', content_lower)
+                for w in set(words):
+                    idx.setdefault(w, []).append((tm_name, m.get("role", "user"), i, snippet))
+                # Index bigrams for phrase search
+                for j in range(len(words) - 1):
+                    bigram = words[j] + " " + words[j+1]
+                    idx.setdefault(bigram, []).append((tm_name, m.get("role", "user"), i, snippet))
+        except Exception:
+            pass
+    with _SEARCH_INDEX_LOCK:
+        _SEARCH_INDEX[uname] = {"index": idx, "ts": __import__("time").monotonic()}
+    return idx
+
 def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = "") -> None:
     save_json(thread_path(teammate_name, username), msgs)
+    # Invalidate search index so next search rebuilds fresh
+    try:
+        uname = username or _get_session_username()
+        _invalidate_search_index(uname)
+    except Exception:
+        pass
     # [UPGRADE 4] Track last_used_at on the teammate's registry entry — additive, never breaks reads
     try:
         uname = username or _get_session_username()
@@ -3798,6 +4007,7 @@ def save_teammate_memory(uname: str, name: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     try:
         save_json(_tm_memory_path(uname, name), data)
+        _invalidate_sys_prompt_cache(uname, name)
     except Exception:
         pass
 
@@ -4843,6 +5053,20 @@ def _invalidate_sys_ctx_cache(username: str) -> None:
     with _SYS_CTX_LOCK:
         _SYS_CTX_CACHE.pop(username, None)
 
+_SYS_PROMPT_CACHE: Dict[str, Any] = {}  # key -> {"prompt": str, "ts": float}
+_SYS_PROMPT_CACHE_TTL = 30.0
+_SYS_PROMPT_CACHE_LOCK = threading.Lock()
+
+def _invalidate_sys_prompt_cache(username: str = "", teammate: str = "") -> None:
+    """Call when memory, settings, or teammate definition changes."""
+    import time as _t
+    with _SYS_PROMPT_CACHE_LOCK:
+        if username and teammate:
+            _SYS_PROMPT_CACHE.pop(f"{username}:{teammate}:True", None)
+            _SYS_PROMPT_CACHE.pop(f"{username}:{teammate}:False", None)
+        else:
+            _SYS_PROMPT_CACHE.clear()
+
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                            rag_context: str = "") -> str:
     role_block = {
@@ -5121,7 +5345,19 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         brand_context_block = ""
 
-    return (
+    # Cache the base prompt (everything except rag_context which changes per message)
+    import time as _t
+    try:
+        _uname_cache = _get_session_username()
+    except Exception:
+        _uname_cache = "anon"
+    _cache_key = f"{_uname_cache}:{defn.get('name','')}:{lighting_mode}"
+    with _SYS_PROMPT_CACHE_LOCK:
+        _cached = _SYS_PROMPT_CACHE.get(_cache_key)
+        if _cached and (_t.monotonic() - _cached["ts"]) < _SYS_PROMPT_CACHE_TTL:
+            return _cached["prompt"] + (f"\n{rag_context}" if rag_context else "")
+
+    _base_prompt = (
         "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
         "Follow the core framework and role block.\n"
         "Be accurate. If you are unsure, say so.\n"
@@ -5140,11 +5376,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{shared_memory_block}\n"
         f"{teammate_memory_block}"
         f"{brand_context_block}"
-        f"{rag_context}"
         f"{behavior_rules}\n"
         f"{format_rules}\n"
         f"ROLE BLOCK (locked):\n{json.dumps(role_block, indent=2)}\n"
     )
+    with _SYS_PROMPT_CACHE_LOCK:
+        _SYS_PROMPT_CACHE[_cache_key] = {"prompt": _base_prompt, "ts": _t.monotonic()}
+    return _base_prompt + (f"\n{rag_context}" if rag_context else "")
 
 
 ContentType = Union[str, List[Dict[str, Any]]]
@@ -8301,7 +8539,7 @@ def api_thread_inject(name: str):
 
 @app.get("/api/search_threads")
 def api_search_threads():
-    """Full-text search across all of the user's saved teammate threads."""
+    """Full-text search across all of the user's saved teammate threads — index-backed for speed."""
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -8309,28 +8547,46 @@ def api_search_threads():
     q = (request.args.get("q") or "").strip().lower()
     if not q or len(q) < 2:
         return jsonify({"ok": True, "results": []})
-    reg   = load_registry(uname)
+    reg = load_registry(uname)
     installed = reg.get("installed") or {}
-    results: List[Dict[str, Any]] = []
-    for tm_name in installed:
-        thread = load_thread(tm_name, uname)
-        for i, m in enumerate(thread):
-            content = (m.get("content") or "")
-            if isinstance(content, list):
-                content = " ".join(str(c) for c in content)
-            if q in content.lower():
-                snippet = content[:300].replace("\n", " ")
-                results.append({
-                    "teammate": tm_name,
-                    "role": m.get("role", "user"),
-                    "snippet": snippet,
-                    "msg_index": i,
-                })
+    try:
+        idx = _build_search_index(uname, installed)
+        # Look up all query words/phrases in the index
+        q_words = re.findall(r'\b\w{3,}\b', q)
+        bigrams = [q_words[i] + " " + q_words[i+1] for i in range(len(q_words)-1)]
+        search_terms = bigrams if bigrams else q_words
+        if not search_terms:
+            search_terms = [q] if len(q) >= 3 else []
+        # Collect hits, deduplicate by (teammate, msg_index)
+        seen: set = set()
+        results: List[Dict[str, Any]] = []
+        for term in search_terms:
+            for entry in (idx.get(term) or []):
+                tm_name, role, msg_idx, snippet = entry
+                key = (tm_name, msg_idx)
+                if key not in seen:
+                    seen.add(key)
+                    results.append({"teammate": tm_name, "role": role, "snippet": snippet, "msg_index": msg_idx})
                 if len(results) >= 40:
                     break
-        if len(results) >= 40:
-            break
-    return jsonify({"ok": True, "results": results, "query": q})
+            if len(results) >= 40:
+                break
+        return jsonify({"ok": True, "results": results, "query": q, "indexed": True})
+    except Exception:
+        # Fallback to linear scan if index fails
+        results = []
+        for tm_name in installed:
+            thread = load_thread(tm_name, uname)
+            for i, m in enumerate(thread):
+                content = (m.get("content") or "")
+                if isinstance(content, list):
+                    content = " ".join(str(c) for c in content)
+                if q in content.lower():
+                    results.append({"teammate": tm_name, "role": m.get("role","user"),
+                                    "snippet": content[:300].replace("\n"," "), "msg_index": i})
+                    if len(results) >= 40: break
+            if len(results) >= 40: break
+        return jsonify({"ok": True, "results": results, "query": q})
 
 
 @app.get("/api/teammates/<name>/image_state")
@@ -22580,17 +22836,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
       }
 
-      // Streaming fanout: each teammate streams tokens in real time before moving to the next
+      // Parallel fanout: all teammates stream simultaneously via Promise.all
       const outputs = {};
       const drafts = {};
       const images = {};
 
-      for(const n of order){
-        setSeatLive(n, "thinking");
-        // Show live streaming placeholder in group panel
-        outputs[n] = "…";
-        renderGroupReplies(outputs, drafts, images);
+      // Initialize all seats to thinking immediately
+      order.forEach(n => { outputs[n] = "…"; setSeatLive(n, "thinking"); });
+      renderGroupReplies(outputs, drafts, images);
 
+      await Promise.all(order.map(async (n) => {
         try{
           const controller = new AbortController();
           const t = setTimeout(() => controller.abort(), 120000);
@@ -22606,7 +22861,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             setSeatLive(n, "waiting");
             outputs[n] = "(error)";
             renderGroupReplies(outputs, drafts, images);
-            continue;
+            return;
           }
 
           const reader = res.body.getReader();
@@ -22636,7 +22891,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           if(!outputs[n] || outputs[n] === "…") outputs[n] = "(timed out)";
           renderGroupReplies(outputs, drafts, images);
         }
-      }
+      }));
 
       lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
@@ -22685,6 +22940,20 @@ async function pollImageJob(jobId, seatName){
       const data = await res.json();
       if(data && data.ok && data.job){
         const st = data.job.status;
+        const stageLabel = data.job.stage_label || "";
+        // Update the in-thread placeholder with the current stage label
+        if(stageLabel && (st === "running" || st === "queued")){
+          try{
+            const msgs = document.querySelectorAll('.msg');
+            msgs.forEach(m => {
+              if(m.innerText && m.innerText.includes("job:" + jobId)){
+                const body = m.querySelector('.replyBody') || m;
+                if(body) body.innerHTML = '<span style="opacity:.7;font-style:italic;">' + stageLabel + '</span>';
+              }
+            });
+            setOpStatus(stageLabel);
+          }catch(_){}
+        }
         if(st === "done" || st === "error"){
           await refreshThread();
           setSeatLive(targetSeat, (st==="done") ? "done" : "waiting");
@@ -25570,14 +25839,21 @@ Challenge weak assumptions. Surface risks.`;
       return true;
     }
 
-    function crmRenderClients(){
+    if(!window._crmPage) window._crmPage = 0;
+    const CRM_PAGE_SIZE = 50;
+
+    function crmRenderClients(resetPage){
+      if(resetPage) window._crmPage = 0;
       const box = $("crmClientsList");
       if(!box) return;
       const q = ($("crmSearch")?.value || '');
       const filt = ($("crmFilter")?.value || '');
-      const list = (crmCache.clients||[]).filter(c=>crmMatchFilter(c,q,filt));
+      const allList = (crmCache.clients||[]).filter(c=>crmMatchFilter(c,q,filt));
+      const totalCount = allList.length;
+      const pageStart = window._crmPage * CRM_PAGE_SIZE;
+      const list = allList.slice(pageStart, pageStart + CRM_PAGE_SIZE);
 
-      if(!list.length){
+      if(!totalCount){
         const noData = !(crmCache.clients||[]).length;
         box.innerHTML = noData
           ? `<div style="text-align:center;padding:48px 24px;color:#64748b;">
@@ -25593,7 +25869,7 @@ Challenge weak assumptions. Surface risks.`;
       // Bulk selection state
       if(!window._crmSelectedIds) window._crmSelectedIds = new Set();
 
-      const rows = list.map(c=>{
+      const rows = allList.slice(pageStart, pageStart + CRM_PAGE_SIZE).map(c=>{
         const tags = (c.tags||[]).map(t=>`<span class="pill" style="margin-right:6px;">${escapeHtml(t)}</span>`).join('');
         const id = escapeHtml(c.id||'');
         const name = escapeHtml(c.name||'');
@@ -25652,7 +25928,22 @@ Challenge weak assumptions. Surface risks.`;
         `;
       }).join('');
 
-      box.innerHTML = rows;
+      // Build pagination bar
+      const totalPages = Math.ceil(totalCount / CRM_PAGE_SIZE);
+      let pageBar = '';
+      if(totalPages > 1){
+        const prev = window._crmPage > 0;
+        const next = window._crmPage < totalPages - 1;
+        pageBar = `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;margin-top:6px;font-size:12px;color:#64748b;">
+          <span>${pageStart+1}–${Math.min(pageStart+CRM_PAGE_SIZE, totalCount)} of ${totalCount} contacts</span>
+          <div style="display:flex;gap:6px;">
+            <button onclick="window._crmPage=Math.max(0,window._crmPage-1);crmRenderClients()" ${prev?'':'disabled'} style="padding:3px 10px;border-radius:6px;border:1px solid rgba(42,58,106,.5);background:rgba(255,255,255,.05);color:${prev?'#e2e8f0':'#475569'};cursor:${prev?'pointer':'default'};">← Prev</button>
+            <button onclick="window._crmPage=Math.min(${totalPages-1},window._crmPage+1);crmRenderClients()" ${next?'':'disabled'} style="padding:3px 10px;border-radius:6px;border:1px solid rgba(42,58,106,.5);background:rgba(255,255,255,.05);color:${next?'#e2e8f0':'#475569'};cursor:${next?'pointer':'default'};">Next →</button>
+          </div>
+        </div>`;
+      }
+
+      box.innerHTML = rows + pageBar;
 
       // Wire checkboxes for bulk selection
       box.querySelectorAll('.crmBulkCheck').forEach(cb=>{
@@ -27094,8 +27385,8 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmCancelEdit', ()=>{ const ed=$("crmClientEditor"); if(ed) ed.style.display='none'; crmEditingClientId=null; });
       b('crmSaveClient', crmSaveClient);
 
-      if($("crmSearch")) $("crmSearch").addEventListener('input', crmRenderClients);
-      if($("crmFilter")) $("crmFilter").addEventListener('change', crmRenderClients);
+      if($("crmSearch")) $("crmSearch").addEventListener('input', ()=>{ window._crmPage=0; crmRenderClients(); });
+      if($("crmFilter")) $("crmFilter").addEventListener('change', ()=>{ window._crmPage=0; crmRenderClients(); });
 
       b('crmReloadPipeline', crmLoadPipelineIntoBox);
       b('crmSavePipeline', crmSavePipeline);
@@ -42283,9 +42574,13 @@ def _crm_tick_once() -> None:
                 except Exception:
                     pass
 
-                # Advance
+                # Advance with retry tracking
+                e["last_send_status"] = "ok" if ok_send else "failed"
+                e["last_send_error"] = "" if ok_send else err
+                e["last_send_at"] = now_utc.isoformat() + "Z"
                 if ok_send:
                     sends_done += 1
+                    e["retry_count"] = 0  # reset retries on success
                     e["step_index"] = step_i + 1
                     if (step_i + 1) >= len(steps):
                         e["status"] = "complete"
@@ -42295,8 +42590,17 @@ def _crm_tick_once() -> None:
                     enroll[eid] = e
                     changed = True
                 else:
-                    # backoff 1 day to avoid hammering
-                    e["next_due"] = (now_utc + timedelta(days=1)).isoformat() + "Z"
+                    # Track retry attempts — max 3 before marking step as permanently failed
+                    retry_count = int(e.get("retry_count") or 0) + 1
+                    e["retry_count"] = retry_count
+                    if retry_count >= 3:
+                        e["status"] = "failed"
+                        e["next_due"] = ""
+                        e["fail_reason"] = f"Step {step_i + 1} failed after 3 attempts: {err}"
+                    else:
+                        # Exponential backoff: 1 day, then 2 days, then 3 days
+                        backoff_days = retry_count
+                        e["next_due"] = (now_utc + timedelta(days=backoff_days)).isoformat() + "Z"
                     enroll[eid] = e
                     changed = True
 
@@ -44660,6 +44964,20 @@ def api_crm_lead_lab():
         if not niche and not location and not specific_areas:
             return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
 
+        # Cache results for identical searches to avoid 800+ outbound HTTP calls per repeat
+        import hashlib as _hl, time as _t2
+        _cache_str = f"{niche}|{location}|{search_mode}|{require_contact}|{biz_type_filter}|{require_social}|{require_reviews}|{specific_areas}"
+        _cache_key = _hl.md5(_cache_str.encode()).hexdigest()
+        _LEAD_LAB_CACHE = getattr(api_crm_lead_lab, "_cache", None)
+        if _LEAD_LAB_CACHE is None:
+            api_crm_lead_lab._cache = {}
+            _LEAD_LAB_CACHE = api_crm_lead_lab._cache
+        _cached_entry = _LEAD_LAB_CACHE.get(_cache_key)
+        if _cached_entry and (_t2.monotonic() - _cached_entry["ts"]) < 7200:  # 2-hour TTL
+            _cached_final = _cached_entry["results"][:lead_count]
+            return jsonify({"ok": True, "items": _cached_final, "count": len(_cached_final),
+                            "warning": "", "cached": True})
+
         discovered = _crm_discover_public_leads(
             niche, location, lead_count * 3, search_mode,
             existing_domains=set(),
@@ -44712,6 +45030,15 @@ def api_crm_lead_lab():
         except Exception:
             pass
 
+        # Store results in cache for next identical search
+        try:
+            api_crm_lead_lab._cache[_cache_key] = {"results": final, "ts": _t2.monotonic()}
+            # Keep cache from growing unbounded — max 50 entries
+            if len(api_crm_lead_lab._cache) > 50:
+                oldest = min(api_crm_lead_lab._cache.items(), key=lambda x: x[1]["ts"])
+                api_crm_lead_lab._cache.pop(oldest[0], None)
+        except Exception:
+            pass
         resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
@@ -52449,6 +52776,18 @@ def api_teammate_extract_memory():
         thread = load_thread(name, uname)
         if len(thread) < 4:
             return jsonify({"ok": True, "skipped": True})
+        # Skip extraction if recent messages are all short/trivial — no extractable content
+        recent = thread[-10:]
+        _user_msgs = [m for m in recent if m.get("role") == "user"]
+        _total_user_chars = sum(len(str(m.get("content") or "")) for m in _user_msgs)
+        _avg_user_chars = _total_user_chars / max(len(_user_msgs), 1)
+        _trivial_words = {"ok", "thanks", "yes", "no", "sure", "great", "cool", "got it",
+                          "okay", "yep", "nope", "k", "lol", "haha", "nice", "good", "sounds good"}
+        _trivial_count = sum(1 for m in _user_msgs
+                             if (str(m.get("content") or "").strip().lower() in _trivial_words
+                                 or len(str(m.get("content") or "")) < 20))
+        if _avg_user_chars < 30 or _trivial_count >= len(_user_msgs):
+            return jsonify({"ok": True, "skipped": True, "reason": "trivial_messages"})
         new_data = _extract_memory_from_thread(name, thread[-20:])
         if new_data:
             existing = load_teammate_memory(uname, name)
