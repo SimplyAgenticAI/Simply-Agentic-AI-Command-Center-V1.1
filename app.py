@@ -24046,16 +24046,18 @@ $("draftWithSelected").onclick = async () => {
 
       const isMobile = window.innerWidth < 700;
 
+      const isWide = window.innerWidth >= 1200;
+
       const pane = document.createElement("div");
       pane.style.cssText = isMobile ? "display:flex;flex-direction:column;height:100%;overflow:hidden;" : "display:flex;height:100%;overflow:hidden;";
 
       // ── LEFT SIDEBAR ──────────────────────────────────────────────────────────
       const left = document.createElement("div");
-      left.style.cssText = isMobile ? "display:none;" : "width:240px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.35);overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:4px;background:rgba(4,7,20,.6);";
+      left.style.cssText = isMobile ? "display:none;" : "width:270px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.35);overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:4px;background:rgba(4,7,20,.6);";
 
       // ── RIGHT EDITOR ──────────────────────────────────────────────────────────
       const right = document.createElement("div");
-      right.style.cssText = isMobile ? "flex:1;overflow-y:auto;padding:16px 14px;" : "flex:1;overflow-y:auto;padding:24px 28px;";
+      right.style.cssText = isMobile ? "flex:1;overflow-y:auto;padding:16px 14px;" : "flex:1;overflow-y:auto;padding:28px 32px;";
 
       // Mobile selector
       let mobSel = null;
@@ -24067,21 +24069,21 @@ $("draftWithSelected").onclick = async () => {
         mw.appendChild(ml); mw.appendChild(mobSel); right.appendChild(mw);
       }
 
-      // ── RIGHT PANEL: header (avatar + name) ───────────────────────────────────
+      // ── RIGHT PANEL: header (avatar + name + save) ────────────────────────────
       const rHdrCircle = document.createElement("div");
-      rHdrCircle.style.cssText = "width:62px;height:62px;border-radius:50%;font-size:26px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 20px rgba(0,0,0,.4);";
+      rHdrCircle.style.cssText = "width:72px;height:72px;border-radius:50%;font-size:30px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 6px 24px rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.08);";
       const rHdrBadge = document.createElement("div");
       rHdrBadge.style.cssText = "display:none;font-size:9px;font-weight:700;color:rgba(196,181,253,.8);background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);border-radius:20px;padding:2px 8px;letter-spacing:.06em;";
       rHdrBadge.textContent = "CUSTOM";
       const rHdrName = document.createElement("div");
-      rHdrName.style.cssText = "font-weight:800;font-size:22px;color:#f0f4ff;letter-spacing:-.01em;";
+      rHdrName.style.cssText = "font-weight:800;font-size:26px;color:#f0f4ff;letter-spacing:-.02em;";
       const rHdrRole = document.createElement("div");
-      rHdrRole.style.cssText = "font-size:13px;color:rgba(148,163,184,.6);margin-top:3px;";
+      rHdrRole.style.cssText = "font-size:13px;color:rgba(148,163,184,.55);margin-top:4px;";
       const rHdrInfo = document.createElement("div");
-      rHdrInfo.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      rHdrInfo.style.cssText = "display:flex;flex-direction:column;gap:5px;flex:1;";
       rHdrInfo.appendChild(rHdrName); rHdrInfo.appendChild(rHdrRole); rHdrInfo.appendChild(rHdrBadge);
       const rHdr = document.createElement("div");
-      rHdr.style.cssText = "display:flex;align-items:center;gap:18px;margin-bottom:22px;padding-bottom:20px;border-bottom:1px solid rgba(42,58,106,.4);";
+      rHdr.style.cssText = "display:flex;align-items:center;gap:20px;margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid rgba(42,58,106,.4);";
       rHdr.appendChild(rHdrCircle); rHdr.appendChild(rHdrInfo);
       right.appendChild(rHdr);
 
@@ -24093,15 +24095,15 @@ $("draftWithSelected").onclick = async () => {
       function mkCard(icon, title){ const c=document.createElement("div"); c.style.cssText=CARD_CSS; const h=document.createElement("div"); h.style.cssText=CARD_HDR; const ic=document.createElement("span"); ic.style.cssText=CARD_ICON; ic.textContent=icon; const tt=document.createElement("span"); tt.style.cssText=CARD_TITLE; tt.textContent=title; h.appendChild(ic); h.appendChild(tt); c.appendChild(h); return c; }
       function grid(cols, ...els){ const g=document.createElement("div"); g.style.cssText="display:grid;grid-template-columns:"+cols+";gap:12px;"; els.forEach(e=>g.appendChild(e)); return g; }
 
-      // Fields
+      // Fields — taller textareas to use available vertical space
       const fName  = mkInput(true);
       const fJob   = mkInput(false);
       const fVer   = mkInput(false);
-      const fMiss  = mkTa(80);
-      const fGoal  = mkTa(70);
-      const fThink = mkTa(70);
-      const fResp  = mkTa(100);
-      const fWnd   = mkTa(80);
+      const fMiss  = mkTa(isWide?120:90);
+      const fGoal  = mkTa(isWide?120:90);
+      const fThink = mkTa(isWide?100:80);
+      const fResp  = mkTa(isWide?140:110);
+      const fWnd   = mkTa(isWide?140:110);
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
@@ -24112,48 +24114,57 @@ $("draftWithSelected").onclick = async () => {
         ["onyx","Onyx — deep male"],["nova","Nova — female, bright"],["shimmer","Shimmer — soft female"]
       ]);
 
-      // Card 1 — Identity
+      // On wide screens: 2-column card layout (left col = Identity+Behavior, right = Personality+Voice)
       const c1 = mkCard("🪪", "Identity");
-      c1.appendChild(grid(isMobile?"1fr 1fr":"2fr 2fr 1fr", wrap("Name", fName), wrap("Job Title", fJob), wrap("Version", fVer)));
-      right.appendChild(c1);
+      c1.appendChild(grid(isMobile?"1fr":"2fr 2fr 1fr", wrap("Name", fName), wrap("Job Title", fJob), wrap("Version", fVer)));
 
-      // Card 2 — Personality
       const c2 = mkCard("🧠", "Personality");
       if(isMobile){
         c2.appendChild(wrap("Mission", fMiss));
-        c2.appendChild(Object.assign(document.createElement("div"),{style:"margin-top:12px;"}));
+        const sp1=document.createElement("div");sp1.style.marginTop="12px";c2.appendChild(sp1);
         c2.appendChild(wrap("Goal", fGoal));
-        c2.appendChild(Object.assign(document.createElement("div"),{style:"margin-top:12px;"}));
+        const sp2=document.createElement("div");sp2.style.marginTop="12px";c2.appendChild(sp2);
         c2.appendChild(wrap("Thinking Style", fThink));
       } else {
         c2.appendChild(grid("1fr 1fr", wrap("Mission", fMiss), wrap("Goal", fGoal)));
-        const ts = document.createElement("div"); ts.style.marginTop="12px"; ts.appendChild(wrap("Thinking Style", fThink));
-        c2.appendChild(ts);
+        const ts=document.createElement("div");ts.style.marginTop="12px";ts.appendChild(wrap("Thinking Style",fThink));c2.appendChild(ts);
       }
-      right.appendChild(c2);
 
-      // Card 3 — Behavior
       const c3 = mkCard("⚡", "Behavior");
       c3.appendChild(isMobile
-        ? (()=>{ const d=document.createElement("div"); d.style.cssText="display:flex;flex-direction:column;gap:12px;"; d.appendChild(wrap("Responsibilities (one per line)",fResp)); d.appendChild(wrap("Will Not Do (one per line)",fWnd)); return d; })()
+        ? (()=>{ const d=document.createElement("div");d.style.cssText="display:flex;flex-direction:column;gap:12px;";d.appendChild(wrap("Responsibilities (one per line)",fResp));d.appendChild(wrap("Will Not Do (one per line)",fWnd));return d;})()
         : grid("1fr 1fr", wrap("Responsibilities (one per line)", fResp), wrap("Will Not Do (one per line)", fWnd))
       );
-      right.appendChild(c3);
 
-      // Card 4 — Voice & Model
       const c4 = mkCard("🤖", "Voice & Model");
       c4.appendChild(grid(isMobile?"1fr":"1fr 1fr", wrap("AI Model", fModel), wrap("TTS Voice", fVoice)));
-      right.appendChild(c4);
 
-      // Save footer
+      if(isWide && !isMobile){
+        // Two-column card grid using full horizontal space
+        const colGrid = document.createElement("div");
+        colGrid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;";
+        // Left column: Identity + Behavior
+        const colL = document.createElement("div"); colL.style.cssText="display:flex;flex-direction:column;gap:14px;";
+        colL.appendChild(c1); colL.appendChild(c3);
+        // Right column: Personality + Voice
+        const colR = document.createElement("div"); colR.style.cssText="display:flex;flex-direction:column;gap:14px;";
+        colR.appendChild(c2); colR.appendChild(c4);
+        colGrid.appendChild(colL); colGrid.appendChild(colR);
+        right.appendChild(colGrid);
+      } else {
+        // Single column on smaller screens
+        [c1,c2,c3,c4].forEach(c=>right.appendChild(c));
+      }
+
+      // Save footer — sticky at bottom of right panel
       const saveBtn = document.createElement("button");
       saveBtn.className = "btn btnPrimary";
-      saveBtn.style.cssText = "padding:11px 28px;font-size:14px;font-weight:700;";
+      saveBtn.style.cssText = "padding:12px 32px;font-size:14px;font-weight:700;min-width:160px;";
       saveBtn.textContent = "💾 Save Changes";
       const statusEl = document.createElement("span");
       statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:14px;";
       const footer = document.createElement("div");
-      footer.style.cssText = "display:flex;align-items:center;padding-bottom:8px;";
+      footer.style.cssText = "display:flex;align-items:center;padding:18px 0 8px;border-top:1px solid rgba(42,58,106,.3);margin-top:6px;";
       footer.appendChild(saveBtn); footer.appendChild(statusEl);
       right.appendChild(footer);
 
@@ -30555,89 +30566,90 @@ async function showImageLibraryModal(startTab){
     }
 
     pane.innerHTML = "";
-    const grid = document.createElement("div");
-    grid.style.display = "grid";
-    grid.style.gridTemplateColumns = "repeat(auto-fill, minmax(200px, 1fr))";
-    grid.style.gap = "12px";
 
-    imgs.slice(0, 120).forEach((r)=>{
+    // Toolbar: image count + download-all
+    const toolbar = document.createElement("div");
+    toolbar.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;";
+    toolbar.innerHTML = `
+      <span style="font-size:12px;color:#475569;font-weight:600;">${imgs.length} image${imgs.length===1?"":"s"}</span>
+      <div style="display:flex;gap:8px;">
+        <button id="mlSizeSmall" class="btn btnMini" title="Small grid" style="font-size:13px;padding:3px 8px;">⊞</button>
+        <button id="mlSizeLarge" class="btn btnMini btnPrimary" title="Large grid" style="font-size:13px;padding:3px 8px;">⊟</button>
+      </div>`;
+    pane.appendChild(toolbar);
+
+    let _mlCols = "repeat(auto-fill,minmax(280px,1fr))";
+    let _mlHeight = "220px";
+
+    const grid = document.createElement("div");
+    grid.style.cssText = `display:grid;grid-template-columns:${_mlCols};gap:14px;`;
+
+    function _mlRebuild(cols, h){
+      _mlCols=cols; _mlHeight=h;
+      grid.style.gridTemplateColumns=cols;
+      grid.querySelectorAll(".ml-img").forEach(im=>im.style.height=h);
+    }
+
+    toolbar.querySelector("#mlSizeSmall").onclick=()=>{ _mlRebuild("repeat(auto-fill,minmax(180px,1fr))","150px"); };
+    toolbar.querySelector("#mlSizeLarge").onclick=()=>{ _mlRebuild("repeat(auto-fill,minmax(280px,1fr))","220px"); };
+
+    imgs.slice(0, 200).forEach((r)=>{
       const card = document.createElement("div");
-      card.style.border = "1px solid rgba(255,255,255,.10)";
-      card.style.borderRadius = "12px";
-      card.style.padding = "8px";
-      card.style.background = "rgba(0,0,0,.18)";
+      card.style.cssText = "position:relative;border-radius:14px;overflow:hidden;background:rgba(7,11,28,.8);border:1px solid rgba(42,58,106,.4);cursor:zoom-in;group;transition:border-color .15s,box-shadow .15s;";
+      card.onmouseenter=()=>{ card.style.borderColor="rgba(124,58,237,.5)"; card.style.boxShadow="0 8px 32px rgba(0,0,0,.5)"; overlay.style.opacity="1"; };
+      card.onmouseleave=()=>{ card.style.borderColor="rgba(42,58,106,.4)"; card.style.boxShadow=""; overlay.style.opacity="0"; };
 
       const im = document.createElement("img");
       im.src = r.url;
       im.alt = r.filename || "image";
-      im.style.width = "100%";
-      im.style.height = "140px";
-      im.style.objectFit = "cover";
-      im.style.borderRadius = "10px";
-      im.style.cursor = "zoom-in";
+      im.className = "ml-img";
+      im.style.cssText = `width:100%;height:${_mlHeight};object-fit:cover;display:block;transition:transform .2s;`;
+      im.onmouseenter=()=>im.style.transform="scale(1.03)";
+      im.onmouseleave=()=>im.style.transform="";
       im.onclick = ()=> openLightbox(r.url);
 
-      const meta = document.createElement("div");
-      meta.className = "tiny";
-      meta.style.marginTop = "6px";
-      meta.style.opacity = ".9";
-      meta.style.wordBreak = "break-word";
-      meta.innerText = (r.teammate ? (r.teammate + " • ") : "") + (r.uploaded_at || "");
+      // Hover overlay with actions
+      const overlay = document.createElement("div");
+      overlay.style.cssText = "position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(4,8,24,.95) 100%);opacity:0;transition:opacity .18s;pointer-events:none;";
 
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      actions.style.justifyContent = "flex-start";
-      actions.style.marginTop = "8px";
+      const actionBar = document.createElement("div");
+      actionBar.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:10px 10px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;";
 
-      const openBtn = document.createElement("button");
-      openBtn.className = "btn btnMini";
-      openBtn.innerText = "Open";
-      openBtn.onclick = ()=> openLightbox(r.url);
+      const metaSpan = document.createElement("span");
+      metaSpan.style.cssText = "font-size:11px;color:#94a3b8;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50%;";
+      metaSpan.innerText = r.teammate || "";
 
-      const dlBtn2 = document.createElement("button");
-      dlBtn2.className = "btn btnMini";
-      dlBtn2.innerText = "Download";
-      dlBtn2.onclick = ()=>{
-        const a = document.createElement('a');
-        a.href = r.url; a.download = r.url.split('/').pop() || 'image.png';
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;gap:5px;flex-shrink:0;";
+
+      function _mlBtn(label, title, onClick){
+        const b = document.createElement("button");
+        b.className="btn btnMini";
+        b.innerText=label; b.title=title;
+        b.style.cssText="font-size:11px;padding:3px 8px;background:rgba(7,11,28,.85);border-color:rgba(100,116,139,.4);";
+        b.onclick=e=>{e.stopPropagation();onClick();};
+        return b;
+      }
+
+      btnRow.appendChild(_mlBtn("⛶","Open full size",()=>openLightbox(r.url)));
+      btnRow.appendChild(_mlBtn("⬇","Download",()=>{
+        const a=document.createElement("a");
+        a.href=r.url; a.download=r.url.split("/").pop()||"image.png";
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      };
+      }));
+      btnRow.appendChild(_mlBtn("🔗","Copy link",()=>{
+        const fullUrl=window.location.origin+r.url;
+        navigator.clipboard.writeText(fullUrl).then(()=>showToast("Link copied!")).catch(()=>prompt("Copy link:",fullUrl));
+      }));
 
-      const shareBtn2 = document.createElement("button");
-      shareBtn2.className = "btn btnMini";
-      shareBtn2.innerText = "Share";
-      shareBtn2.onclick = ()=>{
-        const menu = document.createElement('div');
-        menu.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
-        menu.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;padding:20px;width:min(320px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.7);">
-          <div style="font-size:14px;font-weight:700;margin-bottom:14px;">Share Image</div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            <button class="btn" id="si2Email" style="text-align:left;">&#9993; Share via Email</button>
-            <button class="btn" id="si2Copy" style="text-align:left;">&#128279; Copy image link</button>
-            <button class="btn" id="si2Close" style="text-align:left;opacity:.6;">Cancel</button>
-          </div></div>`;
-        document.body.appendChild(menu);
-        menu.querySelector('#si2Email').onclick = ()=>{
-          const subject = encodeURIComponent('Image from Simply Agentic');
-          const body = encodeURIComponent('Here is the image:\n\n' + window.location.origin + r.url);
-          window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
-          menu.remove();
-        };
-        menu.querySelector('#si2Copy').onclick = ()=>{
-          const fullUrl = window.location.origin + r.url;
-          navigator.clipboard.writeText(fullUrl).then(()=>{ if(typeof showToast==='function') showToast('Link copied!'); }).catch(()=>{ prompt('Copy this link:', fullUrl); });
-          menu.remove();
-        };
-        menu.querySelector('#si2Close').onclick = ()=> menu.remove();
-      };
-
-      actions.appendChild(openBtn);
-      actions.appendChild(dlBtn2);
-      actions.appendChild(shareBtn2);
+      actionBar.appendChild(metaSpan);
+      actionBar.appendChild(btnRow);
+      overlay.style.pointerEvents="none";
+      actionBar.style.pointerEvents="auto";
 
       card.appendChild(im);
-      card.appendChild(meta);
-      card.appendChild(actions);
+      card.appendChild(overlay);
+      card.appendChild(actionBar);
       grid.appendChild(card);
     });
 
