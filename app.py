@@ -798,6 +798,8 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
         )
         data = r.json() if r.content else {}
         if r.status_code >= 400:
+            if data.get("error") == "invalid_grant":
+                return None, "__INVALID_GRANT__"
             return None, f"Token refresh failed: {data}"
         expires_in = int(data.get("expires_in") or 0)
         if expires_in:
@@ -4360,6 +4362,12 @@ def _calendar_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str]
         return None, "Calendar not connected. Go to Settings and connect Google Calendar."
     access_token, refreshed, err = _get_access_token_from_store(token_info, CALENDAR_SCOPES)
     if not access_token:
+        if err == "__INVALID_GRANT__" or "__INVALID_GRANT__" in (err or ""):
+            try:
+                _save_user_calendar_oauth(u, None)
+            except Exception:
+                pass
+            return None, "Your Google Calendar connection has expired. Please go to Settings and reconnect."
         return None, err or "Calendar session expired. Disconnect and reconnect Google Calendar."
     if refreshed:
         try:
@@ -4573,6 +4581,12 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
         return None, "Gmail not connected. Go to Settings and connect Gmail."
     access_token, refreshed, err = _get_access_token_from_store(token_info, GMAIL_SCOPES)
     if not access_token:
+        if err == "__INVALID_GRANT__" or "__INVALID_GRANT__" in (err or ""):
+            try:
+                _save_user_gmail_oauth(u, None)
+            except Exception:
+                pass
+            return None, "Your Gmail connection has expired. Please go to Settings → Email and reconnect Gmail."
         return None, err or "Gmail session expired. Disconnect and reconnect Gmail."
     if refreshed:
         try:
