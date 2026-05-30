@@ -20305,13 +20305,13 @@ window.showModal = function showModal(title, body, imgUrl){
 
     // Personality phrase sets shown while each teammate is thinking
     const _SA_PHRASES = {
-      "Sunshine": ["Strategizing…","Mapping it out…","Crafting…","Dialing in…","Positioning…","Building the play…"],
-      "Aria":     ["Writing…","Polishing…","Finding the words…","Sharpening…","Composing…","Refining…"],
-      "Atlas":    ["Researching…","Digging in…","Cross-referencing…","Verifying…","Sourcing…","Analyzing…"],
-      "Kira":     ["Visualizing…","Composing…","Refining…","Aligning…","Designing…","Structuring…"],
-      "Max":      ["Building…","Systematizing…","Optimizing…","Mapping…","Engineering…","Configuring…"],
-      "Leo":      ["Connecting…","Reading the room…","Calibrating…","Flowing…","Positioning…","Warming up…"],
-      "Sage":     ["Reviewing…","Checking…","Scanning…","Calibrating…","Auditing…","Watching…"],
+      "Alex":     ["Strategizing…","Mapping the market…","Building the plan…","Positioning…","Identifying leverage…","Architecting…"],
+      "Willow":   ["Crafting…","Refining the words…","Sharpening clarity…","Preserving meaning…","Polishing…","Finding the right tone…"],
+      "Ava":      ["Researching…","Cross-referencing…","Verifying…","Synthesizing…","Sourcing…","Analyzing the data…"],
+      "Luna":     ["Visualizing…","Composing…","Designing…","Aligning…","Refining…","Structuring…"],
+      "Orion":    ["Mapping the system…","Engineering…","Stress-testing…","Building the workflow…","Optimizing…","Architecting…"],
+      "Sunshine": ["Reading the room…","Listening…","Calibrating…","Timing this right…","Building trust…","Flowing…"],
+      "Atlis":    ["Reviewing…","Checking integrity…","Scanning…","Verifying alignment…","Monitoring…","Watching closely…"],
       "_default": ["Thinking…","Working…","Processing…","Flowing…","On it…","Almost there…"],
     };
 
