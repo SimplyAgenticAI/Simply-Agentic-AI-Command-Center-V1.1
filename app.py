@@ -22953,7 +22953,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _whisperAnalyser = null;
     let _whisperStream = null;
     let _whisperWaveRaf = null;
-    const AUTO_SEND_MS = 2200; // ms after last final before auto-send
+    const AUTO_SEND_MS = 3000; // ms after last final word before auto-send
 
     // ── HUD helpers ──────────────────────────────────────────────
     function _whisperHud(){ return $("whisperHud"); }
