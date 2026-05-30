@@ -23116,6 +23116,28 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(hud)hud.classList.remove("listening");
       try{ setSeatLive(seat,"thinking"); }catch(_){}
       try{ setOpStatus("Sending…"); }catch(_){}
+
+      // Inject user bubble + assistant streaming bubble into the visible thread
+      const threadEl=document.getElementById("thread");
+      let aBody=null, aCursor=null, aDiv=null;
+      if(threadEl){
+        const uDiv=document.createElement("div"); uDiv.className="msg user";
+        const uWho=document.createElement("div"); uWho.className="who"; uWho.innerText="You";
+        const uBody=document.createElement("div"); uBody.className="msg-body"; uBody.innerText=msg;
+        uDiv.appendChild(uWho); uDiv.appendChild(uBody);
+        threadEl.appendChild(uDiv);
+
+        aDiv=document.createElement("div"); aDiv.className="msg assistant";
+        const aWho=document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
+        aBody=document.createElement("div"); aBody.className="msg-body";
+        aCursor=document.createElement("span"); aCursor.className="sa-cursor"; aCursor.textContent="▋";
+        aBody.appendChild(aCursor);
+        aDiv.appendChild(aWho); aDiv.appendChild(aBody);
+        threadEl.appendChild(aDiv);
+        threadEl.scrollTop=threadEl.scrollHeight;
+      }
+
+      let fullText="";
       try{
         const ctrl=new AbortController();
         const to=setTimeout(()=>ctrl.abort(),120000);
@@ -23141,21 +23163,49 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             if(!line.startsWith("data:"))continue;
             try{
               const ev=JSON.parse(line.slice(5).trim());
+              if(ev.token){
+                fullText+=ev.token;
+                if(aBody){
+                  const _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
+                  if(typeof window.saMarkdown==="function"){
+                    aBody.innerHTML=window.saMarkdown(_st||fullText);
+                  } else {
+                    aBody.innerText=_st||fullText;
+                  }
+                  if(aCursor) aBody.appendChild(aCursor);
+                  if(threadEl) threadEl.scrollTop=threadEl.scrollHeight;
+                }
+              }
               if(ev.done){
+                if(aCursor) aCursor.remove();
+                if(aBody){
+                  const _ep=(typeof window.saParseEmailBlocks==="function")
+                    ?window.saParseEmailBlocks(ev.response||fullText)
+                    :{cleanText:ev.response||fullText,emails:[]};
+                  if(typeof window.saMarkdown==="function"){
+                    aBody.innerHTML=window.saMarkdown(_ep.cleanText||(ev.response||fullText));
+                  } else {
+                    aBody.innerText=_ep.cleanText||(ev.response||fullText);
+                  }
+                }
                 try{setSeatLive(seat,"done");}catch(_){}
                 try{setOpStatus("Done");}catch(_){}
-                try{await refreshThread();}catch(_){}
                 if(ev.job_id){try{pollImageJob(ev.job_id,seat);}catch(_){}}
+                try{if(typeof saWireThreadClicks==="function")setTimeout(saWireThreadClicks,50);}catch(_){}
               }
             }catch(_){}
           }
         }
       }catch(e){
+        if(aCursor){try{aCursor.remove();}catch(_){}}
+        if(aBody&&!fullText){try{aBody.innerText="(voice send error)";}catch(_){}}
         try{setSeatLive(seat,"waiting");}catch(_){}
         try{setOpStatus("Error");}catch(_){}
         if(!String(e).includes("AbortError"))
           try{showToast("⚠️ Voice send failed: "+String(e));}catch(_){}
       }
+      // Reload thread from server so exchange persists across seat switches
+      try{if(typeof refreshThread==="function") await refreshThread();}catch(_){}
       if(alwaysOn&&hud){hud.classList.add("listening"); _whisperSetStatus("Listening...");}
     }
 
