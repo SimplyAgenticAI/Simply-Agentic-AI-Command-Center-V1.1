@@ -25801,10 +25801,7 @@ Challenge weak assumptions. Surface risks.`;
       try{ settingsLoadSmsSettings(); }catch(e){}
       // Re-apply model lock after settings form renders (selects now in DOM)
       setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 120);
-      if(auto){
-        // slight UI nudge so first-time users know what to do
-        $("modalTitle").innerText = "Settings: connect your key + email";
-      }
+      $("modalTitle").innerText = auto ? "Settings: connect your key + email" : "Settings";
     }
 
     function showTeamModal(){
@@ -32324,6 +32321,7 @@ $("saveFramework").onclick = async () => {
       if(inInput()) return;
       if(document.getElementById(SHEET_ID)) return;
       const key = e.key;
+      if(!key) return;
 
       if(key>='1' && key<='7'){
         const idx = parseInt(key,10)-1;
@@ -37474,7 +37472,7 @@ window._streamTtsFired = false;
         '<div class="stats-rank">Rank #'+d.rank+' of '+d.total_users+' operators</div>'+
         (ri.next
           ? '<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'+
-            '<div class="progress-label"><span>'+pct+'% to '+_e(ri.next?_TIERS.find(function(t){return t.tier===(ri.tier||0)+1;})||{}:{})+'</span><span>'+ptn.toLocaleString()+' pts to next rank</span></div>'
+            '<div class="progress-label"><span>'+pct+'% to '+_e((_TIERS.find(function(t){return t.tier===(ri.tier||0)+1;})||{}).name||'next rank')+'</span><span>'+ptn.toLocaleString()+' pts to next rank</span></div>'
           : '<div style="margin-top:8px;font-size:12px;color:#6ee7b7;">👑 Maximum rank reached — Legendary!</div>')+
       '</div>'+
       '<div class="stats-grid">'+
@@ -43439,6 +43437,14 @@ window.addEventListener('focus', function(){
     if(m){ m.style.display = 'none'; document.body.style.overflow = ''; }
     var p = document.getElementById('vePlayer'); if(p) p.pause();
   };
+
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape') return;
+    var tp = document.getElementById('teleprompterModal');
+    if(tp && tp.style.display !== 'none') { closeTeleprompterModal(); return; }
+    var ve = document.getElementById('videoEditorModal');
+    if(ve && ve.style.display !== 'none') { closeVideoEditorModal(); return; }
+  });
 
   window.veHandleDrop = function(e){
     e.preventDefault();
