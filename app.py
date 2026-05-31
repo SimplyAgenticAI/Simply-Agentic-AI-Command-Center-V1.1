@@ -15476,27 +15476,124 @@ body.modal-open #mobFullChat {
 }
 body.modal-open { overflow:hidden !important; }
 
+/* ── Overlay: transparent host only — modalWin floats freely ── */
 #overlay{
-  position:fixed !important; inset:0 !important;
-  z-index:999900 !important;
-  align-items:stretch !important; justify-content:stretch !important; padding:0 !important;
+  position:fixed; inset:0;
+  z-index:499990;
+  background:transparent;
+  pointer-events:none;
+  display:none;
 }
+#overlay.show{ display:block; }
+
+/* ── modalWin: floating window defaults ── */
 #modalWin{
-  position:fixed !important;
-  width:100vw !important;
-  height:100vh !important;
-  max-width:100vw !important;
-  max-height:100vh !important;
-  inset:0 !important;
-  left:0 !important; top:0 !important; right:0 !important; bottom:0 !important;
-  transform:none !important;
-  border-radius:0 !important;
-  resize:none !important;
-  z-index:999201 !important;
-  min-width:0 !important; min-height:0 !important;
-  border:none !important;
+  position:fixed;
+  display:flex;
+  flex-direction:column;
+  min-width:360px;
+  min-height:240px;
+  border-radius:12px !important;
+  border:1px solid rgba(124,58,237,.35) !important;
+  overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.75);
+  pointer-events:all;
+  resize:none;
 }
-#modalScroll{ height:calc(100vh - 52px) !important; max-height:none !important; overflow-y:auto !important; flex:1 !important; }
+#modalWin.sa-minimized .modalBodyWrap,
+#modalWin.sa-minimized .sa-win-resize{ display:none !important; }
+#modalWin.sa-minimized{ height:auto !important; min-height:0 !important; }
+#modalScroll{ height:auto; max-height:none; overflow-y:auto; flex:1 1 auto; display:flex; flex-direction:column; }
+
+/* ═══ WINDOW MANAGER ═══════════════════════════════════════════════ */
+/* Resize handles — used by modalWin and all floating windows */
+.sa-win-resize{ position:absolute; z-index:20; background:transparent; }
+.sa-rz-se{ bottom:0; right:0; width:16px; height:16px; cursor:se-resize; }
+.sa-rz-s { bottom:0; left:16px; right:16px; height:6px; cursor:s-resize; }
+.sa-rz-e { top:36px; right:0; bottom:16px; width:6px; cursor:e-resize; }
+.sa-rz-n { top:0; left:0; right:0; height:5px; cursor:n-resize; }
+.sa-rz-w { top:36px; left:0; bottom:16px; width:6px; cursor:w-resize; }
+.sa-rz-ne{ top:0; right:0; width:14px; height:14px; cursor:ne-resize; }
+.sa-rz-nw{ top:0; left:0; width:14px; height:14px; cursor:nw-resize; }
+.sa-rz-sw{ bottom:0; left:0; width:14px; height:14px; cursor:sw-resize; }
+/* SE corner grip lines */
+.sa-rz-se::after{
+  content:''; position:absolute; bottom:3px; right:3px;
+  width:8px; height:8px;
+  border-right:2px solid rgba(124,58,237,.55);
+  border-bottom:2px solid rgba(124,58,237,.55);
+  border-radius:0 0 2px 0;
+}
+/* Minimized state for all floating windows */
+.sa-minimized .sa-win-resize{ display:none !important; }
+
+/* Minimize button in modalBar */
+#minimizeModal{
+  background:rgba(245,158,11,.18);
+  border-color:rgba(245,158,11,.4);
+  color:#fbbf24;
+  padding:3px 10px;
+}
+#minimizeModal:hover{ background:rgba(245,158,11,.32); }
+
+/* Standalone floating windows (Dashboard, Community, etc.) */
+.sa-float-win{
+  position:fixed;
+  display:flex;
+  flex-direction:column;
+  border-radius:12px;
+  overflow:hidden;
+  pointer-events:all;
+  box-shadow:0 24px 80px rgba(0,0,0,.75);
+  min-width:360px;
+  min-height:240px;
+}
+.sa-float-win.sa-minimized .sa-float-body,
+.sa-float-win.sa-minimized .sa-win-resize{ display:none !important; }
+.sa-float-win.sa-minimized{ height:auto !important; min-height:0 !important; }
+.sa-float-header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 16px; flex-shrink:0;
+  cursor:move; user-select:none;
+  border-bottom:1px solid rgba(42,58,106,.5);
+}
+.sa-float-body{ flex:1; overflow-y:auto; min-height:0; }
+.sa-float-btns{ display:flex; gap:6px; }
+.sa-float-min-btn, .sa-float-close-btn{
+  border-radius:6px; border:1px solid transparent;
+  font-size:12px; font-weight:700; cursor:pointer;
+  padding:3px 10px; line-height:1.4; transition:opacity .15s;
+}
+.sa-float-min-btn{ background:rgba(245,158,11,.18); border-color:rgba(245,158,11,.4); color:#fbbf24; }
+.sa-float-min-btn:hover{ background:rgba(245,158,11,.32); }
+.sa-float-close-btn{ background:rgba(239,68,68,.18); border-color:rgba(239,68,68,.35); color:#fca5a5; }
+.sa-float-close-btn:hover{ background:rgba(239,68,68,.32); }
+
+/* Taskbar for minimized windows */
+#saWMTaskbar{
+  display:none;
+  position:fixed; bottom:0; left:0; right:0;
+  z-index:9999990;
+  background:rgba(3,5,17,.97);
+  border-top:1px solid rgba(124,58,237,.28);
+  padding:5px 10px;
+  gap:6px;
+  align-items:center;
+  flex-wrap:wrap;
+  min-height:38px;
+}
+.sa-tb-item{
+  display:flex; align-items:center; gap:5px;
+  background:rgba(124,58,237,.18);
+  border:1px solid rgba(124,58,237,.35);
+  color:#c4b5fd; border-radius:7px;
+  padding:4px 10px;
+  font-size:12px; font-weight:600;
+  cursor:pointer; white-space:nowrap; user-select:none;
+  transition:background .12s;
+}
+.sa-tb-item:hover{ background:rgba(124,58,237,.3); }
+.sa-tb-x{ color:rgba(248,113,113,.7); margin-left:3px; font-size:10px; }
 #saToolCanvas{ position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none; }
 /* Bigger form fields in modals on mobile */
 #modalWin input, #modalWin textarea, #modalWin select{
@@ -17102,6 +17199,7 @@ label {
               <!-- Teammate injection button -->
               <button id="saInjectTeammateBtn" title="Bring a teammate into this window" style="padding:4px 10px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;transition:all .15s;white-space:nowrap;flex-shrink:0;display:none;" onclick="saToggleTeammateInject()">+ Teammate</button>
               <div class="modalBarBtns">
+                <button class="btn btnTiny" id="minimizeModal" title="Minimize">—</button>
                 <button class="btn btnTiny" id="closeModal">Close</button>
               </div>
             </div>
@@ -20126,33 +20224,156 @@ if (typeof window.showToast !== "function") {
 
     
     function ensureModalMinSize(minW, minH){
-      /* Modal is always fullscreen — this is a no-op kept for API compatibility */
-      const win = $("modalWin");
-      if(!win) return;
-      // Re-apply fullscreen to ensure nothing overrides it
-      try{ applyModalPos(); }catch(e){}
+      /* no-op — windowing system controls modal size */
     }
+
+/* ════════════════════════════════════════════════════════════════
+   WINDOW MANAGER  —  drag · resize · minimize · taskbar
+   ════════════════════════════════════════════════════════════════ */
+window.saWM = (function(){
+  var z = 500000;
+  var _items = []; // { el, getTitle, icon, onClose }
+
+  function _startDrag(e, el){
+    var rect=el.getBoundingClientRect(), ox=e.clientX-rect.left, oy=e.clientY-rect.top;
+    function mv(e){
+      el.style.left=Math.max(0,Math.min(window.innerWidth -80, e.clientX-ox))+'px';
+      el.style.top =Math.max(0,Math.min(window.innerHeight-40, e.clientY-oy))+'px';
+    }
+    function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+  }
+
+  function _startResize(e,el,dir){
+    var r=el.getBoundingClientRect(), sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height,sl=r.left,st=r.top;
+    function mv(e){
+      var dx=e.clientX-sx,dy=e.clientY-sy,nw=sw,nh=sh,nl=sl,nt=st;
+      if(dir.indexOf('e')>-1) nw=Math.max(360,sw+dx);
+      if(dir.indexOf('s')>-1) nh=Math.max(200,sh+dy);
+      if(dir.indexOf('w')>-1){nw=Math.max(360,sw-dx);nl=sl+sw-nw;}
+      if(dir.indexOf('n')>-1){nh=Math.max(200,sh-dy);nt=st+sh-nh;}
+      el.style.width=nw+'px'; el.style.height=nh+'px';
+      el.style.left=nl+'px';  el.style.top=nt+'px';
+    }
+    function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+  }
+
+  var pub = {
+    z: z,
+
+    _makeDraggable: function(handle, win){
+      handle.addEventListener('mousedown', function(e){
+        if(e.target.closest('.modalBarBtns,.sa-float-btns')) return;
+        e.preventDefault();
+        pub.z = ++pub.z;
+        win.style.zIndex = pub.z;
+        _startDrag(e, win);
+      });
+      win.addEventListener('mousedown', function(){ win.style.zIndex = ++pub.z; }, true);
+    },
+
+    _addResizeHandles: function(el){
+      if(el.querySelector('.sa-win-resize')) return;
+      ['se','s','e','n','w','ne','nw','sw'].forEach(function(d){
+        var r=document.createElement('div');
+        r.className='sa-win-resize sa-rz-'+d;
+        el.appendChild(r);
+        r.addEventListener('mousedown',function(e){
+          e.stopPropagation(); e.preventDefault();
+          el.style.zIndex = ++pub.z;
+          _startResize(e,el,d);
+        });
+      });
+    },
+
+    _register: function(el, getTitle, icon, onClose){
+      if(_items.find(function(i){return i.el===el;})) return;
+      _items.push({el:el, getTitle:getTitle, icon:icon||'⬜', onClose:onClose});
+    },
+
+    minimize: function(el){
+      if(el.classList.contains('sa-minimized')){
+        el.classList.remove('sa-minimized');
+        if(el._wmPrevH) el.style.height=el._wmPrevH;
+        el.style.zIndex = ++pub.z;
+      } else {
+        el._wmPrevH = el.style.height;
+        el.classList.add('sa-minimized');
+      }
+      pub._updateTaskbar();
+    },
+
+    _updateTaskbar: function(){
+      var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
+      var mins=_items.filter(function(it){
+        return it.el.classList.contains('sa-minimized') ||
+               (it.el.style.display==='none' && it.el._wmWasOpen);
+      });
+      // also check standalone windows
+      var all=_items.filter(function(it){ return it.el.classList.contains('sa-minimized'); });
+      if(!all.length){tb.style.display='none';return;}
+      tb.style.display='flex';
+      tb.innerHTML='';
+      all.forEach(function(it){
+        var btn=document.createElement('button');
+        btn.className='sa-tb-item';
+        var title=it.getTitle?it.getTitle():(it.title||'Window');
+        btn.innerHTML=(it.icon||'⬜')+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
+        btn.addEventListener('click',function(e){
+          if(e.target.classList.contains('sa-tb-x')){
+            it.el.classList.remove('sa-minimized');
+            if(it.onClose) it.onClose(); else it.el.style.display='none';
+          } else {
+            pub.minimize(it.el);
+          }
+          pub._updateTaskbar();
+        });
+        tb.appendChild(btn);
+      });
+    },
+
+    /* Wire a standalone floating window (has its own header) */
+    attachFloat: function(el, getTitle, icon, onClose){
+      pub._register(el, getTitle, icon, onClose);
+      pub._makeDraggable(el.querySelector('.sa-float-header,.cp-header,[data-drag]') || el.querySelector('[style*="cursor:move"]') || el, el);
+      pub._addResizeHandles(el);
+    }
+  };
+  return pub;
+})();
 
 function applyModalPos(){
       const ov = $("overlay"); if(!ov) return;
-      // Move overlay to direct body child so it escapes all stacking contexts
       if(ov.parentNode !== document.body) document.body.appendChild(ov);
-      ov.style.cssText = [
-        "position:fixed","inset:0","top:0","left:0","right:0","bottom:0",
-        "width:100vw","height:100dvh","display:flex","align-items:stretch",
-        "justify-content:stretch","padding:0","z-index:999900",
-        "background:rgba(4,8,24,.96)","backdrop-filter:blur(4px)"
-      ].join("!important;")+"!important";
+      ov.classList.add("show");
+
       const win = $("modalWin"); if(!win) return;
-      win.style.cssText = [
-        "position:relative","top:auto","left:auto","right:auto","bottom:auto",
-        "width:100%","height:100%","max-width:100%","max-height:100%",
-        "border-radius:0","transform:none","resize:none","margin:0","padding:0",
-        "z-index:1","border:none","min-width:0","min-height:0",
-        "display:flex","flex-direction:column","background:rgba(10,16,38,.99)"
-      ].join("!important;")+"!important";
+      win.style.display = "flex";
+
+      // First open: center and size as floating window
+      if(!win._wmPos){
+        const W = Math.min(1040, window.innerWidth  - 40);
+        const H = Math.min(780,  window.innerHeight - 40);
+        win.style.width  = W+"px";
+        win.style.height = H+"px";
+        win.style.top    = Math.max(20, Math.round((window.innerHeight-H)/2))+"px";
+        win.style.left   = Math.max(20, Math.round((window.innerWidth -W)/2))+"px";
+        win._wmPos = true;
+        // Wire drag on modalBar
+        const bar = document.getElementById("modalBar");
+        if(bar){ bar.style.cursor="move"; saWM._makeDraggable(bar, win); }
+        // Add resize handles
+        saWM._addResizeHandles(win);
+        // Register for taskbar
+        saWM._register(win, function(){ return ($("modalTitle")||{}).innerText||"Window"; }, "⚙️", hideModal);
+      }
+      // Remove minimized state if re-opening
+      win.classList.remove("sa-minimized");
+      win.style.zIndex = ++saWM.z;
+
       const sc=$("modalScroll");
-      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;display:flex!important;flex-direction:column!important;padding:0!important;box-sizing:border-box!important;"}
+      if(sc){ sc.style.height=""; sc.style.maxHeight="none"; sc.style.flex="1 1 auto"; sc.style.overflowY="auto"; }
       document.body.classList.add('modal-open');
       if(window._saToolCanvasStart) window._saToolCanvasStart();
     }
@@ -20306,27 +20527,23 @@ window.showModal = function showModal(title, body, imgUrl){
     }
 
     function hideModal(){
-      try{ document.body.style.overflow = ""; }catch(_){ }
-      document.body.classList.remove('modal-open');
+      try{ document.body.classList.remove('modal-open'); }catch(_){}
       try{ if(window.saSetModalPin) window.saSetModalPin(null); }catch(_){}
       if(window._saToolCanvasStop) window._saToolCanvasStop();
-
+      const win = $("modalWin");
+      if(win){ win.style.display="none"; win.classList.remove("sa-minimized"); }
       const _ov = $("overlay");
-      if(_ov){
-        _ov.classList.remove("show");
-        _ov.style.cssText = "";
-        // Move overlay back to its original location if needed
-        // (just hiding it is enough — body.appendChild already set)
-      }
+      if(_ov){ _ov.classList.remove("show"); }
       if(assemblyPulseActive){
         assemblyPulseActive = false;
         updateTablePulseFromStatuses();
       }
+      saWM._updateTaskbar();
     }
     $("closeModal").onclick = hideModal;
-    $("overlay").addEventListener("click", (e) => {
-      if(e.target.id === "overlay") hideModal();
-    });
+    // minimize button
+    const _minBtn = $("minimizeModal");
+    if(_minBtn) _minBtn.onclick = function(){ saWM.minimize($("modalWin")); };
 
     (function initModalWindowControls(){
       const bar = $("modalBar");
@@ -34153,11 +34370,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:rgba(10,14,30,.98);width:min(1100px,96vw);height:min(800px,92vh);top:4vh;left:max(2vw,(100vw - 1100px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
-      <button onclick="saCloseDashboard()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('dashboardModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="saCloseDashboard()">✕</button>
+      </div>
     </div>
     <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
   </div>
@@ -34183,11 +34403,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </div>
 
 <!-- RAG Index Modal -->
-<div id="ragModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);">
+<div id="ragModal" class="sa-float-win" style="display:none;z-index:99991;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);width:min(760px,96vw);height:min(720px,92vh);top:4vh;left:max(2vw,(100vw - 760px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
-      <button onclick="saCloseRag()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('ragModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="saCloseRag()">✕</button>
+      </div>
     </div>
     <div style="padding:20px;">
       <div class="tiny" style="margin-bottom:14px;opacity:.7;line-height:1.6;">Upload a document or paste a URL. Teammates will automatically search it when answering questions. Great for SOPs, contracts, product docs, and research.</div>
@@ -34261,8 +34484,13 @@ if(typeof maybeAutoShowOnboarding === "function"){
   window.saOpenDashboard = async function saOpenDashboard(){
     const modal = document.getElementById("dashboardModal");
     if(!modal) return;
+    if(!modal._wmReady){
+      modal._wmReady = true;
+      saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
+    }
+    if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
     modal.style.display = "flex";
-    document.body.style.overflow = "hidden";
+    modal.style.zIndex = ++saWM.z;
     const body = document.getElementById("dashboardBody");
     if(body) body.innerHTML = '<div class="tiny" style="opacity:.5;padding:20px;">Loading dashboard…</div>';
     try{
@@ -34434,8 +34662,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
   };
 
   /* ── 5. RAG MANAGER ───────────────────────────────────────────────────────── */
-  window.saOpenRag = async function(){ const m=document.getElementById("ragModal"); if(!m) return; m.style.display="flex"; document.body.style.overflow="hidden"; await saLoadRagDocs(); };
-  window.saCloseRag = function(){ const m=document.getElementById("ragModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
+  window.saOpenRag = async function(){ const m=document.getElementById("ragModal"); if(!m) return; if(!m._wmReady){m._wmReady=true;saWM.attachFloat(m,function(){return '🔬 Knowledge Base';}, '🔬', window.saCloseRag);} if(m.classList.contains('sa-minimized')){saWM.minimize(m);return;} m.style.display="flex"; m.style.zIndex=++saWM.z; await saLoadRagDocs(); };
+  window.saCloseRag = function(){ const m=document.getElementById("ragModal"); if(m){m.style.display="none"; m.classList.remove("sa-minimized");} saWM._updateTaskbar(); };
 
   window.saIndexRagFile = async function saIndexRagFile(){
     const fi=document.getElementById("ragFileInput"), st=document.getElementById("ragStatus");
@@ -37106,9 +37334,9 @@ window._streamTtsFired = false;
 
 <!-- ===== COMMUNITY HUB PANEL ===== -->
 <style>
-#communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;}
+#communityPanel{display:none;position:fixed;z-index:9990;width:min(960px,96vw);height:min(820px,92vh);top:4vh;left:max(2vw,(100vw - 960px)/2);border-radius:12px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.75);}
 #communityPanel.open{display:flex;}
-.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;border-radius:0;}
+.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;}
 .cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
 .cp-title{font-size:18px;font-weight:800;color:#f3e8ff;}
 .cp-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer;}
@@ -37189,9 +37417,12 @@ window._streamTtsFired = false;
 </style>
 <div id="communityPanel">
   <div class="cpanel">
-    <div class="cp-header">
+    <div class="cp-header" style="cursor:move;">
       <div class="cp-title">🏆 Community Hub</div>
-      <button class="cp-close" onclick="closeCommunityPanel()">✕ Close</button>
+      <div style="display:flex;gap:6px;">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('communityPanel'))">—</button>
+        <button class="cp-close" onclick="closeCommunityPanel()">✕ Close</button>
+      </div>
     </div>
     <div class="cp-tabs">
       <div class="cp-tab active" id="cpTab-leaderboard" onclick="cpSwitchTab('leaderboard')">🏆 Leaderboard</div>
@@ -37248,7 +37479,14 @@ window._streamTtsFired = false;
   var _cp = {lb:null, lbMode:'all', activeTab:'leaderboard', me:'', myRank:null};
 
   window.openCommunityPanel = function(tab){
-    document.getElementById('communityPanel').classList.add('open');
+    var el = document.getElementById('communityPanel');
+    if(!el._wmReady){
+      el._wmReady = true;
+      saWM.attachFloat(el, function(){ return '🏆 Community Hub'; }, '🏆', closeCommunityPanel);
+    }
+    if(el.classList.contains('sa-minimized')){ saWM.minimize(el); return; }
+    el.classList.add('open');
+    el.style.zIndex = ++saWM.z;
     cpSwitchTab(tab || _cp.activeTab || 'leaderboard');
     _cpLoadStats();
   };
@@ -37519,16 +37757,19 @@ window._streamTtsFired = false;
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
 <!-- ═══ ACTION STACK MODAL ═══ -->
-<div id="stackModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="stackModal" class="sa-float-win" style="display:none;z-index:99995;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:min(700px,96vw);height:min(720px,92vh);top:4vh;left:max(2vw,(100vw - 700px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
+    <div class="sa-float-header" style="background:rgba(10,14,30,.99);border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
       <div>
         <div id="stackModalTitle" style="font-size:16px;font-weight:800;color:#c4b5fd;">⚡ Action Stack</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">Queue up prompts — teammate works through them one by one</div>
       </div>
-      <button onclick="closeStackModal()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('stackModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="closeStackModal()">✕</button>
+      </div>
     </div>
 
     <!-- Stack Name -->
@@ -37599,12 +37840,17 @@ window._streamTtsFired = false;
     // Load saved stacks
     _smLoadSaved(tmName);
     var m = document.getElementById('stackModal');
+    if(!m._wmReady){m._wmReady=true;saWM.attachFloat(m,function(){return '⚡ Action Stack';}, '⚡', function(){if(!_sm.running)m.style.display='none';saWM._updateTaskbar();});}
+    if(m.classList.contains('sa-minimized')){saWM.minimize(m);return;}
     m.style.display = 'flex';
+    m.style.zIndex = ++saWM.z;
   };
 
   window.closeStackModal = function(){
-    if(_sm.running) return; // block close during run
-    document.getElementById('stackModal').style.display = 'none';
+    if(_sm.running) return;
+    var m=document.getElementById('stackModal');
+    if(m){m.style.display='none';m.classList.remove('sa-minimized');}
+    saWM._updateTaskbar();
   };
 
   function _smLoadSaved(tmName){
@@ -38328,16 +38574,19 @@ document.addEventListener('click',e=>{
 <!-- ═══ END CHANGELOG + REFERRAL ═══ -->
 
 <!-- ═══ ORCHESTRA MODE MODAL ═══ -->
-<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
-  <div id="orchInner" style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="orchestraModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);width:min(740px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 740px)/2);">
+  <div id="orchInner" style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
+    <div class="sa-float-header" style="background:rgba(124,58,237,.08);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#c4b5fd;">Orchestra Mode</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate adds their expertise — one unified output</div>
       </div>
-      <button onclick="if(!window._orchRunning)_saCloseModal('orchestraModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('orchestraModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="if(!window._orchRunning)_saCloseModal('orchestraModal')">✕</button>
+      </div>
     </div>
 
     <!-- Setup view -->
@@ -38386,14 +38635,17 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ DEEP DIVE MODAL ═══ -->
-<div id="deepDiveModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(245,158,11,.06);">
+<div id="deepDiveModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);width:min(740px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 740px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(245,158,11,.06);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#fbbf24;">🔬 Deep Dive Mode</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">3 automatic rounds — draft → self-critique → definitive final</div>
       </div>
-      <button onclick="_saCloseModal('deepDiveModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('deepDiveModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="_saCloseModal('deepDiveModal')">✕</button>
+      </div>
     </div>
     <div style="padding:18px 22px;">
       <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:16px;line-height:1.5;">
@@ -38433,16 +38685,19 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ PIPELINE MODE MODAL ═══ -->
-<div id="pipelineModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="pipelineModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:min(780px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 780px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
+    <div class="sa-float-header" style="background:rgba(124,58,237,.07);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#a78bfa;">⛓ Relay</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">Chain teammates in sequence — each one builds on the last</div>
       </div>
-      <button onclick="if(!window._plRunning)_saClosePipeline()" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('pipelineModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="if(!window._plRunning)_saClosePipeline()">✕</button>
+      </div>
     </div>
 
     <!-- Setup view -->
@@ -38488,14 +38743,17 @@ document.addEventListener('click',e=>{
 <!-- ═══ END PIPELINE MODE MODAL ═══ -->
 
 <!-- ═══ FUSION MODE MODAL ═══ -->
-<div id="fusionModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
-  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(59,130,246,.07);">
+<div id="fusionModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(59,130,246,.4);width:min(780px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 780px)/2);">
+  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(59,130,246,.07);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#93c5fd;">⚡ Fusion Mode</div>
         <div style="font-size:11px;color:#475569;margin-top:2px;">GPT-4o + Claude run simultaneously — synthesised into one answer</div>
       </div>
-      <button onclick="_saCloseModal('fusionModal')" style="background:rgba(60,70,110,.4);border:1px solid rgba(80,110,200,.3);color:#94a3b8;border-radius:8px;padding:5px 14px;font-size:12px;cursor:pointer;">✕</button>
+      <div class="sa-float-btns">
+        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('fusionModal'))">—</button>
+        <button class="sa-float-close-btn" onclick="_saCloseModal('fusionModal')">✕</button>
+      </div>
     </div>
     <div style="padding:18px 22px;">
       <div style="display:flex;gap:10px;margin-bottom:14px;">
@@ -38560,11 +38818,26 @@ document.addEventListener('click',e=>{
 
   /* ── shared modal helpers ── */
   window._saCloseModal = function(id){
-    var m = ge(id); if(m) m.style.display='none';
+    var m = ge(id);
+    if(m){ m.style.display='none'; m.classList.remove('sa-minimized'); }
+    saWM._updateTaskbar();
+  };
+  var _saFloatTitles = {
+    orchestraModal: {t:'🎭 Orchestra Mode', i:'🎭'},
+    deepDiveModal:  {t:'🔬 Deep Dive Mode', i:'🔬'},
+    fusionModal:    {t:'⚡ Fusion Mode',    i:'⚡'},
+    pipelineModal:  {t:'⛓ Relay Mode',     i:'⛓'}
   };
   function _saOpenModal(id){
     var m = ge(id); if(!m) return;
+    if(!m._wmReady){
+      m._wmReady=true;
+      var info=_saFloatTitles[id]||{t:id,i:'⬜'};
+      saWM.attachFloat(m, function(){return info.t;}, info.i, function(){_saCloseModal(id);});
+    }
+    if(m.classList.contains('sa-minimized')){ saWM.minimize(m); return; }
     m.style.display='flex';
+    m.style.zIndex=++saWM.z;
     m.scrollTop=0;
   }
 
@@ -43589,6 +43862,9 @@ window.addEventListener('focus', function(){
   }
 })();
 </script>
+
+<!-- ═══ WINDOW MANAGER TASKBAR ═══ -->
+<div id="saWMTaskbar"></div>
 
 </body>
 </html>
