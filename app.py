@@ -16274,6 +16274,87 @@ label {
   background: transparent !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   FULL-SCREEN TOOL FORMS
+   The modal canvas is already 100vw × 100dvh. Strip the narrow
+   centered glass-card (max-width:900px) from every major tool form
+   so content fills the full screen — same pattern as Edit Teammate.
+   ═══════════════════════════════════════════════════════════════════ */
+#settingsForm .modalInner,
+#emailConsoleForm .modalInner,
+#notepadForm .modalInner,
+#siteAnalyzerForm .modalInner,
+#prospectDossierForm .modalInner,
+#marketScannerForm .modalInner,
+#intentSignalsForm .modalInner,
+#teamForm .modalInner,
+#sessionObjectiveForm .modalInner,
+#operatorProfileModalForm .modalInner,
+#leadHandoffForm .modalInner {
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  padding: 0 40px 32px !important;
+}
+
+/* CRM form — no modalInner wrapper, direct children fill width */
+#crmForm {
+  padding: 0 40px 32px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+}
+
+/* Prompt Library — has no modalInner; its plLayout already flexes height:100% */
+#promptLibraryForm {
+  height: calc(100dvh - 68px) !important;
+  padding: 0 24px !important;
+  box-sizing: border-box !important;
+}
+#plLayout { padding: 0 !important; }
+
+/* Notepad — editor + sidebar fill the full canvas height */
+#notepadForm .modalInner {
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  height: calc(100dvh - 68px) !important;
+}
+#notepadForm #npWrap {
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* Email Console — textarea uses full available vertical space */
+#emailConsoleForm .modalInner { padding: 0 40px 24px !important; }
+#emailConsoleForm #emailBody {
+  height: calc(100dvh - 390px) !important;
+  min-height: 180px !important;
+}
+
+/* Session Objective — give context textarea maximum room */
+#sessionObjectiveForm #sessionObjectiveContext {
+  height: calc(100dvh - 370px) !important;
+  min-height: 180px !important;
+}
+
+/* Settings — let the content breathe with full-width layout */
+#settingsForm .modalInner { padding: 0 40px 32px !important; }
+
+/* Divider between header and content — subtle instead of card border */
+#settingsForm .modalInner > *:first-child,
+#emailConsoleForm .modalInner > *:first-child,
+#teamForm .modalInner > *:first-child {
+  padding-top: 16px;
+}
+
 /* 1. Branded tool header card */
 .sa-tool-hdr {
   display: flex;
