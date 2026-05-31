@@ -24862,8 +24862,8 @@ $("draftWithSelected").onclick = async () => {
       const fMiss  = mkTa(isWide?120:90);
       const fGoal  = mkTa(isWide?120:90);
       const fThink = mkTa(isWide?100:80);
-      const fResp  = mkTa(isWide?140:110);
-      const fWnd   = mkTa(isWide?140:110);
+      const fResp  = mkTa(isWide?180:130);
+      const fWnd   = mkTa(isWide?180:130);
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
@@ -24902,12 +24902,13 @@ $("draftWithSelected").onclick = async () => {
       if(isWide && !isMobile){
         // Two-column card grid using full horizontal space
         const colGrid = document.createElement("div");
-        colGrid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;";
+        colGrid.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch;";
         // Left column: Identity + Behavior
-        const colL = document.createElement("div"); colL.style.cssText="display:flex;flex-direction:column;gap:14px;";
+        const colL = document.createElement("div"); colL.style.cssText="display:flex;flex-direction:column;gap:14px;flex:1;";
+        c3.style.flex="1";
         colL.appendChild(c1); colL.appendChild(c3);
         // Right column: Personality + Voice
-        const colR = document.createElement("div"); colR.style.cssText="display:flex;flex-direction:column;gap:14px;";
+        const colR = document.createElement("div"); colR.style.cssText="display:flex;flex-direction:column;gap:14px;flex:1;";
         colR.appendChild(c2); colR.appendChild(c4);
         colGrid.appendChild(colL); colGrid.appendChild(colR);
         right.appendChild(colGrid);
