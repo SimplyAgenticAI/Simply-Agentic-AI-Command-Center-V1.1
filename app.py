@@ -26384,52 +26384,66 @@ Challenge weak assumptions. Surface risks.`;
         if(prog) prog.style.height='0%';
       }
 
-      // Primary save function — uses Web Share API (camera roll) on mobile, anchor download on desktop
-      window.tpSave = window.tpDownload = function(){
+      // Primary save function — converts to MP4 via FFmpeg.wasm then downloads
+      window.tpSave = window.tpDownload = async function(){
         if(!_tpLastBlob||_tpLastBlob.size===0){
           if(typeof showToast==='function') showToast('No recording yet — hit Record then Stop & Save');
           return;
         }
         var sb=document.getElementById('tpSaveBar'); if(sb) sb.style.display='none';
         clearTimeout(_tpSaveBarTimer); _tpSaveBarTimer=null;
-        var ext=_tpBlobMime.indexOf('mp4')>-1?'.mp4':'.webm';
+
+        var blob=_tpLastBlob;
+        var isAlreadyMp4=(_tpBlobMime||'').indexOf('mp4')>-1;
+
+        // Convert WebM → MP4 so the file opens in every video player / editor
+        if(!isAlreadyMp4 && typeof window._saConvertToMp4==='function'){
+          if(typeof showToast==='function') showToast('⏳ Converting to MP4…');
+          try{
+            var mp4Blob=await window._saConvertToMp4(blob);
+            if(mp4Blob&&mp4Blob.size>0){ blob=mp4Blob; isAlreadyMp4=true; }
+            else{ if(typeof showToast==='function') showToast('MP4 convert unavailable — downloading as WebM'); }
+          }catch(e){ /* fall through to WebM download */ }
+        }
+
+        var ext=isAlreadyMp4?'.mp4':'.webm';
         var filename='recording-'+Date.now()+ext;
-        var mtype=_tpLastBlob.type||(_tpBlobMime||'video/webm');
-        // Web Share API: supported on Chrome 75+, Safari 15+ — saves to camera roll on mobile
+        var mtype=blob.type||(isAlreadyMp4?'video/mp4':'video/webm');
+
+        // Web Share API: saves to camera roll on mobile
         if(typeof navigator.share==='function'&&typeof navigator.canShare==='function'){
           try{
-            var file=new File([_tpLastBlob],filename,{type:mtype});
+            var file=new File([blob],filename,{type:mtype});
             if(navigator.canShare({files:[file]})){
               navigator.share({files:[file],title:'Teleprompter Recording'})
-                .then(function(){ if(typeof showToast==='function') showToast('Saved!'); })
-                .catch(function(e){ if(e&&e.name!=='AbortError') _tpAnchorDl(filename); });
+                .then(function(){ if(typeof showToast==='function') showToast('✅ Saved!'); })
+                .catch(function(e){ if(e&&e.name!=='AbortError') _tpAnchorDlBlob(blob,filename); });
               return;
             }
           }catch(e){}
         }
-        _tpAnchorDl(filename);
+        _tpAnchorDlBlob(blob,filename);
       };
 
-      function _tpAnchorDl(filename){
-        if(!_tpLastBlob) return;
-        // Regenerate fresh URL (old one may have been revoked)
-        if(_tpLastBlobUrl) URL.revokeObjectURL(_tpLastBlobUrl);
-        _tpLastBlobUrl=URL.createObjectURL(_tpLastBlob);
+      function _tpAnchorDlBlob(blob,filename){
+        if(!blob) return;
+        var url=URL.createObjectURL(blob);
         var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
         if(isIOS){
-          // iOS Safari ignores download attribute — open in browser tab, user taps Share to save
-          window.open(_tpLastBlobUrl,'_blank');
-          if(typeof showToast==='function') showToast('Tap the Share icon ↗ then "Save to Files" or "Save to Camera Roll"');
-        } else {
+          window.open(url,'_blank');
+          if(typeof showToast==='function') showToast('Tap Share ↗ then Save to Files');
+        }else{
           var a=document.createElement('a');
           a.style.cssText='position:fixed;top:-100px;left:-100px;';
-          a.href=_tpLastBlobUrl;
-          a.download=filename;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} },2000);
-          if(typeof showToast==='function') showToast('Downloading — check your Downloads folder');
+          a.href=url; a.download=filename;
+          document.body.appendChild(a); a.click();
+          setTimeout(function(){ try{document.body.removeChild(a);}catch(e){} URL.revokeObjectURL(url); },3000);
+          if(typeof showToast==='function') showToast('✅ Downloading as MP4 — check your Downloads folder');
         }
+      }
+
+      function _tpAnchorDl(filename){
+        _tpAnchorDlBlob(_tpLastBlob, filename);
       }
 
       function _tpShowRecBar(scrollOnly){
@@ -36249,6 +36263,7 @@ window._streamTtsFired = false;
       });
     });
   }
+  window._saConvertToMp4 = _convertToMp4;
 
   // ── Download visual as video ──────────────────────────────────────────────
   async function _downloadVisualVideo(htmlSrc, frame, dur){
