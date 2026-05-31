@@ -2705,6 +2705,20 @@ def api_csrf_token() -> Any:
     return jsonify({"ok": True, "csrf_token": token})
 
 @app.before_request
+def _raise_video_upload_limit():
+    if request.path == '/api/video/upload' and request.method == 'POST':
+        app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+
+@app.errorhandler(413)
+def _handle_413(e):
+    try:
+        if (request.path or "").startswith("/api/"):
+            return jsonify({"ok": False, "error": "File too large. Video Editor accepts up to 200 MB; other uploads up to 25 MB."}), 413
+    except Exception:
+        pass
+    raise e
+
+@app.before_request
 def _auth_guard() -> Optional[Any]:
     if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
@@ -20146,7 +20160,7 @@ function applyModalPos(){
         "display:flex","flex-direction:column","background:rgba(10,16,38,.99)"
       ].join("!important;")+"!important";
       const sc=$("modalScroll");
-      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;display:flex!important;flex-direction:column!important;"}
+      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;display:flex!important;flex-direction:column!important;padding:0!important;box-sizing:border-box!important;"}
       document.body.classList.add('modal-open');
       if(window._saToolCanvasStart) window._saToolCanvasStart();
     }
@@ -20232,7 +20246,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("modalForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      $("modalForm").style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
 
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
@@ -20247,7 +20261,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("manageForm").style.display = "block";
+      $("manageForm").style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
       $("manageStatus").innerText = "";
 
       document.body.classList.add('modal-open');
@@ -20263,7 +20277,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("createForm").style.display = "block";
+      $("createForm").style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
       $("createStatus").innerText = "";
 
       $("newName").value = "";
@@ -20288,7 +20302,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("modalBody").innerText = "";
       hideAllModalForms();
       $("modalBody").style.display = "none";
-      $("frameworkForm").style.display = "block";
+      $("frameworkForm").style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
       $("frameworkStatus").innerText = "Loading...";
 
       $("overlay").classList.add("show");
@@ -20757,7 +20771,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
-      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("sessionObjectiveForm")){ var _sof=$("sessionObjectiveForm"); _sof.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Session objective';
       if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = 'Loading...';
@@ -20798,7 +20812,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
-      if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("operatorProfileModalForm")){ var _opf=$("operatorProfileModalForm"); _opf.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
@@ -25190,7 +25204,7 @@ Challenge weak assumptions. Surface risks.`;
       $("modalBody").style.display = "none";
       // height:100% lets the two-column flex layout fill the modalBodyWrap
       const plForm = $("promptLibraryForm");
-      plForm.style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;";
+      plForm.style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;";
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
@@ -25780,7 +25794,7 @@ Challenge weak assumptions. Surface risks.`;
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("settingsForm")){ var _sf=$("settingsForm"); _sf.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
@@ -25798,7 +25812,7 @@ Challenge weak assumptions. Surface risks.`;
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("teamForm")) $("teamForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("teamForm")){ var _tf=$("teamForm"); _tf.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalTitle")) $("modalTitle").innerText = "My Team";
       loadTeamData();
     }
@@ -25954,7 +25968,7 @@ Challenge weak assumptions. Surface risks.`;
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("emailConsoleForm")){ var _ef=$("emailConsoleForm"); _ef.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
       if(window.saSetModalPin) window.saSetModalPin('email_console');
@@ -27708,7 +27722,7 @@ Challenge weak assumptions. Surface risks.`;
             if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("crmForm")){$("crmForm").style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";}
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
@@ -35516,7 +35530,7 @@ document.addEventListener("click", function(e) {
       showModal();
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("notepadForm")) $("notepadForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("notepadForm")){ var _nf=$("notepadForm"); _nf.style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;"; }
       if($("modalTitle")) $("modalTitle").innerText = "Notepad";
       if(window.saSetModalPin) window.saSetModalPin('notepad');
       npLoad();
@@ -35599,7 +35613,7 @@ document.addEventListener("click", function(e) {
     window.showSiteAnalyzerModal=function(){
       showModal();hideAllModalForms();
       if($("modalBody"))$("modalBody").style.display="none";
-      if($("siteAnalyzerForm"))$("siteAnalyzerForm").style.cssText+=";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+      if($("siteAnalyzerForm")){$("siteAnalyzerForm").style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";}
       if($("modalTitle"))$("modalTitle").innerText="Site Analyzer";
       if(window.saSetModalPin) window.saSetModalPin('site_analyzer');
     };
@@ -35714,7 +35728,7 @@ document.addEventListener("click", function(e) {
   window.showProspectDossierModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("prospectDossierForm")) $("prospectDossierForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+    if($("prospectDossierForm")){$("prospectDossierForm").style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";}
     if($("modalTitle")) $("modalTitle").innerText = "🎯 Prospect Dossier";
     if(window.saSetModalPin) window.saSetModalPin('prospect_dossier');
   };
@@ -35789,7 +35803,7 @@ document.addEventListener("click", function(e) {
   window.showMarketScannerModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("marketScannerForm")) $("marketScannerForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+    if($("marketScannerForm")){$("marketScannerForm").style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";}
     if($("modalTitle")) $("modalTitle").innerText = "📊 Market Scanner";
     if(window.saSetModalPin) window.saSetModalPin('market_scanner');
   };
@@ -35828,7 +35842,7 @@ document.addEventListener("click", function(e) {
   window.showIntentSignalsModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("intentSignalsForm")) $("intentSignalsForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
+    if($("intentSignalsForm")){$("intentSignalsForm").style.cssText="display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";}
     if($("modalTitle")) $("modalTitle").innerText = "📡 Intent Signals";
     if(window.saSetModalPin) window.saSetModalPin('intent_signals');
   };
