@@ -24786,7 +24786,7 @@ $("draftWithSelected").onclick = async () => {
       $("modalTitle").innerText = "✏️ Edit Teammates";
       hideAllModalForms();
       const mb = $("modalBody");
-      mb.style.cssText = "display:block;height:100%;overflow:hidden;padding:0;";
+      mb.style.cssText = "display:flex;flex:1 1 auto;min-height:0;overflow:hidden;padding:0;margin:0;width:100%;max-width:100%;flex-direction:column;";
       mb.innerHTML = "";
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
@@ -24817,7 +24817,7 @@ $("draftWithSelected").onclick = async () => {
       const isWide = window.innerWidth >= 1200;
 
       const pane = document.createElement("div");
-      pane.style.cssText = isMobile ? "display:flex;flex-direction:column;height:100%;overflow:hidden;" : "display:flex;height:100%;overflow:hidden;";
+      pane.style.cssText = isMobile ? "display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;white-space:normal;" : "display:flex;flex:1;min-height:0;overflow:hidden;white-space:normal;";
 
       // ── LEFT SIDEBAR ──────────────────────────────────────────────────────────
       const left = document.createElement("div");
