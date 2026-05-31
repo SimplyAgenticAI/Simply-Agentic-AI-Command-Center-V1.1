@@ -5935,7 +5935,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
 # Front-end expects optional fields returned by /api/followup:
 #   { image_url: "/uploads/<relpath>", image_file: {upload record} }
 
-IMAGE_MODELS_FALLBACK = ["gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini", "dall-e-3", "dall-e-2"]
+IMAGE_MODELS_FALLBACK = ["gpt-image-1", "dall-e-3", "dall-e-2"]
 
 _IMAGE_TRIGGERS = [
     "generate an image", "generate image", "create an image", "create image",
@@ -6272,8 +6272,6 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                             "prompt": prompt2,
                             "size": os.getenv("IMAGE_SIZE", "1024x1024"),
                         }
-                        if m.startswith("dall-e"):
-                            edit_kw["response_format"] = "b64_json"
                         resp = client.images.edit(**edit_kw)
                 finally:
                     try:
@@ -6287,8 +6285,6 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                     "prompt": prompt2,
                     "size": os.getenv("IMAGE_SIZE", "1024x1024"),
                 }
-                if m.startswith("dall-e"):
-                    gen_kw["response_format"] = "b64_json"
                 resp = client.images.generate(**gen_kw)
             b64 = _extract_b64_from_image_resp(resp)
             if not b64:
@@ -6317,8 +6313,6 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                         "prompt": softened,
                         "size": os.getenv("IMAGE_SIZE", "1024x1024"),
                     }
-                    if m.startswith("dall-e"):
-                        gen_kw2["response_format"] = "b64_json"
                     resp2 = client.images.generate(**gen_kw2)
                     b64 = _extract_b64_from_image_resp(resp2)
                     if not b64:
