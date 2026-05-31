@@ -23297,7 +23297,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           signal:ctrl.signal
         });
         clearTimeout(to);
-        if(!res.ok||!res.body){throw new Error("Stream failed");}
+        if(!res.ok||!res.body){
+          let _errMsg="Send failed ("+res.status+")";
+          try{ const _ed=await res.json(); _errMsg=_ed.error||_ed.message||_errMsg; }catch(_){}
+          throw new Error(_errMsg);
+        }
         // Detect image-job JSON response (not SSE)
         const _vct=res.headers.get("content-type")||"";
         if(_vct.includes("application/json")){
@@ -23330,6 +23334,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             if(!line.startsWith("data:"))continue;
             try{
               const ev=JSON.parse(line.slice(5).trim());
+              if(ev.error){ throw new Error(ev.error); }
               if(ev.token){
                 fullText+=ev.token;
                 if(aBody){
@@ -23374,11 +23379,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
       }catch(e){
         if(aCursor){try{aCursor.remove();}catch(_){}}
-        if(aBody&&!fullText){try{aBody.innerText="(voice send error)";}catch(_){}}
+        const _eStr=String(e&&e.message?e.message:e)||"";
+        const _isAbort=_eStr.includes("AbortError")||_eStr.includes("abort");
+        const _displayErr = _isAbort ? "Request timed out — try again" : (_eStr||"Voice send failed");
+        if(aBody&&!fullText){try{aBody.innerText=_displayErr;}catch(_){}}
+        else if(aBody&&fullText){try{aBody.innerText+="\n\n[Error: "+_displayErr+"]";}catch(_){}}
         try{setSeatLive(seat,"waiting");}catch(_){}
         try{setOpStatus("Error");}catch(_){}
-        if(!String(e).includes("AbortError"))
-          try{showToast("⚠️ Voice send failed: "+String(e));}catch(_){}
+        if(!_isAbort) try{showToast("⚠️ "+_displayErr);}catch(_){}
       }
       // Reload thread from server so exchange persists across seat switches
       try{if(typeof refreshThread==="function") await refreshThread();}catch(_){}
