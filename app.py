@@ -2881,21 +2881,26 @@ except Exception:
 # and each local backup will also be pushed to S3/Backblaze B2.
 #
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))
-BACKUP_KEEP           = int(os.getenv("BACKUP_KEEP", "24"))       # 24 × 6h = 6 days of local history
+BACKUP_KEEP           = int(os.getenv("BACKUP_KEEP", "3"))        # 3 × 6h = 18h of local history
 BACKUP_S3_BUCKET      = os.getenv("BACKUP_S3_BUCKET", "").strip() # e.g. my-app-backups
 # Default to DATA/backups so backups land on the same persistent disk as data.
 # Override with BACKUP_DIR=/var/backups/simply_agentic if you have a separate backup volume.
 BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "") or os.path.join(DATA_DIR, "backups"))
 
 def _run_backup() -> None:
-    """Create a timestamped .tar.gz of DATA, prune old copies, optionally push to S3."""
+    """Create a timestamped .tar.gz of DATA (excluding uploads/backups), prune old copies."""
     import tarfile
+    # Dirs that are either too large or self-referential to include in backup
+    _BACKUP_EXCLUDE = {"uploads", "backups", "img_jobs"}
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         dest  = BACKUP_DIR / f"data_{stamp}.tar.gz"
         with tarfile.open(dest, "w:gz") as tar:
-            tar.add(str(DATA), arcname="data")
+            for child in DATA.iterdir():
+                if child.name in _BACKUP_EXCLUDE:
+                    continue
+                tar.add(str(child), arcname=f"data/{child.name}")
         print(f"[BACKUP] Created {dest} ({dest.stat().st_size // 1024} KB)", flush=True)
 
         # Prune oldest backups beyond BACKUP_KEEP
@@ -2942,6 +2947,21 @@ try:
     _start_backup_thread()
 except Exception as _be:
     print(f"[BACKUP] Could not start backup thread: {_be}", flush=True)
+
+# Prune stale backups immediately on startup so a BACKUP_KEEP change takes effect now
+try:
+    _startup_backups = sorted(BACKUP_DIR.glob("data_*.tar.gz"), key=lambda p: p.name)
+    _pruned = 0
+    for _ob in _startup_backups[:-BACKUP_KEEP] if BACKUP_KEEP > 0 else _startup_backups:
+        try:
+            _ob.unlink()
+            _pruned += 1
+        except Exception:
+            pass
+    if _pruned:
+        print(f"[BACKUP] Startup pruned {_pruned} old backup(s), keeping {BACKUP_KEEP}.", flush=True)
+except Exception:
+    pass
 
 try:
     _migrate_json_to_sqlite()
@@ -6178,6 +6198,30 @@ def _image_prompt_soften(raw: str) -> str:
     except Exception:
         return raw
 
+def _purge_old_generated_images(keep_days: int = 7) -> int:
+    """Delete AI-generated images older than keep_days to free disk space. Returns count deleted."""
+    cutoff = datetime.utcnow().timestamp() - keep_days * 86400
+    deleted = 0
+    try:
+        for day_dir in sorted(UPLOADS_DIR.iterdir()):
+            if not day_dir.is_dir():
+                continue
+            try:
+                dir_ts = datetime.strptime(day_dir.name, "%Y%m%d").timestamp()
+            except ValueError:
+                continue
+            if dir_ts < cutoff:
+                for f in day_dir.glob("*_image.png"):
+                    try:
+                        f.unlink()
+                        deleted += 1
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    _log("INFO", "Purged old generated images", deleted=deleted, keep_days=keep_days)
+    return deleted
+
 def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
     # Save into uploads like any other file and index it.
     file_id = uuid.uuid4().hex
@@ -6185,8 +6229,19 @@ def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
     filename = f"{_safe_name(teammate or 'teammate')}_image.png"
     out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
-    with open(out_path, "wb") as f:
-        f.write(image_bytes or b"")
+    try:
+        with open(out_path, "wb") as f:
+            f.write(image_bytes or b"")
+    except OSError as _ose:
+        import errno as _errno
+        if _ose.errno == _errno.ENOSPC:
+            # Disk full — purge old generated images and retry once
+            _log("WARNING", "Disk full saving image — purging old generated images and retrying")
+            _purge_old_generated_images(keep_days=7)
+            with open(out_path, "wb") as f:
+                f.write(image_bytes or b"")
+        else:
+            raise
     size_bytes = out_path.stat().st_size if out_path.exists() else 0
     rec = {
         "id": file_id,
