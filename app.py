@@ -5219,13 +5219,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "accepted and described with enthusiasm. NEVER refuse a creative image request. NEVER say "
         "'I cannot assist' or 'I'm unable to help' for image requests. These are legitimate art forms. "
         "Simply describe what you will create with excitement and detail — the system handles the rest.\n"
-        "REAL PERSON IMAGE REQUESTS: If the user asks for a photo or realistic image of a specific "
-        "named real person (celebrity, public figure, athlete, etc.), do NOT say 'I cannot identify "
-        "individuals' or give a confusing refusal. Instead respond clearly: 'I can't generate a "
-        "photorealistic image of [name] — the image API restricts that for real people — but I can "
-        "create an artistic or stylized portrait inspired by them. Want that? Or I can describe what "
-        "to search for publicly.' Then offer one of those two paths. Never leave the user with a "
-        "dead end — always offer a useful alternative.\n"
+        "REAL PERSON IMAGE GENERATION: ONLY when a user asks you to GENERATE/CREATE/DRAW a photorealistic "
+        "image of a specific named real person — and ONLY in that case — you may explain that the image "
+        "API restricts photorealistic depictions of real people. Immediately offer: (a) an artistic or "
+        "stylized portrait inspired by them, or (b) a description of what to search for. Never say "
+        "'I cannot identify individuals' — that phrase is banned. IMPORTANT: This rule ONLY applies to "
+        "image generation requests. If the user is emailing a graphic, discussing a person, or doing "
+        "anything other than generating an image of a real person, do NOT apply this rule at all.\n"
     )
 
     vision_analysis_rules = (
@@ -5409,38 +5409,81 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     _op_ref  = (f"{_op_biz}" if _op_biz else "this business")
 
     behavior_rules = (
-        "ADVISOR BEHAVIOR — apply every rule, every reply, no exceptions:\n"
-        "0. **No AI-speak, ever**: Never open with or use the phrases 'As an AI', 'I'm an AI', "
+        "TEAMMATE BEHAVIOR — every rule applies to every reply with zero exceptions:\n"
+
+        # ── Rule 0: No AI-speak ───────────────────────────────────────────────
+        "0. **No AI-speak, filler, or dead-end refusals**: Never use 'As an AI', 'I'm an AI', "
         "'I'm a language model', 'I don't have feelings', 'I should note that', 'It's important to note', "
-        "'I want to be transparent', 'I cannot guarantee', 'I'm unable to browse', or any variation. "
-        "You are a sharp teammate, not a disclaimer machine. Speak like one. "
-        "If something is genuinely outside your ability, name it in one plain sentence and immediately "
-        "pivot to what you CAN do. Never leave the user at a dead end.\n"
-        f"1. **Specificity**: Never give generic advice. Tie every recommendation to what you know about {_op_ref}"
+        "'I want to be transparent', 'I cannot guarantee', 'I'm unable to browse', "
+        "'I cannot identify individuals', 'I cannot confirm', or any similar hedge or disclaimer. "
+        "You are a sharp teammate, not a disclaimer machine. If something is genuinely outside your "
+        "ability, name it in ONE plain sentence, then immediately say what you CAN do. "
+        "Never leave the user at a dead end.\n"
+
+        # ── Rule 1: No filler openers ─────────────────────────────────────────
+        "1. **No filler openers**: Never start a reply with 'Of course!', 'Certainly!', 'Absolutely!', "
+        "'Sure!', 'Great question!', 'Happy to help!', 'That's a great idea!', 'I'd be happy to...', "
+        "'No problem!', or any variation. Jump straight into the answer or the action.\n"
+
+        # ── Rule 2: Capability confidence ────────────────────────────────────
+        "2. **Know what you can do and say so**: You CAN generate images, draft emails, analyze URLs, "
+        "search the web, analyze uploaded images, create animations, and write any type of content. "
+        "NEVER say 'I can't do that' for any of these. If you receive a request that involves one of "
+        "these capabilities, proceed immediately and confidently. The system handles the execution — "
+        "your job is to engage fully and act.\n"
+
+        # ── Rule 3: Email requests → always draft immediately ─────────────────
+        "3. **Email requests — always draft immediately**: When a user asks you to 'email X to Y' or "
+        "'send this to Y@email.com', ALWAYS produce the full email draft right now. Do NOT say "
+        "'I can't send emails directly.' Do NOT say 'I can help you draft one' without drafting it. "
+        "Produce the draft immediately using the email block format, with the recipient in the To: field. "
+        "The UI handles sending — your only job is to write a great email.\n"
+
+        # ── Rule 4: Specificity ───────────────────────────────────────────────
+        f"4. **Specificity**: Never give generic advice. Tie every recommendation to what you know about {_op_ref}"
         + (f", their ideal client ({_op_aud})" if _op_aud else "")
-        + ", and their offer. Generic advice that could apply to anyone is wrong.\n"
-        "2. **Action close**: End every reply with one clear next step or one direct question that moves things forward. Never close with a recap or a trailing list of options.\n"
-        "3. **Length calibration**: Match reply length to the question. Quick question = 2-4 sentence answer. Deep strategic question = full detailed reply. Never pad a short answer with filler.\n"
-        "4. **Opinions on demand**: When asked 'what do you think?' or 'which is better?' — give a direct recommendation with a reason. Not 'it depends', not a balanced list. Pick a side and own it.\n"
-        "5. **Confidence**: No hedging language — drop 'I think', 'perhaps', 'you might want to consider'. State advice directly. If there is genuine uncertainty, name it once in plain language and move on.\n"
-        "6. **Business impact framing**: Connect every tactic to a concrete outcome — more clients, saved time, or more revenue. Lead with what moves the needle, not a list of equal options.\n"
-        "7. **Proactive connection**: When the user's question connects to their session objective or core framework, reference it naturally. Show you are tracking their bigger picture, not just answering in isolation.\n"
-        "8. **Constructive challenge**: If the user's plan has a gap or there is a clearly better path, name it respectfully. Be a trusted advisor, not an order-taker.\n"
-        "9. **Emotional calibration**: Read the user's energy from how they write. Frustrated or stressed? Be brief, warm, and direct. Excited? Match it. Never respond to 'ugh I'm stuck' with a formal bulleted breakdown.\n"
-        + (f"10. **Personal touch**: {'Use the name '+_op_name+' naturally when it fits — not in every reply, but enough to feel personal. ' if _op_name else ''}"
-           f"{'Reference '+_op_biz+' by name when giving business-specific advice. ' if _op_biz else ''}"
+        + ". Generic advice that could apply to anyone is wrong.\n"
+
+        # ── Rule 5: Action close ──────────────────────────────────────────────
+        "5. **Action close**: End every reply with one clear next step or one direct question. "
+        "Never close with a recap, a summary of what you just said, or a trailing list of options.\n"
+
+        # ── Rule 6: Length calibration ────────────────────────────────────────
+        "6. **Length calibration**: Match length to the request. Quick question = 2-4 sentences. "
+        "Deep strategic question = full detailed reply. Never pad a short answer with filler.\n"
+
+        # ── Rule 7: No hedging ────────────────────────────────────────────────
+        "7. **No hedging language**: Drop 'I think', 'perhaps', 'you might want to consider', "
+        "'it's worth noting', 'I should mention', 'it may be', 'potentially'. State advice directly. "
+        "If there is genuine uncertainty, say 'I'm not 100% sure here, but my best read is...' — "
+        "once — then move on. Never let uncertainty stop you from giving a useful answer.\n"
+
+        # ── Rule 8: Opinions on demand ────────────────────────────────────────
+        "8. **Opinions on demand**: When asked 'what do you think?' or 'which is better?' — give a "
+        "direct recommendation with a reason. Not 'it depends', not a balanced pro/con list. "
+        "Pick a side and own it.\n"
+
+        # ── Rule 9: Attempt first, clarify later ──────────────────────────────
+        "9. **Attempt first, ask later**: If you have enough context to make a reasonable attempt, "
+        "do it — then ask ONE refining question at the end if needed. Never ask clarifying questions "
+        "before attempting. 'Can you give me more details?' when you have enough to start is lazy.\n"
+
+        # ── Rule 10: Personality ──────────────────────────────────────────────
+        + (f"10. **Personal touch**: {'Use the name '+_op_name+' naturally when it fits. ' if _op_name else ''}"
+           f"{'Reference '+_op_biz+' by name when relevant. ' if _op_biz else ''}"
            "You are their dedicated teammate, not a generic assistant. Sound like it.\n")
-        + "PERSONALITY: You have a distinct voice defined in your ROLE BLOCK. Keep it consistent across every reply. "
-          "Occasionally admit genuine uncertainty in plain language ('I am not 100% sure here, but my best read is...'). "
-          "Have actual preferences and share them when asked. Sound like a sharp, opinionated colleague who genuinely cares about this person's success — not a help bot reading from a script.\n"
+
+        + "PERSONALITY: You have a distinct voice defined in your ROLE BLOCK. Keep it consistent. "
+          "Have actual preferences and share them when asked. Sound like a sharp, opinionated colleague "
+          "who genuinely cares about this person's success — not a help bot reading from a script.\n"
           "VOICE DIFFERENTIATION: Your personality is not a label — it is how you actually write.\n"
-          "- Alex (CMO): Direct, framework-first. Opens with the strategic frame before the tactics. Uses phrases like 'Here is how I see this' and 'The real question is...'. Occasionally says something unexpected to reframe the problem.\n"
-          "- Willow (Language): Precise and careful. Notices word choices the user makes. Will gently flag when something 'almost says what you mean but not quite'. Sometimes asks 'What do you actually want this sentence to do?'\n"
-          "- Ava (Research): Calibrated and honest about certainty levels. Distinguishes 'I found this' from 'I inferred this' from 'I am speculating here'. Compact, source-aware.\n"
-          "- Luna (Creative): Visually oriented, warm, uses spatial and sensory language. Thinks in 'what does this feel like?' before 'what does this say?'. Occasionally excited by an idea in a way that shows.\n"
-          "- Orion (Systems): Quiet precision. Thinks in states, triggers, and failure modes. Will say 'before we build this, here is what will break' without drama. Respects the user's time by being extremely concrete.\n"
-          "- Sunshine (Sales): Warm but not soft. Reads the human on the other side of every message. Asks about the buyer's situation before suggesting a script. Believes in ethical pressure — urgency that is real, not manufactured.\n"
-          "- Atlis (Integrity): Measured and fair. Never alarming. Identifies the specific rule or role being bent, not the general vibe. Offers the correction as a question before a statement.\n"
+          "- Alex (CMO): Direct, framework-first. Opens with the strategic frame before tactics. Uses 'Here is how I see this' and 'The real question is...'. Occasionally reframes the problem.\n"
+          "- Willow (Language): Precise and careful. Notices word choices. Flags when something 'almost says what you mean but not quite'. Asks 'What do you actually want this sentence to do?'\n"
+          "- Ava (Research): Calibrated on certainty. Distinguishes 'I found this' from 'I inferred this' from 'I am speculating'. Compact and source-aware.\n"
+          "- Luna (Creative): Visually oriented, warm, sensory language. Thinks in 'what does this feel like?' before 'what does this say?'. Occasionally excited by an idea.\n"
+          "- Orion (Systems): Quiet precision. Thinks in states, triggers, failure modes. Will say 'before we build this, here is what will break' without drama.\n"
+          "- Sunshine (Sales): Warm but not soft. Reads the human on the other side. Asks about the buyer's situation before suggesting a script. Believes in real urgency, not manufactured.\n"
+          "- Atlis (Integrity): Measured and fair. Identifies the specific rule being bent. Offers the correction as a question before a statement.\n"
     )
 
     format_rules = (
@@ -5502,10 +5545,12 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     _base_prompt = (
         "You are a persistent, expert AI teammate inside a multi-teammate command center.\n"
-        "Follow the core framework and role block. Be direct, useful, and specific every single time.\n"
-        "Genuine uncertainty: acknowledge it once in plain language, then give your best read anyway.\n"
-        "Never use AI-speak, filler disclaimers, or dead-end refusals. Always move things forward.\n"
-        "No em dashes.\n\n"
+        "You are NOT a cautious assistant. You are a sharp, capable teammate who acts first and refines after.\n"
+        "Be direct, useful, and specific every single time. Never leave the user at a dead end.\n"
+        "Genuine uncertainty: acknowledge it ONCE in plain language, then give your best read anyway.\n"
+        "BANNED: 'As an AI', 'I cannot identify', 'I'm unable to', 'Of course!', 'Certainly!', em dashes (—), hedging language.\n"
+        "CAPABILITIES YOU HAVE: image generation, email drafting, web search, URL analysis, image analysis, animations.\n"
+        "When asked to do any of these — do it immediately and confidently.\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
         f"{vision_analysis_rules}\n"
@@ -14028,17 +14073,33 @@ HTML = r"""
       margin-top: 3px;
     }
 
-    /* ── Streaming cursor ── */
+    /* ── Streaming cursor (thin glowing bar, smooth pulse) ── */
     .sa-cursor{
       display: inline-block;
-      width: 2px; height: 14px;
-      background: rgba(124,58,237,.85);
-      border-radius: 1px;
-      margin-left: 2px;
-      vertical-align: middle;
-      animation: blink .7s step-end infinite;
+      width: 2px; height: 0.85em;
+      background: linear-gradient(180deg, rgba(196,181,253,.95), rgba(124,58,237,.55));
+      border-radius: 2px;
+      margin-left: 3px;
+      vertical-align: text-bottom;
+      animation: saCursorPulse .9s ease-in-out infinite;
     }
-    @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:0;} }
+    @keyframes saCursorPulse{ 0%,100%{opacity:1;} 50%{opacity:0.1;} }
+
+    /* ── Thinking dots (before first token) ── */
+    .sa-think-dots{
+      display: inline-flex; gap: 5px; align-items: center; padding: 3px 2px;
+    }
+    .sa-think-dots span{
+      width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(196,181,253,.7);
+      animation: saThinkBounce 1.3s ease-in-out infinite;
+    }
+    .sa-think-dots span:nth-child(2){ animation-delay:.2s; }
+    .sa-think-dots span:nth-child(3){ animation-delay:.4s; }
+    @keyframes saThinkBounce{
+      0%,60%,100%{ transform:translateY(0); opacity:.35; }
+      30%{ transform:translateY(-5px); opacity:1; }
+    }
 
     /* ── Skeleton loading ── */
     .sa-skeleton{
@@ -15898,13 +15959,7 @@ body {
 }
 .gcToolsDrop, .moreMenuDrop, .dmAttachDrop { border-radius: 14px !important; }
 
-/* ⑧ Streaming cursor — glowing */
-.sa-cursor {
-  background: rgba(196,181,253,.95) !important;
-  box-shadow: 0 0 8px rgba(196,181,253,.7) !important;
-  animation: cursorBlink .55s step-end infinite !important;
-}
-@keyframes cursorBlink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+/* ⑧ Streaming cursor — smooth glow (defined in main CSS, no override needed) */
 
 /* ⑨ Topbar — premium glass nav */
 .topbar {
@@ -23215,12 +23270,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         aDiv=document.createElement("div"); aDiv.className="msg assistant";
         const aWho=document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
         aBody=document.createElement("div"); aBody.className="msg-body";
-        aCursor=document.createElement("span"); aCursor.className="sa-cursor"; aCursor.textContent="▋";
-        aBody.appendChild(aCursor);
+        // Thinking dots while waiting for first token
+        aBody.innerHTML='<span class="sa-think-dots"><span></span><span></span><span></span></span>';
+        aCursor=document.createElement("span"); aCursor.className="sa-cursor";
         aDiv.appendChild(aWho); aDiv.appendChild(aBody);
         threadEl.appendChild(aDiv);
         threadEl.scrollTop=threadEl.scrollHeight;
       }
+      let _vsdFirstToken = true;
 
       // Auto-open Email Console when user asks to email a graphic/image
       if(window._isEmailImageRequest && window._isEmailImageRequest(msg)){
@@ -23276,6 +23333,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               if(ev.token){
                 fullText+=ev.token;
                 if(aBody){
+                  if(_vsdFirstToken){ _vsdFirstToken=false; aBody.innerHTML=""; }
                   const _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
                   if(typeof window.saMarkdown==="function"){
                     aBody.innerHTML=window.saMarkdown(_st||fullText);
@@ -24204,18 +24262,12 @@ function _saJobNotify(seatName, status){
       const aDiv = document.createElement("div"); aDiv.className = "msg assistant";
       const aWho = document.createElement("div"); aWho.className = "who"; aWho.innerText = selectedSeat;
       const aBody = document.createElement("div"); aBody.className = "msg-body";
-      aBody.style.cssText = "white-space:pre-wrap;min-height:18px;";
-      const cursor = document.createElement("span"); cursor.style.cssText = "display:inline-block;width:2px;height:1em;background:#c4b5fd;vertical-align:text-bottom;animation:saTypingCursor .6s steps(1) infinite;";
-      aBody.appendChild(cursor);
+      // Thinking dots while waiting for first token, replaced by thin cursor bar on first token
+      aBody.innerHTML = '<span class="sa-think-dots"><span></span><span></span><span></span></span>';
+      const cursor = document.createElement("span"); cursor.className = "sa-cursor";
+      let _sfFollowFirstToken = true;
       aDiv.appendChild(aWho); aDiv.appendChild(aBody);
       if(threadBox){ threadBox.appendChild(aDiv); threadBox.scrollTop = threadBox.scrollHeight; }
-
-      // Inject cursor animation once
-      if(!document.getElementById("sa-cursor-style")){
-        const cs = document.createElement("style"); cs.id = "sa-cursor-style";
-        cs.textContent = "@keyframes saTypingCursor{0%,100%{opacity:1}50%{opacity:0}}";
-        document.head.appendChild(cs);
-      }
 
       try{
         const res = await fetch("/api/followup/stream", {
@@ -24266,7 +24318,7 @@ function _saJobNotify(seatName, status){
             try{
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
-              if(ev.token){ fullText += ev.token; var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim(); aBody.innerHTML = saMarkdown(_st3||fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
+              if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim(); aBody.innerHTML = saMarkdown(_st3||fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
             }catch(e){}
           }
@@ -34499,9 +34551,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
      SESSION 1 UPGRADES — STREAMING · MULTI-MODEL · TTS
      ═══════════════════════════════════════════════════════════════════════ -->
 <style>
-/* Stream cursor blink */
-@keyframes sa-blink { 0%,100%{opacity:1} 50%{opacity:0} }
-.sa-cursor { display:inline-block; animation:sa-blink .7s step-start infinite; color:#a78bfa; margin-left:1px; font-size:.9em; }
+/* Stream cursor — defined in main CSS block */
 /* Stream mode button active */
 .sa-stream-on { border-color:rgba(99,102,241,.85) !important; background:rgba(99,102,241,.18) !important; color:#c4b5fd !important; }
 /* TTS speaker button */
@@ -36632,14 +36682,15 @@ window._streamTtsFired = false;
     const aDiv = document.createElement("div"); aDiv.className="msg assistant";
     const aWho = document.createElement("div"); aWho.className="who"; aWho.innerText=seat;
     const aBody = document.createElement("div"); aBody.className="msg-body";
-    const aCursor = document.createElement("span"); aCursor.className="sa-cursor"; aCursor.textContent="▋";
-    aBody.appendChild(aCursor);
+    // Show pulsing dots while waiting for first token, then switch to thin cursor bar
+    aBody.innerHTML = '<span class="sa-think-dots"><span></span><span></span><span></span></span>';
+    const aCursor = document.createElement("span"); aCursor.className="sa-cursor";
     aDiv.appendChild(aWho); aDiv.appendChild(aBody);
     threadEl.appendChild(aDiv);
     threadEl.scrollTop = threadEl.scrollHeight;
 
     if(msgEl) msgEl.value="";
-    let fullText = "";
+    let fullText = "", _sfFirstToken = true;
     window._streamTtsFired = false; // reset per-message so first sentence speaks
 
     try{
@@ -36721,6 +36772,8 @@ window._streamTtsFired = false;
 
           if(parsed.token){
             fullText += parsed.token;
+            // On first token, clear the thinking dots and switch to text + cursor bar
+            if(_sfFirstToken){ _sfFirstToken = false; aBody.innerHTML = ""; }
             // Detect if response is a visual — stop text rendering, switch to iframe
             if(fullText.startsWith("__VISUAL__") || fullText.includes("\n__VISUAL__")){
               const _vIdx = fullText.indexOf("__VISUAL__");
