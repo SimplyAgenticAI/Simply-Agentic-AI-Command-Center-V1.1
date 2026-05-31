@@ -23165,6 +23165,26 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         });
         clearTimeout(to);
         if(!res.ok||!res.body){throw new Error("Stream failed");}
+        // Detect image-job JSON response (not SSE)
+        const _vct=res.headers.get("content-type")||"";
+        if(_vct.includes("application/json")){
+          const _vd=await res.json().catch(()=>({}));
+          if(aCursor) aCursor.remove();
+          if(_vd.job_id){
+            if(aBody) aBody.innerHTML='<span class="sa-img-loading"><span class="sa-img-spinner"></span><span class="sa-img-stage">🎨 Generating image...</span></span>';
+            try{setSeatLive(seat,"thinking");}catch(_){}
+            try{setOpStatus("Generating image...");}catch(_){}
+            try{await refreshThread();}catch(_){}
+            try{pollImageJob(_vd.job_id,seat);}catch(_){}
+          } else {
+            if(aBody) aBody.innerText=_vd.response||_vd.error||"";
+            try{setSeatLive(seat,_vd.error?"waiting":"done");}catch(_){}
+            try{setOpStatus(_vd.error?"Error":"Done");}catch(_){}
+            try{await refreshThread();}catch(_){}
+          }
+          if(alwaysOn&&hud){hud.classList.add("listening");_whisperSetStatus("Listening...");}
+          return;
+        }
         const reader=res.body.getReader();
         const dec=new TextDecoder();
         let buf2="";
@@ -23730,6 +23750,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     
 async function pollImageJob(jobId, seatName){
+  // Inject spinner CSS once
+  if(!document.getElementById("sa-img-spin-style")){
+    const _cs=document.createElement("style"); _cs.id="sa-img-spin-style";
+    _cs.textContent="@keyframes saImgSpin{to{transform:rotate(360deg)}}"
+      +".sa-img-loading{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.25);border-radius:10px;}"
+      +".sa-img-spinner{width:16px;height:16px;border:2px solid rgba(196,181,253,.25);border-top-color:rgba(196,181,253,.9);border-radius:50%;animation:saImgSpin .75s linear infinite;flex-shrink:0;}"
+      +".sa-img-stage{font-size:13px;color:rgba(196,181,253,.85);font-style:italic;}";
+    document.head.appendChild(_cs);
+  }
   const maxMs = 120000;
   const start = Date.now();
   const targetSeat = seatName || selectedSeat;
@@ -23746,14 +23775,14 @@ async function pollImageJob(jobId, seatName){
       if(data && data.ok && data.job){
         const st = data.job.status;
         const stageLabel = data.job.stage_label || "";
-        // Update the in-thread placeholder with the current stage label
+        // Update in-thread placeholder with spinner + stage label
         if(stageLabel && (st === "running" || st === "queued")){
           try{
-            const msgs = document.querySelectorAll('.msg');
+            const msgs = document.querySelectorAll('.msg.assistant');
             msgs.forEach(m => {
               if(m.innerText && m.innerText.includes("job:" + jobId)){
-                const body = m.querySelector('.replyBody') || m;
-                if(body) body.innerHTML = '<span style="opacity:.7;font-style:italic;">' + stageLabel + '</span>';
+                const body = m.querySelector('.msg-body') || m.querySelector('.replyBody') || m;
+                if(body) body.innerHTML = '<span class="sa-img-loading"><span class="sa-img-spinner"></span><span class="sa-img-stage">' + stageLabel + '</span></span>';
               }
             });
             setOpStatus(stageLabel);
@@ -24103,6 +24132,25 @@ function _saJobNotify(seatName, status){
           const errData = await res.json().catch(()=>({}));
           aBody.innerText = errData.error || "Send failed";
           setSeatLive(selectedSeat, "waiting"); setOpStatus("Error");
+          return;
+        }
+
+        // Detect image-job JSON response (backend returns plain JSON, not SSE, for image requests)
+        const _imgCt = res.headers.get("content-type") || "";
+        if(_imgCt.includes("application/json")){
+          const _imgData = await res.json().catch(()=>({}));
+          cursor.remove();
+          if(_imgData.job_id){
+            aBody.innerHTML = '<span class="sa-img-loading"><span class="sa-img-spinner"></span><span class="sa-img-stage">🎨 Generating image...</span></span>';
+            setSeatLive(selectedSeat, "thinking"); setOpStatus("Generating image...");
+            await refreshThread();
+            pollImageJob(_imgData.job_id, selectedSeat);
+          } else {
+            aBody.innerText = _imgData.response || _imgData.error || "Send failed";
+            setSeatLive(selectedSeat, _imgData.error ? "waiting" : "done");
+            setOpStatus(_imgData.error ? "Error" : "Complete");
+            if(!_imgData.error) await refreshThread();
+          }
           return;
         }
 
@@ -36491,10 +36539,20 @@ window._streamTtsFired = false;
       const contentType = response.headers.get("content-type") || "";
       const isJson = contentType.includes("application/json");
 
-      // Check if backend returned plain JSON (visual response) instead of SSE stream
+      // Check if backend returned plain JSON (image job or visual) instead of SSE stream
       if(isJson){
         const jsonData = await response.json().catch(()=>({}));
         aCursor.remove();
+        // Image generation job — show spinner and poll for completion
+        if(jsonData.job_id){
+          aBody.innerHTML = '<span class="sa-img-loading"><span class="sa-img-spinner"></span><span class="sa-img-stage">🎨 Generating image...</span></span>';
+          if(typeof setSeatLive==="function") setSeatLive(seat,"thinking");
+          if(typeof setOpStatus==="function") setOpStatus("Generating image...");
+          if(typeof window.refreshThread==="function") await window.refreshThread();
+          if(typeof pollImageJob==="function") pollImageJob(jsonData.job_id, seat);
+          try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
+          return;
+        }
         const _reply = jsonData.response || "";
         if(_reply.indexOf("__VISUAL__") !== -1){
           const _html = _reply.slice(_reply.indexOf("__VISUAL__") + "__VISUAL__".length);
