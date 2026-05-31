@@ -34152,8 +34152,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseDashboard()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(1100px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+<div id="dashboardModal" style="display:none;position:fixed;inset:0;z-index:99990;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);flex-shrink:0;">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
       <button onclick="saCloseDashboard()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
@@ -34182,8 +34182,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </div>
 
 <!-- RAG Index Modal -->
-<div id="ragModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseRag()">
-  <div style="background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);border-radius:18px;width:min(540px,94vw);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.7);">
+<div id="ragModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
       <button onclick="saCloseRag()" style="background:rgba(180,30,60,.3);border:1px solid rgba(239,68,68,.4);color:#fca5a5;border-radius:7px;padding:4px 12px;font-size:12px;cursor:pointer;">✕ Close</button>
@@ -37105,9 +37105,9 @@ window._streamTtsFired = false;
 
 <!-- ===== COMMUNITY HUB PANEL ===== -->
 <style>
-#communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);align-items:center;justify-content:center;}
+#communityPanel{display:none;position:fixed;inset:0;z-index:9990;background:rgba(10,14,30,.98);align-items:stretch;justify-content:stretch;}
 #communityPanel.open{display:flex;}
-.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);border:1px solid rgba(42,58,106,.85);border-radius:20px;width:min(880px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.65),0 0 0 1px rgba(124,58,237,.1);}
+.cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);width:100%;height:100%;max-width:100%;max-height:100%;display:flex;flex-direction:column;overflow:hidden;border-radius:0;}
 .cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
 .cp-title{font-size:18px;font-weight:800;color:#f3e8ff;}
 .cp-close{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#94a3b8;border-radius:9px;padding:5px 12px;font-size:13px;cursor:pointer;}
@@ -37518,8 +37518,8 @@ window._streamTtsFired = false;
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
 <!-- ═══ ACTION STACK MODAL ═══ -->
-<div id="stackModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.80);backdrop-filter:blur(5px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)closeStackModal()">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(640px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="stackModal" style="display:none;position:fixed;inset:0;z-index:99995;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
@@ -38327,8 +38327,8 @@ document.addEventListener('click',e=>{
 <!-- ═══ END CHANGELOG + REFERRAL ═══ -->
 
 <!-- ═══ ORCHESTRA MODE MODAL ═══ -->
-<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this&&!window._orchRunning)_saCloseModal('orchestraModal')">
-  <div id="orchInner" style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="orchestraModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
+  <div id="orchInner" style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.08);">
@@ -38385,8 +38385,8 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ DEEP DIVE MODAL ═══ -->
-<div id="deepDiveModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('deepDiveModal')">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);border-radius:18px;width:min(660px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="deepDiveModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(245,158,11,.06);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#fbbf24;">🔬 Deep Dive Mode</div>
@@ -38432,8 +38432,8 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ PIPELINE MODE MODAL ═══ -->
-<div id="pipelineModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this&&!window._plRunning)_saClosePipeline()">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);border-radius:18px;width:min(700px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="pipelineModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
@@ -38487,8 +38487,8 @@ document.addEventListener('click',e=>{
 <!-- ═══ END PIPELINE MODE MODAL ═══ -->
 
 <!-- ═══ FUSION MODE MODAL ═══ -->
-<div id="fusionModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(0,0,0,.82);backdrop-filter:blur(6px);align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto;" onclick="if(event.target===this)_saCloseModal('fusionModal')">
-  <div style="background:rgba(10,14,30,.99);border:1px solid rgba(59,130,246,.4);border-radius:18px;width:min(700px,100%);box-shadow:0 24px 80px rgba(0,0,0,.8);overflow:hidden;margin:auto;">
+<div id="fusionModal" style="display:none;position:fixed;inset:0;z-index:99994;background:rgba(10,14,30,.99);align-items:stretch;justify-content:stretch;">
+  <div style="width:100%;height:100%;max-width:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid rgba(42,58,106,.6);background:rgba(59,130,246,.07);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#93c5fd;">⚡ Fusion Mode</div>
@@ -42002,7 +42002,7 @@ window.toggleNotifPanel = function(){
     </div>
     <button onclick="closeTeleprompterModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">&#10005; Close</button>
   </div>
-  <div style="flex:1;overflow-y:auto;padding:24px;max-width:680px;width:100%;margin:0 auto;box-sizing:border-box;">
+  <div style="flex:1;overflow-y:auto;padding:24px;width:100%;box-sizing:border-box;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Your Script</div>
       <button onclick="document.getElementById('tpScript').value='';try{localStorage.removeItem('tp_script');}catch(e){}" style="font-size:11px;color:#475569;background:none;border:none;cursor:pointer;padding:2px 6px;">Clear</button>
