@@ -14343,18 +14343,10 @@ HTML = r"""
 
     .modalForm{ display:none; background: transparent; border:0; border-radius:0; padding:0; }
     .modalForm .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
-    /* All modal content: centered column, comfortable reading width */
+    /* All modal content: full-width, matches full-screen form layout */
     .modalForm .modalInner{
-      max-width:900px; margin:0 auto;
-      background: rgba(255,255,255,.06);
-      backdrop-filter: blur(28px) saturate(1.60);
-      -webkit-backdrop-filter: blur(28px) saturate(1.60);
-      border: 1px solid rgba(255,255,255,.14);
-      border-top: 1px solid rgba(255,255,255,.22);
-      border-radius: 22px;
-      box-shadow:
-        0 8px 40px rgba(0,0,0,.28),
-        inset 0 1px 0 rgba(255,255,255,.18);
+      width:100%; max-width:100%; margin:0 auto;
+      box-sizing:border-box;
       padding: 24px 28px;
     }
     /* 2-column field pairs inside the centered column */
@@ -17242,7 +17234,7 @@ label {
               </div>
 
 <div id="apiKeyHelpForm" class="modalForm" style="display:none;">
-  <div class="modalInner" style="max-width:560px;">
+  <div class="modalInner" style="max-width:560px;margin:0 auto;">
   <div class="tiny" style="margin-bottom:10px;">Quick setup: create an OpenAI API key, then paste it into Settings.</div>
   <div class="pill" style="margin:8px 0;">Steps</div>
   <ol style="margin: 8px 0 0 18px; line-height:1.5;">
