@@ -16302,6 +16302,9 @@ label {
   -webkit-backdrop-filter: none !important;
   box-shadow: none !important;
   padding: 0 40px 32px !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
 }
 
 /* CRM form — no modalInner wrapper, direct children fill width */
@@ -16848,6 +16851,7 @@ label {
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
             <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
+            <button class="saDropItem" id="videoEditorBtn" onclick="saToggleDrop('saCreateDrop');showVideoEditorModal()">✂️ Video Editor</button>
           </div>
         </div>
 
@@ -17002,6 +17006,7 @@ label {
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoTranscriptModal,200);">🎬 Video to Transcript</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoEditorModal,200);">✂️ Video Editor</button>
           </div>
         </div>
 
@@ -17753,7 +17758,7 @@ label {
 
               <!-- NOTEPAD MODAL FORM -->
               <div class="modalForm" id="notepadForm" style="display:none;">
-                <div class="modalInner" style="max-width:960px;padding-bottom:0;">
+                <div class="modalInner" style="padding-bottom:0;">
                   <div id="npWrap" style="display:flex;gap:0;height:calc(100vh - 200px);min-height:400px;border:1px solid rgba(42,58,106,.7);border-radius:12px;overflow:hidden;flex-direction:row;">
                     <!-- Note list sidebar -->
                     <div id="npSidebar" style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
@@ -17815,7 +17820,7 @@ label {
 
               <!-- SITE ANALYZER MODAL FORM -->
               <div class="modalForm" id="siteAnalyzerForm" style="display:none;">
-                <div class="modalInner" style="max-width:900px;">
+                <div class="modalInner">
                   <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Enter a competitor or your own website URL to get a full competitive analysis: UX score, content strategy, SEO signals, tech stack, and how to win against them.</div>
                   <div style="display:flex;gap:8px;margin-bottom:16px;">
                     <input id="saUrl" type="url" placeholder="https://competitorwebsite.com" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
@@ -17829,7 +17834,7 @@ label {
 
               <!-- PROSPECT DOSSIER MODAL FORM -->
               <div class="modalForm" id="prospectDossierForm" style="display:none;">
-                <div class="modalInner" style="max-width:900px;">
+                <div class="modalInner">
                   <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Enter a company name or website URL to get a full intelligence brief before reaching out — what they do, who decides, their pain points, and the best angle to approach them.</div>
                   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
                     <input id="pdQuery" type="text" placeholder="Company name or website URL" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
@@ -17843,7 +17848,7 @@ label {
 
               <!-- MARKET SCANNER MODAL FORM -->
               <div class="modalForm" id="marketScannerForm" style="display:none;">
-                <div class="modalInner" style="max-width:900px;">
+                <div class="modalInner">
                   <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Research an entire niche or market — top players, common pricing, what customers love and hate, gaps to exploit, and the best channels to reach them.</div>
                   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
                     <input id="msNiche" type="text" placeholder="e.g. real estate agents in Texas, fitness coaches, SaaS startups" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
@@ -17857,7 +17862,7 @@ label {
 
               <!-- INTENT SIGNALS MODAL FORM -->
               <div class="modalForm" id="intentSignalsForm" style="display:none;">
-                <div class="modalInner" style="max-width:900px;">
+                <div class="modalInner">
                   <div style="font-size:13px;color:#94a3b8;margin-bottom:14px;line-height:1.6;">Find companies and people actively signaling a need for what you sell right now — job postings, complaints, discussions, and buying triggers.</div>
                   <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
                     <input id="isQuery" type="text" placeholder="What do you sell? e.g. AI marketing tools for coaches" style="flex:1;min-width:200px;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:9px 13px;color:#e2e8f0;font-size:14px;" />
@@ -20141,7 +20146,7 @@ function applyModalPos(){
         "display:flex","flex-direction:column","background:rgba(10,16,38,.99)"
       ].join("!important;")+"!important";
       const sc=$("modalScroll");
-      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;"}
+      if(sc){sc.style.cssText="height:calc(100dvh - 52px)!important;max-height:none!important;overflow-y:auto!important;flex:1!important;display:flex!important;flex-direction:column!important;"}
       document.body.classList.add('modal-open');
       if(window._saToolCanvasStart) window._saToolCanvasStart();
     }
@@ -20752,7 +20757,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
-      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.display = 'block';
+      if($("sessionObjectiveForm")) $("sessionObjectiveForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Session objective';
       if($("sessionObjectiveStatus")) $("sessionObjectiveStatus").innerText = 'Loading...';
@@ -20793,7 +20798,7 @@ window.showModal = function showModal(title, body, imgUrl){
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
-      if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.display = 'block';
+      if($("operatorProfileModalForm")) $("operatorProfileModalForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalBody")) $("modalBody").style.display = 'none';
       if($("modalTitle")) $("modalTitle").innerText = 'Operator Profile';
       if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Loading...';
@@ -25185,8 +25190,7 @@ Challenge weak assumptions. Surface risks.`;
       $("modalBody").style.display = "none";
       // height:100% lets the two-column flex layout fill the modalBodyWrap
       const plForm = $("promptLibraryForm");
-      plForm.style.display = "block";
-      plForm.style.height   = "100%";
+      plForm.style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;height:100%;";
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
       applyModalPos();
@@ -25776,7 +25780,7 @@ Challenge weak assumptions. Surface risks.`;
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("settingsForm")) $("settingsForm").style.display = "block";
+      if($("settingsForm")) $("settingsForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
@@ -25794,7 +25798,7 @@ Challenge weak assumptions. Surface risks.`;
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("teamForm")) $("teamForm").style.display = "block";
+      if($("teamForm")) $("teamForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalTitle")) $("modalTitle").innerText = "My Team";
       loadTeamData();
     }
@@ -25950,7 +25954,7 @@ Challenge weak assumptions. Surface risks.`;
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("emailConsoleForm")) $("emailConsoleForm").style.display = "block";
+      if($("emailConsoleForm")) $("emailConsoleForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalTitle")) $("modalTitle").innerText = titleText;
       try{ updateSmtpStatus(); }catch(e){}
       if(window.saSetModalPin) window.saSetModalPin('email_console');
@@ -27704,7 +27708,7 @@ Challenge weak assumptions. Surface risks.`;
             if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("calendarForm")) $("calendarForm").style.display = "none";
       if($("emailConsoleForm")) $("emailConsoleForm").style.display = "none";
-      if($("crmForm")) $("crmForm").style.display = "block";
+      if($("crmForm")) $("crmForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
 
@@ -35512,7 +35516,7 @@ document.addEventListener("click", function(e) {
       showModal();
       hideAllModalForms();
       if($("modalBody")) $("modalBody").style.display = "none";
-      if($("notepadForm")) $("notepadForm").style.display = "block";
+      if($("notepadForm")) $("notepadForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalTitle")) $("modalTitle").innerText = "Notepad";
       if(window.saSetModalPin) window.saSetModalPin('notepad');
       npLoad();
@@ -35595,7 +35599,7 @@ document.addEventListener("click", function(e) {
     window.showSiteAnalyzerModal=function(){
       showModal();hideAllModalForms();
       if($("modalBody"))$("modalBody").style.display="none";
-      if($("siteAnalyzerForm"))$("siteAnalyzerForm").style.display="block";
+      if($("siteAnalyzerForm"))$("siteAnalyzerForm").style.cssText+=";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
       if($("modalTitle"))$("modalTitle").innerText="Site Analyzer";
       if(window.saSetModalPin) window.saSetModalPin('site_analyzer');
     };
@@ -35710,7 +35714,7 @@ document.addEventListener("click", function(e) {
   window.showProspectDossierModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("prospectDossierForm")) $("prospectDossierForm").style.display = "block";
+    if($("prospectDossierForm")) $("prospectDossierForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
     if($("modalTitle")) $("modalTitle").innerText = "🎯 Prospect Dossier";
     if(window.saSetModalPin) window.saSetModalPin('prospect_dossier');
   };
@@ -35785,7 +35789,7 @@ document.addEventListener("click", function(e) {
   window.showMarketScannerModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("marketScannerForm")) $("marketScannerForm").style.display = "block";
+    if($("marketScannerForm")) $("marketScannerForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
     if($("modalTitle")) $("modalTitle").innerText = "📊 Market Scanner";
     if(window.saSetModalPin) window.saSetModalPin('market_scanner');
   };
@@ -35824,7 +35828,7 @@ document.addEventListener("click", function(e) {
   window.showIntentSignalsModal = function(){
     showModal(); hideAllModalForms();
     if($("modalBody")) $("modalBody").style.display = "none";
-    if($("intentSignalsForm")) $("intentSignalsForm").style.display = "block";
+    if($("intentSignalsForm")) $("intentSignalsForm").style.cssText += ";display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0;";
     if($("modalTitle")) $("modalTitle").innerText = "📡 Intent Signals";
     if(window.saSetModalPin) window.saSetModalPin('intent_signals');
   };
@@ -43307,6 +43311,269 @@ window.addEventListener('focus', function(){
     resize();
     pts.forEach(function(p){if(p.x>W)p.x=Math.random()*W;if(p.y>H)p.y=Math.random()*H;});
   });
+})();
+</script>
+
+<!-- ===== VIDEO EDITOR ===== -->
+<div id="videoEditorModal" style="display:none;position:fixed;inset:0;z-index:999950;background:#04080f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
+  <!-- Header bar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid rgba(124,58,237,.25);background:rgba(10,16,38,.99);flex-shrink:0;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:18px;">✂️</span>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Video Editor</div>
+        <div style="font-size:11px;color:#64748b;">Upload · AI Auto-clip · Trim · Export</div>
+      </div>
+    </div>
+    <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
+  </div>
+  <!-- Main layout: left panel + right panel -->
+  <div style="display:flex;flex:1;min-height:0;overflow:hidden;">
+    <!-- LEFT PANEL: Upload + Clips -->
+    <div style="width:280px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;background:rgba(7,10,22,.6);overflow-y:auto;">
+      <!-- Upload zone -->
+      <div id="veUploadZone" style="margin:16px;border:2px dashed rgba(124,58,237,.4);border-radius:12px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color .2s;"
+           onclick="document.getElementById('veFileInput').click()"
+           ondragover="event.preventDefault();document.getElementById('veUploadZone').style.borderColor='#7c3aed'"
+           ondragleave="document.getElementById('veUploadZone').style.borderColor='rgba(124,58,237,.4)'"
+           ondrop="veHandleDrop(event)">
+        <div style="font-size:28px;margin-bottom:8px;">🎬</div>
+        <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
+        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 200MB</div>
+        <input id="veFileInput" type="file" accept="video/*" style="display:none;" onchange="veLoadFile(this.files[0])"/>
+      </div>
+      <!-- Status -->
+      <div id="veStatus" style="margin:0 16px 12px;font-size:12px;color:#94a3b8;text-align:center;display:none;line-height:1.5;"></div>
+      <!-- Auto-clip button -->
+      <div style="margin:0 16px 14px;">
+        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.6),rgba(99,102,241,.4));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;">✨ AI Auto-detect Clips</button>
+      </div>
+      <!-- Clip list -->
+      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 16px;">
+        <div id="veClipListEmpty" style="color:#475569;font-size:12px;text-align:center;padding:20px 0;">Upload a video to get started</div>
+      </div>
+    </div>
+    <!-- RIGHT PANEL: Preview + Timeline + Controls -->
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#04080f;">
+      <!-- Video preview -->
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#000;min-height:0;position:relative;overflow:hidden;">
+        <video id="vePlayer" style="max-width:100%;max-height:100%;object-fit:contain;display:none;"
+               preload="metadata" ontimeupdate="veOnTimeUpdate()" onloadedmetadata="veOnMetadata()" onended="veOnEnded()" playsinline>
+        </video>
+        <div id="vePlayerPlaceholder" style="position:absolute;color:#475569;font-size:14px;text-align:center;">
+          <div style="font-size:48px;margin-bottom:12px;opacity:.4;">🎥</div>
+          <div>Upload a video to preview it here</div>
+        </div>
+      </div>
+      <!-- Transport + Timeline bar -->
+      <div style="background:rgba(7,10,22,.95);border-top:1px solid rgba(42,58,106,.4);padding:14px 20px;flex-shrink:0;">
+        <!-- Transport row -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <button id="vePlayBtn" onclick="vePlayPause()" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);border-radius:8px;color:#c4b5fd;font-size:16px;padding:6px 16px;cursor:pointer;min-width:48px;">▶</button>
+          <span id="veCurrentTime" style="font-size:13px;font-family:monospace;color:#94a3b8;min-width:48px;">0:00</span>
+          <span style="color:#475569;font-size:11px;">/</span>
+          <span id="veDuration" style="font-size:13px;font-family:monospace;color:#64748b;">0:00</span>
+          <div style="flex:1;"></div>
+          <span id="veClipDur" style="font-size:12px;color:#64748b;"></span>
+        </div>
+        <!-- Timeline: progress bar + scrubber -->
+        <div style="position:relative;height:24px;margin-bottom:14px;cursor:pointer;" id="veTimelineWrap" onclick="veClickTimeline(event)">
+          <!-- Track -->
+          <div style="position:absolute;top:8px;left:0;right:0;height:8px;background:rgba(255,255,255,.08);border-radius:4px;">
+            <!-- Range highlight -->
+            <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.5);border-radius:4px;"></div>
+            <!-- Playhead -->
+            <div id="vePlayhead" style="position:absolute;top:-4px;width:4px;height:16px;background:#c4b5fd;border-radius:2px;transform:translateX(-50%);"></div>
+          </div>
+        </div>
+        <!-- Trim controls row -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">In</span>
+            <input id="veTrimIn" type="number" min="0" step="0.1" value="0"
+              style="width:72px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
+              oninput="veInChanged(this.value)"/>
+            <button onclick="veSetIn()" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">⬅ Now</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Out</span>
+            <input id="veTrimOut" type="number" min="0" step="0.1" value="0"
+              style="width:72px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
+              oninput="veOutChanged(this.value)"/>
+            <button onclick="veSetOut()" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">Now ➡</button>
+          </div>
+          <button id="veExportBtn" onclick="veExportClip()" style="display:none;margin-left:auto;background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(99,102,241,.5));border:1px solid rgba(124,58,237,.6);border-radius:8px;color:#fff;font-size:13px;font-weight:700;padding:8px 20px;cursor:pointer;">⬇ Export Clip</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   VIDEO EDITOR
+═══════════════════════════════════════════════════════ */
+(function(){
+  var _veVidId = null, _veDur = 0, _veIn = 0, _veOut = 0, _veClips = [];
+
+  window.showVideoEditorModal = function(){
+    var m = document.getElementById('videoEditorModal');
+    if(m){ m.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+  };
+  window.closeVideoEditorModal = function(){
+    var m = document.getElementById('videoEditorModal');
+    if(m){ m.style.display = 'none'; document.body.style.overflow = ''; }
+    var p = document.getElementById('vePlayer'); if(p) p.pause();
+  };
+
+  window.veHandleDrop = function(e){
+    e.preventDefault();
+    document.getElementById('veUploadZone').style.borderColor = 'rgba(124,58,237,.4)';
+    var f = e.dataTransfer.files[0]; if(f) window.veLoadFile(f);
+  };
+  window.veLoadFile = function(file){
+    if(!file) return;
+    if(file.size > 200*1024*1024){ veSt('File too large — max 200 MB','err'); return; }
+    var url = URL.createObjectURL(file);
+    var p = document.getElementById('vePlayer');
+    if(p){ p.src = url; p.load(); p.style.display = 'block'; }
+    document.getElementById('vePlayerPlaceholder').style.display = 'none';
+    veSt('Uploading...','info');
+    var fd = new FormData(); fd.append('file', file);
+    fetch('/api/video/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+      if(!d.ok){ veSt(d.error||'Upload failed','err'); return; }
+      _veVidId = d.video_id;
+      veSt('Ready. Preview below, or click ✨ AI Auto-detect Clips.','ok');
+      document.getElementById('veAutoClipBtn').style.display = 'block';
+      document.getElementById('veExportBtn').style.display = 'block';
+    }).catch(e=>veSt('Upload error: '+e.message,'err'));
+  };
+
+  function veSt(msg,type){
+    var s=document.getElementById('veStatus');
+    if(!s)return; s.style.display='block';
+    s.style.color = type==='err'?'#fca5a5':type==='ok'?'#6ee7b7':'#94a3b8';
+    s.textContent = msg;
+  }
+
+  window.veRunAutoClip = function(){
+    if(!_veVidId){ veSt('Upload a video first','err'); return; }
+    var btn=document.getElementById('veAutoClipBtn');
+    if(btn){ btn.disabled=true; btn.textContent='⏳ Analyzing…'; }
+    veSt('Transcribing audio and finding best clips…','info');
+    fetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
+    .then(r=>r.json()).then(d=>{
+      if(btn){ btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips'; }
+      if(!d.ok){ veSt(d.error||'Analysis failed','err'); return; }
+      _veClips = d.clips||[];
+      veRenderClips();
+      veSt(_veClips.length+' clips found — click any to load it.','ok');
+    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';} veSt('Error: '+e.message,'err'); });
+  };
+
+  function veRenderClips(){
+    var list=document.getElementById('veClipList');
+    var empty=document.getElementById('veClipListEmpty');
+    if(!list)return;
+    if(_veClips.length===0){ if(empty)empty.style.display='block'; return; }
+    if(empty) empty.style.display='none';
+    var html='<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding:0 4px;">AI Suggested Clips</div>';
+    _veClips.forEach(function(c,i){
+      html+='<div onclick="veSelectClip('+i+')" style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;"'
+        +' onmouseover="this.style.borderColor=\'rgba(124,58,237,.5)\'" onmouseout="this.style.borderColor=\'rgba(124,58,237,.2)\'">'
+        +'<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+escHtml(c.title||'Clip '+(i+1))+'</div>'
+        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' → '+veFmt(c.end)+' · '+veFmt((c.end||0)-(c.start||0))+'</div>'
+        +(c.reason?'<div style="font-size:11px;color:#475569;margin-top:4px;line-height:1.4;">'+escHtml(c.reason)+'</div>':'')
+        +'</div>';
+    });
+    list.innerHTML = html;
+  }
+  function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  window.veSelectClip = function(i){
+    var c=_veClips[i]; if(!c)return;
+    _veIn=c.start||0; _veOut=c.end||_veDur;
+    veUpdateUI();
+    var p=document.getElementById('vePlayer'); if(p){p.currentTime=_veIn; p.play(); veUpdPlay(false);}
+  };
+
+  window.veOnMetadata = function(){
+    var p=document.getElementById('vePlayer'); if(!p)return;
+    _veDur=p.duration||0; _veIn=0; _veOut=_veDur;
+    document.getElementById('veDuration').textContent=veFmt(_veDur);
+    document.getElementById('veTrimIn').max=_veDur;
+    document.getElementById('veTrimOut').max=_veDur;
+    veUpdateUI();
+  };
+  window.veOnTimeUpdate = function(){
+    var p=document.getElementById('vePlayer'); if(!p)return;
+    var t=p.currentTime;
+    document.getElementById('veCurrentTime').textContent=veFmt(t);
+    if(_veDur>0){
+      var pct=(t/_veDur)*100;
+      var ph=document.getElementById('vePlayhead'); if(ph)ph.style.left=pct+'%';
+    }
+    if(t>=_veOut&&_veOut>0&&!p.paused){ p.currentTime=_veIn; p.pause(); veUpdPlay(false); }
+  };
+  window.veOnEnded=function(){ veUpdPlay(false); };
+
+  window.vePlayPause=function(){
+    var p=document.getElementById('vePlayer'); if(!p||!p.src)return;
+    if(p.paused){ if(p.currentTime>=_veOut-0.05)p.currentTime=_veIn; p.play(); veUpdPlay(true); }
+    else{ p.pause(); veUpdPlay(false); }
+  };
+  function veUpdPlay(playing){ var b=document.getElementById('vePlayBtn'); if(b)b.textContent=playing?'⏸':'▶'; }
+
+  window.veClickTimeline=function(e){
+    var wrap=document.getElementById('veTimelineWrap'); if(!wrap||_veDur<=0)return;
+    var rect=wrap.getBoundingClientRect();
+    var pct=(e.clientX-rect.left)/rect.width;
+    var t=Math.max(0,Math.min(_veDur,pct*_veDur));
+    var p=document.getElementById('vePlayer'); if(p)p.currentTime=t;
+  };
+
+  window.veSetIn=function(){ var p=document.getElementById('vePlayer'); if(!p)return; _veIn=Math.max(0,p.currentTime); if(_veIn>=_veOut)_veOut=Math.min(_veDur,_veIn+1); veUpdateUI(); };
+  window.veSetOut=function(){ var p=document.getElementById('vePlayer'); if(!p)return; _veOut=Math.min(_veDur,p.currentTime); if(_veOut<=_veIn)_veIn=Math.max(0,_veOut-1); veUpdateUI(); };
+  window.veInChanged=function(v){ _veIn=Math.max(0,parseFloat(v)||0); veUpdateHL(); };
+  window.veOutChanged=function(v){ _veOut=Math.min(_veDur,parseFloat(v)||0); veUpdateHL(); };
+
+  function veUpdateUI(){
+    document.getElementById('veTrimIn').value=_veIn.toFixed(1);
+    document.getElementById('veTrimOut').value=_veOut.toFixed(1);
+    veUpdateHL();
+  }
+  function veUpdateHL(){
+    if(_veDur<=0)return;
+    var hl=document.getElementById('veRangeHL'); if(!hl)return;
+    var l=(_veIn/_veDur)*100, r=(_veOut/_veDur)*100;
+    hl.style.left=l+'%'; hl.style.width=(r-l)+'%';
+    var cd=document.getElementById('veClipDur'); if(cd)cd.textContent='Clip: '+veFmt(_veOut-_veIn);
+  }
+
+  window.veExportClip=function(){
+    if(!_veVidId){ veSt('Upload a video first','err'); return; }
+    if(_veOut-_veIn<0.5){ veSt('Set a trim range (In → Out)','err'); return; }
+    var btn=document.getElementById('veExportBtn');
+    if(btn){ btn.disabled=true; btn.textContent='⏳ Exporting…'; }
+    veSt('Exporting clip — this takes a moment…','info');
+    fetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
+    .then(r=>r.json()).then(d=>{
+      if(btn){ btn.disabled=false; btn.textContent='⬇ Export Clip'; }
+      if(!d.ok){ veSt(d.error||'Export failed','err'); return; }
+      var a=document.createElement('a');
+      a.href='/api/video/download/'+d.export_id;
+      a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      veSt('Clip exported and downloaded!','ok');
+    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='⬇ Export Clip';} veSt('Error: '+e.message,'err'); });
+  };
+
+  function veFmt(s){
+    if(isNaN(s)||s<0)s=0;
+    var m=Math.floor(s/60),sec=Math.floor(s%60);
+    return m+':'+(sec<10?'0':'')+sec;
+  }
 })();
 </script>
 
@@ -51550,6 +51817,181 @@ def api_transcribe():
         mimetype="text/plain",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  VIDEO EDITOR
+# ═══════════════════════════════════════════════════════════════════
+import subprocess as _subprocess_ve
+import shutil as _shutil_ve
+
+_VE_TEMP = Path("/tmp/sa_video")
+
+def _ve_cleanup_old():
+    try:
+        import time as _t
+        cutoff = _t.time() - 7200  # 2 hours
+        if _VE_TEMP.exists():
+            for d in _VE_TEMP.iterdir():
+                if d.is_dir() and d.stat().st_mtime < cutoff:
+                    _shutil_ve.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
+
+@app.post("/api/video/upload")
+def api_video_upload():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+    f = request.files["file"]
+    ext = (f.filename or "upload").rsplit(".", 1)[-1].lower()
+    if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
+        return jsonify({"ok": False, "error": f"Unsupported format .{ext}. Use MP4, MOV, or WEBM."}), 400
+    data = f.read()
+    if len(data) > 200 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File exceeds 200 MB limit."}), 400
+    _ve_cleanup_old()
+    vid_id = uuid.uuid4().hex[:16]
+    vid_dir = _VE_TEMP / vid_id
+    vid_dir.mkdir(parents=True, exist_ok=True)
+    (vid_dir / f"original.{ext}").write_bytes(data)
+    print(f"[VE] upload user={u.get('username')} vid={vid_id} size={len(data)} ext={ext}", flush=True)
+    return jsonify({"ok": True, "video_id": vid_id})
+
+@app.post("/api/video/autoclip")
+def api_video_autoclip():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    body = request.get_json(force=True) or {}
+    vid_id = (body.get("video_id") or "").strip()
+    duration = float(body.get("duration") or 0)
+    if not vid_id:
+        return jsonify({"ok": False, "error": "No video_id provided"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    orig_path = orig_files[0]
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    if not openai_key:
+        return jsonify({"ok": False, "error": "Auto-clip requires an OpenAI API key. Add yours in Settings."}), 400
+    # Extract audio
+    audio_path = vid_dir / "audio.mp3"
+    try:
+        _subprocess_ve.run(
+            ["ffmpeg", "-y", "-i", str(orig_path), "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", str(audio_path)],
+            check=True, capture_output=True, timeout=180
+        )
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "ffmpeg not available on server. Contact support to enable Video Editor."}), 500
+    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired) as e:
+        return jsonify({"ok": False, "error": "Audio extraction failed. Video may be corrupted."}), 500
+    # Transcribe with Whisper
+    try:
+        import io as _io
+        oai = OpenAI(api_key=openai_key.strip())
+        with open(audio_path, "rb") as af:
+            result = oai.audio.transcriptions.create(model="whisper-1", file=af, response_format="verbose_json")
+        transcript = (result.text or "").strip()
+        segments = getattr(result, "segments", None) or []
+    except Exception as exc:
+        _, msg = _classify_openai_error(exc)
+        return jsonify({"ok": False, "error": f"Transcription failed: {msg}"}), 500
+    if not transcript:
+        return jsonify({"ok": False, "error": "No speech detected. Try a video with clear audio."}), 400
+    # Build timestamp text
+    seg_text = ""
+    if segments:
+        for s in segments[:200]:
+            seg_text += f"[{s.get('start',0):.1f}s-{s.get('end',0):.1f}s] {s.get('text','').strip()}\n"
+    if not seg_text:
+        seg_text = transcript[:3000]
+    vid_duration = duration or 60
+    prompt = (
+        f"You are a short-form video expert like Opus Clips. Analyze this transcript and pick the 3-5 BEST clips "
+        f"(15-90 seconds each) for social media. Video is {vid_duration:.0f}s long.\n\n"
+        f"Transcript:\n{seg_text}\n\n"
+        "Return ONLY a JSON array. Each item: {\"title\": \"...\", \"start\": 12.5, \"end\": 47.0, \"reason\": \"...\"}\n"
+        f"Rules: clips 15-90s, start>=0, end<={vid_duration:.0f}, avoid mid-sentence breaks, pick high-energy moments."
+    )
+    try:
+        resp = oai.chat.completions.create(
+            model="gpt-4o-mini", messages=[{"role":"user","content":prompt}],
+            max_tokens=600, temperature=0.3
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        match = re.search(r'\[.*?\]', raw, re.DOTALL)
+        if not match:
+            return jsonify({"ok": False, "error": "AI could not identify clips. Try a longer video with clear speech."}), 400
+        clips_raw = json.loads(match.group())
+        clips = []
+        for c in clips_raw:
+            if not isinstance(c, dict): continue
+            s = max(0.0, float(c.get("start") or 0))
+            e = min(float(vid_duration), float(c.get("end") or 0))
+            if e - s < 5: continue
+            clips.append({"title": str(c.get("title","Clip"))[:60], "start": round(s,1), "end": round(e,1), "reason": str(c.get("reason",""))[:150]})
+        return jsonify({"ok": True, "clips": clips[:5]})
+    except Exception as exc:
+        _, msg = _classify_openai_error(exc)
+        return jsonify({"ok": False, "error": f"AI analysis failed: {msg}"}), 500
+
+@app.post("/api/video/export")
+def api_video_export():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    body = request.get_json(force=True) or {}
+    vid_id = (body.get("video_id") or "").strip()
+    start = float(body.get("start") or 0)
+    end = float(body.get("end") or 0)
+    if not vid_id:
+        return jsonify({"ok": False, "error": "No video_id provided"}), 400
+    if end <= start:
+        return jsonify({"ok": False, "error": "End must be after start"}), 400
+    if end - start > 600:
+        return jsonify({"ok": False, "error": "Clip cannot exceed 10 minutes"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    orig_path = orig_files[0]
+    export_id = uuid.uuid4().hex[:12]
+    out_path = vid_dir / f"clip_{export_id}.mp4"
+    try:
+        _subprocess_ve.run([
+            "ffmpeg", "-y", "-ss", str(start), "-i", str(orig_path),
+            "-t", str(end - start), "-c:v", "libx264", "-preset", "fast",
+            "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path)
+        ], check=True, capture_output=True, timeout=300)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "ffmpeg not available. Contact support to enable Video Editor."}), 500
+    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
+        return jsonify({"ok": False, "error": "Export failed. Video may be corrupted or too large."}), 500
+    print(f"[VE] export user={u.get('username')} vid={vid_id} clip={export_id} {start:.1f}-{end:.1f}s", flush=True)
+    return jsonify({"ok": True, "export_id": f"{vid_id}/{export_id}"})
+
+@app.get("/api/video/download/<path:export_id>")
+def api_video_download(export_id):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    parts = export_id.split("/")
+    if len(parts) != 2:
+        return jsonify({"ok": False, "error": "Invalid export ID"}), 400
+    vid_id, clip_id = parts
+    # sanitize
+    if not re.match(r'^[a-f0-9]+$', vid_id) or not re.match(r'^[a-f0-9]+$', clip_id):
+        return jsonify({"ok": False, "error": "Invalid ID format"}), 400
+    clip_path = _VE_TEMP / vid_id / f"clip_{clip_id}.mp4"
+    if not clip_path.exists():
+        return jsonify({"ok": False, "error": "Clip not found or expired"}), 404
+    from flask import send_file as _send_file
+    return _send_file(str(clip_path), as_attachment=True, download_name=f"clip_{clip_id}.mp4", mimetype="video/mp4")
 
 
 # ═══════════════════════════════════════════════════════════════════
