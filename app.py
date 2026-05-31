@@ -36646,6 +36646,16 @@ window._streamTtsFired = false;
           }
           if(parsed.error){ throw new Error(parsed.error); }
           if(parsed.done){
+            // Image generation job — hand off to pollImageJob instead of rendering text
+            if(parsed.job_id){
+              aCursor.remove();
+              aBody.innerHTML = '<span class="sa-img-loading"><span class="sa-img-spinner"></span><span class="sa-img-stage">🎨 Generating image...</span></span>';
+              if(typeof setSeatLive==="function") setSeatLive(seat,"thinking");
+              if(typeof setOpStatus==="function") setOpStatus("Generating image...");
+              if(typeof window.refreshThread==="function") await window.refreshThread();
+              if(typeof pollImageJob==="function") pollImageJob(parsed.job_id, seat);
+              return;
+            }
             aCursor.remove();
             const _finalText = parsed.response || fullText;
             const _visIdx = _finalText ? _finalText.indexOf("__VISUAL__") : -1;
