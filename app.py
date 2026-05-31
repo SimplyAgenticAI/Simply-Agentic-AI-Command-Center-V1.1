@@ -5297,6 +5297,17 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"- Always sign off with the operator's real name: {_op_name_for_email}. Never use placeholder text like '[Your Name]'.\n"
         "- Do not claim the email was sent.\n"
         "- No em dashes.\n"
+        "EMAIL TO SPECIFIC ADDRESS: If the user asks you to email something to a specific email address "
+        "(e.g. 'email the graphic to john@example.com'), you MUST include the recipient as the FIRST "
+        "header line in the machine-readable block: `To: john@example.com`. Place it before Subject. "
+        "Draft the email naturally, then the block looks like:\n"
+        "```email\n"
+        "To: john@example.com\n"
+        "Subject: Your Graphic\n"
+        "Body: Hi John, ...\n"
+        "```\n"
+        "If a graphic or image was recently created in this conversation, "
+        "mention it naturally in the body (e.g. 'I've attached the graphic we created for you.').\n"
     )
 
     # Operator profile (shared business context) — use cached values
@@ -20461,6 +20472,14 @@ window.showModal = function showModal(title, body, imgUrl){
           .replace(/\[Name\]/gi, opName);
       }
 
+      // If triggered by an "email the graphic to X" request, append last-generated image link
+      const _lastImgUrl = (lastImageState && (lastImageState.current_image_url || lastImageState.approved_image_url)) || "";
+      if(_lastImgUrl && window._saUserRequestedEmailDraft){
+        if(cleanBody.indexOf(_lastImgUrl) === -1){
+          cleanBody = cleanBody.trimEnd() + "\n\n[Graphic attached: " + _lastImgUrl + "]";
+        }
+      }
+
       if($("emailTo") && draft.to) $("emailTo").value = draft.to;
       if($("emailSubject") && draft.subject) $("emailSubject").value = draft.subject;
       if($("emailBody")) $("emailBody").value = cleanBody;
@@ -23203,6 +23222,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         threadEl.scrollTop=threadEl.scrollHeight;
       }
 
+      // Auto-open Email Console when user asks to email a graphic/image
+      if(window._isEmailImageRequest && window._isEmailImageRequest(msg)){
+        window._saUserRequestedEmailDraft = true;
+      }
+
       let fullText="";
       try{
         const ctrl=new AbortController();
@@ -23273,7 +23297,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                   } else {
                     aBody.innerText=_ep.cleanText||(ev.response||fullText);
                   }
+                  if(_ep.emails&&_ep.emails.length>0&&typeof window._saEmailCard==="function"){
+                    _ep.emails.forEach(function(em){aBody.appendChild(window._saEmailCard(em,seat));});
+                  }
                 }
+                // Auto-open Email Console if user asked to email a graphic
+                if(ev.email_draft && window._saUserRequestedEmailDraft && typeof applyEmailDraft==="function"){
+                  applyEmailDraft(ev.email_draft, seat);
+                }
+                window._saUserRequestedEmailDraft = false;
                 try{setSeatLive(seat,"done");}catch(_){}
                 try{setOpStatus("Done");}catch(_){}
                 if(ev.job_id){try{pollImageJob(ev.job_id,seat);}catch(_){}}
@@ -24127,6 +24159,14 @@ function _saJobNotify(seatName, status){
     };
     window._saSetLengthMode("auto"); // init highlight
 
+    // Detect "email the graphic to X@X.com" intent so Email Console auto-opens with a draft
+    window._isEmailImageRequest = function(m){
+      if(!m || !/@/.test(m)) return false;
+      var p = m.toLowerCase();
+      if(!/\b(email|send|forward|mail)\b/.test(p)) return false;
+      return /\b(image|graphic|photo|pic|picture|design|logo|visual|artwork|drawing|render|it|this)\b/.test(p);
+    };
+
     window.sendFollow = async function sendFollow(){
       if(!selectedSeat){
         showToast("⚠️ Click a teammate card first");
@@ -24141,6 +24181,11 @@ function _saJobNotify(seatName, status){
       // Inject length mode instruction
       if(window._saLengthMode === "brief") msg = msg + "\n\n[Keep your reply concise — 2 to 4 sentences max.]";
       if(window._saLengthMode === "deep")  msg = msg + "\n\n[Give a thorough, detailed reply — cover all angles fully.]";
+
+      // Auto-open Email Console when user asks to email a graphic/image
+      if(window._isEmailImageRequest && window._isEmailImageRequest(msg)){
+        window._saUserRequestedEmailDraft = true;
+      }
 
       setSeatLive(selectedSeat, "thinking");
       setOpStatus("Sending to selected");
@@ -36564,6 +36609,11 @@ window._streamTtsFired = false;
 
     const dmFileIds = window.dmFileIds || [];
     const lightingOn = !!window.lightingModeOn;
+
+    // Auto-open Email Console when user asks to email a graphic/image
+    if(window._isEmailImageRequest && window._isEmailImageRequest(msg)){
+      window._saUserRequestedEmailDraft = true;
+    }
 
     if(typeof setSeatLive==="function") setSeatLive(seat,"thinking");
     if(typeof setOpStatus==="function") setOpStatus("Streaming…");
