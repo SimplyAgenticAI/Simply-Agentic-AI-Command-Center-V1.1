@@ -4525,15 +4525,15 @@ def _extract_b64_from_image_resp(resp: Any) -> Optional[str]:
             b64 = getattr(first, "b64_json", None) or (first.get("b64_json") if isinstance(first, dict) else None)
             if b64:
                 return b64
-            # Fallback: fetch from URL and convert to b64 (for models that ignore response_format)
+            # Fallback: fetch from URL and convert to b64 (for models that return URLs)
             url = getattr(first, "url", None) or (first.get("url") if isinstance(first, dict) else None)
             if url:
                 # Validate URL is from a known OpenAI CDN host before fetching
                 _allowed_hosts = {
+                    "openai.com",
                     "oaidalleapiprodscus.blob.core.windows.net",
                     "oaidalle.blob.core.windows.net",
-                    "cdn.openai.com",
-                    "api.openai.com",
+                    "blob.core.windows.net",
                 }
                 try:
                     _parsed = urlparse(url)
@@ -5935,7 +5935,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
 # Front-end expects optional fields returned by /api/followup:
 #   { image_url: "/uploads/<relpath>", image_file: {upload record} }
 
-IMAGE_MODELS_FALLBACK = ["gpt-image-1", "dall-e-3", "dall-e-2"]
+IMAGE_MODELS_FALLBACK = ["gpt-image-1", "dall-e-3"]
 
 _IMAGE_TRIGGERS = [
     "generate an image", "generate image", "create an image", "create image",
@@ -6247,6 +6247,7 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
         return None, None, str(e)
 
     tried = []
+    model_errors: Dict[str, str] = {}
     last_err = ""
     ref_bytes, ref_mimetype = _read_upload_bytes(source_rec)
     can_edit = bool(ref_bytes) and mode in ("edit", "variation")
@@ -6297,6 +6298,8 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             return rec, url, None
         except Exception as e:
             last_err = str(e) or "Image generation failed"
+            model_errors[m] = last_err
+            _log("WARNING", "Image model failed", model=m, error=last_err[:200])
             # If content policy hit, don't try more models — break and let softener retry
             if "content_policy" in last_err.lower() or "content filter" in last_err.lower() or "safety" in last_err.lower():
                 break
@@ -6330,9 +6333,9 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     # Give a human-friendly reason for common failure types
     if "content_policy" in detail.lower() or "content filter" in detail.lower() or "safety" in detail.lower():
         return None, None, "Image generation declined — the content filter blocked this even after rephrasing. Try describing the same idea differently."
-    if detail:
-        return None, None, f"Image generation failed (tried: {', '.join(tried)}). {detail}"
-    return None, None, f"Image generation failed (tried: {', '.join(tried)})."
+    # Build per-model breakdown so the error is actually debuggable
+    breakdown = "; ".join(f"{k}: {v[:120]}" for k, v in model_errors.items()) if model_errors else detail
+    return None, None, f"Image generation failed (tried: {', '.join(tried)}). Errors — {breakdown}"
 
 def is_assembly(prompt: str) -> bool:
     p = (prompt or "").strip().lower()
