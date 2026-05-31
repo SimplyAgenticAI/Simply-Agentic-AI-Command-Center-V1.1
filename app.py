@@ -20293,41 +20293,74 @@ window.saWM = (function(){
     },
 
     minimize: function(el){
+      var self = pub;
       if(el.classList.contains('sa-minimized')){
+        // ── RESTORE ──
         el.classList.remove('sa-minimized');
-        if(el._wmPrevH) el.style.height=el._wmPrevH;
-        el.style.zIndex = ++pub.z;
+        el.style.height = el._wmPrevH || '100vh';
+        if(el._wmHidden){
+          el._wmHidden.forEach(function(c){ c.style.display=''; });
+          el._wmHidden = null;
+        }
+        el.style.zIndex = ++self.z;
       } else {
-        el._wmPrevH = el.style.height;
+        // ── MINIMIZE ──
+        el._wmPrevH = el.style.height || el.offsetHeight+'px';
         el.classList.add('sa-minimized');
+        // Find the title bar to keep visible
+        var header = el.querySelector('.sa-float-header') ||
+                     el.querySelector('.cp-header')       ||
+                     el.querySelector('#modalBar')        ||
+                     el.querySelector('.modalBar');
+        var toHide = [];
+        if(header){
+          // Hide all siblings of the header inside its parent
+          var par = header.parentElement;
+          Array.from(par.children).forEach(function(c){
+            if(c !== header && !c.classList.contains('sa-win-resize')){
+              toHide.push(c); c.style.display='none';
+            }
+          });
+          // If the header lives in a wrapper (not el itself), hide other direct children of el too
+          if(par !== el){
+            Array.from(el.children).forEach(function(c){
+              if(!c.classList.contains('sa-win-resize') && !c.contains(header) && c !== header){
+                toHide.push(c); c.style.display='none';
+              }
+            });
+          }
+        } else {
+          Array.from(el.children).forEach(function(c){
+            if(!c.classList.contains('sa-win-resize')){ toHide.push(c); c.style.display='none'; }
+          });
+        }
+        el._wmHidden = toHide;
+        el.style.height = 'auto';
       }
-      pub._updateTaskbar();
+      self._updateTaskbar();
     },
 
     _updateTaskbar: function(){
       var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
-      var mins=_items.filter(function(it){
-        return it.el.classList.contains('sa-minimized') ||
-               (it.el.style.display==='none' && it.el._wmWasOpen);
-      });
-      // also check standalone windows
       var all=_items.filter(function(it){ return it.el.classList.contains('sa-minimized'); });
-      if(!all.length){tb.style.display='none';return;}
+      if(!all.length){ tb.style.display='none'; return; }
       tb.style.display='flex';
       tb.innerHTML='';
+      var self=pub;
       all.forEach(function(it){
         var btn=document.createElement('button');
         btn.className='sa-tb-item';
-        var title=it.getTitle?it.getTitle():(it.title||'Window');
+        var title=it.getTitle ? it.getTitle() : (it.title||'Window');
         btn.innerHTML=(it.icon||'⬜')+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
         btn.addEventListener('click',function(e){
           if(e.target.classList.contains('sa-tb-x')){
             it.el.classList.remove('sa-minimized');
+            if(it.el._wmHidden){ it.el._wmHidden.forEach(function(c){c.style.display='';}); it.el._wmHidden=null; }
             if(it.onClose) it.onClose(); else it.el.style.display='none';
           } else {
-            pub.minimize(it.el);
+            self.minimize(it.el);
           }
-          pub._updateTaskbar();
+          self._updateTaskbar();
         });
         tb.appendChild(btn);
       });
@@ -20351,14 +20384,13 @@ function applyModalPos(){
       const win = $("modalWin"); if(!win) return;
       win.style.display = "flex";
 
-      // First open: center and size as floating window
+      // First open: full screen
       if(!win._wmPos){
-        const W = Math.min(1040, window.innerWidth  - 40);
-        const H = Math.min(780,  window.innerHeight - 40);
-        win.style.width  = W+"px";
-        win.style.height = H+"px";
-        win.style.top    = Math.max(20, Math.round((window.innerHeight-H)/2))+"px";
-        win.style.left   = Math.max(20, Math.round((window.innerWidth -W)/2))+"px";
+        win.style.width  = "100vw";
+        win.style.height = "100vh";
+        win.style.top    = "0";
+        win.style.left   = "0";
+        win.style.borderRadius = "0";
         win._wmPos = true;
         // Wire drag on modalBar
         const bar = document.getElementById("modalBar");
@@ -34370,7 +34402,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:rgba(10,14,30,.98);width:min(1100px,96vw);height:min(800px,92vh);top:4vh;left:max(2vw,(100vw - 1100px)/2);">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:rgba(10,14,30,.98);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
@@ -34403,7 +34435,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </div>
 
 <!-- RAG Index Modal -->
-<div id="ragModal" class="sa-float-win" style="display:none;z-index:99991;background:rgba(10,14,30,.98);border:1px solid rgba(42,58,106,.9);width:min(760px,96vw);height:min(720px,92vh);top:4vh;left:max(2vw,(100vw - 760px)/2);">
+<div id="ragModal" class="sa-float-win" style="display:none;z-index:99991;background:rgba(10,14,30,.98);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
@@ -37334,7 +37366,7 @@ window._streamTtsFired = false;
 
 <!-- ===== COMMUNITY HUB PANEL ===== -->
 <style>
-#communityPanel{display:none;position:fixed;z-index:9990;width:min(960px,96vw);height:min(820px,92vh);top:4vh;left:max(2vw,(100vw - 960px)/2);border-radius:12px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.75);}
+#communityPanel{display:none;position:fixed;z-index:9990;width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;}
 #communityPanel.open{display:flex;}
 .cpanel{background:linear-gradient(160deg,#0e1629 0%,#111d3a 100%);width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;}
 .cp-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;}
@@ -37757,7 +37789,7 @@ window._streamTtsFired = false;
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
 <!-- ═══ ACTION STACK MODAL ═══ -->
-<div id="stackModal" class="sa-float-win" style="display:none;z-index:99995;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:min(700px,96vw);height:min(720px,92vh);top:4vh;left:max(2vw,(100vw - 700px)/2);">
+<div id="stackModal" class="sa-float-win" style="display:none;z-index:99995;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
@@ -38574,7 +38606,7 @@ document.addEventListener('click',e=>{
 <!-- ═══ END CHANGELOG + REFERRAL ═══ -->
 
 <!-- ═══ ORCHESTRA MODE MODAL ═══ -->
-<div id="orchestraModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);width:min(740px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 740px)/2);">
+<div id="orchestraModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div id="orchInner" style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
@@ -38635,7 +38667,7 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ DEEP DIVE MODAL ═══ -->
-<div id="deepDiveModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);width:min(740px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 740px)/2);">
+<div id="deepDiveModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(245,158,11,.06);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
@@ -38685,7 +38717,7 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ PIPELINE MODE MODAL ═══ -->
-<div id="pipelineModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:min(780px,96vw);height:min(760px,92vh);top:4vh;left:max(2vw,(100vw - 780px)/2);">
+<div id="pipelineModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
   <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
