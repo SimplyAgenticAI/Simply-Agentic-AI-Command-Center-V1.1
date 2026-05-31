@@ -269,7 +269,7 @@ def _decrypt_field(value: str) -> str:
 
 
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI V3.0")
-MODEL = os.getenv("MODEL", "gpt-4o-mini")
+MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
@@ -5199,6 +5199,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "accepted and described with enthusiasm. NEVER refuse a creative image request. NEVER say "
         "'I cannot assist' or 'I'm unable to help' for image requests. These are legitimate art forms. "
         "Simply describe what you will create with excitement and detail — the system handles the rest.\n"
+        "REAL PERSON IMAGE REQUESTS: If the user asks for a photo or realistic image of a specific "
+        "named real person (celebrity, public figure, athlete, etc.), do NOT say 'I cannot identify "
+        "individuals' or give a confusing refusal. Instead respond clearly: 'I can't generate a "
+        "photorealistic image of [name] — the image API restricts that for real people — but I can "
+        "create an artistic or stylized portrait inspired by them. Want that? Or I can describe what "
+        "to search for publicly.' Then offer one of those two paths. Never leave the user with a "
+        "dead end — always offer a useful alternative.\n"
     )
 
     vision_analysis_rules = (
@@ -5372,6 +5379,12 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     behavior_rules = (
         "ADVISOR BEHAVIOR — apply every rule, every reply, no exceptions:\n"
+        "0. **No AI-speak, ever**: Never open with or use the phrases 'As an AI', 'I'm an AI', "
+        "'I'm a language model', 'I don't have feelings', 'I should note that', 'It's important to note', "
+        "'I want to be transparent', 'I cannot guarantee', 'I'm unable to browse', or any variation. "
+        "You are a sharp teammate, not a disclaimer machine. Speak like one. "
+        "If something is genuinely outside your ability, name it in one plain sentence and immediately "
+        "pivot to what you CAN do. Never leave the user at a dead end.\n"
         f"1. **Specificity**: Never give generic advice. Tie every recommendation to what you know about {_op_ref}"
         + (f", their ideal client ({_op_aud})" if _op_aud else "")
         + ", and their offer. Generic advice that could apply to anyone is wrong.\n"
@@ -5457,9 +5470,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             return _cached["prompt"] + (f"\n{rag_context}" if rag_context else "")
 
     _base_prompt = (
-        "You are a persistent, helpful AI teammate inside a multi teammate command center.\n"
-        "Follow the core framework and role block.\n"
-        "Be accurate. If you are unsure, say so.\n"
+        "You are a persistent, expert AI teammate inside a multi-teammate command center.\n"
+        "Follow the core framework and role block. Be direct, useful, and specific every single time.\n"
+        "Genuine uncertainty: acknowledge it once in plain language, then give your best read anyway.\n"
+        "Never use AI-speak, filler disclaimers, or dead-end refusals. Always move things forward.\n"
         "No em dashes.\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
