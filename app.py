@@ -23919,13 +23919,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         interim=interim.trim();
 
         // ── Name detection ─────────────────────────────────────
-        const hit=findFirstNameMention(interim)
-               ||findFirstNameMention(newFinals)
-               ||findFirstNameMention((_buf+" "+newFinals).trim());
+        // Grace period: suppress newFinals detection for 1.5s after a switch.
+        // This prevents the finalized transcript of the OLD utterance (which may
+        // contain the PREVIOUS teammate's name earlier in the phrase) from
+        // triggering a switch-back right after we just switched away.
+        const _nowMs = Date.now();
+        const _inGrace = (_nowMs - _nameDebounce) < 1500;
+        const hit = findFirstNameMention(interim)
+                 || (!_inGrace && findFirstNameMention(newFinals))
+                 || (!_inGrace && findFirstNameMention((_buf+" "+newFinals).trim()));
         if(hit){
-          const now=Date.now();
-          if(now-_nameDebounce>600){
-            _nameDebounce=now;
+          if(_nowMs-_nameDebounce>600){
+            _nameDebounce=_nowMs;
             _switching=true;
             _buf="";
             alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
@@ -23937,6 +23942,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             _whisperSetTranscript("","");
             _whisperSetStatus("Now talking to "+hit.name);
             _buf="";alwaysFinalText="";alwaysInterimText="";
+            // Restart recognizer to flush any buffered old-session results
+            try{ if(alwaysRec) alwaysRec.stop(); }catch(_){}
             _switching=false;
             return;
           }
