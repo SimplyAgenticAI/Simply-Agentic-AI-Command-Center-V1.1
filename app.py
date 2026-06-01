@@ -20262,39 +20262,30 @@ if (typeof window.showToast !== "function") {
 
 /* ════════════════════════════════════════════════════════════════
    WINDOW MANAGER  —  drag · resize · minimize · taskbar
+   No registration needed — taskbar scans DOM for .sa-minimized
    ════════════════════════════════════════════════════════════════ */
 window.saWM = (function(){
-  var z = 500000;
-  var _items = []; // { el, getTitle, icon, onClose }
+  var _z = 500000;
 
-  /* Restore a maximized window to windowed size, centering horizontally on cursorX */
-  function _restoreForInteraction(el, cursorX){
-    if(!el._wmMaximized) return;
-    pub.maximize(el); // sets windowed size + updates button + _wmMaximized=false
-    var W = el.offsetWidth || Math.min(1100, Math.round(window.innerWidth*.82));
-    var newL = Math.max(0, Math.min(window.innerWidth - W, (cursorX||window.innerWidth/2) - Math.round(W*.5)));
-    el.style.left = newL + 'px';
-    el.style.top  = '0';
-  }
-
+  /* ── drag ── */
   function _startDrag(e, el){
-    // If window is maximized, restore it first then drag (standard OS behaviour)
-    if(el._wmMaximized) _restoreForInteraction(el, e.clientX);
-    var rect=el.getBoundingClientRect(), ox=e.clientX-rect.left, oy=e.clientY-rect.top;
-    function mv(e){
-      el.style.left=Math.max(0,Math.min(window.innerWidth -80, e.clientX-ox))+'px';
-      el.style.top =Math.max(0,Math.min(window.innerHeight-40, e.clientY-oy))+'px';
+    if(el._wmMaximized){ _doRestore(el, e.clientX); }
+    var r=el.getBoundingClientRect(), ox=e.clientX-r.left, oy=e.clientY-r.top;
+    function mv(e2){
+      el.style.left=Math.max(0,Math.min(window.innerWidth-80,  e2.clientX-ox))+'px';
+      el.style.top =Math.max(0,Math.min(window.innerHeight-40, e2.clientY-oy))+'px';
     }
     function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
-    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+    document.addEventListener('mousemove',mv);
+    document.addEventListener('mouseup',up);
   }
 
+  /* ── resize ── */
   function _startResize(e,el,dir){
-    // If window is maximized, restore it first then resize
-    if(el._wmMaximized) _restoreForInteraction(el, e.clientX);
-    var r=el.getBoundingClientRect(), sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height,sl=r.left,st=r.top;
-    function mv(e){
-      var dx=e.clientX-sx,dy=e.clientY-sy,nw=sw,nh=sh,nl=sl,nt=st;
+    if(el._wmMaximized){ _doRestore(el, e.clientX); }
+    var r=el.getBoundingClientRect(),sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height,sl=r.left,st=r.top;
+    function mv(e2){
+      var dx=e2.clientX-sx,dy=e2.clientY-sy,nw=sw,nh=sh,nl=sl,nt=st;
       if(dir.indexOf('e')>-1) nw=Math.max(360,sw+dx);
       if(dir.indexOf('s')>-1) nh=Math.max(200,sh+dy);
       if(dir.indexOf('w')>-1){nw=Math.max(360,sw-dx);nl=sl+sw-nw;}
@@ -20303,23 +20294,46 @@ window.saWM = (function(){
       el.style.left=nl+'px';  el.style.top=nt+'px';
     }
     function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); }
-    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+    document.addEventListener('mousemove',mv);
+    document.addEventListener('mouseup',up);
   }
 
-  var pub = {
-    z: z,
+  /* ── internal: restore maximized window, center under cursor ── */
+  function _doRestore(el, cursorX){
+    pub.maximize(el);
+    var W = el.offsetWidth || Math.min(1100,Math.round(window.innerWidth*.82));
+    el.style.left = Math.max(0,Math.min(window.innerWidth-W, (cursorX||window.innerWidth/2)-Math.round(W*.5)))+'px';
+    el.style.top  = '0';
+  }
 
+  /* ── internal: get display title for a window element ── */
+  function _getTitle(el){
+    if(el.id==='modalWin'){ var t=document.getElementById('modalTitle'); return t?t.innerText:'Window'; }
+    if(el._wmGetTitle) return el._wmGetTitle();
+    var h=el.querySelector('.sa-float-header,.cp-header,.modalBar');
+    if(h){ var s=h.querySelector('.cp-title,.modalBarTitle'); if(s) return s.innerText; }
+    return el.id||'Window';
+  }
+
+  /* ── internal: get icon for a window element ── */
+  function _getIcon(el){ return el._wmIcon||'⬜'; }
+
+  var pub = {
+    z: _z,
+
+    /* Make an element draggable from a handle */
     _makeDraggable: function(handle, win){
       handle.addEventListener('mousedown', function(e){
-        if(e.target.closest('.modalBarBtns,.sa-float-btns')) return;
+        if(e.button!==0) return;
+        if(e.target.closest&&e.target.closest('.modalBarBtns,.sa-float-btns')) return;
         e.preventDefault();
-        pub.z = ++pub.z;
-        win.style.zIndex = pub.z;
+        win.style.zIndex = ++pub.z;
         _startDrag(e, win);
       });
-      win.addEventListener('mousedown', function(){ win.style.zIndex = ++pub.z; }, true);
+      win.addEventListener('mousedown', function(){ win.style.zIndex=++pub.z; }, true);
     },
 
+    /* Inject resize handles into a window element */
     _addResizeHandles: function(el){
       if(el.querySelector('.sa-win-resize')) return;
       ['se','s','e','n','w','ne','nw','sw'].forEach(function(d){
@@ -20328,115 +20342,109 @@ window.saWM = (function(){
         el.appendChild(r);
         r.addEventListener('mousedown',function(e){
           e.stopPropagation(); e.preventDefault();
-          el.style.zIndex = ++pub.z;
+          el.style.zIndex=++pub.z;
           _startResize(e,el,d);
         });
       });
     },
 
-    _register: function(el, getTitle, icon, onClose){
-      if(_items.find(function(i){return i.el===el;})) return;
-      _items.push({el:el, getTitle:getTitle, icon:icon||'⬜', onClose:onClose});
-    },
-
+    /* ── MINIMIZE / RESTORE ── completely hide window, show in taskbar */
     minimize: function(el){
-      var self = pub;
+      if(!el) return;
       if(el.classList.contains('sa-minimized')){
-        // ── RESTORE ──
+        /* RESTORE */
         el.classList.remove('sa-minimized');
-        el.style.display = el._wmPrevDisplay || 'flex';
-        el.style.zIndex  = ++self.z;
-        // Re-lock body scroll if it's the main modal
-        if(el.id === 'modalWin') document.body.classList.add('modal-open');
+        el.style.display = el._wmPrevDisplay||'flex';
+        el.style.zIndex  = ++pub.z;
+        if(el.id==='modalWin') document.body.classList.add('modal-open');
       } else {
-        // ── MINIMIZE: hide completely, land in taskbar ──
-        el._wmPrevDisplay = (el.style.display && el.style.display !== 'none')
-          ? el.style.display : 'flex';
+        /* MINIMIZE */
+        var cur = el.style.display;
+        el._wmPrevDisplay = (cur && cur!=='none') ? cur : 'flex';
         el.classList.add('sa-minimized');
         el.style.display = 'none';
-        // Unlock body scroll when main modal is minimized
-        if(el.id === 'modalWin'){
-          document.body.classList.remove('modal-open');
-          document.body.style.overflow = '';
-        }
+        if(el.id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
       }
-      self._updateTaskbar();
+      pub._updateTaskbar();
     },
 
+    /* ── TASKBAR: scan DOM for any .sa-minimized window ── */
     _updateTaskbar: function(){
-      var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
-      var all=_items.filter(function(it){ return it.el.classList.contains('sa-minimized'); });
-      if(!all.length){ tb.style.display='none'; return; }
+      var tb=document.getElementById('saWMTaskbar');
+      if(!tb) return;
+      var mins=Array.prototype.slice.call(document.querySelectorAll('.sa-minimized[id]'));
+      if(!mins.length){ tb.style.display='none'; return; }
       tb.style.display='flex';
       tb.innerHTML='';
-      var self=pub;
-      all.forEach(function(it){
+      mins.forEach(function(el){
+        var title=_getTitle(el), icon=_getIcon(el);
         var btn=document.createElement('button');
         btn.className='sa-tb-item';
-        var title=it.getTitle ? it.getTitle() : (it.title||'Window');
-        btn.innerHTML=(it.icon||'⬜')+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
+        btn.innerHTML=icon+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
         btn.addEventListener('click',function(e){
           if(e.target.classList.contains('sa-tb-x')){
-            // ✕ = close the window entirely
-            it.el.classList.remove('sa-minimized');
-            it.el.style.display = 'none';
-            if(it.el.id === 'modalWin'){
-              document.body.classList.remove('modal-open');
-              document.body.style.overflow = '';
-            }
-            if(it.onClose) it.onClose();
+            el.classList.remove('sa-minimized');
+            el.style.display='none';
+            if(el.id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
+            if(el._wmOnClose) el._wmOnClose();
           } else {
-            // click label = restore the window
-            self.minimize(it.el);
+            pub.minimize(el);
           }
-          self._updateTaskbar();
+          pub._updateTaskbar();
         });
         tb.appendChild(btn);
       });
     },
 
+    /* ── MAXIMIZE / RESTORE ── */
     maximize: function(el){
-      var btn = el.querySelector('.sa-wm-max-btn') ||
-                (el.id==='modalWin' ? document.getElementById('maximizeModal') : null);
+      var btn=el.querySelector('.sa-wm-max-btn')||(el.id==='modalWin'?document.getElementById('maximizeModal'):null);
       if(el._wmMaximized){
-        // ── RESTORE to windowed ──
-        el._wmMaximized = false;
-        var useSaved = el._wmSavedW && el._wmSavedW !== '100vw' && el._wmSavedW !== '';
-        if(useSaved){
+        el._wmMaximized=false;
+        var hasSaved=el._wmSavedW&&el._wmSavedW!=='100vw'&&el._wmSavedW!=='';
+        if(hasSaved){
           el.style.width=el._wmSavedW; el.style.height=el._wmSavedH;
           el.style.top=el._wmSavedT;   el.style.left=el._wmSavedL;
           el.style.borderRadius=el._wmSavedR||'12px';
         } else {
           var W=Math.min(1100,Math.round(window.innerWidth*.82));
-          var H=Math.min(820, Math.round(window.innerHeight*.82));
-          el.style.width=W+'px';  el.style.height=H+'px';
+          var H=Math.min(820,Math.round(window.innerHeight*.82));
+          el.style.width=W+'px'; el.style.height=H+'px';
           el.style.top=Math.round((window.innerHeight-H)/2)+'px';
           el.style.left=Math.round((window.innerWidth-W)/2)+'px';
           el.style.borderRadius='12px';
         }
         if(btn){btn.title='Full screen';btn.innerHTML='⛶';}
       } else {
-        // ── MAXIMIZE to full screen ──
         el._wmMaximized=true;
-        el._wmSavedW=el.style.width;  el._wmSavedH=el.style.height;
-        el._wmSavedT=el.style.top;    el._wmSavedL=el.style.left;
+        el._wmSavedW=el.style.width; el._wmSavedH=el.style.height;
+        el._wmSavedT=el.style.top;   el._wmSavedL=el.style.left;
         el._wmSavedR=el.style.borderRadius;
         el.style.width='100vw'; el.style.height='100vh';
-        el.style.top='0';       el.style.left='0';
+        el.style.top='0'; el.style.left='0';
         el.style.borderRadius='0';
         if(btn){btn.title='Restore window';btn.innerHTML='❐';}
       }
     },
 
-    /* Wire a standalone floating window (has its own header) */
+    /* ── Wire a standalone floating window ── */
     attachFloat: function(el, getTitle, icon, onClose){
-      pub._register(el, getTitle, icon, onClose);
-      pub._makeDraggable(el.querySelector('.sa-float-header,.cp-header,[data-drag]') || el.querySelector('[style*="cursor:move"]') || el, el);
+      el._wmGetTitle = typeof getTitle==='function' ? getTitle : function(){ return getTitle||el.id; };
+      el._wmIcon     = icon||'⬜';
+      el._wmOnClose  = onClose;
+      var handle=el.querySelector('.sa-float-header,.cp-header')||el;
+      pub._makeDraggable(handle, el);
       pub._addResizeHandles(el);
-      // Windows start full-screen — mark maximized so first button click restores
-      el._wmMaximized = true;
-      var btn = el.querySelector('.sa-wm-max-btn');
+      el._wmMaximized=true;
+      var btn=el.querySelector('.sa-wm-max-btn');
       if(btn){btn.title='Restore window';btn.innerHTML='❐';}
+    },
+
+    /* Legacy alias kept for any old callers */
+    _register: function(el, getTitle, icon, onClose){
+      el._wmGetTitle = typeof getTitle==='function' ? getTitle : function(){ return getTitle||el.id; };
+      el._wmIcon     = icon||'⬜';
+      el._wmOnClose  = onClose;
     }
   };
   return pub;
