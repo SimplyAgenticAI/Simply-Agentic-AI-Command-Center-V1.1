@@ -44018,8 +44018,14 @@ function _saRenderTaskbar(){
     btn.className = 'sa-tb-item';
     btn.innerHTML = info.icon+' '+info.title+' <span class="sa-tb-x" title="Close">✕</span>';
     btn.addEventListener('click', function(e){
-      if(e.target.classList.contains('sa-tb-x')){ saWinClose(key); }
-      else { saWinRestore(key); }
+      e.stopPropagation();
+      if(e.target.classList.contains('sa-tb-x')){
+        /* dismiss only this chip — window stays hidden, others unaffected */
+        delete window._saMinimized[key];
+        _saRenderTaskbar();
+      } else {
+        saWinRestore(key);
+      }
     });
     tb.appendChild(btn);
   });
