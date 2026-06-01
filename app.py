@@ -44003,24 +44003,23 @@ window.addEventListener('focus', function(){
 /* ══════════════════════════════════════════════════════
    WINDOW TASKBAR — array-based, immune to _updateTaskbar
    ══════════════════════════════════════════════════════ */
-window._saMinimized = {};   /* { id: {title, icon, prevDisplay} } */
+window._saMinimized = {};   /* { chipKey: {elementId, title, icon, prevDisplay} } */
 
 function _saRenderTaskbar(){
   var tb = document.getElementById('saWMTaskbar');
   if(!tb) return;
-  var ids = Object.keys(window._saMinimized);
-  if(!ids.length){ tb.style.display='none'; tb.innerHTML=''; return; }
+  var keys = Object.keys(window._saMinimized);
+  if(!keys.length){ tb.style.display='none'; tb.innerHTML=''; return; }
   tb.style.display='flex';
   tb.innerHTML='';
-  ids.forEach(function(id){
-    var info = window._saMinimized[id];
+  keys.forEach(function(key){
+    var info = window._saMinimized[key];
     var btn = document.createElement('button');
     btn.className = 'sa-tb-item';
-    btn.dataset.winId = id;
     btn.innerHTML = info.icon+' '+info.title+' <span class="sa-tb-x" title="Close">✕</span>';
     btn.addEventListener('click', function(e){
-      if(e.target.classList.contains('sa-tb-x')){ saWinClose(id); }
-      else { saWinRestore(id); }
+      if(e.target.classList.contains('sa-tb-x')){ saWinClose(key); }
+      else { saWinRestore(key); }
     });
     tb.appendChild(btn);
   });
@@ -44040,7 +44039,9 @@ function _saRenderTaskbar(){
 function saWinMin(id, title, icon){
   var el = document.getElementById(id); if(!el) return;
   var prev = (el.style.display && el.style.display!=='none') ? el.style.display : 'flex';
-  window._saMinimized[id] = { title: title||id, icon: icon||'⬜', prevDisplay: prev };
+  /* unique key so same element can have multiple chips (e.g. different forms in modalWin) */
+  var key = id + '::' + (title||id);
+  window._saMinimized[key] = { elementId: id, title: title||id, icon: icon||'⬜', prevDisplay: prev };
   el.classList.add('sa-minimized');
   el.style.setProperty('display','none','important');
   if(id==='modalWin'){
@@ -44052,14 +44053,19 @@ function saWinMin(id, title, icon){
   _saRenderTaskbar();
 }
 
-function saWinRestore(id){
-  var info = window._saMinimized[id];
-  delete window._saMinimized[id];
-  var el = document.getElementById(id); if(!el){ _saRenderTaskbar(); return; }
+function saWinRestore(key){
+  var info = window._saMinimized[key];
+  if(!info){ _saRenderTaskbar(); return; }
+  var elementId = info.elementId;
+  /* remove ALL chips that point to the same element (can't show one element twice) */
+  Object.keys(window._saMinimized).forEach(function(k){
+    if(window._saMinimized[k].elementId === elementId) delete window._saMinimized[k];
+  });
+  var el = document.getElementById(elementId); if(!el){ _saRenderTaskbar(); return; }
   el.classList.remove('sa-minimized');
   el.style.removeProperty('display');
-  el.style.display = (info && info.prevDisplay) || 'flex';
-  if(id==='modalWin'){
+  el.style.display = info.prevDisplay || 'flex';
+  if(elementId==='modalWin'){
     document.body.classList.add('modal-open');
     var ov=document.getElementById('overlay');
     if(ov) ov.classList.add('show');
@@ -44068,14 +44074,20 @@ function saWinRestore(id){
   _saRenderTaskbar();
 }
 
-function saWinClose(id){
-  delete window._saMinimized[id];
-  var el = document.getElementById(id);
+function saWinClose(key){
+  /* key may be a chipKey (id::title) or a plain elementId */
+  var info = window._saMinimized[key];
+  var elementId = info ? info.elementId : key;
+  /* remove all chips for this element */
+  Object.keys(window._saMinimized).forEach(function(k){
+    if(window._saMinimized[k].elementId === elementId) delete window._saMinimized[k];
+  });
+  var el = document.getElementById(elementId);
   if(el){
     el.classList.remove('sa-minimized');
     el.style.setProperty('display','none','important');
   }
-  if(id==='modalWin'){
+  if(elementId==='modalWin'){
     document.body.classList.remove('modal-open');
     document.body.style.overflow='';
     var ov=document.getElementById('overlay');
@@ -44089,7 +44101,7 @@ function saWinClose(id){
     pipelineModal:function(){if(window._saClosePipeline)window._saClosePipeline();},
     fusionModal:function(){if(window._saCloseModal)window._saCloseModal('fusionModal');}
   };
-  var h=closes[id];
+  var h=closes[elementId];
   if(typeof h==='function') h();
   else if(typeof h==='string'&&window[h]) window[h]();
 }
