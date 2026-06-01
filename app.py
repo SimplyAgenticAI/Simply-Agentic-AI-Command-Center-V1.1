@@ -17231,8 +17231,8 @@ label {
               <!-- Teammate injection button -->
               <button id="saInjectTeammateBtn" title="Bring a teammate into this window" style="padding:4px 10px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;transition:all .15s;white-space:nowrap;flex-shrink:0;display:none;" onclick="saToggleTeammateInject()">+ Teammate</button>
               <div class="modalBarBtns">
-                <button class="btn btnTiny" id="minimizeModal" title="Minimize">—</button>
-                <button class="btn btnTiny" id="maximizeModal" title="Restore window" onclick="saWM.maximize(document.getElementById('modalWin'))">❐</button>
+                <button class="btn btnTiny" id="minimizeModal" title="Minimize" onclick="saWinMin('modalWin',(document.getElementById('modalTitle')||{}).innerText||'Window','⚙️')">—</button>
+                <button class="btn btnTiny" id="maximizeModal" title="Restore window" onclick="saWM&&saWM.maximize(document.getElementById('modalWin'))">❐</button>
                 <button class="btn btnTiny" id="closeModal">Close</button>
               </div>
             </div>
@@ -20651,8 +20651,7 @@ window.showModal = function showModal(title, body, imgUrl){
     }
     $("closeModal").onclick = hideModal;
     // minimize button
-    const _minBtn = $("minimizeModal");
-    if(_minBtn) _minBtn.onclick = function(){ saWM.minimize($("modalWin")); };
+    // minimizeModal onclick is now handled inline via saWinMin()
 
     (function initModalWindowControls(){
       const bar = $("modalBar");
@@ -34491,7 +34490,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('dashboardModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('dashboardModal','📊 Dashboard','📊')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('dashboardModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="saCloseDashboard()">✕</button>
       </div>
@@ -34525,7 +34524,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('ragModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('ragModal','🔬 Knowledge Base','🔬')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('ragModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="saCloseRag()">✕</button>
       </div>
@@ -37538,7 +37537,7 @@ window._streamTtsFired = false;
     <div class="cp-header" style="cursor:move;">
       <div class="cp-title">🏆 Community Hub</div>
       <div style="display:flex;gap:6px;">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('communityPanel'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('communityPanel','🏆 Community','🏆')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('communityPanel'))" title="Restore window">❐</button>
         <button class="cp-close" onclick="closeCommunityPanel()">✕ Close</button>
       </div>
@@ -37886,7 +37885,7 @@ window._streamTtsFired = false;
         <div style="font-size:11px;color:#475569;margin-top:2px;">Queue up prompts — teammate works through them one by one</div>
       </div>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('stackModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('stackModal','⚡ Action Stack','⚡')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('stackModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="closeStackModal()">✕</button>
       </div>
@@ -38704,7 +38703,7 @@ document.addEventListener('click',e=>{
         <div style="font-size:11px;color:#475569;margin-top:2px;">Each teammate adds their expertise — one unified output</div>
       </div>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('orchestraModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('orchestraModal','🎭 Orchestra','🎭')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('orchestraModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="if(!window._orchRunning)_saCloseModal('orchestraModal')">✕</button>
       </div>
@@ -38764,7 +38763,7 @@ document.addEventListener('click',e=>{
         <div style="font-size:11px;color:#475569;margin-top:2px;">3 automatic rounds — draft → self-critique → definitive final</div>
       </div>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('deepDiveModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('deepDiveModal','🔬 Deep Dive','🔬')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('deepDiveModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="_saCloseModal('deepDiveModal')">✕</button>
       </div>
@@ -38817,7 +38816,7 @@ document.addEventListener('click',e=>{
         <div style="font-size:11px;color:#475569;margin-top:2px;">Chain teammates in sequence — each one builds on the last</div>
       </div>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('pipelineModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('pipelineModal','⛓ Relay','⛓')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('pipelineModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="if(!window._plRunning)_saClosePipeline()">✕</button>
       </div>
@@ -38874,7 +38873,7 @@ document.addEventListener('click',e=>{
         <div style="font-size:11px;color:#475569;margin-top:2px;">GPT-4o + Claude run simultaneously — synthesised into one answer</div>
       </div>
       <div class="sa-float-btns">
-        <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('fusionModal'))">—</button>
+        <button class="sa-float-min-btn" onclick="saWinMin('fusionModal','⚡ Fusion','⚡')">—</button>
         <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('fusionModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="_saCloseModal('fusionModal')">✕</button>
       </div>
@@ -43989,6 +43988,63 @@ window.addEventListener('focus', function(){
 
 <!-- ═══ WINDOW MANAGER TASKBAR ═══ -->
 <div id="saWMTaskbar"></div>
+
+<script>
+/* ── Standalone minimize helpers — no saWM dependency ── */
+function saWinMin(id, title, icon){
+  var el=document.getElementById(id); if(!el) return;
+  var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
+  // Hide the window
+  el._wmMinPrevDisplay = (el.style.display&&el.style.display!=='none')?el.style.display:'flex';
+  el.style.display='none';
+  if(id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
+  // Create or refresh taskbar chip
+  var chipId='_saChip_'+id;
+  var chip=document.getElementById(chipId);
+  if(!chip){
+    chip=document.createElement('button');
+    chip.id=chipId;
+    chip.className='sa-tb-item';
+    chip.addEventListener('click',function(e){
+      if(e.target&&e.target.classList.contains('sa-tb-x')){ saWinClose(id); }
+      else { saWinRestore(id); }
+    });
+    tb.appendChild(chip);
+  }
+  chip.innerHTML=(icon||'⬜')+' '+(title||id)+' <span class="sa-tb-x" title="Close">✕</span>';
+  tb.style.display='flex';
+}
+function saWinRestore(id){
+  var el=document.getElementById(id); if(!el) return;
+  el.style.display=el._wmMinPrevDisplay||'flex';
+  if(id==='modalWin') document.body.classList.add('modal-open');
+  var chip=document.getElementById('_saChip_'+id);
+  if(chip) chip.remove();
+  var tb=document.getElementById('saWMTaskbar');
+  if(tb&&!tb.querySelector('.sa-tb-item')) tb.style.display='none';
+  el.style.zIndex=(window.saWM?++window.saWM.z:600000);
+}
+function saWinClose(id){
+  var el=document.getElementById(id);
+  if(el){ el.style.display='none'; }
+  if(id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
+  var chip=document.getElementById('_saChip_'+id);
+  if(chip) chip.remove();
+  var tb=document.getElementById('saWMTaskbar');
+  if(tb&&!tb.querySelector('.sa-tb-item')) tb.style.display='none';
+  // Fire each window's own close handler
+  var closes={dashboardModal:'saCloseDashboard',communityPanel:'closeCommunityPanel',
+    ragModal:'saCloseRag',stackModal:'closeStackModal',
+    orchestraModal:function(){if(window._saCloseModal)window._saCloseModal('orchestraModal');},
+    deepDiveModal:function(){if(window._saCloseModal)window._saCloseModal('deepDiveModal');},
+    pipelineModal:function(){if(window._saClosePipeline)window._saClosePipeline();},
+    fusionModal:function(){if(window._saCloseModal)window._saCloseModal('fusionModal');}
+  };
+  var h=closes[id];
+  if(typeof h==='function') h();
+  else if(typeof h==='string'&&window[h]) window[h]();
+}
+</script>
 
 </body>
 </html>
