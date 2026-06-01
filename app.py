@@ -43994,7 +43994,7 @@ function saWinMin(id, title, icon){
   var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
   // Hide the window
   el._wmMinPrevDisplay = (el.style.display&&el.style.display!=='none')?el.style.display:'flex';
-  el.style.display='none';
+  el.style.setProperty('display','none','important');
   if(id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
   // Create or refresh taskbar chip
   var chipId='_saChip_'+id;
@@ -44014,7 +44014,7 @@ function saWinMin(id, title, icon){
 }
 function saWinRestore(id){
   var el=document.getElementById(id); if(!el) return;
-  el.style.display=el._wmMinPrevDisplay||'flex';
+  el.style.setProperty('display',el._wmMinPrevDisplay||'flex','important');
   if(id==='modalWin') document.body.classList.add('modal-open');
   var chip=document.getElementById('_saChip_'+id);
   if(chip) chip.remove();
@@ -44024,7 +44024,7 @@ function saWinRestore(id){
 }
 function saWinClose(id){
   var el=document.getElementById(id);
-  if(el){ el.style.display='none'; }
+  if(el){ el.style.setProperty('display','none','important'); }
   if(id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
   var chip=document.getElementById('_saChip_'+id);
   if(chip) chip.remove();
