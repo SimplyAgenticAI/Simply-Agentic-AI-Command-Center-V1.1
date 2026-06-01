@@ -20352,16 +20352,26 @@ window.saWM = (function(){
       if(el.classList.contains('sa-minimized')){
         /* RESTORE */
         el.classList.remove('sa-minimized');
+        el.style.removeProperty('display');
         el.style.display = el._wmPrevDisplay||'flex';
         el.style.zIndex  = ++pub.z;
-        if(el.id==='modalWin') document.body.classList.add('modal-open');
+        if(el.id==='modalWin'){
+          document.body.classList.add('modal-open');
+          var ov=document.getElementById('overlay');
+          if(ov) ov.classList.add('show');
+        }
       } else {
         /* MINIMIZE */
         var cur = el.style.display;
         el._wmPrevDisplay = (cur && cur!=='none') ? cur : 'flex';
         el.classList.add('sa-minimized');
-        el.style.display = 'none';
-        if(el.id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
+        el.style.setProperty('display','none','important');
+        if(el.id==='modalWin'){
+          document.body.classList.remove('modal-open');
+          document.body.style.overflow='';
+          var ov=document.getElementById('overlay');
+          if(ov) ov.classList.remove('show');
+        }
       }
       pub._updateTaskbar();
     },
@@ -43993,7 +44003,10 @@ function saWinMin(id, title, icon){
   var el=document.getElementById(id); if(!el) return;
   var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
   // Hide the window
-  el._wmMinPrevDisplay = (el.style.display&&el.style.display!=='none')?el.style.display:'flex';
+  el._wmPrevDisplay = (el.style.display&&el.style.display!=='none')?el.style.display:'flex';
+  el._wmIcon = icon||'⬜';
+  el._wmGetTitle = function(){ return title||id; };
+  el.classList.add('sa-minimized');
   el.style.setProperty('display','none','important');
   if(id==='modalWin'){
     document.body.classList.remove('modal-open');
@@ -44001,35 +44014,22 @@ function saWinMin(id, title, icon){
     var ov=document.getElementById('overlay');
     if(ov) ov.classList.remove('show');
   }
-  // Create or refresh taskbar chip
-  var chipId='_saChip_'+id;
-  var chip=document.getElementById(chipId);
-  if(!chip){
-    chip=document.createElement('button');
-    chip.id=chipId;
-    chip.className='sa-tb-item';
-    chip.addEventListener('click',function(e){
-      if(e.target&&e.target.classList.contains('sa-tb-x')){ saWinClose(id); }
-      else { saWinRestore(id); }
-    });
-    tb.appendChild(chip);
-  }
-  chip.innerHTML=(icon||'⬜')+' '+(title||id)+' <span class="sa-tb-x" title="Close">✕</span>';
-  tb.style.display='flex';
+  if(window.saWM) window.saWM._updateTaskbar();
+  else tb.style.display='flex';
 }
 function saWinRestore(id){
+  if(window.saWM){ var el2=document.getElementById(id); if(el2&&el2.classList.contains('sa-minimized')){ saWM.minimize(el2); return; } }
   var el=document.getElementById(id); if(!el) return;
-  el.style.setProperty('display',el._wmMinPrevDisplay||'flex','important');
+  el.classList.remove('sa-minimized');
+  el.style.removeProperty('display');
+  el.style.display=el._wmPrevDisplay||'flex';
   if(id==='modalWin'){
     document.body.classList.add('modal-open');
     var ov=document.getElementById('overlay');
     if(ov) ov.classList.add('show');
   }
-  var chip=document.getElementById('_saChip_'+id);
-  if(chip) chip.remove();
-  var tb=document.getElementById('saWMTaskbar');
-  if(tb&&!tb.querySelector('.sa-tb-item')) tb.style.display='none';
   el.style.zIndex=(window.saWM?++window.saWM.z:600000);
+  if(window.saWM) window.saWM._updateTaskbar();
 }
 function saWinClose(id){
   var el=document.getElementById(id);
