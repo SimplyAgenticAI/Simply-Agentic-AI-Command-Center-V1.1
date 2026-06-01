@@ -44063,10 +44063,8 @@ function saWinRestore(key){
   var info = window._saMinimized[key];
   if(!info){ _saRenderTaskbar(); return; }
   var elementId = info.elementId;
-  /* remove ALL chips that point to the same element (can't show one element twice) */
-  Object.keys(window._saMinimized).forEach(function(k){
-    if(window._saMinimized[k].elementId === elementId) delete window._saMinimized[k];
-  });
+  /* remove only this chip — leave other chips untouched */
+  delete window._saMinimized[key];
   var el = document.getElementById(elementId); if(!el){ _saRenderTaskbar(); return; }
   el.classList.remove('sa-minimized');
   el.style.removeProperty('display');
