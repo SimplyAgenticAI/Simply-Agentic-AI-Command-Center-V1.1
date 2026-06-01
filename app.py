@@ -20687,7 +20687,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
       bar.addEventListener("pointerdown", (e) => {
         const t = e.target;
-        if(t && (t.id === "closeModal" || t.id === "saModalPinBtn" || t.closest?.("#saModalPinBtn"))) return;
+        if(t && (t.id === "closeModal" || t.id === "saModalPinBtn" || t.closest?.("#saModalPinBtn") || t.closest?.(".modalBarBtns"))) return;
         const r = normalizeWinRect();
         modalDragging = true;
         dragState.active = true;
