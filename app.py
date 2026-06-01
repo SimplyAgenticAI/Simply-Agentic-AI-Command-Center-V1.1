@@ -26589,6 +26589,14 @@ Challenge weak assumptions. Surface risks.`;
             ta.addEventListener('input',function(){ try{localStorage.setItem('tp_script',ta.value);}catch(e){} });
           }
         }
+        if(m.classList.contains('sa-minimized')){ saWinRestore('teleprompterModal::🎙 Teleprompter'); return; }
+        if(!m._wmReady){
+          m._wmReady=true;
+          var hdr=m.querySelector('div[style*="justify-content:space-between"]');
+          if(window.saWM){ saWM.attachFloat(m,function(){return '🎙 Teleprompter';},'🎙',window.closeTeleprompterModal); }
+          var maxBtn=document.getElementById('tpMaxBtn');
+          if(maxBtn){maxBtn.title='Full screen';maxBtn.textContent='⛶';}
+        }
         m.style.display='flex';
         document.body.style.overflow='hidden';
       };
@@ -42398,7 +42406,7 @@ window.toggleNotifPanel = function(){
 </script>
 
 <!-- ===== TELEPROMPTER ===== -->
-<div id="teleprompterModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;">
+<div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;">
   <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="font-size:20px;">🎙</div>
@@ -42407,7 +42415,11 @@ window.toggleNotifPanel = function(){
         <div style="font-size:11px;color:#64748b;">Read your script hands-free · camera preview · record &amp; download</div>
       </div>
     </div>
-    <button onclick="closeTeleprompterModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">&#10005; Close</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button onclick="saWinMin('teleprompterModal','🎙 Teleprompter','🎙')" title="Minimize" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fbbf24;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;">—</button>
+      <button id="tpMaxBtn" onclick="saWM&&saWM.maximize(document.getElementById('teleprompterModal'))" title="Full screen" style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;">⛶</button>
+      <button onclick="closeTeleprompterModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">&#10005; Close</button>
+    </div>
   </div>
   <div style="flex:1;overflow-y:auto;padding:24px;width:100%;box-sizing:border-box;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
