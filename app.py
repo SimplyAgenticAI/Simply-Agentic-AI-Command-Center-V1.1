@@ -44000,14 +44000,47 @@ window.addEventListener('focus', function(){
 <div id="saWMTaskbar"></div>
 
 <script>
-/* ── Standalone minimize helpers — no saWM dependency ── */
+/* ══════════════════════════════════════════════════════
+   WINDOW TASKBAR — array-based, immune to _updateTaskbar
+   ══════════════════════════════════════════════════════ */
+window._saMinimized = {};   /* { id: {title, icon, prevDisplay} } */
+
+function _saRenderTaskbar(){
+  var tb = document.getElementById('saWMTaskbar');
+  if(!tb) return;
+  var ids = Object.keys(window._saMinimized);
+  if(!ids.length){ tb.style.display='none'; tb.innerHTML=''; return; }
+  tb.style.display='flex';
+  tb.innerHTML='';
+  ids.forEach(function(id){
+    var info = window._saMinimized[id];
+    var btn = document.createElement('button');
+    btn.className = 'sa-tb-item';
+    btn.dataset.winId = id;
+    btn.innerHTML = info.icon+' '+info.title+' <span class="sa-tb-x" title="Close">✕</span>';
+    btn.addEventListener('click', function(e){
+      if(e.target.classList.contains('sa-tb-x')){ saWinClose(id); }
+      else { saWinRestore(id); }
+    });
+    tb.appendChild(btn);
+  });
+}
+
+/* Patch _updateTaskbar so it never wipes our chips */
+(function patchWM(){
+  if(window.saWM){
+    window.saWM._updateTaskbar = _saRenderTaskbar;
+  } else {
+    document.addEventListener('DOMContentLoaded', function(){
+      if(window.saWM) window.saWM._updateTaskbar = _saRenderTaskbar;
+    });
+  }
+})();
+
 function saWinMin(id, title, icon){
-  var el=document.getElementById(id); if(!el) return;
-  var tb=document.getElementById('saWMTaskbar'); if(!tb) return;
-  // Hide the window
-  el._wmPrevDisplay = (el.style.display&&el.style.display!=='none')?el.style.display:'flex';
-  el._wmIcon = icon||'⬜';
-  el._wmGetTitle = function(){ return title||id; };
+  var el = document.getElementById(id); if(!el) return;
+  var prev = (el.style.display && el.style.display!=='none') ? el.style.display : 'flex';
+  window._saMinimized[id] = { title: title||id, icon: icon||'⬜', prevDisplay: prev };
   el.classList.add('sa-minimized');
   el.style.setProperty('display','none','important');
   if(id==='modalWin'){
@@ -44016,32 +44049,39 @@ function saWinMin(id, title, icon){
     var ov=document.getElementById('overlay');
     if(ov) ov.classList.remove('show');
   }
-  if(window.saWM) window.saWM._updateTaskbar();
-  else tb.style.display='flex';
+  _saRenderTaskbar();
 }
+
 function saWinRestore(id){
-  if(window.saWM){ var el2=document.getElementById(id); if(el2&&el2.classList.contains('sa-minimized')){ saWM.minimize(el2); return; } }
-  var el=document.getElementById(id); if(!el) return;
+  var info = window._saMinimized[id];
+  delete window._saMinimized[id];
+  var el = document.getElementById(id); if(!el){ _saRenderTaskbar(); return; }
   el.classList.remove('sa-minimized');
   el.style.removeProperty('display');
-  el.style.display=el._wmPrevDisplay||'flex';
+  el.style.display = (info && info.prevDisplay) || 'flex';
   if(id==='modalWin'){
     document.body.classList.add('modal-open');
     var ov=document.getElementById('overlay');
     if(ov) ov.classList.add('show');
   }
-  el.style.zIndex=(window.saWM?++window.saWM.z:600000);
-  if(window.saWM) window.saWM._updateTaskbar();
+  el.style.zIndex = (window.saWM ? ++window.saWM.z : 600000);
+  _saRenderTaskbar();
 }
+
 function saWinClose(id){
-  var el=document.getElementById(id);
-  if(el){ el.style.setProperty('display','none','important'); }
-  if(id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
-  var chip=document.getElementById('_saChip_'+id);
-  if(chip) chip.remove();
-  var tb=document.getElementById('saWMTaskbar');
-  if(tb&&!tb.querySelector('.sa-tb-item')) tb.style.display='none';
-  // Fire each window's own close handler
+  delete window._saMinimized[id];
+  var el = document.getElementById(id);
+  if(el){
+    el.classList.remove('sa-minimized');
+    el.style.setProperty('display','none','important');
+  }
+  if(id==='modalWin'){
+    document.body.classList.remove('modal-open');
+    document.body.style.overflow='';
+    var ov=document.getElementById('overlay');
+    if(ov) ov.classList.remove('show');
+  }
+  _saRenderTaskbar();
   var closes={dashboardModal:'saCloseDashboard',communityPanel:'closeCommunityPanel',
     ragModal:'saCloseRag',stackModal:'closeStackModal',
     orchestraModal:function(){if(window._saCloseModal)window._saCloseModal('orchestraModal');},
