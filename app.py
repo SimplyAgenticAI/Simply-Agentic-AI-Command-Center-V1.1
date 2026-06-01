@@ -20393,7 +20393,7 @@ window.saWM = (function(){
           if(e.target.classList.contains('sa-tb-x')){
             el.classList.remove('sa-minimized');
             el.style.display='none';
-            if(el.id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; }
+            if(el.id==='modalWin'){ document.body.classList.remove('modal-open'); document.body.style.overflow=''; var _ov=document.getElementById('overlay'); if(_ov)_ov.classList.remove('show'); }
             if(el._wmOnClose) el._wmOnClose();
           } else {
             pub.minimize(el);
@@ -20487,7 +20487,9 @@ function applyModalPos(){
       }
       // Remove minimized state if re-opening
       win.classList.remove("sa-minimized");
+      win.style.removeProperty("display");
       win.style.zIndex = ++saWM.z;
+      saWM._updateTaskbar();
 
       const sc=$("modalScroll");
       if(sc){ sc.style.height=""; sc.style.maxHeight="none"; sc.style.flex="1 1 auto"; sc.style.overflowY="auto"; }
