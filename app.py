@@ -15492,7 +15492,6 @@ body.modal-open { overflow:hidden !important; }
   position:fixed !important;
   right:auto !important;
   bottom:auto !important;
-  inset:unset !important;
   flex-direction:column !important;
   min-width:360px;
   min-height:240px;
