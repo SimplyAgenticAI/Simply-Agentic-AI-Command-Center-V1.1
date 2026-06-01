@@ -15535,6 +15535,28 @@ body.modal-open { overflow:hidden !important; }
   padding:3px 10px;
 }
 #minimizeModal:hover{ background:rgba(245,158,11,.32); }
+/* Maximize / restore button in modalBar */
+#maximizeModal{
+  background:rgba(16,185,129,.18);
+  border-color:rgba(16,185,129,.4);
+  color:#6ee7b7;
+  padding:3px 10px;
+}
+#maximizeModal:hover{ background:rgba(16,185,129,.32); }
+/* Maximize button in standalone floating headers */
+.sa-wm-max-btn{
+  background:rgba(16,185,129,.18);
+  border:1px solid rgba(16,185,129,.4);
+  color:#6ee7b7;
+  border-radius:6px;
+  padding:3px 10px;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  line-height:1.4;
+  transition:background .12s;
+}
+.sa-wm-max-btn:hover{ background:rgba(16,185,129,.32); }
 
 /* Standalone floating windows (Dashboard, Community, etc.) */
 .sa-float-win{
@@ -17200,6 +17222,7 @@ label {
               <button id="saInjectTeammateBtn" title="Bring a teammate into this window" style="padding:4px 10px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#e2e8f0;transition:all .15s;white-space:nowrap;flex-shrink:0;display:none;" onclick="saToggleTeammateInject()">+ Teammate</button>
               <div class="modalBarBtns">
                 <button class="btn btnTiny" id="minimizeModal" title="Minimize">—</button>
+                <button class="btn btnTiny" id="maximizeModal" title="Restore window" onclick="saWM.maximize(document.getElementById('modalWin'))">❐</button>
                 <button class="btn btnTiny" id="closeModal">Close</button>
               </div>
             </div>
@@ -20366,11 +20389,48 @@ window.saWM = (function(){
       });
     },
 
+    maximize: function(el){
+      var btn = el.querySelector('.sa-wm-max-btn') ||
+                (el.id==='modalWin' ? document.getElementById('maximizeModal') : null);
+      if(el._wmMaximized){
+        // ── RESTORE to windowed ──
+        el._wmMaximized = false;
+        var useSaved = el._wmSavedW && el._wmSavedW !== '100vw' && el._wmSavedW !== '';
+        if(useSaved){
+          el.style.width=el._wmSavedW; el.style.height=el._wmSavedH;
+          el.style.top=el._wmSavedT;   el.style.left=el._wmSavedL;
+          el.style.borderRadius=el._wmSavedR||'12px';
+        } else {
+          var W=Math.min(1100,Math.round(window.innerWidth*.82));
+          var H=Math.min(820, Math.round(window.innerHeight*.82));
+          el.style.width=W+'px';  el.style.height=H+'px';
+          el.style.top=Math.round((window.innerHeight-H)/2)+'px';
+          el.style.left=Math.round((window.innerWidth-W)/2)+'px';
+          el.style.borderRadius='12px';
+        }
+        if(btn){btn.title='Full screen';btn.innerHTML='⛶';}
+      } else {
+        // ── MAXIMIZE to full screen ──
+        el._wmMaximized=true;
+        el._wmSavedW=el.style.width;  el._wmSavedH=el.style.height;
+        el._wmSavedT=el.style.top;    el._wmSavedL=el.style.left;
+        el._wmSavedR=el.style.borderRadius;
+        el.style.width='100vw'; el.style.height='100vh';
+        el.style.top='0';       el.style.left='0';
+        el.style.borderRadius='0';
+        if(btn){btn.title='Restore window';btn.innerHTML='❐';}
+      }
+    },
+
     /* Wire a standalone floating window (has its own header) */
     attachFloat: function(el, getTitle, icon, onClose){
       pub._register(el, getTitle, icon, onClose);
       pub._makeDraggable(el.querySelector('.sa-float-header,.cp-header,[data-drag]') || el.querySelector('[style*="cursor:move"]') || el, el);
       pub._addResizeHandles(el);
+      // Windows start full-screen — mark maximized so first button click restores
+      el._wmMaximized = true;
+      var btn = el.querySelector('.sa-wm-max-btn');
+      if(btn){btn.title='Restore window';btn.innerHTML='❐';}
     }
   };
   return pub;
@@ -20392,6 +20452,9 @@ function applyModalPos(){
         win.style.left   = "0";
         win.style.borderRadius = "0";
         win._wmPos = true;
+        win._wmMaximized = true; // starts full screen
+        const maxBtn = document.getElementById("maximizeModal");
+        if(maxBtn){maxBtn.title='Restore window';maxBtn.innerHTML='❐';}
         // Wire drag on modalBar
         const bar = document.getElementById("modalBar");
         if(bar){ bar.style.cursor="move"; saWM._makeDraggable(bar, win); }
@@ -34408,6 +34471,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('dashboardModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('dashboardModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="saCloseDashboard()">✕</button>
       </div>
     </div>
@@ -34441,6 +34505,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('ragModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('ragModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="saCloseRag()">✕</button>
       </div>
     </div>
@@ -37453,6 +37518,7 @@ window._streamTtsFired = false;
       <div class="cp-title">🏆 Community Hub</div>
       <div style="display:flex;gap:6px;">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('communityPanel'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('communityPanel'))" title="Restore window">❐</button>
         <button class="cp-close" onclick="closeCommunityPanel()">✕ Close</button>
       </div>
     </div>
@@ -37800,6 +37866,7 @@ window._streamTtsFired = false;
       </div>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('stackModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('stackModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="closeStackModal()">✕</button>
       </div>
     </div>
@@ -38617,6 +38684,7 @@ document.addEventListener('click',e=>{
       </div>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('orchestraModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('orchestraModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="if(!window._orchRunning)_saCloseModal('orchestraModal')">✕</button>
       </div>
     </div>
@@ -38676,6 +38744,7 @@ document.addEventListener('click',e=>{
       </div>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('deepDiveModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('deepDiveModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="_saCloseModal('deepDiveModal')">✕</button>
       </div>
     </div>
@@ -38728,6 +38797,7 @@ document.addEventListener('click',e=>{
       </div>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('pipelineModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('pipelineModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="if(!window._plRunning)_saClosePipeline()">✕</button>
       </div>
     </div>
@@ -38784,6 +38854,7 @@ document.addEventListener('click',e=>{
       </div>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWM.minimize(document.getElementById('fusionModal'))">—</button>
+        <button class="sa-wm-max-btn" onclick="saWM.maximize(document.getElementById('fusionModal'))" title="Restore window">❐</button>
         <button class="sa-float-close-btn" onclick="_saCloseModal('fusionModal')">✕</button>
       </div>
     </div>
