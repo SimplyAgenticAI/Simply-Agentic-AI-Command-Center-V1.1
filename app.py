@@ -15487,18 +15487,22 @@ body.modal-open { overflow:hidden !important; }
 #overlay.show{ display:block; }
 
 /* ── modalWin: floating window defaults ── */
+/* right/bottom/inset must be auto so drag & resize actually move the window */
 #modalWin{
-  position:fixed;
-  display:flex;
-  flex-direction:column;
+  position:fixed !important;
+  right:auto !important;
+  bottom:auto !important;
+  inset:unset !important;
+  display:flex !important;
+  flex-direction:column !important;
   min-width:360px;
   min-height:240px;
   border-radius:12px !important;
   border:1px solid rgba(124,58,237,.35) !important;
-  overflow:hidden;
-  box-shadow:0 24px 80px rgba(0,0,0,.75);
+  overflow:hidden !important;
+  box-shadow:0 24px 80px rgba(0,0,0,.75) !important;
   pointer-events:all;
-  resize:none;
+  resize:none !important;
 }
 #modalWin.sa-minimized .modalBodyWrap,
 #modalWin.sa-minimized .sa-win-resize{ display:none !important; }
@@ -20263,7 +20267,19 @@ window.saWM = (function(){
   var z = 500000;
   var _items = []; // { el, getTitle, icon, onClose }
 
+  /* Restore a maximized window to windowed size, centering horizontally on cursorX */
+  function _restoreForInteraction(el, cursorX){
+    if(!el._wmMaximized) return;
+    pub.maximize(el); // sets windowed size + updates button + _wmMaximized=false
+    var W = el.offsetWidth || Math.min(1100, Math.round(window.innerWidth*.82));
+    var newL = Math.max(0, Math.min(window.innerWidth - W, (cursorX||window.innerWidth/2) - Math.round(W*.5)));
+    el.style.left = newL + 'px';
+    el.style.top  = '0';
+  }
+
   function _startDrag(e, el){
+    // If window is maximized, restore it first then drag (standard OS behaviour)
+    if(el._wmMaximized) _restoreForInteraction(el, e.clientX);
     var rect=el.getBoundingClientRect(), ox=e.clientX-rect.left, oy=e.clientY-rect.top;
     function mv(e){
       el.style.left=Math.max(0,Math.min(window.innerWidth -80, e.clientX-ox))+'px';
@@ -20274,6 +20290,8 @@ window.saWM = (function(){
   }
 
   function _startResize(e,el,dir){
+    // If window is maximized, restore it first then resize
+    if(el._wmMaximized) _restoreForInteraction(el, e.clientX);
     var r=el.getBoundingClientRect(), sx=e.clientX,sy=e.clientY,sw=r.width,sh=r.height,sl=r.left,st=r.top;
     function mv(e){
       var dx=e.clientX-sx,dy=e.clientY-sy,nw=sw,nh=sh,nl=sl,nt=st;
@@ -20324,16 +20342,23 @@ window.saWM = (function(){
     minimize: function(el){
       var self = pub;
       if(el.classList.contains('sa-minimized')){
-        // ── RESTORE: bring window back ──
+        // ── RESTORE ──
         el.classList.remove('sa-minimized');
         el.style.display = el._wmPrevDisplay || 'flex';
         el.style.zIndex  = ++self.z;
+        // Re-lock body scroll if it's the main modal
+        if(el.id === 'modalWin') document.body.classList.add('modal-open');
       } else {
-        // ── MINIMIZE: hide window completely, show in taskbar ──
+        // ── MINIMIZE: hide completely, land in taskbar ──
         el._wmPrevDisplay = (el.style.display && el.style.display !== 'none')
           ? el.style.display : 'flex';
         el.classList.add('sa-minimized');
         el.style.display = 'none';
+        // Unlock body scroll when main modal is minimized
+        if(el.id === 'modalWin'){
+          document.body.classList.remove('modal-open');
+          document.body.style.overflow = '';
+        }
       }
       self._updateTaskbar();
     },
@@ -20352,11 +20377,16 @@ window.saWM = (function(){
         btn.innerHTML=(it.icon||'⬜')+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
         btn.addEventListener('click',function(e){
           if(e.target.classList.contains('sa-tb-x')){
-            // X = close entirely
+            // ✕ = close the window entirely
             it.el.classList.remove('sa-minimized');
-            if(it.onClose) it.onClose(); else it.el.style.display='none';
+            it.el.style.display = 'none';
+            if(it.el.id === 'modalWin'){
+              document.body.classList.remove('modal-open');
+              document.body.style.overflow = '';
+            }
+            if(it.onClose) it.onClose();
           } else {
-            // Click label = restore
+            // click label = restore the window
             self.minimize(it.el);
           }
           self._updateTaskbar();
