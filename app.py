@@ -14258,11 +14258,11 @@ HTML = r"""
       max-height: 100vh;
       background: #030511;
       background-image:
-        radial-gradient(ellipse 82% 64% at 94% 0%,    rgba(14,165,233,.48)  0%, rgba(56,189,248,.18) 36%, transparent 62%),
-        radial-gradient(ellipse 70% 56% at 4%  98%,   rgba(124,58,237,.56)  0%, rgba(99,58,200,.22)  32%, transparent 60%),
-        radial-gradient(ellipse 40% 32% at 50% 48%,   rgba(79,50,180,.13)   0%, transparent 70%),
-        radial-gradient(ellipse 32% 26% at 76% 78%,   rgba(139,92,246,.22)  0%, transparent 54%),
-        radial-gradient(ellipse 26% 20% at 20% 26%,   rgba(6,182,212,.18)   0%, transparent 52%);
+        radial-gradient(ellipse 82% 64% at 94% 0%,    rgba(14,165,233,.28)  0%, rgba(56,189,248,.10) 36%, transparent 62%),
+        radial-gradient(ellipse 70% 56% at 4%  98%,   rgba(124,58,237,.32)  0%, rgba(99,58,200,.12)  32%, transparent 60%),
+        radial-gradient(ellipse 40% 32% at 50% 48%,   rgba(79,50,180,.07)   0%, transparent 70%),
+        radial-gradient(ellipse 32% 26% at 76% 78%,   rgba(139,92,246,.12)  0%, transparent 54%),
+        radial-gradient(ellipse 26% 20% at 20% 26%,   rgba(6,182,212,.10)   0%, transparent 52%);
       background-attachment: fixed;
       border: none;
       border-radius: 0;
@@ -15617,6 +15617,12 @@ body.modal-open { overflow:hidden !important; }
 .sa-tb-item:hover{ background:rgba(124,58,237,.3); }
 .sa-tb-x{ color:rgba(248,113,113,.7); margin-left:3px; font-size:10px; }
 #saToolCanvas{ position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none; }
+/* Block glow bleed-through on all modal inputs/textareas */
+#modalWin input, #modalWin textarea, #modalWin select,
+.sa-float-win input, .sa-float-win textarea, .sa-float-win select,
+#communityPanel input, #communityPanel textarea, #communityPanel select {
+  background: rgba(6,9,22,.97) !important;
+}
 /* Bigger form fields in modals on mobile */
 #modalWin input, #modalWin textarea, #modalWin select{
   font-size:16px !important; padding:12px 14px !important;
@@ -20318,47 +20324,16 @@ window.saWM = (function(){
     minimize: function(el){
       var self = pub;
       if(el.classList.contains('sa-minimized')){
-        // ── RESTORE ──
+        // ── RESTORE: bring window back ──
         el.classList.remove('sa-minimized');
-        el.style.height = el._wmPrevH || '100vh';
-        if(el._wmHidden){
-          el._wmHidden.forEach(function(c){ c.style.display=''; });
-          el._wmHidden = null;
-        }
-        el.style.zIndex = ++self.z;
+        el.style.display = el._wmPrevDisplay || 'flex';
+        el.style.zIndex  = ++self.z;
       } else {
-        // ── MINIMIZE ──
-        el._wmPrevH = el.style.height || el.offsetHeight+'px';
+        // ── MINIMIZE: hide window completely, show in taskbar ──
+        el._wmPrevDisplay = (el.style.display && el.style.display !== 'none')
+          ? el.style.display : 'flex';
         el.classList.add('sa-minimized');
-        // Find the title bar to keep visible
-        var header = el.querySelector('.sa-float-header') ||
-                     el.querySelector('.cp-header')       ||
-                     el.querySelector('#modalBar')        ||
-                     el.querySelector('.modalBar');
-        var toHide = [];
-        if(header){
-          // Hide all siblings of the header inside its parent
-          var par = header.parentElement;
-          Array.from(par.children).forEach(function(c){
-            if(c !== header && !c.classList.contains('sa-win-resize')){
-              toHide.push(c); c.style.display='none';
-            }
-          });
-          // If the header lives in a wrapper (not el itself), hide other direct children of el too
-          if(par !== el){
-            Array.from(el.children).forEach(function(c){
-              if(!c.classList.contains('sa-win-resize') && !c.contains(header) && c !== header){
-                toHide.push(c); c.style.display='none';
-              }
-            });
-          }
-        } else {
-          Array.from(el.children).forEach(function(c){
-            if(!c.classList.contains('sa-win-resize')){ toHide.push(c); c.style.display='none'; }
-          });
-        }
-        el._wmHidden = toHide;
-        el.style.height = 'auto';
+        el.style.display = 'none';
       }
       self._updateTaskbar();
     },
@@ -20377,10 +20352,11 @@ window.saWM = (function(){
         btn.innerHTML=(it.icon||'⬜')+' '+title+' <span class="sa-tb-x" title="Close">✕</span>';
         btn.addEventListener('click',function(e){
           if(e.target.classList.contains('sa-tb-x')){
+            // X = close entirely
             it.el.classList.remove('sa-minimized');
-            if(it.el._wmHidden){ it.el._wmHidden.forEach(function(c){c.style.display='';}); it.el._wmHidden=null; }
             if(it.onClose) it.onClose(); else it.el.style.display='none';
           } else {
+            // Click label = restore
             self.minimize(it.el);
           }
           self._updateTaskbar();
