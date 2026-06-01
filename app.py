@@ -15493,7 +15493,6 @@ body.modal-open { overflow:hidden !important; }
   right:auto !important;
   bottom:auto !important;
   inset:unset !important;
-  display:flex !important;
   flex-direction:column !important;
   min-width:360px;
   min-height:240px;
@@ -20435,9 +20434,9 @@ window.saWM = (function(){
       var handle=el.querySelector('.sa-float-header,.cp-header')||el;
       pub._makeDraggable(handle, el);
       pub._addResizeHandles(el);
-      el._wmMaximized=true;
+      el._wmMaximized=false;
       var btn=el.querySelector('.sa-wm-max-btn');
-      if(btn){btn.title='Restore window';btn.innerHTML='❐';}
+      if(btn){btn.title='Full screen';btn.innerHTML='⛶';}
     },
 
     /* Legacy alias kept for any old callers */
