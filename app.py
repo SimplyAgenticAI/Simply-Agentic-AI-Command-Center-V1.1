@@ -44078,12 +44078,14 @@ function saWinClose(key){
   /* key may be a chipKey (id::title) or a plain elementId */
   var info = window._saMinimized[key];
   var elementId = info ? info.elementId : key;
-  /* remove all chips for this element */
-  Object.keys(window._saMinimized).forEach(function(k){
-    if(window._saMinimized[k].elementId === elementId) delete window._saMinimized[k];
+  /* remove only this chip */
+  delete window._saMinimized[key];
+  /* only hide the element if no other chips reference it */
+  var stillReferenced = Object.keys(window._saMinimized).some(function(k){
+    return window._saMinimized[k].elementId === elementId;
   });
   var el = document.getElementById(elementId);
-  if(el){
+  if(el && !stillReferenced){
     el.classList.remove('sa-minimized');
     el.style.setProperty('display','none','important');
   }
