@@ -44082,22 +44082,45 @@ window.addEventListener('focus', function(){
     document.getElementById('veUploadZone').style.borderColor = 'rgba(124,58,237,.4)';
     var f = e.dataTransfer.files[0]; if(f) window.veLoadFile(f);
   };
+  // Safe JSON fetch — never crashes on HTML error pages
+  function veApiFetch(url, opts){
+    return fetch(url, opts).then(function(r){
+      var ct = r.headers.get('content-type')||'';
+      if(ct.indexOf('application/json') < 0)
+        return r.text().then(function(){ return {ok:false,error:'Server error ('+r.status+'). Refresh and try again.'}; });
+      return r.json().catch(function(){ return {ok:false,error:'Bad server response. Refresh and try again.'}; });
+    });
+  }
+
   window.veLoadFile = function(file){
     if(!file) return;
     if(file.size > 200*1024*1024){ veSt('File too large — max 200 MB','err'); return; }
-    var url = URL.createObjectURL(file);
+    var ext = (file.name||'').split('.').pop().toLowerCase();
+    if(['mp4','webm','mov','avi','mkv'].indexOf(ext) < 0){ veSt('Use MP4, MOV, or WEBM','err'); return; }
+
+    _veVidId = null; _veDur = 0; _veIn = 0; _veOut = 0; _veClips = [];
     var p = document.getElementById('vePlayer');
-    if(p){ p.src = url; p.load(); p.style.display = 'block'; }
-    document.getElementById('vePlayerPlaceholder').style.display = 'none';
-    veSt('Uploading...','info');
+    if(p){ p.style.display='none'; p.src=''; }
+    document.getElementById('vePlayerPlaceholder').style.display='block';
+    document.getElementById('veAutoClipBtn').style.display='none';
+    document.getElementById('veExportBtn').style.display='none';
+
+    veSt('Uploading…','info');
     var fd = new FormData(); fd.append('file', file);
-    fetch('/api/video/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+    veApiFetch('/api/video/upload',{method:'POST',body:fd}).then(function(d){
       if(!d.ok){ veSt(d.error||'Upload failed','err'); return; }
       _veVidId = d.video_id;
-      veSt('Ready. Preview below, or click ✨ AI Auto-detect Clips.','ok');
+      // Point player at server stream URL — supports range requests & proper seeking
+      if(p){
+        p.src = '/api/video/stream/' + _veVidId;
+        p.style.display = 'block';
+        p.load();
+      }
+      document.getElementById('vePlayerPlaceholder').style.display = 'none';
       document.getElementById('veAutoClipBtn').style.display = 'block';
       document.getElementById('veExportBtn').style.display = 'block';
-    }).catch(e=>veSt('Upload error: '+e.message,'err'));
+      veSt('✅ Ready — press ▶ to preview or use ✨ AI Auto-detect Clips.','ok');
+    }).catch(function(e){ veSt('Upload error: '+e.message,'err'); });
   };
 
   function veSt(msg,type){
@@ -44109,33 +44132,38 @@ window.addEventListener('focus', function(){
 
   window.veRunAutoClip = function(){
     if(!_veVidId){ veSt('Upload a video first','err'); return; }
+    // Always read live duration from player in case onloadedmetadata fired late
+    var p=document.getElementById('vePlayer');
+    if(p && p.duration && isFinite(p.duration) && p.duration>0) _veDur=p.duration;
+    if(_veDur<=0){ veSt('Video not ready yet — wait a moment and try again','err'); return; }
     var btn=document.getElementById('veAutoClipBtn');
     if(btn){ btn.disabled=true; btn.textContent='⏳ Analyzing…'; }
     veSt('Transcribing audio and finding best clips…','info');
-    fetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
+    veApiFetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
-    .then(r=>r.json()).then(d=>{
+    .then(function(d){
       if(btn){ btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips'; }
       if(!d.ok){ veSt(d.error||'Analysis failed','err'); return; }
       _veClips = d.clips||[];
       veRenderClips();
-      veSt(_veClips.length+' clips found — click any to load it.','ok');
-    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';} veSt('Error: '+e.message,'err'); });
+      veSt(_veClips.length+' clip'+ (_veClips.length===1?'':'s') +' found — click any to preview.','ok');
+    }).catch(function(e){ if(btn){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';} veSt('Error: '+e.message,'err'); });
   };
 
   function veRenderClips(){
     var list=document.getElementById('veClipList');
     var empty=document.getElementById('veClipListEmpty');
     if(!list)return;
-    if(_veClips.length===0){ if(empty)empty.style.display='block'; return; }
+    if(_veClips.length===0){ if(empty)empty.style.display='block'; list.innerHTML=''; return; }
     if(empty) empty.style.display='none';
     var html='<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding:0 4px;">AI Suggested Clips</div>';
     _veClips.forEach(function(c,i){
       html+='<div onclick="veSelectClip('+i+')" style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;"'
         +' onmouseover="this.style.borderColor=\'rgba(124,58,237,.5)\'" onmouseout="this.style.borderColor=\'rgba(124,58,237,.2)\'">'
         +'<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+escHtml(c.title||'Clip '+(i+1))+'</div>'
-        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' → '+veFmt(c.end)+' · '+veFmt((c.end||0)-(c.start||0))+'</div>'
+        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' – '+veFmt(c.end)+' &nbsp;·&nbsp; '+veFmt((c.end||0)-(c.start||0))+'</div>'
         +(c.reason?'<div style="font-size:11px;color:#475569;margin-top:4px;line-height:1.4;">'+escHtml(c.reason)+'</div>':'')
+        +'<div style="font-size:10px;color:#6366f1;margin-top:5px;opacity:.75;">▶ Click to preview</div>'
         +'</div>';
     });
     list.innerHTML = html;
@@ -44146,7 +44174,13 @@ window.addEventListener('focus', function(){
     var c=_veClips[i]; if(!c)return;
     _veIn=c.start||0; _veOut=c.end||_veDur;
     veUpdateUI();
-    var p=document.getElementById('vePlayer'); if(p){p.currentTime=_veIn; p.play(); veUpdPlay(false);}
+    var p=document.getElementById('vePlayer'); if(!p)return;
+    p.currentTime=_veIn;
+    var pp=p.play();
+    if(pp!==undefined){
+      pp.then(function(){ veUpdPlay(true); veSt('Playing: '+escHtml(c.title||'Clip '+(i+1)),'ok'); })
+        .catch(function(e){ veUpdPlay(false); veSt('Click ▶ to play. ('+e.message+')','info'); });
+    } else { veUpdPlay(true); }
   };
 
   window.veOnMetadata = function(){
@@ -44204,20 +44238,20 @@ window.addEventListener('focus', function(){
 
   window.veExportClip=function(){
     if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    if(_veOut-_veIn<0.5){ veSt('Set a trim range (In → Out)','err'); return; }
+    if(_veOut-_veIn<0.5){ veSt('Set In and Out points first','err'); return; }
     var btn=document.getElementById('veExportBtn');
     if(btn){ btn.disabled=true; btn.textContent='⏳ Exporting…'; }
-    veSt('Exporting clip — this takes a moment…','info');
-    fetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
+    veSt('Exporting — this takes a moment…','info');
+    veApiFetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
-    .then(r=>r.json()).then(d=>{
+    .then(function(d){
       if(btn){ btn.disabled=false; btn.textContent='⬇ Export Clip'; }
       if(!d.ok){ veSt(d.error||'Export failed','err'); return; }
       var a=document.createElement('a');
       a.href='/api/video/download/'+d.export_id;
       a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      veSt('Clip exported and downloaded!','ok');
-    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='⬇ Export Clip';} veSt('Error: '+e.message,'err'); });
+      veSt('✅ Clip downloaded!','ok');
+    }).catch(function(e){ if(btn){btn.disabled=false;btn.textContent='⬇ Export Clip';} veSt('Error: '+e.message,'err'); });
   };
 
   function veFmt(s){
@@ -52623,6 +52657,29 @@ def _ve_cleanup_old():
                     _shutil_ve.rmtree(d, ignore_errors=True)
     except Exception:
         pass
+
+_VE_MIME_MAP = {
+    'mp4': 'video/mp4', 'webm': 'video/webm',
+    'mov': 'video/quicktime', 'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska'
+}
+
+@app.get("/api/video/stream/<vid_id>")
+def api_video_stream(vid_id):
+    """Serve the uploaded video with HTTP range-request support so the browser can seek."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not re.match(r'^[a-f0-9]+$', vid_id):
+        return jsonify({"ok": False, "error": "Invalid ID"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    orig_path = orig_files[0]
+    ext  = orig_path.suffix.lstrip('.').lower()
+    mime = _VE_MIME_MAP.get(ext, 'video/mp4')
+    from flask import send_file as _sf
+    return _sf(str(orig_path), mimetype=mime, conditional=True)
 
 @app.post("/api/video/upload")
 def api_video_upload():
