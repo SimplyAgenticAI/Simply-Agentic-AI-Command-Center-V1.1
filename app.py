@@ -31731,7 +31731,13 @@ async function showImageLibraryModal(startTab){
   tabBar.appendChild(makeTab("visuals", "✨ Visuals", startTab==="visuals"));
   body.appendChild(tabBar);
 
+  /* override .modal pre max-width so the grid fills the window */
+  body.style.maxWidth = "none";
+  body.style.width = "100%";
+  body.style.padding = "0";
+  body.style.margin = "0";
   const pane = document.createElement("div");
+  pane.style.cssText = "width:100%;box-sizing:border-box;padding:0 4px;";
   body.appendChild(pane);
 
   if(startTab === "visuals"){
