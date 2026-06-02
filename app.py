@@ -43958,210 +43958,168 @@ window.addEventListener('focus', function(){
 </script>
 
 <!-- ===== VIDEO EDITOR ===== -->
+<!-- ===== VIDEO EDITOR ===== -->
 <div id="videoEditorModal" style="display:none;position:fixed;inset:0;z-index:999950;background:#04080f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
 
   <!-- Header -->
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(124,58,237,.2);background:rgba(7,9,26,.97);flex-shrink:0;backdrop-filter:blur(12px);">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(124,58,237,.2);background:rgba(7,9,26,.97);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:10px;">
       <span style="font-size:20px;">✂️</span>
       <div>
         <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Video Editor</div>
-        <div id="veFileInfo" style="font-size:11px;color:#475569;">Upload · Trim · AI Clips · Export</div>
+        <div id="veFileInfo" style="font-size:11px;color:#475569;">Upload a video to get started</div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button onclick="veFullscreen()" title="Fullscreen" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#64748b;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;">⛶</button>
-      <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
-    </div>
+    <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
   </div>
 
-  <!-- Body -->
+  <!-- Body: sidebar + preview -->
   <div style="display:flex;flex:1;min-height:0;overflow:hidden;">
 
-    <!-- LEFT SIDEBAR -->
-    <div style="width:290px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);display:flex;flex-direction:column;background:rgba(7,10,22,.9);overflow-y:auto;">
+    <!-- SIDEBAR -->
+    <div style="width:270px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);display:flex;flex-direction:column;background:rgba(7,10,22,.95);overflow-y:auto;">
 
       <!-- Upload zone -->
-      <div id="veUploadZone" style="margin:14px;border:2px dashed rgba(124,58,237,.35);border-radius:12px;padding:18px 10px;text-align:center;cursor:pointer;transition:all .2s;"
+      <div id="veUploadZone" style="margin:14px;border:2px dashed rgba(124,58,237,.35);border-radius:12px;padding:20px 10px;text-align:center;cursor:pointer;transition:all .2s;"
            onclick="document.getElementById('veFileInput').click()"
            ondragover="event.preventDefault();this.style.borderColor='#7c3aed';this.style.background='rgba(124,58,237,.08)'"
            ondragleave="this.style.borderColor='rgba(124,58,237,.35)';this.style.background=''"
            ondrop="veHandleDrop(event)">
-        <div style="font-size:26px;margin-bottom:6px;">🎬</div>
-        <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">Drop video or click to upload</div>
-        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM, AVI · Max 200 MB</div>
-        <input id="veFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,.mp4,.webm,.mov,.avi,.mkv" style="display:none;" onchange="veLoadFile(this.files[0])"/>
+        <div style="font-size:28px;margin-bottom:8px;">🎬</div>
+        <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
+        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 200 MB</div>
+        <input id="veFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.avi,.mkv" style="display:none;" onchange="veLoadFile(this.files[0])"/>
       </div>
 
       <!-- Upload progress -->
-      <div id="veProgressWrap" style="display:none;margin:-4px 14px 10px;">
-        <div style="height:3px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;">
-          <div id="veProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#6366f1);transition:width .2s;"></div>
+      <div id="veProgressWrap" style="display:none;margin:-4px 14px 12px;">
+        <div style="height:4px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden;">
+          <div id="veProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#6366f1);transition:width .15s;"></div>
         </div>
-        <div id="veProgressLabel" style="font-size:10px;color:#475569;text-align:center;margin-top:3px;">Uploading…</div>
+        <div id="veProgressLabel" style="font-size:10px;color:#475569;text-align:center;margin-top:4px;">Uploading…</div>
       </div>
 
       <!-- Status -->
-      <div id="veStatus" style="margin:0 14px 10px;font-size:12px;color:#94a3b8;text-align:center;display:none;padding:7px 10px;border-radius:8px;background:rgba(14,22,48,.5);line-height:1.5;"></div>
+      <div id="veStatus" style="display:none;margin:0 14px 12px;font-size:12px;color:#94a3b8;padding:8px 10px;border-radius:8px;background:rgba(14,22,48,.5);text-align:center;line-height:1.5;"></div>
 
       <!-- AI Auto-detect -->
       <div style="margin:0 14px 12px;">
-        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;transition:opacity .15s;">✨ AI Auto-detect Clips</button>
+        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;">✨ AI Auto-detect Clips</button>
       </div>
 
       <!-- Clip list -->
-      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 14px;"></div>
-
-      <!-- Export panel (shown after upload) -->
-      <div id="veExportPanel" style="display:none;margin:0 14px 14px;padding:12px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.4);border-radius:10px;">
-        <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;">Export</div>
-        <button id="veExportBtn" onclick="veExportClip()" style="width:100%;margin-bottom:7px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:700;padding:9px;cursor:pointer;box-shadow:0 2px 12px rgba(124,58,237,.35);">⬇ Export Clip (MP4)</button>
-        <div style="display:flex;gap:6px;">
-          <button onclick="veDownloadGif()" style="flex:1;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:7px;color:#fde68a;font-size:11px;font-weight:600;padding:6px;cursor:pointer;">🎞 GIF</button>
-          <button onclick="veRecordVideo()" style="flex:1;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:7px;color:#fca5a5;font-size:11px;font-weight:600;padding:6px;cursor:pointer;">🔴 Record</button>
-          <button onclick="veCopyEmbed()" style="flex:1;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);border-radius:7px;color:#475569;font-size:11px;font-weight:600;padding:6px;cursor:pointer;">📋 Embed</button>
-        </div>
+      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 14px;">
+        <div style="color:#334155;font-size:12px;text-align:center;padding:20px 0;">Upload a video to get started</div>
       </div>
 
-      <!-- Keyboard shortcuts hint -->
-      <div style="margin:0 14px 14px;font-size:10px;color:#334155;line-height:1.8;text-align:center;">
-        <span style="color:#475569;font-weight:600;">Shortcuts:</span> Space=play · I=mark in · O=mark out<br>J=−5s · L=+5s · ←/→=±1s · F=fullscreen
+      <!-- Export (shown after upload) -->
+      <div id="veExportPanel" style="display:none;margin:0 14px 16px;">
+        <button id="veExportBtn" onclick="veExportClip()" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 4px 16px rgba(124,58,237,.4);">⬇ Export Clip</button>
+      </div>
+
+      <!-- Shortcuts -->
+      <div style="padding:0 14px 14px;font-size:10px;color:#1e293b;line-height:1.9;text-align:center;">
+        Space=play &nbsp;·&nbsp; I=set in &nbsp;·&nbsp; O=set out<br>J=−5s &nbsp;·&nbsp; L=+5s &nbsp;·&nbsp; ←/→=±1s
       </div>
     </div>
 
-    <!-- MAIN PANEL: Preview + Controls -->
+    <!-- MAIN: Video + Controls -->
     <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#000;">
 
-      <!-- Video area -->
+      <!-- Video -->
       <div style="flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000;">
         <video id="vePlayer"
-               style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;"
-               preload="auto" playsinline crossorigin="use-credentials"
-               onloadedmetadata="veOnMetadata()" ontimeupdate="veOnTick()"
-               onended="veOnEnd()" onerror="veOnErr()">
+               style="max-width:100%;max-height:100%;object-fit:contain;display:none;"
+               preload="auto" playsinline
+               onloadedmetadata="veOnMeta()"
+               ontimeupdate="veOnTick()"
+               onended="veOnEnd()"
+               onerror="veOnErr()">
         </video>
-        <div id="vePlayerPlaceholder" style="color:#1e293b;text-align:center;user-select:none;">
-          <div style="font-size:56px;opacity:.25;margin-bottom:12px;">🎥</div>
-          <div style="font-size:14px;color:#334155;">Upload a video to begin editing</div>
-          <div style="font-size:12px;color:#1e293b;margin-top:6px;">Drag &amp; drop or click the sidebar</div>
+        <div id="vePlayerPlaceholder" style="color:#1e293b;text-align:center;pointer-events:none;">
+          <div style="font-size:52px;opacity:.2;margin-bottom:12px;">🎥</div>
+          <div style="font-size:14px;color:#334155;">Your video preview will appear here</div>
         </div>
-        <!-- Click-to-play overlay -->
-        <div id="veClickPlay" onclick="veTogglePlay()" style="display:none;position:absolute;inset:0;cursor:pointer;"></div>
       </div>
 
-      <!-- Controls bar -->
-      <div style="flex-shrink:0;background:rgba(7,10,22,.98);border-top:1px solid rgba(42,58,106,.35);padding:12px 16px;">
+      <!-- Controls -->
+      <div style="flex-shrink:0;background:rgba(5,8,20,.98);border-top:1px solid rgba(42,58,106,.3);padding:14px 18px;">
 
-        <!-- Transport row -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-          <!-- Skip back -->
-          <button onclick="veSkip(-5)" title="−5s (J)" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:7px;color:#64748b;font-size:13px;padding:5px 9px;cursor:pointer;">⏮ 5</button>
-          <!-- Play/Pause -->
-          <button id="vePlayBtn" onclick="veTogglePlay()" title="Play/Pause (Space)" style="background:rgba(124,58,237,.3);border:1px solid rgba(124,58,237,.5);border-radius:9px;color:#c4b5fd;font-size:18px;padding:5px 18px;cursor:pointer;min-width:52px;font-weight:700;">▶</button>
-          <!-- Skip forward -->
-          <button onclick="veSkip(5)" title="+5s (L)" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:7px;color:#64748b;font-size:13px;padding:5px 9px;cursor:pointer;">5 ⏭</button>
-
-          <!-- Time display -->
-          <span id="veCurrentTime" style="font-size:13px;font-family:monospace;color:#94a3b8;margin-left:4px;">0:00</span>
-          <span style="color:#2d3748;font-size:11px;">/</span>
-          <span id="veDuration" style="font-size:13px;font-family:monospace;color:#475569;">0:00</span>
-
+        <!-- Transport -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <button onclick="veSkip(-5)" title="Back 5s · J" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 12px;cursor:pointer;font-weight:600;">⏮ 5s</button>
+          <button id="vePlayBtn" onclick="veTogglePlay()" title="Play/Pause · Space" style="background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(99,102,241,.3));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#c4b5fd;font-size:20px;padding:6px 22px;cursor:pointer;min-width:56px;font-weight:700;">▶</button>
+          <button onclick="veSkip(5)" title="Forward 5s · L" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 12px;cursor:pointer;font-weight:600;">5s ⏭</button>
+          <span id="veCurrentTime" style="font-size:13px;font-family:monospace;color:#94a3b8;min-width:42px;">0:00</span>
+          <span style="color:#1e293b;">·</span>
+          <span id="veDuration" style="font-size:13px;font-family:monospace;color:#334155;">0:00</span>
           <div style="flex:1;"></div>
-
-          <!-- Volume -->
-          <button id="veMuteBtn" onclick="veMute()" title="Mute" style="background:none;border:none;color:#475569;font-size:14px;cursor:pointer;padding:4px 6px;">🔊</button>
-          <input id="veVolume" type="range" min="0" max="1" step="0.05" value="1"
-                 oninput="veSetVolume(this.value)"
-                 style="width:70px;accent-color:#7c3aed;cursor:pointer;"/>
-
-          <!-- Speed -->
-          <select id="veSpeed" onchange="veSetSpeed(this.value)"
-                  style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.5);border-radius:6px;color:#64748b;font-size:11px;padding:4px 6px;cursor:pointer;outline:none;">
+          <button id="veMuteBtn" onclick="veMute()" style="background:none;border:none;color:#334155;font-size:15px;cursor:pointer;padding:0 4px;" title="Mute">🔊</button>
+          <input id="veVolume" type="range" min="0" max="1" step="0.05" value="1" oninput="veSetVol(this.value)" title="Volume" style="width:72px;accent-color:#7c3aed;cursor:pointer;"/>
+          <select id="veSpeed" onchange="veSetSpeed(this.value)" title="Playback speed" style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.5);border-radius:6px;color:#475569;font-size:11px;padding:4px 6px;cursor:pointer;outline:none;">
             <option value="0.5">0.5×</option>
-            <option value="0.75">0.75×</option>
             <option value="1" selected>1×</option>
-            <option value="1.25">1.25×</option>
             <option value="1.5">1.5×</option>
             <option value="2">2×</option>
           </select>
-
-          <!-- Selection label -->
-          <span id="veSelLabel" style="font-size:11px;color:#475569;margin-left:4px;"></span>
+          <span id="veSelLabel" style="font-size:11px;color:#475569;margin-left:6px;"></span>
         </div>
 
-        <!-- Timeline scrubber -->
-        <div id="veTimeline" style="position:relative;height:32px;cursor:pointer;user-select:none;margin-bottom:10px;" onclick="veSeek(event)">
-          <!-- Track -->
-          <div style="position:absolute;top:11px;left:0;right:0;height:10px;background:rgba(255,255,255,.06);border-radius:5px;">
-            <!-- Buffered -->
-            <div id="veBuffered" style="position:absolute;inset:0;width:0;background:rgba(255,255,255,.06);border-radius:5px;"></div>
-            <!-- Selection range -->
-            <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.4);"></div>
+        <!-- Timeline -->
+        <div id="veTimeline" onclick="veSeekClick(event)" style="position:relative;height:36px;margin-bottom:12px;cursor:pointer;user-select:none;">
+          <div style="position:absolute;top:13px;left:0;right:0;height:10px;background:rgba(255,255,255,.07);border-radius:5px;overflow:hidden;">
+            <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.45);left:0%;width:100%;"></div>
           </div>
-          <!-- In handle (green) -->
-          <div id="veInHandle" style="position:absolute;top:3px;width:4px;height:26px;background:#34d399;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:0%;box-shadow:0 0 6px rgba(52,211,153,.6);" title="Drag to set In point"></div>
-          <!-- Out handle (red) -->
-          <div id="veOutHandle" style="position:absolute;top:3px;width:4px;height:26px;background:#f87171;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:100%;box-shadow:0 0 6px rgba(248,113,113,.6);" title="Drag to set Out point"></div>
+          <!-- IN handle -->
+          <div id="veInHandle" onmousedown="veDragStart('in',event)" ontouchstart="veDragStart('in',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#34d399;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:0%;box-shadow:0 0 8px rgba(52,211,153,.7);z-index:2;" title="Drag: set In point"></div>
+          <!-- OUT handle -->
+          <div id="veOutHandle" onmousedown="veDragStart('out',event)" ontouchstart="veDragStart('out',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#f87171;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:100%;box-shadow:0 0 8px rgba(248,113,113,.7);z-index:2;" title="Drag: set Out point"></div>
           <!-- Playhead -->
-          <div id="vePlayhead" style="position:absolute;top:5px;width:2px;height:22px;background:#c4b5fd;border-radius:2px;transform:translateX(-50%);left:0%;pointer-events:none;box-shadow:0 0 4px rgba(196,181,253,.8);"></div>
+          <div id="vePlayhead" style="position:absolute;top:6px;width:2px;height:24px;background:#c4b5fd;border-radius:2px;transform:translateX(-50%);left:0%;pointer-events:none;box-shadow:0 0 5px rgba(196,181,253,.9);z-index:3;"></div>
         </div>
 
         <!-- Trim row -->
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:5px;">
-            <span style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:.06em;">IN</span>
-            <input id="veTrimIn" type="number" min="0" step="0.1" value="0"
-                   style="width:70px;background:rgba(14,22,48,.9);border:1px solid rgba(52,211,153,.25);border-radius:6px;padding:4px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
-                   oninput="veInChanged(this.value)"/>
-            <button onclick="veMarkIn()" title="Set In to current time (I)" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:4px 8px;cursor:pointer;">⬅ Now</button>
+            <span style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:.07em;">IN</span>
+            <input id="veTrimIn" type="number" min="0" step="0.1" value="0" oninput="veInTyped(this.value)"
+                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(52,211,153,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
+            <button onclick="veMarkIn()" title="Set In to now · I" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">⬅ Now</button>
           </div>
           <div style="display:flex;align-items:center;gap:5px;">
-            <span style="font-size:10px;font-weight:700;color:#f87171;letter-spacing:.06em;">OUT</span>
-            <input id="veTrimOut" type="number" min="0" step="0.1" value="0"
-                   style="width:70px;background:rgba(14,22,48,.9);border:1px solid rgba(248,113,113,.25);border-radius:6px;padding:4px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
-                   oninput="veOutChanged(this.value)"/>
-            <button onclick="veMarkOut()" title="Set Out to current time (O)" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);border-radius:6px;color:#fca5a5;font-size:11px;padding:4px 8px;cursor:pointer;">Now ➡</button>
+            <span style="font-size:10px;font-weight:700;color:#f87171;letter-spacing:.07em;">OUT</span>
+            <input id="veTrimOut" type="number" min="0" step="0.1" value="0" oninput="veOutTyped(this.value)"
+                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(248,113,113,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
+            <button onclick="veMarkOut()" title="Set Out to now · O" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);border-radius:6px;color:#fca5a5;font-size:11px;padding:5px 8px;cursor:pointer;">Now ➡</button>
           </div>
-          <div style="flex:1;"></div>
-          <button onclick="veResetTrim()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;color:#334155;font-size:11px;padding:4px 10px;cursor:pointer;">Reset</button>
+          <button onclick="veResetTrim()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;color:#334155;font-size:11px;padding:5px 10px;cursor:pointer;">↺ Reset</button>
         </div>
 
       </div>
     </div>
   </div>
 </div>
-<style>
-  #veVolume{ -webkit-appearance:none; height:4px; border-radius:4px; }
-  #veVolume::-webkit-slider-thumb{ -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#7c3aed; cursor:pointer; }
-</style>
 
 <script>
 /* ═══════════════════════════════════════════════════════
-   VIDEO EDITOR — upgraded
+   VIDEO EDITOR
 ═══════════════════════════════════════════════════════ */
 (function(){
-  'use strict';
-  var _veVidId=null, _veDur=0, _veIn=0, _veOut=0, _veClips=[], _veSelClip=-1, _veDragging=null;
-
+  var _veVidId=null, _veDur=0, _veIn=0, _veOut=0, _veClips=[], _veDrag=null, _veBlobUrl=null;
   function $(id){ return document.getElementById(id); }
 
-  window.showVideoEditorModal = function(){
-    var m=$('videoEditorModal');
-    if(m){ m.style.display='flex'; document.body.style.overflow='hidden'; }
-  };
-  window.closeVideoEditorModal = function(){
-    var m=$('videoEditorModal');
-    if(m){ m.style.display='none'; document.body.style.overflow=''; }
-    var p=$('vePlayer'); if(p&&!p.paused) p.pause();
+  /* open / close */
+  window.showVideoEditorModal=function(){ var m=$('videoEditorModal'); if(m){m.style.display='flex';document.body.style.overflow='hidden';} };
+  window.closeVideoEditorModal=function(){
+    var m=$('videoEditorModal'); if(m){m.style.display='none';document.body.style.overflow='';}
+    var p=$('vePlayer'); if(p&&!p.paused)p.pause();
   };
 
-  // Keyboard shortcuts
-  document.addEventListener('keydown', function(e){
-    var ve=$('videoEditorModal');
-    if(!ve||ve.style.display==='none') return;
-    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
-    if(e.key==='Escape'){ closeVideoEditorModal(); return; }
-    var p=$('vePlayer'); if(!p) return;
+  /* keyboard */
+  document.addEventListener('keydown',function(e){
+    var ve=$('videoEditorModal'); if(!ve||ve.style.display==='none')return;
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+    if(e.key==='Escape'){closeVideoEditorModal();return;}
     switch(e.key){
       case ' ': e.preventDefault(); veTogglePlay(); break;
       case 'i': case 'I': veMarkIn(); break;
@@ -44170,364 +44128,248 @@ window.addEventListener('focus', function(){
       case 'l': case 'L': veSkip(5); break;
       case 'ArrowLeft': e.preventDefault(); veSkip(-1); break;
       case 'ArrowRight': e.preventDefault(); veSkip(1); break;
-      case 'f': case 'F': veFullscreen(); break;
     }
   });
 
-  window.veHandleDrop = function(e){
+  /* drag handles — global listeners so drag doesn't break on fast mouse move */
+  document.addEventListener('mousemove',veDragMove);
+  document.addEventListener('mouseup',function(){_veDrag=null;});
+  document.addEventListener('touchmove',function(e){if(_veDrag){e.preventDefault();veDragMove(e.touches[0]);}},{passive:false});
+  document.addEventListener('touchend',function(){_veDrag=null;});
+
+  window.veDragStart=function(which,e){
+    e.preventDefault(); e.stopPropagation(); _veDrag=which;
+  };
+  function veDragMove(e){
+    if(!_veDrag||!_veDur)return;
+    var tl=$('veTimeline'), r=tl.getBoundingClientRect();
+    var pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+    var t=pct*_veDur;
+    if(_veDrag==='in'){ _veIn=Math.min(t,_veOut-0.5); }
+    else { _veOut=Math.max(t,_veIn+0.5); }
+    var p=$('vePlayer'); if(p) p.currentTime=(_veDrag==='in'?_veIn:_veOut);
+    veSync();
+  }
+
+  /* drop / file input */
+  window.veHandleDrop=function(e){
     e.preventDefault();
     $('veUploadZone').style.borderColor='rgba(124,58,237,.35)';
     $('veUploadZone').style.background='';
-    var f=e.dataTransfer.files[0]; if(f) window.veLoadFile(f);
+    var f=e.dataTransfer.files[0]; if(f) veLoadFile(f);
   };
-  // Safe JSON fetch — never crashes on HTML error pages
-  function veApiFetch(url, opts){
-    return fetch(url, opts).then(function(r){
-      var ct = r.headers.get('content-type')||'';
-      if(ct.indexOf('application/json') < 0)
-        return r.text().then(function(){ return {ok:false,error:'Server error ('+r.status+'). Refresh and try again.'}; });
-      return r.json().catch(function(){ return {ok:false,error:'Bad server response. Refresh and try again.'}; });
-    });
-  }
 
-  window.veLoadFile = function(file){
-    if(!file) return;
-    if(file.size > 200*1024*1024){ veSt('File too large — max 200 MB','err'); return; }
-    var ext = (file.name||'').split('.').pop().toLowerCase();
-    if(['mp4','webm','mov','avi','mkv'].indexOf(ext) < 0){ veSt('Use MP4, MOV, or WEBM','err'); return; }
+  window.veLoadFile=function(file){
+    if(!file)return;
+    if(file.size>200*1024*1024){veSt('File too large — max 200 MB','err');return;}
+    var ext=(file.name||'').split('.').pop().toLowerCase();
+    if(['mp4','webm','mov','avi','mkv'].indexOf(ext)<0){veSt('Use MP4, MOV or WEBM','err');return;}
 
-    _veVidId=null; _veDur=0; _veIn=0; _veOut=0; _veClips=[]; _veSelClip=-1;
+    /* reset state */
+    _veVidId=null; _veDur=0; _veIn=0; _veOut=0; _veClips=[];
+    if(_veBlobUrl){URL.revokeObjectURL(_veBlobUrl); _veBlobUrl=null;}
     var p=$('vePlayer');
-    if(p){ p.style.display='none'; p.src=''; }
-    $('vePlayerPlaceholder').style.display='block';
-    $('veClickPlay').style.display='none';
+    if(p){p.pause();p.removeAttribute('src');p.load();p.style.display='none';}
+    $('vePlayerPlaceholder').style.display='';
     $('veAutoClipBtn').style.display='none';
     $('veExportPanel').style.display='none';
-    $('veClipList').innerHTML='';
-    $('veFileInfo').textContent='Upload · Trim · AI Clips · Export';
+    $('veClipList').innerHTML='<div style="color:#334155;font-size:12px;text-align:center;padding:20px 0;">Upload a video to get started</div>';
+    $('veFileInfo').textContent='Upload a video to get started';
 
-    veSt('Uploading…','info');
-    var fd = new FormData(); fd.append('file', file);
-    veApiFetch('/api/video/upload',{method:'POST',body:fd}).then(function(d){
-      if(!d.ok){ veSt(d.error||'Upload failed','err'); return; }
-      _veVidId = d.video_id;
-      // Point player at server stream URL — supports range requests & proper seeking
-      if(p){
-        p.src = '/api/video/stream/' + _veVidId;
-        p.style.display = 'block';
-        p.load();
-      }
-      $('vePlayerPlaceholder').style.display = 'none';
-      $('veAutoClipBtn').style.display = 'block';
-      $('veExportPanel').style.display = 'block';
-      $('veFileInfo').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(1) + ' MB';
-      veSt('✅ Ready — press ▶ to preview or use ✨ AI Auto-detect Clips.','ok');
-    }).catch(function(e){ veSt('Upload error: '+e.message,'err'); });
+    /* show blob immediately for preview */
+    _veBlobUrl=URL.createObjectURL(file);
+    if(p){ p.src=_veBlobUrl; p.style.display=''; p.load(); }
+    $('vePlayerPlaceholder').style.display='none';
+
+    /* upload to server in background (needed for AI detect + export) */
+    veSt('Uploading to server…','info');
+    var pw=$('veProgressWrap'),pb=$('veProgressBar'),pl=$('veProgressLabel');
+    if(pw) pw.style.display='block';
+
+    window._nativeFetch('/api/csrf_token',{credentials:'same-origin'})
+      .then(function(r){return r.json();}).catch(function(){return{csrf_token:''};})
+      .then(function(td){
+        var xhr=new XMLHttpRequest();
+        xhr.open('POST','/api/video/upload');
+        xhr.setRequestHeader('X-CSRF-Token',td.csrf_token||'');
+        xhr.withCredentials=true;
+        xhr.upload.onprogress=function(ev){
+          if(!ev.lengthComputable)return;
+          var pct=Math.round(ev.loaded/ev.total*100);
+          if(pb)pb.style.width=pct+'%';
+          if(pl)pl.textContent='Uploading… '+pct+'%';
+        };
+        xhr.onload=function(){
+          if(pw)pw.style.display='none';
+          var d; try{d=JSON.parse(xhr.responseText);}catch(x){veSt('Upload error — bad response','err');return;}
+          if(!d.ok){veSt(d.error||'Upload failed','err');return;}
+          _veVidId=d.video_id;
+          $('veAutoClipBtn').style.display='block';
+          $('veExportPanel').style.display='block';
+          $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
+          veSt('Ready — use AI clips or set In/Out and export','ok');
+        };
+        xhr.onerror=function(){if(pw)pw.style.display='none';veSt('Upload failed — check connection','err');};
+        var fd=new FormData(); fd.append('file',file); xhr.send(fd);
+      });
   };
 
   function veSt(msg,type){
-    var s=document.getElementById('veStatus');
-    if(!s)return; s.style.display='block';
-    s.style.color = type==='err'?'#fca5a5':type==='ok'?'#6ee7b7':'#94a3b8';
-    s.textContent = msg;
+    var s=$('veStatus'); if(!s)return;
+    s.style.display=msg?'block':'none';
+    s.style.color=type==='err'?'#fca5a5':type==='ok'?'#6ee7b7':'#94a3b8';
+    s.textContent=msg;
   }
 
-  window.veRunAutoClip = function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    // Always read live duration from player in case onloadedmetadata fired late
-    var p=document.getElementById('vePlayer');
-    if(p && p.duration && isFinite(p.duration) && p.duration>0) _veDur=p.duration;
-    if(_veDur<=0){ veSt('Video not ready yet — wait a moment and try again','err'); return; }
-    var btn=document.getElementById('veAutoClipBtn');
-    if(btn){ btn.disabled=true; btn.textContent='⏳ Analyzing…'; }
-    veSt('Transcribing audio and finding best clips…','info');
-    veApiFetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
-    .then(function(d){
-      if(btn){ btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips'; }
-      if(!d.ok){ veSt(d.error||'Analysis failed','err'); return; }
-      _veClips = d.clips||[];
-      veRenderClips();
-      veSt(_veClips.length+' clip'+ (_veClips.length===1?'':'s') +' found — click any to preview.','ok');
-    }).catch(function(e){ if(btn){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';} veSt('Error: '+e.message,'err'); });
-  };
-
-  function veRenderClips(){
-    var list=document.getElementById('veClipList');
-    var empty=document.getElementById('veClipListEmpty');
-    if(!list)return;
-    if(_veClips.length===0){ if(empty)empty.style.display='block'; list.innerHTML=''; return; }
-    if(empty) empty.style.display='none';
-    var html='<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding:0 4px;">AI Suggested Clips</div>';
-    _veClips.forEach(function(c,i){
-      html+='<div onclick="veSelectClip('+i+')" style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;"'
-        +' onmouseover="this.style.borderColor=\'rgba(124,58,237,.5)\'" onmouseout="this.style.borderColor=\'rgba(124,58,237,.2)\'">'
-        +'<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+escHtml(c.title||'Clip '+(i+1))+'</div>'
-        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' – '+veFmt(c.end)+' &nbsp;·&nbsp; '+veFmt((c.end||0)-(c.start||0))+'</div>'
-        +(c.reason?'<div style="font-size:11px;color:#475569;margin-top:4px;line-height:1.4;">'+escHtml(c.reason)+'</div>':'')
-        +'<div style="font-size:10px;color:#6366f1;margin-top:5px;opacity:.75;">▶ Click to preview</div>'
-        +'</div>';
-    });
-    list.innerHTML = html;
+  function veFmt(s){
+    if(!isFinite(s)||s<0)s=0;
+    var m=Math.floor(s/60),sc=Math.floor(s%60);
+    return m+':'+(sc<10?'0':'')+sc;
   }
-  function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-  window.veSelectClip = function(i){
-    var c=_veClips[i]; if(!c)return;
-    _veIn=c.start||0; _veOut=c.end||_veDur;
-    veUpdateUI();
-    var p=document.getElementById('vePlayer'); if(!p)return;
-    p.currentTime=_veIn;
-    var pp=p.play();
-    if(pp!==undefined){
-      pp.then(function(){ veUpdPlay(true); veSt('Playing: '+escHtml(c.title||'Clip '+(i+1)),'ok'); })
-        .catch(function(e){ veUpdPlay(false); veSt('Click ▶ to play. ('+e.message+')','info'); });
-    } else { veUpdPlay(true); }
-  };
-
-  /* ── Player events ── */
-  window.veOnMetadata = function(){
-    var p=$('vePlayer'); if(!p) return;
+  /* player events */
+  window.veOnMeta=function(){
+    var p=$('vePlayer'); if(!p)return;
     _veDur=isFinite(p.duration)?p.duration:0;
     _veIn=0; _veOut=_veDur;
     $('veDuration').textContent=veFmt(_veDur);
     $('veTrimIn').max=$('veTrimOut').max=_veDur;
-    $('veClickPlay').style.display='block';
-    veUpdateUI();
-    // Show file info
-    $('veFileInfo').textContent='Duration: '+veFmt(_veDur);
+    veSync();
   };
-
-  window.veOnTick = function(){
-    var p=$('vePlayer'); if(!p||!_veDur) return;
+  window.veOnTick=function(){
+    var p=$('vePlayer'); if(!p||!_veDur)return;
     var t=p.currentTime;
     $('veCurrentTime').textContent=veFmt(t);
-    if(_veDur>0){
-      $('vePlayhead').style.left=(t/_veDur*100)+'%';
-      // Update buffered bar
-      try{ if(p.buffered.length){ $('veBuffered').style.width=(p.buffered.end(p.buffered.length-1)/_veDur*100)+'%'; } }catch(_){}
-    }
-    // Loop within selection
-    if(_veOut>0&&t>=_veOut&&!p.paused){ p.currentTime=_veIn; p.pause(); veSetPlayIcon(false); }
+    $('vePlayhead').style.left=(t/_veDur*100)+'%';
+    if(_veOut>0&&t>=_veOut&&!p.paused){p.currentTime=_veIn;p.pause();vePlayIcon(false);}
   };
-
-  window.veOnEnd=function(){ veSetPlayIcon(false); };
-
+  window.veOnEnd=function(){vePlayIcon(false);};
   window.veOnErr=function(){
-    var p=$('vePlayer');
-    veSt('Video error (code '+(p&&p.error?p.error.code:'?')+') — try a different format.','err');
+    var p=$('vePlayer'),code=p&&p.error?p.error.code:0;
+    /* code 4 = format not supported by browser — fall back gracefully */
+    if(code===4){veSt('This format may not be supported in your browser. Try MP4.','err');}
+    else{veSt('Could not load video (error '+code+'). Try a different file.','err');}
   };
 
-  /* ── Playback controls ── */
+  /* playback */
   window.veTogglePlay=function(){
-    var p=$('vePlayer'); if(!p||!_veDur) return;
+    var p=$('vePlayer'); if(!p||!_veDur)return;
     if(p.paused){
-      if(_veOut>0&&p.currentTime>=_veOut-0.1) p.currentTime=_veIn;
-      p.play().then(function(){ veSetPlayIcon(true); }).catch(function(e){ veSt('Playback error: '+e.message,'err'); });
-    } else {
-      p.pause(); veSetPlayIcon(false);
-    }
+      if(_veOut>0&&p.currentTime>=_veOut-0.1)p.currentTime=_veIn;
+      p.play().then(function(){vePlayIcon(true);}).catch(function(e){veSt('Playback blocked — try clicking directly on the video','err');});
+    }else{p.pause();vePlayIcon(false);}
   };
-  // Keep old name for backwards compat
   window.vePlayPause=window.veTogglePlay;
+  function vePlayIcon(pl){var b=$('vePlayBtn');if(b)b.textContent=pl?'⏸':'▶';}
 
-  function veSetPlayIcon(playing){
-    var b=$('vePlayBtn'); if(b) b.textContent=playing?'⏸':'▶';
-  }
+  window.veSkip=function(s){var p=$('vePlayer');if(!p)return;p.currentTime=Math.max(0,Math.min(_veDur,p.currentTime+s));};
+  window.veSetVol=function(v){var p=$('vePlayer');if(p)p.volume=parseFloat(v)||0;$('veMuteBtn').textContent=parseFloat(v)===0?'🔇':'🔊';};
+  window.veMute=function(){var p=$('vePlayer');if(!p)return;p.muted=!p.muted;$('veMuteBtn').textContent=p.muted?'🔇':'🔊';$('veVolume').value=p.muted?0:p.volume;};
+  window.veSetSpeed=function(v){var p=$('vePlayer');if(p)p.playbackRate=parseFloat(v)||1;};
 
-  window.veSkip=function(sec){
-    var p=$('vePlayer'); if(!p) return;
-    p.currentTime=Math.max(0,Math.min(_veDur,p.currentTime+sec));
-  };
-
-  window.veSetVolume=function(v){
-    var p=$('vePlayer'); if(p) p.volume=parseFloat(v)||0;
-    var mb=$('veMuteBtn'); if(mb) mb.textContent=parseFloat(v)===0?'🔇':'🔊';
-  };
-
-  window.veMute=function(){
-    var p=$('vePlayer'); if(!p) return;
-    p.muted=!p.muted;
-    $('veMuteBtn').textContent=p.muted?'🔇':'🔊';
-    $('veVolume').value=p.muted?0:p.volume;
-  };
-
-  window.veSetSpeed=function(v){
-    var p=$('vePlayer'); if(p) p.playbackRate=parseFloat(v)||1;
-  };
-
-  window.veFullscreen=function(){
-    var p=$('vePlayer'); if(!p) return;
-    if(p.requestFullscreen) p.requestFullscreen();
-    else if(p.webkitRequestFullscreen) p.webkitRequestFullscreen();
-  };
-
-  /* ── Timeline: click to seek + drag handles ── */
-  window.veSeek=function(e){
-    if(!_veDur) return;
-    var tl=$('veTimeline'), r=tl.getBoundingClientRect();
+  /* timeline click to seek */
+  window.veSeekClick=function(e){
+    if(_veDrag)return; /* don't seek when dragging handles */
+    if(!_veDur)return;
+    var tl=$('veTimeline'),r=tl.getBoundingClientRect();
     var pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-    var p=$('vePlayer'); if(p) p.currentTime=pct*_veDur;
+    var p=$('vePlayer'); if(p)p.currentTime=pct*_veDur;
   };
 
-  // Drag In/Out handles
-  (function(){
-    function startDrag(which){ return function(e){ e.preventDefault(); e.stopPropagation(); _veDragging=which; }; }
-    $('veInHandle').addEventListener('mousedown', startDrag('in'));
-    $('veOutHandle').addEventListener('mousedown', startDrag('out'));
-    document.addEventListener('mousemove', function(e){
-      if(!_veDragging||!_veDur) return;
-      var tl=$('veTimeline'), r=tl.getBoundingClientRect();
-      var pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-      var t=pct*_veDur;
-      if(_veDragging==='in'){ _veIn=Math.min(t,_veOut-0.5); }
-      else { _veOut=Math.max(t,_veIn+0.5); }
-      var p=$('vePlayer');
-      if(p) p.currentTime=(_veDragging==='in'?_veIn:_veOut);
-      veUpdateUI();
-    });
-    document.addEventListener('mouseup', function(){ _veDragging=null; });
-    // Touch support
-    function startTouch(which){ return function(e){ e.preventDefault(); _veDragging=which; }; }
-    $('veInHandle').addEventListener('touchstart', startTouch('in'),{passive:false});
-    $('veOutHandle').addEventListener('touchstart', startTouch('out'),{passive:false});
-    document.addEventListener('touchmove', function(e){
-      if(!_veDragging||!_veDur) return;
-      var touch=e.touches[0];
-      var tl=$('veTimeline'), r=tl.getBoundingClientRect();
-      var pct=Math.max(0,Math.min(1,(touch.clientX-r.left)/r.width));
-      var t=pct*_veDur;
-      if(_veDragging==='in') _veIn=Math.min(t,_veOut-0.5);
-      else _veOut=Math.max(t,_veIn+0.5);
-      veUpdateUI();
-    },{passive:false});
-    document.addEventListener('touchend', function(){ _veDragging=null; });
-  })();
-
-  /* ── Trim point controls ── */
-  window.veMarkIn=function(){
-    var p=$('vePlayer'); if(!p||!_veDur) return;
-    _veIn=Math.max(0,Math.min(p.currentTime,_veOut-0.5));
-    veUpdateUI();
-  };
-  window.veMarkOut=function(){
-    var p=$('vePlayer'); if(!p||!_veDur) return;
-    _veOut=Math.min(_veDur,Math.max(p.currentTime,_veIn+0.5));
-    veUpdateUI();
-  };
-  window.veResetTrim=function(){ _veIn=0; _veOut=_veDur; veUpdateUI(); };
-
-  // Keep old names
-  window.veSetIn=window.veMarkIn;
-  window.veSetOut=window.veMarkOut;
-
-  window.veInChanged=function(v){ var n=parseFloat(v); if(isFinite(n)) _veIn=Math.max(0,Math.min(n,_veOut-0.5)); veUpdateHL(); };
-  window.veOutChanged=function(v){ var n=parseFloat(v); if(isFinite(n)) _veOut=Math.min(_veDur,Math.max(n,_veIn+0.5)); veUpdateHL(); };
-
-  function veUpdateUI(){
+  /* sync all UI from _veIn/_veOut/_veDur */
+  function veSync(){
+    if(!_veDur)return;
     $('veTrimIn').value=_veIn.toFixed(1);
     $('veTrimOut').value=_veOut.toFixed(1);
-    veUpdateHL();
-  }
-  function veUpdateHL(){
-    if(!_veDur) return;
-    var l=(_veIn/_veDur*100), r=(_veOut/_veDur*100);
-    $('veRangeHL').style.left=l+'%';
-    $('veRangeHL').style.width=(r-l)+'%';
-    $('veInHandle').style.left=l+'%';
-    $('veOutHandle').style.left=r+'%';
-    var dur=_veOut-_veIn;
-    $('veSelLabel').textContent=dur>0?'Selection: '+veFmt(dur):'';
+    var l=(_veIn/_veDur*100),r=(_veOut/_veDur*100);
+    $('veRangeHL').style.left=l+'%'; $('veRangeHL').style.width=(r-l)+'%';
+    $('veInHandle').style.left=l+'%'; $('veOutHandle').style.left=r+'%';
+    var dur=_veOut-_veIn; $('veSelLabel').textContent=dur>0?'Clip: '+veFmt(dur):'';
   }
 
-  /* ── Export ── */
+  /* mark in/out */
+  window.veMarkIn=function(){var p=$('vePlayer');if(!p||!_veDur)return;_veIn=Math.max(0,Math.min(p.currentTime,_veOut-0.5));veSync();};
+  window.veMarkOut=function(){var p=$('vePlayer');if(!p||!_veDur)return;_veOut=Math.min(_veDur,Math.max(p.currentTime,_veIn+0.5));veSync();};
+  window.veResetTrim=function(){_veIn=0;_veOut=_veDur;veSync();};
+  window.veSetIn=window.veMarkIn; window.veSetOut=window.veMarkOut;
+  window.veInChanged=window.veInTyped=function(v){var n=parseFloat(v);if(isFinite(n)){_veIn=Math.max(0,Math.min(n,_veOut-0.5));veSync();}};
+  window.veOutChanged=window.veOutTyped=function(v){var n=parseFloat(v);if(isFinite(n)){_veOut=Math.min(_veDur,Math.max(n,_veIn+0.5));veSync();}};
+
+  /* AI auto-detect */
+  window.veRunAutoClip=function(){
+    if(!_veVidId){veSt('Upload a video first','err');return;}
+    var p=$('vePlayer');
+    if(p&&p.duration&&isFinite(p.duration)&&p.duration>0)_veDur=p.duration;
+    if(_veDur<=0){veSt('Video not ready yet — wait a moment','err');return;}
+    var btn=$('veAutoClipBtn');
+    btn.disabled=true; btn.textContent='⏳ Analyzing…';
+    veSt('Transcribing and finding best clips…','info');
+    veApiFetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
+    .then(function(d){
+      btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips';
+      if(!d.ok){veSt(d.error||'Analysis failed','err');return;}
+      _veClips=d.clips||[];
+      veRenderClips();
+      veSt(_veClips.length+' clip'+(_veClips.length===1?'':'s')+' found — click to load','ok');
+    }).catch(function(e){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';veSt('Error: '+e.message,'err');});
+  };
+
+  function veRenderClips(){
+    var list=$('veClipList'); if(!list)return;
+    if(!_veClips.length){list.innerHTML='<div style="color:#334155;font-size:12px;text-align:center;padding:16px;">No clips found</div>';return;}
+    list.innerHTML='<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;padding:0 2px;">AI Suggested Clips</div>';
+    _veClips.forEach(function(c,i){
+      var d=document.createElement('div');
+      d.style.cssText='background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 11px;margin-bottom:7px;cursor:pointer;transition:all .15s;';
+      d.innerHTML='<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+veEsc(c.title||'Clip '+(i+1))+'</div>'
+        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' – '+veFmt(c.end)+'&ensp;·&ensp;'+veFmt((c.end||0)-(c.start||0))+'</div>'
+        +(c.reason?'<div style="font-size:11px;color:#475569;margin-top:3px;line-height:1.4;">'+veEsc(c.reason)+'</div>':'');
+      d.onmouseover=function(){d.style.borderColor='rgba(124,58,237,.5)';d.style.background='rgba(124,58,237,.14)';};
+      d.onmouseout=function(){d.style.borderColor='rgba(124,58,237,.2)';d.style.background='rgba(124,58,237,.08)';};
+      d.onclick=function(){
+        _veIn=c.start||0; _veOut=c.end||_veDur; veSync();
+        var p=$('vePlayer'); if(!p)return;
+        p.currentTime=_veIn;
+        p.play().then(function(){vePlayIcon(true);veSt('Playing: '+veEsc(c.title||'Clip '+(i+1)),'ok');})
+               .catch(function(){vePlayIcon(false);veSt('Clip loaded — press ▶ to play','info');});
+      };
+      list.appendChild(d);
+    });
+  }
+  function veEsc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  /* export */
   window.veExportClip=function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    if(_veOut-_veIn<0.5){ veSt('Set In and Out points first','err'); return; }
+    if(!_veVidId){veSt('Upload a video first','err');return;}
+    if(_veOut-_veIn<0.5){veSt('Set your In and Out points first','err');return;}
     var btn=$('veExportBtn');
-    if(btn){ btn.disabled=true; btn.textContent='⏳ Exporting…'; }
-    veSt('Exporting clip — this takes a moment…','info');
+    btn.disabled=true; btn.textContent='⏳ Exporting…';
+    veSt('Exporting — this may take a moment…','info');
     veApiFetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
     .then(function(d){
-      if(btn){ btn.disabled=false; btn.textContent='⬇ Export Clip (MP4)'; }
-      if(!d.ok){ veSt(d.error||'Export failed','err'); return; }
+      btn.disabled=false; btn.textContent='⬇ Export Clip';
+      if(!d.ok){veSt(d.error||'Export failed','err');return;}
       var a=document.createElement('a');
       a.href='/api/video/download/'+d.export_id;
       a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      veSt('✅ Clip downloaded!','ok');
-    }).catch(function(e){ if(btn){btn.disabled=false;btn.textContent='⬇ Export Clip (MP4)';} veSt('Error: '+e.message,'err'); });
+      veSt('✅ Clip exported and downloaded!','ok');
+    }).catch(function(e){btn.disabled=false;btn.textContent='⬇ Export Clip';veSt('Export error: '+e.message,'err');});
   };
 
-  window.veCopyEmbed=function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    var src=window.location.origin+'/api/video/stream/'+_veVidId;
-    var code='<video src="'+src+'" controls style="max-width:100%;"></video>';
-    navigator.clipboard.writeText(code).then(function(){ veSt('✅ Embed code copied!','ok'); });
-  };
-
-  window.veRecordVideo=async function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    var btn=document.querySelector('[onclick="veRecordVideo()"]');
-    try{
-      if(typeof showToast==='function') showToast('📹 Select the preview pane — records 10 s');
-      var stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
-      var mime=['video/webm;codecs=vp9','video/webm'].find(function(m){return MediaRecorder.isTypeSupported(m);})||'video/webm';
-      var recorder=new MediaRecorder(stream,{mimeType:mime}), chunks=[];
-      recorder.ondataavailable=function(e){ if(e.data.size) chunks.push(e.data); };
-      recorder.onstop=function(){
-        stream.getTracks().forEach(function(t){t.stop();});
-        var blob=new Blob(chunks,{type:'video/webm'});
-        var url=URL.createObjectURL(blob);
-        var a=document.createElement('a'); a.href=url; a.download='clip-'+Date.now()+'.webm'; a.click();
-        setTimeout(function(){URL.revokeObjectURL(url);},5000);
-        veSt('✅ Recorded & downloaded!','ok');
-        if(btn){btn.textContent='🔴 Record';btn.disabled=false;}
-      };
-      if(btn){btn.textContent='⏹ Stop';btn.disabled=false;}
-      btn&&(btn.onclick=function(){if(recorder.state!=='inactive')recorder.stop();btn.onclick=function(){veRecordVideo();};});
-      recorder.start(); setTimeout(function(){if(recorder.state!=='inactive')recorder.stop();},10000);
-    }catch(e){ veSt('Recording cancelled or not supported','info'); if(btn){btn.textContent='🔴 Record';btn.disabled=false;} }
-  };
-
-  window.veDownloadGif=async function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    var frame=$('vePlayer'), btn=document.querySelector('[onclick="veDownloadGif()"]');
-    if(btn){btn.disabled=true;btn.textContent='⏳…';}
-    veSt('Capturing GIF (3 s)…','info');
-    try{
-      var w=frame.videoWidth||640, h=frame.videoHeight||360;
-      var cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-      var ctx2=cv.getContext('2d');
-      if(!window.GIF){
-        await new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);});
-      }
-      var gif=new GIF({workers:2,quality:8,width:w,height:h,workerScript:'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'});
-      var frames=15;
-      for(var i=0;i<frames;i++){
-        ctx2.drawImage(frame,0,0,w,h);
-        gif.addFrame(cv,{delay:200,copy:true});
-        await new Promise(function(r){setTimeout(r,200);});
-      }
-      gif.on('finished',function(blob){
-        var url=URL.createObjectURL(blob);
-        var a=document.createElement('a');a.href=url;a.download='clip-'+Date.now()+'.gif';a.click();
-        setTimeout(function(){URL.revokeObjectURL(url);},5000);
-        veSt('✅ GIF downloaded!','ok');
-        if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}
-      });
-      gif.render();
-    }catch(e){ veSt('GIF export failed','err'); if(btn){btn.textContent='🎞 GIF';btn.disabled=false;} }
-  };
-
-  /* ── Utility ── */
-  function veFmt(s){
-    if(!isFinite(s)||s<0) s=0;
-    var m=Math.floor(s/60), sc=Math.floor(s%60);
-    return m+':'+(sc<10?'0':'')+sc;
+  /* safe json fetch */
+  function veApiFetch(url,opts){
+    return fetch(url,opts).then(function(r){
+      var ct=r.headers.get('content-type')||'';
+      if(ct.indexOf('application/json')<0) return r.text().then(function(){return{ok:false,error:'Server error ('+r.status+'). Refresh and try again.'};});
+      return r.json().catch(function(){return{ok:false,error:'Bad response. Refresh and try again.'};});
+    });
   }
+
 })();
 </script>
+
 
 <!-- ═══ WINDOW MANAGER TASKBAR ═══ -->
 <div id="saWMTaskbar"></div>
