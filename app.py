@@ -34608,7 +34608,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:calc(100vh - 54px);top:54px;left:0;border-radius:0;overflow:hidden;">
   <!-- Ambient glow layers matching app background -->
   <div style="position:absolute;inset:0;pointer-events:none;z-index:0;">
     <div style="position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);"></div>
@@ -34734,57 +34734,142 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(!modal._wmReady){
       modal._wmReady = true;
       saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
-      // Start full-screen — HTML already sets width:100vw;height:100vh;top:0;left:0;border-radius:0
     }
     if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
+
+    // Always position below the nav bar so it never bleeds under it
+    const nb = document.getElementById('saNavBar');
+    const navH = nb ? nb.offsetHeight : 54;
+    modal.style.top    = navH + 'px';
+    modal.style.height = 'calc(100vh - ' + navH + 'px)';
+    modal.style.width  = '100vw';
+    modal.style.left   = '0';
+    modal.style.borderRadius = '0';
+
     modal.style.display = "flex";
-    modal.style.zIndex = ++saWM.z;
+    modal.style.zIndex  = ++saWM.z;
+
     const body = document.getElementById("dashboardBody");
-    if(body) body.innerHTML = '<div class="tiny" style="opacity:.5;padding:20px;">Loading dashboard…</div>';
+    if(body) body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100px;gap:12px;color:#475569;"><div style="width:20px;height:20px;border-radius:50%;border:2px solid rgba(124,58,237,.3);border-top-color:#7c3aed;animation:vcSpin .8s linear infinite;"></div>Loading dashboard…</div>';
+
     try{
       const r = await fetch("/api/dashboard"); const d = await r.json();
       if(!d.ok || !body) return;
       const s   = d.stats   || {};
-      const act = s.activity || {}; const crm  = s.crm  || {};
-      const rag   = s.rag  || {};
-      const smem= s.shared_memory || {};
+      const act = s.activity || {}; const crm = s.crm || {};
+      const rag = s.rag     || {};
       const fmtVal = v => v>=1000 ? '$'+(v/1000).toFixed(1)+'k' : '$'+Math.round(v||0);
+      const fmtNum = n => n>=1000 ? (n/1000).toFixed(1)+'k' : String(n||0);
+      const ts = (d.generated_at||"").slice(0,16).replace("T"," ");
+
       body.innerHTML = `
-        <div class="sa-stat-grid">
-          <div class="sa-stat-card"><div class="sa-stat-num">${act.total_actions||0}</div><div class="sa-stat-lbl">AI Actions</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${crm.total_clients||0}</div><div class="sa-stat-lbl">CRM Contacts</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${crm.leads_this_week||0}</div><div class="sa-stat-lbl">New Leads (7d)</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${fmtVal(crm.pipeline_value||0)}</div><div class="sa-stat-lbl">Pipeline Value</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${crm.emails_sent||0}</div><div class="sa-stat-lbl">Emails Sent</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${crm.active_enrollments||0}</div><div class="sa-stat-lbl">Active Sequences</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${rag.total_docs||0}</div><div class="sa-stat-lbl">Knowledge Docs</div></div>
-          <div class="sa-stat-card"><div class="sa-stat-num">${act.error_count||0}</div><div class="sa-stat-lbl">Errors</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
-          <div class="sa-dash-section">
-            <h3>TOP TEAMMATES BY ACTIVITY</h3>
-            ${(act.top_teammates||[]).map(t=>`<div class="sa-dash-row"><span>${_e(t.name)}</span><span style="color:#c4b5fd;font-weight:600;">${t.count} actions</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No activity yet.</div>'}
+        <!-- Header row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <div style="font-size:20px;font-weight:700;color:#e2e8f0;letter-spacing:-.01em;">Command Center Overview</div>
+            <div style="font-size:12px;color:#475569;margin-top:2px;">Last updated ${ts} UTC</div>
           </div>
-          <div class="sa-dash-section">
-            <h3>PIPELINE BY STAGE</h3>
-            ${Object.entries(crm.stages||{}).map(([st,cnt])=>{const sv=(crm.stage_values||{})[st]||0;return`<div class="sa-dash-row"><span>${_e(st)}</span><span style="color:#a5b4fc;">${cnt} contact${cnt!==1?'s':''}${sv>0?' · '+fmtVal(sv):''}</span></div>`;}).join("")||'<div class="tiny" style="opacity:.4;">No CRM data.</div>'}
-            ${(crm.pipeline_value||0)>0?`<div class="sa-dash-row" style="border-color:rgba(124,58,237,.4);margin-top:6px;"><span style="font-weight:700;">Total</span><span style="color:#c4b5fd;font-weight:700;">${fmtVal(crm.pipeline_value)}</span></div>`:''}
-          </div>
-          <div class="sa-dash-section">
-            <h3>KNOWLEDGE BASE (RAG)</h3>
-            <div class="sa-dash-row"><span>Documents indexed</span><span style="color:#a5b4fc;">${rag.total_docs||0}</span></div>
-            <div class="sa-dash-row"><span>Text chunks stored</span><span style="color:#a5b4fc;">${rag.total_chunks||0}</span></div>
-            <div style="margin-top:8px;"><button onclick="saOpenRag()" class="btn btnMini" style="width:100%;">🔬 Manage Knowledge Base</button></div>
-          </div>
-          <div class="sa-dash-section">
-            <h3>RECENT ERRORS</h3>
-            ${(act.recent||[]).filter(e=>e.status==="error").slice(0,5).map(e=>`<div class="sa-dash-row" style="border-color:rgba(239,68,68,.3);"><span style="color:#fca5a5;">${_e(e.action)}</span><span class="tiny">${(e.ts||"").slice(0,16)}</span></div>`).join("")||'<div class="tiny" style="opacity:.4;">No errors — all clear.</div>'}
+          <div style="display:flex;gap:8px;">
+            <button onclick="saOpenRag()" class="btn btnMini" style="font-size:12px;">🔬 Knowledge Base</button>
+            <button onclick="saOpenDashboard()" class="btn btnMini" style="font-size:12px;">↻ Refresh</button>
           </div>
         </div>
-        <div class="tiny" style="opacity:.3;text-align:right;margin-top:10px;">Generated ${(d.generated_at||"").slice(0,16).replace("T"," ")} UTC</div>`;
+
+        <!-- KPI stat grid -->
+        <div class="sa-stat-grid" style="margin-bottom:28px;">
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">🤖</div>
+            <div class="sa-stat-num">${fmtNum(act.total_actions||0)}</div>
+            <div class="sa-stat-lbl">AI Actions</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">👥</div>
+            <div class="sa-stat-num">${fmtNum(crm.total_clients||0)}</div>
+            <div class="sa-stat-lbl">CRM Contacts</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">🎯</div>
+            <div class="sa-stat-num">${fmtNum(crm.leads_this_week||0)}</div>
+            <div class="sa-stat-lbl">New Leads (7d)</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">💰</div>
+            <div class="sa-stat-num">${fmtVal(crm.pipeline_value||0)}</div>
+            <div class="sa-stat-lbl">Pipeline Value</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">📧</div>
+            <div class="sa-stat-num">${fmtNum(crm.emails_sent||0)}</div>
+            <div class="sa-stat-lbl">Emails Sent</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">⚡</div>
+            <div class="sa-stat-num">${fmtNum(crm.active_enrollments||0)}</div>
+            <div class="sa-stat-lbl">Active Sequences</div>
+          </div>
+          <div class="sa-stat-card">
+            <div style="font-size:22px;margin-bottom:4px;">📚</div>
+            <div class="sa-stat-num">${fmtNum(rag.total_docs||0)}</div>
+            <div class="sa-stat-lbl">Knowledge Docs</div>
+          </div>
+          <div class="sa-stat-card" style="${(act.error_count||0)>0?'border-color:rgba(239,68,68,.3);':''}">
+            <div style="font-size:22px;margin-bottom:4px;">${(act.error_count||0)>0?'🔴':'✅'}</div>
+            <div class="sa-stat-num" style="${(act.error_count||0)>0?'color:#fca5a5;':''}">${fmtNum(act.error_count||0)}</div>
+            <div class="sa-stat-lbl">${(act.error_count||0)>0?'Errors':'System OK'}</div>
+          </div>
+        </div>
+
+        <!-- Two-column detail grid -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;">
+
+          <!-- Top Teammates -->
+          <div style="background:rgba(14,18,48,.6);border:1px solid rgba(124,58,237,.15);border-radius:14px;padding:18px;">
+            <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">🤖 Top Teammates by Activity</div>
+            ${(act.top_teammates||[]).length ? (act.top_teammates||[]).map((t,i)=>`
+              <div class="sa-dash-row" style="margin-bottom:6px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="font-size:10px;font-weight:700;color:#334155;background:rgba(124,58,237,.15);border-radius:4px;padding:1px 6px;">${i+1}</span>
+                  <span style="color:#e2e8f0;">${_e(t.name)}</span>
+                </div>
+                <span style="color:#c4b5fd;font-weight:700;font-size:13px;">${t.count} <span style="font-size:10px;font-weight:400;color:#475569;">actions</span></span>
+              </div>`).join('') : '<div style="color:#334155;font-size:12px;text-align:center;padding:16px 0;">No activity recorded yet</div>'}
+          </div>
+
+          <!-- Pipeline -->
+          <div style="background:rgba(14,18,48,.6);border:1px solid rgba(124,58,237,.15);border-radius:14px;padding:18px;">
+            <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">💼 Pipeline by Stage</div>
+            ${Object.entries(crm.stages||{}).length ? Object.entries(crm.stages||{}).map(([st,cnt])=>{
+              const sv=(crm.stage_values||{})[st]||0;
+              return `<div class="sa-dash-row" style="margin-bottom:6px;">
+                <span style="color:#e2e8f0;">${_e(st)}</span>
+                <span style="color:#a5b4fc;font-weight:600;">${cnt} <span style="color:#475569;font-weight:400;">contact${cnt!==1?'s':''}</span>${sv>0?' · <span style="color:#c4b5fd;">'+fmtVal(sv)+'</span>':''}</span>
+              </div>`;}).join('')
+              : '<div style="color:#334155;font-size:12px;text-align:center;padding:16px 0;">No CRM contacts yet</div>'}
+            ${(crm.pipeline_value||0)>0?`<div class="sa-dash-row" style="border-color:rgba(124,58,237,.4);margin-top:10px;background:rgba(124,58,237,.08);"><span style="font-weight:700;color:#e2e8f0;">Total Pipeline</span><span style="color:#c4b5fd;font-weight:700;font-size:15px;">${fmtVal(crm.pipeline_value)}</span></div>`:''}
+          </div>
+
+          <!-- Knowledge Base -->
+          <div style="background:rgba(14,18,48,.6);border:1px solid rgba(124,58,237,.15);border-radius:14px;padding:18px;">
+            <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">📚 Knowledge Base</div>
+            <div class="sa-dash-row" style="margin-bottom:6px;"><span style="color:#94a3b8;">Documents indexed</span><span style="color:#a5b4fc;font-weight:600;">${rag.total_docs||0}</span></div>
+            <div class="sa-dash-row" style="margin-bottom:14px;"><span style="color:#94a3b8;">Text chunks stored</span><span style="color:#a5b4fc;font-weight:600;">${rag.total_chunks||0}</span></div>
+            <button onclick="saOpenRag()" class="btn btnMini" style="width:100%;padding:8px;font-size:12px;">🔬 Open Knowledge Base</button>
+          </div>
+
+          <!-- Recent Errors -->
+          <div style="background:rgba(14,18,48,.6);border:1px solid rgba(${(act.error_count||0)>0?'239,68,68':'124,58,237'},.15);border-radius:14px;padding:18px;">
+            <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;">${(act.error_count||0)>0?'🔴':'✅'} System Health</div>
+            ${(act.recent||[]).filter(e=>e.status==="error").slice(0,5).map(e=>`
+              <div class="sa-dash-row" style="margin-bottom:6px;border-color:rgba(239,68,68,.25);">
+                <span style="color:#fca5a5;font-size:12px;">${_e(e.action)}</span>
+                <span style="font-size:10px;color:#475569;">${(e.ts||"").slice(0,16)}</span>
+              </div>`).join('')||'<div style="color:#34d399;font-size:13px;font-weight:600;text-align:center;padding:16px 0;">✅ No errors — all systems clear</div>'}
+          </div>
+
+        </div>`;
     }catch(err){
       const b2=document.getElementById("dashboardBody");
-      if(b2) b2.innerHTML=`<div class="tiny" style="color:#fca5a5;padding:20px;">Load failed: ${_e((err||{}).message||err)}</div>`;
+      if(b2) b2.innerHTML=`<div style="color:#fca5a5;padding:24px;text-align:center;font-size:13px;">Failed to load dashboard: ${_e((err||{}).message||err)}</div>`;
     }
   };
   window.saCloseDashboard = function(){ const m=document.getElementById("dashboardModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
