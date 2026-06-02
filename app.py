@@ -16982,7 +16982,6 @@ label {
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
-            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
             <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
             <button class="saDropItem" id="videoEditorBtn" onclick="saToggleDrop('saCreateDrop');showVideoEditorModal()">✂️ Video Editor</button>
           </div>
@@ -17015,6 +17014,7 @@ label {
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
+            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
           </div>
         </div>
 
@@ -34608,9 +34608,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:rgba(10,14,30,.98);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <!-- Ambient glow layers matching app background -->
+  <div style="position:absolute;inset:0;pointer-events:none;z-index:0;">
+    <div style="position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);"></div>
+    <div style="position:absolute;bottom:-80px;right:10%;width:600px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(99,102,241,.09),transparent 65%);"></div>
+  </div>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(7,9,26,.92);border-bottom:1px solid rgba(124,58,237,.2);backdrop-filter:blur(12px);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWinMin('dashboardModal','📊 Dashboard','📊')">—</button>
@@ -34618,9 +34623,10 @@ if(typeof maybeAutoShowOnboarding === "function"){
         <button class="sa-float-close-btn" onclick="saCloseDashboard()">✕</button>
       </div>
     </div>
-    <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
+    <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:24px;"></div>
   </div>
 </div>
+
 
 <!-- Share Link Modal -->
 <div id="shareModal" style="display:none;position:fixed;inset:0;z-index:99991;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);align-items:center;justify-content:center;" onclick="if(event.target===this)saCloseShare()">
@@ -34702,14 +34708,15 @@ if(typeof maybeAutoShowOnboarding === "function"){
   background:rgba(16,185,129,.12); color:#6ee7b7;
   border:1px solid rgba(16,185,129,.3); cursor:pointer; display:inline-flex; align-items:center;
 }
-/* Dashboard stat cards */
-.sa-stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:20px; }
-.sa-stat-card { background:rgba(30,42,74,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:12px 14px; text-align:center; }
-.sa-stat-num  { font-size:26px; font-weight:700; color:#c4b5fd; }
-.sa-stat-lbl  { font-size:11px; color:rgba(182,196,255,.6); margin-top:3px; }
-.sa-dash-section { margin-bottom:18px; }
-.sa-dash-section h3 { font-size:12px; opacity:.5; letter-spacing:.06em; margin-bottom:8px; }
-.sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:rgba(11,16,36,.7); border:1px solid rgba(42,58,106,.4); margin-bottom:5px; font-size:12px; }
+/* Dashboard stat cards — matches app dark purple aesthetic */
+.sa-stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:24px; }
+.sa-stat-card { background:rgba(14,18,48,.7); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:14px 16px; text-align:center; backdrop-filter:blur(8px); transition:border-color .2s; }
+.sa-stat-card:hover { border-color:rgba(124,58,237,.45); }
+.sa-stat-num  { font-size:28px; font-weight:700; color:#c4b5fd; letter-spacing:-.01em; }
+.sa-stat-lbl  { font-size:10px; color:#475569; margin-top:4px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
+.sa-dash-section { margin-bottom:20px; }
+.sa-dash-section h3 { font-size:10px; font-weight:700; color:#475569; letter-spacing:.08em; text-transform:uppercase; margin-bottom:10px; }
+.sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-radius:9px; background:rgba(10,14,36,.6); border:1px solid rgba(42,58,106,.35); margin-bottom:5px; font-size:12px; }
 </style>
 
 <script>
@@ -34727,12 +34734,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(!modal._wmReady){
       modal._wmReady = true;
       saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
-      var nb=document.getElementById('saNavBar'); var navH=(nb?nb.offsetHeight:54)+8;
-      var W=Math.min(1100,Math.round(window.innerWidth*.9));
-      var H=Math.min(820,Math.round((window.innerHeight-navH)*.92));
-      modal.style.width=W+'px'; modal.style.height=H+'px';
-      modal.style.top=navH+'px'; modal.style.left=Math.round((window.innerWidth-W)/2)+'px';
-      modal.style.borderRadius='12px';
+      // Start full-screen — HTML already sets width:100vw;height:100vh;top:0;left:0;border-radius:0
     }
     if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
     modal.style.display = "flex";
@@ -36535,15 +36537,47 @@ document.addEventListener("click", function(e) {
   setInterval(_refreshStateCache, 30000);
 
   /* ─── TTS ─────────────────────────────────────────────────────────────────── */
+  /* ── TTS helpers: split text into sentences so the first plays in ~0.5s ── */
+  function _ttsSplit(text){
+    var t = text.slice(0,2000).trim();
+    var raw = t.split(/(?<=[.!?…])\s+/);
+    var chunks = [], cur = '';
+    for(var i=0;i<raw.length;i++){
+      var s=raw[i].trim(); if(!s) continue;
+      if(cur && (cur+' '+s).length > 220){ chunks.push(cur); cur=s; }
+      else{ cur = cur ? cur+' '+s : s; }
+    }
+    if(cur) chunks.push(cur);
+    return chunks.length ? chunks : [t];
+  }
+  function _ttsFetch(chunk, voice){
+    return fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:chunk,voice:voice||"alloy"})
+    }).then(function(r){
+      if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){throw new Error(e.error||("HTTP "+r.status));});
+      return r.arrayBuffer();
+    });
+  }
+  function _ttsPlay(buf, ctx){
+    return new Promise(function(resolve,reject){
+      ctx.decodeAudioData(buf,function(decoded){
+        var src=ctx.createBufferSource();
+        src.buffer=decoded; src.connect(ctx.destination);
+        window._saTtsAudio={pause:function(){try{src.stop();}catch(_){}}};
+        src.onended=resolve; src.start(0);
+      },reject);
+    });
+  }
+
   window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
     if(!text) return;
 
-    // If already playing, stop
+    // Toggle stop if already playing
     if(window._saTtsPlaying){
       window._saTtsPlaying = false;
-window._streamTtsEnabled = false; // auto-speak mode: first sentence plays as it streams
-window._streamTtsFired = false;
-      try{ window._saTtsAudio.pause(); }catch(_){}
+      window._streamTtsEnabled = false;
+      window._streamTtsFired = false;
+      try{ window._saTtsAudio && window._saTtsAudio.pause(); }catch(_){}
       try{ speechSynthesis.cancel(); }catch(_){}
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
       return;
@@ -36552,63 +36586,35 @@ window._streamTtsFired = false;
     window._saTtsPlaying = true;
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
-    /* ── Primary: OpenAI TTS with teammate's configured voice ── */
+    /* ── Primary: sentence-by-sentence for fast first-word latency ── */
     try{
-      // Fetch audio from OpenAI via our server
-      var resp = await fetch("/api/tts", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({text: text.slice(0,2000), voice: voice || "alloy"})
-      });
-
-      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
-
-      if(!resp.ok){
-        var errJson = null;
-        try{ errJson = await resp.json(); }catch(_){}
-        throw new Error((errJson && errJson.error) || ("HTTP "+resp.status));
-      }
-
-      var arrayBuf = await resp.arrayBuffer();
-      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
-
-      if(!arrayBuf || arrayBuf.byteLength < 100){
-        throw new Error("Empty audio response");
-      }
-
-      // Use AudioContext — works even when autoplay policy blocks HTMLAudioElement
       var AudioCtx = window.AudioContext || window.webkitAudioContext;
       if(!AudioCtx) throw new Error("No AudioContext");
-
       var ctx = new AudioCtx();
-      // Resume required in some browsers after user gesture expires
-      if(ctx.state === "suspended") await ctx.resume();
+      if(ctx.state==="suspended") await ctx.resume();
 
-      var decoded = await ctx.decodeAudioData(arrayBuf);
+      var chunks = _ttsSplit(text);
+      // Pre-fetch first two chunks immediately so sentence 2 is ready before sentence 1 ends
+      var fetched = new Array(chunks.length);
+      fetched[0] = _ttsFetch(chunks[0], voice);
+      if(chunks.length > 1) fetched[1] = _ttsFetch(chunks[1], voice);
 
-      if(!window._saTtsPlaying){ ctx.close(); if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
+      for(var i=0; i<chunks.length; i++){
+        if(!window._saTtsPlaying) break;
+        if(!fetched[i]) fetched[i] = _ttsFetch(chunks[i], voice);
+        // Pre-fetch upcoming chunks while current plays
+        if(i+1 < chunks.length && !fetched[i+1]) fetched[i+1] = _ttsFetch(chunks[i+1], voice);
+        if(i+2 < chunks.length && !fetched[i+2]) fetched[i+2] = _ttsFetch(chunks[i+2], voice);
+        var buf = await fetched[i];
+        if(!window._saTtsPlaying) break;
+        if(!buf || buf.byteLength < 50) continue;
+        await _ttsPlay(buf, ctx);
+      }
+      try{ ctx.close(); }catch(_){}
 
-      var source = ctx.createBufferSource();
-      source.buffer = decoded;
-      source.connect(ctx.destination);
-
-      // Allow stop mid-play
-      window._saTtsAudio = { pause: function(){ try{ source.stop(); }catch(_){} try{ ctx.close(); }catch(_){} } };
-
-      source.onended = function(){
-        window._saTtsPlaying = false;
-        window._saTtsAudio = null;
-        try{ ctx.close(); }catch(_){}
-        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      };
-
-      source.start(0);
-
-    } catch(err) {
-      window._saTtsPlaying = false;
-      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+    } catch(err){
       console.error("[TTS] failed:", err.message || err);
-
+      // Fallback: browser SpeechSynthesis
       if(window.speechSynthesis){
         try{
           speechSynthesis.cancel();
@@ -36616,20 +36622,22 @@ window._streamTtsFired = false;
           var voices = speechSynthesis.getVoices();
           var pick = voices.find(function(v){ return v.lang==="en-US"; }) || voices[0];
           if(pick) utt.voice = pick;
-          if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
           window._saTtsPlaying = true;
-          utt.onend = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
-          utt.onerror = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
+          if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
+          utt.onend  = function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
+          utt.onerror= function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
           speechSynthesis.speak(utt);
-          if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI: "+msg+")","error");
-        }catch(_){
-          window._saTtsPlaying = false;
-          if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
-        }
+          if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI TTS unavailable)","error");
+          return;
+        }catch(_){}
       } else {
-        if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
+        if(typeof showToast==="function") showToast("Voice error: "+(err.message||err),"error");
       }
     }
+
+    window._saTtsPlaying = false;
+    window._saTtsAudio   = null;
+    if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
   };
 
   /* Attach 📋 Copy + 🔊 Speak buttons to a streamed assistant message div */
@@ -42559,7 +42567,9 @@ window.toggleNotifPanel = function(){
         </select>
       </div>
     </div>
-    <button onclick="tpLaunch()" style="margin-top:24px;width:100%;padding:16px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.02em;">&#128640; Launch Teleprompter</button>
+    <div style="margin-top:24px;text-align:center;">
+      <button onclick="tpLaunch()" style="display:inline-flex;align-items:center;gap:8px;padding:13px 32px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:0 4px 18px rgba(124,58,237,.4);">&#128640; Launch Teleprompter</button>
+    </div>
     <div style="margin-top:14px;padding:14px 16px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#94a3b8;line-height:1.7;">
       <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. A 3-second countdown gives you a moment before scroll begins. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> to start — it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop</strong> when done and download your take.
     </div>
@@ -47384,26 +47394,32 @@ import threading as _vc_threading
 _vc_jobs = {}  # job_id -> {"status": "pending"|"done"|"error", "html": ..., "error": ...}
 _vc_jobs_lock = _vc_threading.Lock()
 
-def _vc_run_job(job_id: str, claude_key: str, system: str, user_msg: str) -> None:
-    """Run Claude generation in background thread."""
-    try:
-        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
-        resp = cl.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=8000,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-            temperature=1.0,
-        )
-        html = (resp.content[0].text or "").strip()
+def _vc_run_job(job_id: str, engine: str, api_key: str, system: str, user_msg: str) -> None:
+    """Run generation in background thread — supports Claude and GPT-4o."""
+    def _clean(raw: str) -> str:
+        html = raw.strip()
         if "```" in html:
-            lines = html.split("\n")
-            html = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
-        for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
-            idx2 = html.find(marker)
-            if idx2 != -1:
-                html = html[idx2:]
-                break
+            html = "\n".join(l for l in html.split("\n") if not l.strip().startswith("```")).strip()
+        for m in ["<!DOCTYPE", "<!doctype", "<html"]:
+            idx = html.find(m)
+            if idx != -1:
+                html = html[idx:]; break
+        return html
+    try:
+        if engine == "gpt":
+            oai  = OpenAI(api_key=api_key)
+            resp = oai.chat.completions.create(
+                model="gpt-4o", max_tokens=8000, temperature=1.0,
+                messages=[{"role":"system","content":system},{"role":"user","content":user_msg}],
+            )
+            html = _clean(resp.choices[0].message.content or "")
+        else:
+            cl   = _anthropic_sdk.Anthropic(api_key=api_key)
+            resp = cl.messages.create(
+                model="claude-opus-4-5", max_tokens=8000, system=system, temperature=1.0,
+                messages=[{"role":"user","content":user_msg}],
+            )
+            html = _clean(resp.content[0].text or "")
         if len(html) < 100:
             with _vc_jobs_lock:
                 _vc_jobs[job_id] = {"status": "error", "error": "Generation produced no output — please try again."}
@@ -47412,8 +47428,8 @@ def _vc_run_job(job_id: str, claude_key: str, system: str, user_msg: str) -> Non
                 _vc_jobs[job_id] = {"status": "done", "html": html}
     except Exception as e:
         err = str(e)
-        if "401" in err or "api_key" in err.lower() or "invalid_api_key" in err.lower():
-            err = "Invalid Anthropic API key. Check your key in Settings \u2192 API Keys."
+        if any(x in err.lower() for x in ("401","api_key","invalid_api_key","authentication","invalid x-api-key")):
+            err = "Invalid API key. Check your key in Settings > API Keys."
         with _vc_jobs_lock:
             _vc_jobs[job_id] = {"status": "error", "error": err}
 
@@ -47431,15 +47447,20 @@ def api_visual_creator():
         if not prompt:
             return jsonify({"ok": False, "error": "Prompt is required"}), 400
 
-        claude_key = ""
-        try:
-            settings = (u.get("settings") or {})
-            claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
-        except Exception:
-            pass
-        if not claude_key or not _anthropic_sdk:
+        # \u2500\u2500 Key resolution: user key first, server env fallback second \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+        settings    = u.get("settings") or {}
+        user_claude = _decrypt_field((settings.get("claude_key") or "").strip())
+        user_openai = _decrypt_field((settings.get("openai_key") or "").strip())
+        srv_claude  = (ANTHROPIC_API_KEY or "").strip()
+        srv_openai  = (OPENAI_API_KEY    or "").strip()
+        # Auto-select: prefer Claude, fall back to GPT-4o
+        if (user_claude or srv_claude) and _anthropic_sdk:
+            _vc_engine_use, _vc_key_use = "claude", user_claude or srv_claude
+        elif user_openai or srv_openai:
+            _vc_engine_use, _vc_key_use = "gpt", user_openai or srv_openai
+        else:
             return jsonify({"ok": False,
-                "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...)."}), 400
+                "error": "Visual Creator needs an API key. Add your OpenAI or Anthropic key in Settings > API Keys."}), 400
 
         brand_note = f" Brand name: {brand}." if brand else ""
 
@@ -47528,9 +47549,9 @@ def api_visual_creator():
         job_id = _uuid.uuid4().hex
         with _vc_jobs_lock:
             _vc_jobs[job_id] = {"status": "pending"}
-        t = _vc_threading.Thread(target=_vc_run_job, args=(job_id, claude_key, system, user_msg), daemon=True)
+        t = _vc_threading.Thread(target=_vc_run_job, args=(job_id, _vc_engine_use, _vc_key_use, system, user_msg), daemon=True)
         t.start()
-        return jsonify({"ok": True, "job_id": job_id})
+        return jsonify({"ok": True, "job_id": job_id, "engine": _vc_engine_use})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -52394,14 +52415,20 @@ def api_tts():
     openai_key = openai_key.strip()
 
     try:
-        oai  = OpenAI(api_key=openai_key)
-        print(f"[TTS] calling openai tts-1 voice={voice} text_preview={text[:60]!r}", flush=True)
-        resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
+        oai = OpenAI(api_key=openai_key)
+        print(f"[TTS] streaming tts-1 voice={voice} chars={len(text)}", flush=True)
+        def _tts_stream():
+            with oai.audio.speech.with_streaming_response.create(
+                model="tts-1", voice=voice, input=text
+            ) as stream:
+                for chunk in stream.iter_bytes(chunk_size=4096):
+                    yield chunk
         return Response(
-            resp.content,
+            _tts_stream(),
             mimetype="audio/mpeg",
             headers={
                 "Cache-Control":        "no-store",
+                "X-Accel-Buffering":    "no",
                 "Content-Disposition":  "inline; filename=speech.mp3",
             },
         )
@@ -52484,7 +52511,8 @@ def api_transcribe():
 import subprocess as _subprocess_ve
 import shutil as _shutil_ve
 
-_VE_TEMP = Path("/tmp/sa_video")
+import tempfile as _tempfile_ve
+_VE_TEMP = Path(_tempfile_ve.gettempdir()) / "sa_video"
 
 def _ve_cleanup_old():
     try:
