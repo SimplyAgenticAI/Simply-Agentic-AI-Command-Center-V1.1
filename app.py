@@ -11139,8 +11139,8 @@ resize();draw();
     <div class="row">
       <div class="muted"><a href="/reset">Reset password</a></div>
       <div class="muted"><a href="/showcase" style="color:rgba(167,139,250,.95);font-weight:700;">&#10024; Learn More</a></div>
+      <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
       {% if allow_signup %}
-        <div class="muted"><a href="/pricing">Plans &amp; Pricing</a></div>
         <div class="muted"><a href="/register">Create account</a></div>
       {% endif %}
       {% if allow_setup %}
