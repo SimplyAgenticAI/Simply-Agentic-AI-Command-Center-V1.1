@@ -34608,8 +34608,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
     <div style="position:absolute;bottom:-80px;right:10%;width:600px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(99,102,241,.09),transparent 65%);animation:dashGlowB 12s ease-in-out infinite alternate;"></div>
   </div>
   <style>
-    @keyframes dashGlowA{0%{opacity:.7;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.08);}}
-    @keyframes dashGlowB{0%{opacity:.5;transform:scale(1);}100%{opacity:.9;transform:scale(1.12);}}
+    @keyframes dashGlowA{0%{opacity:.7;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.08);} }
+    @keyframes dashGlowB{0%{opacity:.5;transform:scale(1);}100%{opacity:.9;transform:scale(1.12);} }
   </style>
   <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(7,9,26,.92);border-bottom:1px solid rgba(124,58,237,.2);backdrop-filter:blur(12px);">
