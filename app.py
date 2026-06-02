@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import re
 import smtplib
@@ -16982,7 +16982,6 @@ label {
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
-            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
             <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
             <button class="saDropItem" id="videoEditorBtn" onclick="saToggleDrop('saCreateDrop');showVideoEditorModal()">✂️ Video Editor</button>
           </div>
@@ -17015,6 +17014,7 @@ label {
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
+            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
           </div>
         </div>
 
@@ -18660,110 +18660,111 @@ label {
   </div>
 
   <!-- Social Studio -->
-  <!-- ===== VISUAL CREATOR ===== -->
-  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;">
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
-      <div style="display:flex;align-items:center;gap:12px;">
-        <div style="font-size:20px;">✨</div>
-        <div>
-          <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Visual Creator</div>
-          <div style="font-size:11px;color:#64748b;">Generate live animations, slideshows, carousels &amp; presentations</div>
-        </div>
+  <!-- ===== VISUAL CREATOR STUDIO ===== -->
+  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:#05070f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(124,58,237,.25);background:rgba(8,10,26,.99);flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">🎨</span>
+        <div><div style="font-size:15px;font-weight:700;color:#e2e8f0;">Visual Creator Studio</div>
+        <div style="font-size:11px;color:#475569;">Claymation · Ads · Animations · Presentations · Infographics</div></div></div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="vcEngineStatus" style="font-size:11px;color:#475569;"></span>
+        <button onclick="closeVisualCreatorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">&#x2715; Close</button>
       </div>
-      <button onclick="closeVisualCreatorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
     </div>
-
-    <!-- Body: two panes side by side on desktop, stacked on mobile -->
-    <div id="vcPanes" style="display:flex;flex:1;overflow:hidden;min-height:0;">
-
-      <!-- Left: prompt panel -->
-      <div id="vcPromptPanel" style="width:460px;min-width:360px;max-width:520px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(10,16,36,.98);overflow-y:auto;">
-        <div style="padding:18px 18px 0;">
-          <div style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;">What do you want to create?</div>
-          <textarea id="vcPrompt" placeholder="e.g. An animated slideshow of 3 services with fade transitions and purple theme..." style="width:100%;height:110px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:10px 12px;font-size:13px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
-
-          <!-- Style presets -->
-          <div style="font-size:11px;font-weight:600;color:#64748b;margin:14px 0 8px;text-transform:uppercase;letter-spacing:.06em;">Quick starts</div>
-          <div id="vcPresets" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;"></div>
-
-          <!-- Options -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
-            <div>
-              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Theme</div>
-              <select id="vcTheme" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-                <option value="dark purple">Dark purple</option>
-                <option value="dark blue">Dark blue</option>
-                <option value="light clean">Light clean</option>
-                <option value="dark minimal">Dark minimal</option>
-                <option value="vibrant gradient">Vibrant gradient</option>
-              </select>
-            </div>
-            <div>
-              <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Type</div>
-              <select id="vcType" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;cursor:pointer;">
-                <option value="slideshow">Slideshow</option>
-                <option value="carousel">Carousel</option>
-                <option value="presentation">Presentation</option>
-                <option value="animation">Animation</option>
-                <option value="infographic">Infographic</option>
-                <option value="landing section">Landing section</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="margin-bottom:16px;">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px;">Brand name (optional)</div>
-            <input id="vcBrand" type="text" placeholder="e.g. Simply Agentic AI" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:7px 10px;font-size:12px;color:#e2e8f0;box-sizing:border-box;"/>
-          </div>
-
-          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(91,33,182,.8));border:1px solid rgba(124,58,237,.6);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;">✨ Generate</button>
-
-          <div style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:10px;">
-            <div style="font-size:14px;flex-shrink:0;">🔑</div>
-            <div style="font-size:11px;color:#94a3b8;line-height:1.4;">Requires your <strong style="color:#c4b5fd;">Anthropic API key</strong> — add it in <span onclick="closeVisualCreatorModal();setTimeout(function(){var b=document.getElementById('settingsBtn');if(b)b.click();},300);" style="color:#7c3aed;cursor:pointer;text-decoration:underline;">Settings → API Keys</span></div>
-          </div>
-
-          <div id="vcStatus" style="text-align:center;font-size:12px;color:#64748b;min-height:18px;"></div>
+    <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+      <!-- SIDEBAR -->
+      <div id="vcSidebar" style="width:320px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.4);background:rgba(7,10,22,.97);overflow-y:auto;">
+        <div style="padding:14px 14px;display:flex;flex-direction:column;gap:14px;">
+          <!-- AI Engine -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">AI Engine</div>
+          <div style="display:flex;gap:5px;" id="vcEngineRow">
+            <button class="vcEngBtn active" data-engine="auto" onclick="vcSetEngine('auto')" style="flex:1;padding:7px 0;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.2);color:#c4b5fd;">&#x26A1; Auto</button>
+            <button class="vcEngBtn" data-engine="claude" onclick="vcSetEngine('claude')" style="flex:1;padding:7px 0;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);color:#64748b;">&#x1F7E0; Claude</button>
+            <button class="vcEngBtn" data-engine="gpt" onclick="vcSetEngine('gpt')" style="flex:1;padding:7px 0;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);color:#64748b;">&#x1F7E2; GPT-4o</button>
+          </div></div>
+          <!-- Content Type -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">Content Type</div>
+          <div id="vcTypeGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;"></div></div>
+          <!-- Style -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">Visual Style</div>
+          <div id="vcStyleGrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px;"></div></div>
+          <!-- Aspect Ratio -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">Aspect Ratio</div>
+          <div style="display:flex;gap:5px;">
+            <button class="vcRatBtn active" data-ratio="16:9" onclick="vcSetRatio('16:9')" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(124,58,237,.5);background:rgba(124,58,237,.2);color:#c4b5fd;">16:9</button>
+            <button class="vcRatBtn" data-ratio="9:16" onclick="vcSetRatio('9:16')" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);color:#64748b;">9:16</button>
+            <button class="vcRatBtn" data-ratio="1:1" onclick="vcSetRatio('1:1')" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);color:#64748b;">1:1</button>
+            <button class="vcRatBtn" data-ratio="4:5" onclick="vcSetRatio('4:5')" style="flex:1;padding:5px 0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(42,58,106,.5);background:rgba(14,22,48,.6);color:#64748b;">4:5</button>
+          </div></div>
+          <!-- Brand Kit -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">Brand Kit <span style="text-transform:none;font-weight:400;letter-spacing:0;color:#334155;">(optional)</span></div>
+          <input id="vcBrand" type="text" placeholder="Brand name" style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 10px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:7px;"/>
+          <div style="display:flex;gap:7px;align-items:center;">
+            <label style="font-size:10px;color:#475569;">Primary</label>
+            <input id="vcColor1" type="color" value="#7c3aed" style="width:28px;height:24px;border:none;border-radius:5px;cursor:pointer;padding:0;background:none;"/>
+            <label style="font-size:10px;color:#475569;">Accent</label>
+            <input id="vcColor2" type="color" value="#06b6d4" style="width:28px;height:24px;border:none;border-radius:5px;cursor:pointer;padding:0;background:none;"/>
+            <select id="vcFont" style="flex:1;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:4px 7px;font-size:10px;color:#94a3b8;outline:none;">
+              <option value="modern">Modern sans</option><option value="classic">Classic serif</option>
+              <option value="playful">Playful rounded</option><option value="bold">Bold display</option>
+              <option value="elegant">Elegant thin</option>
+            </select>
+          </div></div>
+          <!-- Prompt -->
+          <div><div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:7px;">Describe Your Vision</div>
+          <textarea id="vcPrompt" rows="4" placeholder="e.g. A claymation bakery with a dancing croissant and neon sign..." style="width:100%;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:8px;padding:8px 10px;font-size:12px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;"></textarea>
+          <div id="vcQuickPrompts" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;"></div></div>
+          <!-- Generate -->
+          <button id="vcGenBtn" onclick="vcGenerate()" style="width:100%;padding:11px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(124,58,237,.4);">&#x2728; Generate</button>
+          <div id="vcStatus" style="text-align:center;font-size:12px;color:#ef4444;min-height:14px;line-height:1.4;"></div>
+          <div id="vcHistory"></div>
         </div>
-
-        <!-- History -->
-        <div id="vcHistory" style="padding:14px 18px;border-top:1px solid rgba(42,58,106,.3);margin-top:12px;"></div>
       </div>
-
-      <!-- Right: live preview iframe -->
-      <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#060c1e;">
-        <div id="vcEmptyState" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#334155;">
-          <div style="font-size:56px;opacity:.3;">✨</div>
-          <div style="font-size:16px;font-weight:600;">Describe what you want to create</div>
-          <div style="font-size:13px;opacity:.7;text-align:center;max-width:320px;line-height:1.6;">Slideshows, carousels, animated infographics, presentations — the AI writes the code and it runs live right here.</div>
+      <!-- PREVIEW PANEL -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#020408;">
+        <div id="vcPreviewWrap" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;background:#020408;">
+          <div id="vcEmptyState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#1e293b;text-align:center;padding:40px;">
+            <div style="font-size:60px;opacity:.25;">&#x1F3A8;</div>
+            <div style="font-size:17px;font-weight:600;color:#334155;">Visual Creator Studio</div>
+            <div style="font-size:13px;color:#1e293b;max-width:340px;line-height:1.7;">Pick a content type, choose a style, describe your idea — AI builds a live interactive visual right here.</div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:center;margin-top:4px;">
+              <span style="font-size:11px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.2);color:#7c3aed;border-radius:20px;padding:3px 10px;">&#x1F3AD; Claymations</span>
+              <span style="font-size:11px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2);color:#60a5fa;border-radius:20px;padding:3px 10px;">&#x1F4F1; Social Ads</span>
+              <span style="font-size:11px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);color:#34d399;border-radius:20px;padding:3px 10px;">&#x2728; Animations</span>
+              <span style="font-size:11px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);color:#fbbf24;border-radius:20px;padding:3px 10px;">&#x1F5A5; Presentations</span>
+            </div>
+          </div>
+          <div id="vcLoadingState" style="display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;color:#7c3aed;">
+            <div style="position:relative;width:56px;height:56px;">
+              <div style="position:absolute;inset:0;border-radius:50%;border:3px solid rgba(124,58,237,.15);border-top-color:#7c3aed;animation:vcSpin .8s linear infinite;"></div>
+              <div style="position:absolute;inset:8px;border-radius:50%;border:2px solid rgba(99,102,241,.1);border-top-color:#6366f1;animation:vcSpin 1.3s linear infinite reverse;"></div>
+            </div>
+            <div><div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:600;text-align:center;"></div>
+            <div style="font-size:11px;color:#334155;text-align:center;margin-top:4px;">Usually 15–30 seconds</div></div>
+          </div>
+          <div id="vcFrameWrap" style="display:none;width:100%;height:100%;align-items:center;justify-content:center;">
+            <iframe id="vcFrame" style="border:none;display:block;box-shadow:0 0 60px rgba(0,0,0,.9);" sandbox="allow-scripts" scrolling="auto"></iframe>
+          </div>
         </div>
-        <div id="vcLoadingState" style="flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#7c3aed;">
-          <div id="vcSpinner" style="width:48px;height:48px;border-radius:50%;border:3px solid rgba(124,58,237,.2);border-top-color:#7c3aed;animation:vcSpin 0.9s linear infinite;"></div>
-          <div id="vcLoadingTxt" style="font-size:14px;color:#a78bfa;font-weight:500;">Generating your visual...</div>
-        </div>
-        <iframe id="vcFrame" style="display:none;flex:1;width:100%;height:100%;border:none;" sandbox="allow-scripts"></iframe>
-
-        <!-- Action bar below iframe -->
-        <div id="vcActionBar" style="display:none;padding:10px 16px;border-top:1px solid rgba(42,58,106,.4);background:rgba(10,16,36,.98);display:none;align-items:center;gap:10px;flex-shrink:0;">
-          <button onclick="vcRegenerate()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">↻ Regenerate</button>
-          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;cursor:pointer;">⬇ HTML</button>
-          <button onclick="vcDownloadVideo()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fca5a5;cursor:pointer;">🎬 Video</button>
-          <button id="vcGifBtn" onclick="vcDownloadGif()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);color:#fde68a;cursor:pointer;">🎞 GIF</button>
-          <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:6px 14px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#64748b;cursor:pointer;">📋 Copy code</button>
+        <div id="vcActionBar" style="display:none;padding:9px 14px;border-top:1px solid rgba(42,58,106,.35);background:rgba(7,10,22,.97);align-items:center;gap:7px;flex-shrink:0;flex-wrap:wrap;">
+          <button onclick="vcGenerate()" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;cursor:pointer;">&#x21BB; Regenerate</button>
+          <button onclick="vcDownload()" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;">&#x2B07; HTML</button>
+          <button onclick="vcDownloadVideo()" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#fca5a5;cursor:pointer;">&#x1F3AC; Record</button>
+          <button id="vcGifBtn" onclick="vcDownloadGif()" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(251,191,36,.09);border:1px solid rgba(251,191,36,.22);color:#fde68a;cursor:pointer;">&#x1F39E; GIF</button>
+          <button onclick="vcCopyCode()" style="font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#475569;cursor:pointer;">&#x1F4CB; Copy HTML</button>
+          <button onclick="vcFullscreen()" style="margin-left:auto;font-size:12px;font-weight:600;padding:5px 12px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#475569;cursor:pointer;">&#x26F6; Full Screen</button>
         </div>
       </div>
     </div>
   </div>
   <style>
     @keyframes vcSpin{to{transform:rotate(360deg)}}
-    @keyframes tpBlink{0%,100%{opacity:1}50%{opacity:.2}}
-    @media(max-width:700px){
-      #vcPanes{flex-direction:column!important;overflow-y:auto!important;}
-      #vcPromptPanel{width:100%!important;min-width:0!important;max-width:100%!important;flex-shrink:0!important;border-right:none!important;border-bottom:1px solid rgba(42,58,106,.4);max-height:55vh;}
-      #vcPanes>div:last-child{min-height:45vh;flex-shrink:0;}
-      #vcFrame,#vcEmptyState,#vcLoadingState{min-height:40vh;}
-    }
+    .vcTypeCard:hover{border-color:rgba(124,58,237,.6)!important;background:rgba(124,58,237,.15)!important;}
+    .vcTypeCard.vcActive{border-color:rgba(124,58,237,.8)!important;background:rgba(124,58,237,.22)!important;box-shadow:0 0 0 2px rgba(124,58,237,.25);}
+    .vcStyleCard:hover{border-color:rgba(99,102,241,.5)!important;transform:translateY(-1px);}
+    .vcStyleCard.vcActive{border-color:rgba(99,102,241,.85)!important;box-shadow:0 0 0 2px rgba(99,102,241,.28);transform:translateY(-1px);}
+    .vcEngBtn.vcActive,.vcRatBtn.vcActive{background:rgba(124,58,237,.25)!important;border-color:rgba(124,58,237,.6)!important;color:#c4b5fd!important;}
+    @media(max-width:820px){#vcSidebar{width:100%!important;max-height:52vh;overflow-y:auto;}}
   </style>
 
   <div id="crmViewSocialStudio" style="display:none;">
@@ -26326,242 +26327,234 @@ Challenge weak assumptions. Surface risks.`;
       if(window.saSetModalPin) window.saSetModalPin('offer_builder');
     }
 
-    // ===== VISUAL CREATOR =====
-    var _vcCurrentHtml = '';
-    var _vcHistory = (function(){ try{ return JSON.parse(localStorage.getItem('vc_history')||'[]'); }catch(_){ return []; } })();
-
-    var _vcPresets = [
-      {label:'3-slide intro', prompt:'A 3-slide animated presentation introducing my business with fade transitions. Each slide has a title and 2-3 bullet points.'},
-      {label:'Services carousel', prompt:'An interactive carousel showing 4 services. Each card has an icon, title, and short description. Click arrows to navigate.'},
-      {label:'Testimonials', prompt:'An animated testimonial slideshow cycling through 3 client quotes with auto-play and dot navigation.'},
-      {label:'Countdown timer', prompt:'A stylish animated countdown timer counting down 7 days with days, hours, minutes, seconds. Pulsing glow effect.'},
-      {label:'Pricing cards', prompt:'Three pricing tier cards (Starter, Growth, Pro) with feature lists and a highlighted recommended option. Hover animations.'},
-      {label:'Stats showcase', prompt:'Four animated number counters that count up from 0 to their values: 500+ clients, 98% satisfaction, 10x ROI, 24/7 support.'},
-      {label:'Process steps', prompt:'An animated step-by-step process showing 4 steps with icons, connected by a flowing animated line.'},
-      {label:'Video-style intro', prompt:'A cinematic full-screen animated intro with text reveal animations, like a movie trailer title card for my business.'},
-    ];
-
-    function showVisualCreatorModal(){
-      var m = document.getElementById('visualCreatorModal');
-      if(!m) return;
-      // Move to body so it escapes any stacking context and covers everything
-      if(m.parentNode !== document.body) document.body.appendChild(m);
-      m.style.display='flex';
-      // Render presets
-      var presetsEl = document.getElementById('vcPresets');
-      vcRenderHistory();
-      if(presetsEl && !presetsEl.children.length){
-        _vcPresets.forEach(function(p){
-          var btn = document.createElement('button');
-          btn.textContent = p.label;
-          btn.style.cssText = 'font-size:11px;padding:4px 10px;border-radius:20px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);color:#a78bfa;cursor:pointer;white-space:nowrap;';
-          btn.onmouseover = function(){ btn.style.background='rgba(124,58,237,.25)'; };
-          btn.onmouseout  = function(){ btn.style.background='rgba(124,58,237,.12)'; };
-          btn.onclick = function(){
-            var ta = document.getElementById('vcPrompt');
-            if(ta){ ta.value = p.prompt; ta.focus(); }
+    // ===== VISUAL CREATOR STUDIO =====
+    (function(){
+      var _vcEngine='auto', _vcType='claymation', _vcStyle='dark-cinematic', _vcRatio='16:9';
+      var _vcCurrentHtml='';
+      var _vcHistory=(function(){try{return JSON.parse(localStorage.getItem('vc_history2')||'[]');}catch(_){return[];}})();
+      var _vcTypes=[
+        {id:'claymation',icon:'🎭',label:'Claymation'},{id:'story-ad',icon:'📱',label:'Story Ad'},
+        {id:'social-ad',icon:'🟦',label:'Social Ad'},{id:'product',icon:'🛍️',label:'Product'},
+        {id:'logo-reveal',icon:'✨',label:'Logo Reveal'},{id:'particles',icon:'🌟',label:'Particles'},
+        {id:'text-reveal',icon:'🎬',label:'Text Reveal'},{id:'slideshow',icon:'📊',label:'Slideshow'},
+        {id:'carousel',icon:'🎠',label:'Carousel'},{id:'presentation',icon:'🖥️',label:'Deck'},
+        {id:'infographic',icon:'📈',label:'Infographic'},{id:'landing',icon:'🚀',label:'Landing Hero'},
+      ];
+      var _vcStyles=[
+        {id:'dark-cinematic',label:'Dark Cinematic',colors:['#0a0a0a','#c9a84c','#f0ead6']},
+        {id:'claymation-clay',label:'Clay',colors:['#f5e6c8','#e07a5f','#81b29a']},
+        {id:'neon-cyberpunk',label:'Cyberpunk',colors:['#080010','#00fff5','#ff0080']},
+        {id:'pastel-dream',label:'Pastel Dream',colors:['#faf0ff','#ffb7c5','#b7d7ff']},
+        {id:'bold-corporate',label:'Corporate',colors:['#0f1f3d','#0052cc','#ffffff']},
+        {id:'retro-80s',label:'Retro 80s',colors:['#120024','#ff2d8a','#00e5ff']},
+        {id:'minimal-luxury',label:'Luxury',colors:['#ffffff','#b8965a','#1a1a1a']},
+        {id:'nature-organic',label:'Organic',colors:['#fdf6ec','#2d6a4f','#8b5e3c']},
+      ];
+      var _vcQP={
+        'claymation':['Dancing croissant bakery scene','Tiny clay village at sunset','Clay robot building something'],
+        'story-ad':['Bold service promotion story','Flash sale countdown','Before/after transformation'],
+        'social-ad':['Digital course launch square ad','Product reveal with price','Client result spotlight'],
+        'product':['3D floating product with sparkles','Premium product spin reveal','Feature comparison card'],
+        'logo-reveal':['Logo emerges from particles','Logo assembles from pieces','Glitch logo reveal'],
+        'particles':['Aurora borealis field','Space galaxy drift','Neon rain waterfall'],
+        'text-reveal':['Movie trailer title card','Bold manifesto word-by-word','Cinematic brand quote'],
+        'slideshow':['3-slide service intro','Team introduction slides','Client results showcase'],
+        'carousel':['4 service feature cards','Portfolio project showcase','Testimonial quotes'],
+        'presentation':['5-slide investor pitch','Sales deck for my offer','Company overview deck'],
+        'infographic':['4 animated business stats','Step-by-step process','Annual results story'],
+        'landing':['Hero with animated headline','Feature section 3 benefits','Pricing section glow CTA'],
+      };
+      function $(id){return document.getElementById(id);}
+      window.showVisualCreatorModal=function(){
+        var m=$('visualCreatorModal');if(!m)return;
+        if(m.parentNode!==document.body)document.body.appendChild(m);
+        m.style.display='flex';
+        vcBoot();
+      };
+      window.closeVisualCreatorModal=function(){var m=$('visualCreatorModal');if(m)m.style.display='none';};
+      function vcBoot(){vcRenderTypeGrid();vcRenderStyleGrid();vcRenderQP();vcRenderHistory();}
+      window.vcSetEngine=function(e){
+        _vcEngine=e;
+        document.querySelectorAll('.vcEngBtn').forEach(function(b){b.classList.toggle('vcActive',b.dataset.engine===e);});
+      };
+      window.vcSetRatio=function(r){
+        _vcRatio=r;
+        document.querySelectorAll('.vcRatBtn').forEach(function(b){b.classList.toggle('vcActive',b.dataset.ratio===r);});
+        if($('vcFrameWrap').style.display!=='none')vcSizeFrame();
+      };
+      function vcRenderTypeGrid(){
+        var g=$('vcTypeGrid');if(!g||g._b)return;g._b=true;
+        _vcTypes.forEach(function(t){
+          var d=document.createElement('div');d.className='vcTypeCard';d.dataset.type=t.id;
+          d.style.cssText='border:1px solid rgba(42,58,106,.5);border-radius:8px;padding:7px 3px;text-align:center;cursor:pointer;background:rgba(14,22,48,.6);transition:all .15s;';
+          d.innerHTML='<div style="font-size:16px;margin-bottom:2px;">'+t.icon+'</div><div style="font-size:9px;color:#94a3b8;font-weight:600;line-height:1.2;">'+t.label+'</div>';
+          d.onclick=function(){_vcType=t.id;document.querySelectorAll('.vcTypeCard').forEach(function(c){c.classList.remove('vcActive');});d.classList.add('vcActive');vcRenderQP();};
+          if(t.id===_vcType)d.classList.add('vcActive');
+          g.appendChild(d);
+        });
+      }
+      function vcRenderStyleGrid(){
+        var g=$('vcStyleGrid');if(!g||g._b)return;g._b=true;
+        _vcStyles.forEach(function(s){
+          var d=document.createElement('div');d.className='vcStyleCard';d.dataset.style=s.id;
+          d.style.cssText='border:1px solid rgba(42,58,106,.45);border-radius:8px;padding:7px;cursor:pointer;background:rgba(14,22,48,.6);transition:all .15s;';
+          var sw=s.colors.map(function(c){return '<div style="width:12px;height:12px;border-radius:50%;background:'+c+';border:1px solid rgba(255,255,255,.1);flex-shrink:0;"></div>';}).join('');
+          d.innerHTML='<div style="display:flex;gap:3px;margin-bottom:4px;">'+sw+'</div><div style="font-size:9px;color:#94a3b8;font-weight:600;">'+s.label+'</div>';
+          d.onclick=function(){_vcStyle=s.id;document.querySelectorAll('.vcStyleCard').forEach(function(c){c.classList.remove('vcActive');});d.classList.add('vcActive');};
+          if(s.id===_vcStyle)d.classList.add('vcActive');
+          g.appendChild(d);
+        });
+      }
+      function vcRenderQP(){
+        var w=$('vcQuickPrompts');if(!w)return;w.innerHTML='';
+        (_vcQP[_vcType]||[]).forEach(function(p){
+          var b=document.createElement('button');b.textContent=p;
+          b.style.cssText='font-size:10px;padding:3px 8px;border-radius:20px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.22);color:#818cf8;cursor:pointer;white-space:nowrap;';
+          b.onmouseover=function(){b.style.background='rgba(99,102,241,.2)';};
+          b.onmouseout=function(){b.style.background='rgba(99,102,241,.1)';};
+          b.onclick=function(){var ta=$('vcPrompt');if(ta){ta.value=p;ta.focus();}};
+          w.appendChild(b);
+        });
+      }
+      function vcSetPreviewState(s){
+        $('vcEmptyState').style.display=s==='empty'?'flex':'none';
+        $('vcLoadingState').style.display=s==='loading'?'flex':'none';
+        $('vcFrameWrap').style.display=s==='done'?'flex':'none';
+        $('vcActionBar').style.display=s==='done'?'flex':'none';
+      }
+      function vcSizeFrame(){
+        var wrap=$('vcFrameWrap'),frame=$('vcFrame');if(!wrap||!frame)return;
+        var ww=wrap.offsetWidth||900,wh=wrap.offsetHeight||600;
+        var rm={'16:9':[16,9],'9:16':[9,16],'1:1':[1,1],'4:5':[4,5]};
+        var r=rm[_vcRatio]||[16,9];
+        var fw,fh;
+        if(ww/wh>r[0]/r[1]){fh=Math.min(wh,800);fw=Math.round(fh*r[0]/r[1]);}
+        else{fw=Math.min(ww,1200);fh=Math.round(fw*r[1]/r[0]);}
+        frame.style.width=fw+'px';frame.style.height=fh+'px';
+      }
+      function vcRenderFrame(html){
+        var f=$('vcFrame');if(!f)return;
+        f.srcdoc=html;vcSetPreviewState('done');
+        setTimeout(vcSizeFrame,50);
+      }
+      function vcShowStatus(msg,type){
+        var el=$('vcStatus');if(!el)return;
+        el.style.color=type==='err'?'#ef4444':'#94a3b8';
+        el.textContent=msg;
+      }
+      window.vcGenerate=async function(){
+        var prompt=($('vcPrompt')||{}).value||'';
+        if(!prompt.trim()){vcShowStatus('Describe what you want to create','err');return;}
+        var btn=$('vcGenBtn');
+        if(btn){btn.disabled=true;btn.textContent='Generating…';}
+        vcShowStatus('','');vcSetPreviewState('loading');
+        var msgs=['Writing HTML & CSS…','Building animations…','Adding interactions…','Styling the visual…','Final polish…'];
+        var mi=0,ticker=setInterval(function(){var el=$('vcLoadingTxt');if(el)el.textContent=msgs[mi%msgs.length];mi++;},1800);
+        try{
+          var res=await fetch('/api/visual_creator',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({prompt:prompt,type:_vcType,style:_vcStyle,ratio:_vcRatio,
+              brand:($('vcBrand')||{}).value||'',color1:($('vcColor1')||{}).value||'#7c3aed',
+              color2:($('vcColor2')||{}).value||'#06b6d4',font:($('vcFont')||{}).value||'modern',engine:_vcEngine})});
+          var data=await res.json();
+          if(!data.ok)throw new Error(data.error||'Generation failed');
+          var jobId=data.job_id;if(!jobId)throw new Error('No job ID');
+          var html='';
+          for(var i=0;i<90;i++){
+            await new Promise(function(r){setTimeout(r,2000);});
+            var sr=await fetch('/api/visual_creator/status/'+jobId);
+            var sd=await sr.json();
+            if(sd.status==='done'){html=sd.html||'';break;}
+            if(sd.status==='error'||!sd.ok)throw new Error(sd.error||'Generation failed');
+          }
+          if(!html)throw new Error('Timed out — please try again');
+          clearInterval(ticker);
+          _vcCurrentHtml=html;vcRenderFrame(html);
+          _vcHistory.unshift({prompt:prompt.slice(0,60)+(prompt.length>60?'…':''),type:_vcType,html:html,ts:Date.now()});
+          if(_vcHistory.length>12)_vcHistory.pop();
+          try{localStorage.setItem('vc_history2',JSON.stringify(_vcHistory));}catch(_){}
+          vcRenderHistory();
+        }catch(e){
+          clearInterval(ticker);vcSetPreviewState('empty');vcShowStatus(e.message||'Generation failed','err');
+          if(typeof showToast==='function')showToast('Visual Creator: '+(e.message||'failed'));
+        }finally{
+          if(btn){btn.disabled=false;btn.textContent='✨ Generate';}
+        }
+      };
+      function vcRenderHistory(){
+        var el=$('vcHistory');if(!el||!_vcHistory.length)return;
+        el.innerHTML='<div style="font-size:10px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px;">Recent</div>';
+        _vcHistory.slice(0,8).forEach(function(h){
+          var row=document.createElement('div');
+          row.style.cssText='display:flex;align-items:center;gap:7px;padding:5px 7px;border-radius:7px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);';
+          row.onmouseover=function(){row.style.background='rgba(124,58,237,.1)';};
+          row.onmouseout=function(){row.style.background='rgba(255,255,255,.02)';};
+          var t=_vcTypes.find(function(x){return x.id===h.type;})||{icon:'✨'};
+          row.innerHTML='<span style="font-size:12px;">'+t.icon+'</span><div style="font-size:10px;color:#64748b;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(h.prompt)+'</div><div style="font-size:10px;color:#334155;">load</div>';
+          row.onclick=function(){_vcCurrentHtml=h.html;vcRenderFrame(h.html);};
+          el.appendChild(row);
+        });
+      }
+      window.vcDownload=function(){
+        if(!_vcCurrentHtml)return;
+        var a=document.createElement('a');
+        a.href='data:text/html;charset=utf-8,'+encodeURIComponent(_vcCurrentHtml);
+        a.download='visual-'+Date.now()+'.html';
+        document.body.appendChild(a);a.click();document.body.removeChild(a);
+        if(typeof showToast==='function')showToast('HTML downloaded!');
+      };
+      window.vcCopyCode=function(){
+        if(!_vcCurrentHtml)return;
+        navigator.clipboard.writeText(_vcCurrentHtml).then(function(){if(typeof showToast==='function')showToast('HTML copied!');});
+      };
+      window.vcFullscreen=function(){
+        var f=$('vcFrame');if(!f)return;
+        if(f.requestFullscreen)f.requestFullscreen();else if(f.webkitRequestFullscreen)f.webkitRequestFullscreen();
+      };
+      window.vcDownloadVideo=async function(){
+        if(!_vcCurrentHtml){if(typeof showToast==='function')showToast('Generate a visual first');return;}
+        var btn=document.querySelector('[onclick="vcDownloadVideo()"]');
+        try{
+          if(typeof showToast==='function')showToast('📹 Select the preview pane — records 10 s');
+          var stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
+          var mime=['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(function(m){return MediaRecorder.isTypeSupported(m);})||'video/webm';
+          var recorder=new MediaRecorder(stream,{mimeType:mime}),chunks=[];
+          recorder.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};
+          recorder.onstop=function(){
+            stream.getTracks().forEach(function(t){t.stop();});
+            var blob=new Blob(chunks,{type:'video/webm'}),url=URL.createObjectURL(blob);
+            var a=document.createElement('a');a.href=url;a.download='visual-'+Date.now()+'.webm';a.click();
+            setTimeout(function(){URL.revokeObjectURL(url);},5000);
+            if(typeof showToast==='function')showToast('✅ Saved — convert at cloudconvert.com');
+            if(btn){btn.textContent='🎬 Record';btn.disabled=false;}
           };
-          presetsEl.appendChild(btn);
-        });
-      }
-    }
-
-    function closeVisualCreatorModal(){
-      var m = document.getElementById('visualCreatorModal');
-      if(m) m.style.display='none';
-    }
-
-    function vcSetState(state){
-      var empty  = document.getElementById('vcEmptyState');
-      var loading= document.getElementById('vcLoadingState');
-      var frame  = document.getElementById('vcFrame');
-      var actBar = document.getElementById('vcActionBar');
-      if(empty)  empty.style.display   = state==='empty'   ? 'flex' : 'none';
-      if(loading)loading.style.display  = state==='loading' ? 'flex' : 'none';
-      if(frame)  frame.style.display    = state==='done'    ? 'flex' : 'none';
-      if(actBar) actBar.style.display   = state==='done'    ? 'flex' : 'none';
-    }
-
-    async function vcGenerate(){
-      var prompt = (document.getElementById('vcPrompt')||{}).value||'';
-      var theme  = (document.getElementById('vcTheme')||{}).value||'dark purple';
-      var type   = (document.getElementById('vcType')||{}).value||'slideshow';
-      var brand  = (document.getElementById('vcBrand')||{}).value||'';
-      if(!prompt.trim()){ showToast('Describe what you want to create first'); return; }
-
-      var btn = document.getElementById('vcGenBtn');
-      var status = document.getElementById('vcStatus');
-      if(btn){ btn.disabled=true; btn.textContent='Generating...'; }
-      if(status) status.textContent='';
-      vcSetState('loading');
-
-      var msgs = ['Writing HTML...','Building animations...','Adding interactions...','Rendering your visual...','Almost done...'];
-      var mi=0, ticker=setInterval(function(){
-        var el=document.getElementById('vcLoadingTxt');
-        if(el) el.textContent=msgs[mi%msgs.length]; mi++;
-      },1400);
-
-      try{
-        // Step 1: start async job
-        var res = await fetch('/api/visual_creator', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({prompt:prompt, theme:theme, type:type, brand:brand})
-        });
-        var data = await res.json();
-        if(!data.ok) throw new Error(data.error||'Generation failed');
-        var jobId = data.job_id;
-        if(!jobId) throw new Error('Server did not return a job ID');
-
-        // Step 2: poll status until done (2 min max)
-        var html = '';
-        for(var attempt=0; attempt<60; attempt++){
-          await new Promise(function(r){ setTimeout(r,2000); });
-          var sr = await fetch('/api/visual_creator/status/'+jobId);
-          var sd = await sr.json();
-          if(sd.status==='done'){ html=sd.html||''; break; }
-          if(sd.status==='error'||!sd.ok) throw new Error(sd.error||'Generation failed');
+          if(btn){btn.textContent='⏹ Stop';btn.disabled=false;}
+          btn&&(btn.onclick=function(){if(recorder.state!=='inactive')recorder.stop();btn.onclick=function(){vcDownloadVideo();};});
+          recorder.start();setTimeout(function(){if(recorder.state!=='inactive')recorder.stop();},10000);
+        }catch(e){
+          if(e.name!=='AbortError'&&typeof showToast==='function')showToast('Recording not supported or cancelled');
+          if(btn){btn.textContent='🎬 Record';btn.disabled=false;}
         }
-        if(!html) throw new Error('Generation timed out — please try again');
-
-        clearInterval(ticker);
-        _vcCurrentHtml = html;
-        vcRenderFrame(_vcCurrentHtml);
-
-        // Save to history and persist across sessions
-        _vcHistory.unshift({prompt:prompt.slice(0,60)+(prompt.length>60?'…':''), html:_vcCurrentHtml, ts:Date.now()});
-        if(_vcHistory.length>10) _vcHistory.pop();
-        try{ localStorage.setItem('vc_history', JSON.stringify(_vcHistory)); }catch(_){}
-        vcRenderHistory();
-        if(status) status.textContent='';
-      }catch(e){
-        clearInterval(ticker);
-        vcSetState('empty');
-        if(status) status.textContent = e.message||'Generation failed';
-        showToast('Visual Creator: '+(e.message||'failed'));
-      }finally{
-        if(btn){ btn.disabled=false; btn.textContent='✨ Generate'; }
-      }
-    }
-
-    function vcRenderFrame(html){
-      var frame = document.getElementById('vcFrame');
-      if(!frame) return;
-      frame.srcdoc = html;
-      vcSetState('done');
-    }
-
-    function vcRegenerate(){ vcGenerate(); }
-
-    function vcDownload(){
-      if(!_vcCurrentHtml) return;
-      var a = document.createElement('a');
-      a.href = 'data:text/html;charset=utf-8,'+encodeURIComponent(_vcCurrentHtml);
-      a.download = 'visual-'+ Date.now()+'.html';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      showToast('HTML downloaded!');
-    }
-
-    async function vcDownloadVideo(){
-      if(!_vcCurrentHtml){ showToast('Generate a visual first'); return; }
-      var btn = document.querySelector('[onclick="vcDownloadVideo()"]');
-      try{
-        showToast('📹 Select the preview pane in the browser dialog — recording runs 10 s');
-        var stream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30},audio:false});
-        var mime = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(function(m){return MediaRecorder.isTypeSupported(m);})||'video/webm';
-        var recorder = new MediaRecorder(stream,{mimeType:mime});
-        var chunks = [];
-        recorder.ondataavailable = function(e){ if(e.data.size) chunks.push(e.data); };
-        recorder.onstop = function(){
-          stream.getTracks().forEach(function(t){t.stop();});
-          var blob = new Blob(chunks,{type:'video/webm'});
-          var url = URL.createObjectURL(blob);
-          var a = document.createElement('a');
-          a.href = url; a.download = 'visual-'+Date.now()+'.webm'; a.click();
-          setTimeout(function(){URL.revokeObjectURL(url);},5000);
-          showToast('✅ Saved as .webm — convert free at cloudconvert.com/webm-to-mp4');
-          if(btn){btn.textContent='🎬 Video';btn.disabled=false;}
-        };
-        if(btn){btn.textContent='⏹ Stop';btn.disabled=false;}
-        btn && (btn.onclick = function(){ if(recorder.state!=='inactive') recorder.stop(); btn.onclick=function(){vcDownloadVideo();}; });
-        recorder.start();
-        setTimeout(function(){if(recorder.state!=='inactive')recorder.stop();},10000);
-      }catch(e){
-        if(e.name!=='AbortError') showToast('Recording cancelled or not supported in this browser');
-        if(btn){btn.textContent='🎬 Video';btn.disabled=false;}
-      }
-    }
-
-    async function vcDownloadGif(){
-      if(!_vcCurrentHtml){ showToast('Generate a visual first'); return; }
-      var frame = document.getElementById('vcFrame');
-      var btn = document.getElementById('vcGifBtn');
-      if(btn){btn.disabled=true;btn.textContent='⏳ Capturing…';}
-      showToast('Capturing 3 s of frames for GIF…');
-      try{
-        var ifrWin = frame.contentWindow;
-        var ifrDoc = frame.contentDocument||ifrWin.document;
-        if(!ifrWin.html2canvas){
-          await new Promise(function(res,rej){
-            var s=ifrDoc.createElement('script');
-            s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-            s.onload=res; s.onerror=rej; ifrDoc.head.appendChild(s);
-          });
-        }
-        var w=frame.offsetWidth||800, h=frame.offsetHeight||600, frames=[];
-        for(var i=0;i<15;i++){
-          var cvs=await ifrWin.html2canvas(ifrDoc.body,{width:w,height:h,scale:1,useCORS:true,allowTaint:true,logging:false});
-          frames.push(cvs);
-          if(i<14) await new Promise(function(r){setTimeout(r,200);});
-        }
-        if(btn) btn.textContent='⏳ Encoding…';
-        if(!window.GIF){
-          await new Promise(function(res,rej){
-            var s=document.createElement('script');
-            s.src='https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
-            s.onload=res; s.onerror=rej; document.head.appendChild(s);
-          });
-        }
-        var gif=new GIF({workers:2,quality:8,width:w,height:h,workerScript:'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'});
-        frames.forEach(function(c){gif.addFrame(c,{delay:200,copy:true});});
-        gif.on('finished',function(blob){
-          var url=URL.createObjectURL(blob);
-          var a=document.createElement('a'); a.href=url; a.download='visual-'+Date.now()+'.gif'; a.click();
-          setTimeout(function(){URL.revokeObjectURL(url);},5000);
-          showToast('✅ GIF downloaded!');
-          if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}
-        });
-        gif.render();
-      }catch(e){
-        showToast('GIF capture failed — try again');
-        if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}
-      }
-    }
-
-    function vcCopyCode(){
-      if(!_vcCurrentHtml) return;
-      navigator.clipboard.writeText(_vcCurrentHtml).then(function(){
-        showToast('HTML code copied to clipboard');
-      });
-    }
-
-    function vcRenderHistory(){
-      var el = document.getElementById('vcHistory');
-      if(!el||!_vcHistory.length) return;
-      el.innerHTML = '<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Recent</div>';
-      _vcHistory.forEach(function(h,i){
-        var row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);';
-        row.onmouseover=function(){row.style.background='rgba(124,58,237,.1)';};
-        row.onmouseout =function(){row.style.background='rgba(255,255,255,.03)';};
-        row.innerHTML = '<div style="font-size:11px;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(h.prompt)+'</div><div style="font-size:10px;color:#475569;flex-shrink:0;">view</div>';
-        row.onclick=function(){ _vcCurrentHtml=h.html; vcRenderFrame(h.html); };
-        el.appendChild(row);
-      });
-    }
-
-    if(document.getElementById('visualCreatorBtn')){
-      document.getElementById('visualCreatorBtn').onclick = showVisualCreatorModal;
-    }
+      };
+      window.vcDownloadGif=async function(){
+        if(!_vcCurrentHtml){if(typeof showToast==='function')showToast('Generate a visual first');return;}
+        var frame=$('vcFrame'),btn=$('vcGifBtn');
+        if(btn){btn.disabled=true;btn.textContent='⏳ Capturing…';}
+        if(typeof showToast==='function')showToast('Capturing 3 s of frames…');
+        try{
+          var ifrWin=frame.contentWindow,ifrDoc=frame.contentDocument||ifrWin.document;
+          if(!ifrWin.html2canvas){await new Promise(function(res,rej){var s=ifrDoc.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onload=res;s.onerror=rej;ifrDoc.head.appendChild(s);});}
+          var w=frame.offsetWidth||800,h=frame.offsetHeight||600,frames=[];
+          for(var i=0;i<15;i++){var cvs=await ifrWin.html2canvas(ifrDoc.body,{width:w,height:h,scale:1,useCORS:true,allowTaint:true,logging:false});frames.push(cvs);if(i<14)await new Promise(function(r){setTimeout(r,200);});}
+          if(btn)btn.textContent='⏳ Encoding…';
+          if(!window.GIF){await new Promise(function(res,rej){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
+          var gif=new GIF({workers:2,quality:8,width:w,height:h,workerScript:'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'});
+          frames.forEach(function(c){gif.addFrame(c,{delay:200,copy:true});});
+          gif.on('finished',function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;a.download='visual-'+Date.now()+'.gif';a.click();setTimeout(function(){URL.revokeObjectURL(url);},5000);if(typeof showToast==='function')showToast('✅ GIF downloaded!');if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}});
+          gif.render();
+        }catch(e){if(typeof showToast==='function')showToast('GIF capture failed');if(btn){btn.textContent='🎞 GIF';btn.disabled=false;}}
+      };
+      if($('visualCreatorBtn'))$('visualCreatorBtn').onclick=showVisualCreatorModal;
+    })();
     // End Visual Creator
 
     // ── TELEPROMPTER ─────────────────────────────────────────────────────────
@@ -34608,9 +34601,18 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:rgba(10,14,30,.98);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
-    <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:100vh;top:0;left:0;border-radius:0;">
+  <!-- Ambient glow layers matching the main app background -->
+  <div style="position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden;">
+    <div style="position:absolute;top:-120px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);animation:dashGlowA 9s ease-in-out infinite alternate;"></div>
+    <div style="position:absolute;bottom:-80px;right:10%;width:600px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(99,102,241,.09),transparent 65%);animation:dashGlowB 12s ease-in-out infinite alternate;"></div>
+  </div>
+  <style>
+    @keyframes dashGlowA{0%{opacity:.7;transform:translateX(-50%) scale(1);}100%{opacity:1;transform:translateX(-50%) scale(1.08);}}
+    @keyframes dashGlowB{0%{opacity:.5;transform:scale(1);}100%{opacity:.9;transform:scale(1.12);}}
+  </style>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+    <div class="sa-float-header" style="background:rgba(7,9,26,.92);border-bottom:1px solid rgba(124,58,237,.2);backdrop-filter:blur(12px);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">📊 Operator Dashboard</span>
       <div class="sa-float-btns">
         <button class="sa-float-min-btn" onclick="saWinMin('dashboardModal','📊 Dashboard','📊')">—</button>
@@ -34618,7 +34620,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
         <button class="sa-float-close-btn" onclick="saCloseDashboard()">✕</button>
       </div>
     </div>
-    <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:20px;"></div>
+    <div id="dashboardBody" style="flex:1;overflow-y:auto;padding:24px;"></div>
   </div>
 </div>
 
@@ -34702,14 +34704,15 @@ if(typeof maybeAutoShowOnboarding === "function"){
   background:rgba(16,185,129,.12); color:#6ee7b7;
   border:1px solid rgba(16,185,129,.3); cursor:pointer; display:inline-flex; align-items:center;
 }
-/* Dashboard stat cards */
-.sa-stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:20px; }
-.sa-stat-card { background:rgba(30,42,74,.7); border:1px solid rgba(42,58,106,.6); border-radius:10px; padding:12px 14px; text-align:center; }
-.sa-stat-num  { font-size:26px; font-weight:700; color:#c4b5fd; }
-.sa-stat-lbl  { font-size:11px; color:rgba(182,196,255,.6); margin-top:3px; }
-.sa-dash-section { margin-bottom:18px; }
-.sa-dash-section h3 { font-size:12px; opacity:.5; letter-spacing:.06em; margin-bottom:8px; }
-.sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:7px 10px; border-radius:8px; background:rgba(11,16,36,.7); border:1px solid rgba(42,58,106,.4); margin-bottom:5px; font-size:12px; }
+/* Dashboard stat cards — matches app dark purple aesthetic */
+.sa-stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:12px; margin-bottom:24px; }
+.sa-stat-card { background:rgba(14,18,48,.7); border:1px solid rgba(124,58,237,.2); border-radius:12px; padding:14px 16px; text-align:center; backdrop-filter:blur(8px); transition:border-color .2s; }
+.sa-stat-card:hover { border-color:rgba(124,58,237,.45); }
+.sa-stat-num  { font-size:28px; font-weight:700; color:#c4b5fd; letter-spacing:-.01em; }
+.sa-stat-lbl  { font-size:11px; color:#475569; margin-top:4px; font-weight:500; letter-spacing:.04em; text-transform:uppercase; }
+.sa-dash-section { margin-bottom:20px; }
+.sa-dash-section h3 { font-size:10px; font-weight:700; color:#475569; letter-spacing:.08em; text-transform:uppercase; margin-bottom:10px; }
+.sa-dash-row { display:flex; align-items:center; justify-content:space-between; padding:8px 12px; border-radius:9px; background:rgba(10,14,36,.6); border:1px solid rgba(42,58,106,.35); margin-bottom:5px; font-size:12px; backdrop-filter:blur(4px); }
 </style>
 
 <script>
@@ -34727,12 +34730,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(!modal._wmReady){
       modal._wmReady = true;
       saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
-      var nb=document.getElementById('saNavBar'); var navH=(nb?nb.offsetHeight:54)+8;
-      var W=Math.min(1100,Math.round(window.innerWidth*.9));
-      var H=Math.min(820,Math.round((window.innerHeight-navH)*.92));
-      modal.style.width=W+'px'; modal.style.height=H+'px';
-      modal.style.top=navH+'px'; modal.style.left=Math.round((window.innerWidth-W)/2)+'px';
-      modal.style.borderRadius='12px';
+      // Start full-screen — the HTML already sets width:100vw;height:100vh;top:0;left:0;border-radius:0
     }
     if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
     modal.style.display = "flex";
@@ -36535,15 +36533,60 @@ document.addEventListener("click", function(e) {
   setInterval(_refreshStateCache, 30000);
 
   /* ─── TTS ─────────────────────────────────────────────────────────────────── */
+  /* ── TTS helpers ── */
+
+  // Split text into sentence-sized chunks for progressive fetching.
+  // First chunk is sent immediately (small = fast API response), rest are pre-fetched while audio plays.
+  function _ttsSplit(text){
+    var MAX_CHARS = 2000;
+    var t = text.slice(0, MAX_CHARS).trim();
+    // Split on sentence boundaries (.  !  ?  …  followed by whitespace or end)
+    var raw = t.split(/(?<=[.!?…])\s+/);
+    var chunks = [], cur = '';
+    for(var i=0;i<raw.length;i++){
+      var s = raw[i].trim(); if(!s) continue;
+      if(cur && (cur+' '+s).length > 220){ chunks.push(cur); cur=s; }
+      else { cur = cur ? cur+' '+s : s; }
+    }
+    if(cur) chunks.push(cur);
+    return chunks.length ? chunks : [t];
+  }
+
+  // Fetch one chunk of audio, return ArrayBuffer promise
+  function _ttsFetch(chunk, voice){
+    return fetch("/api/tts",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({text:chunk, voice:voice||"alloy"})
+    }).then(function(r){
+      if(!r.ok) return r.json().catch(function(){ return {}; }).then(function(e){ throw new Error(e.error||("HTTP "+r.status)); });
+      return r.arrayBuffer();
+    });
+  }
+
+  // Play one ArrayBuffer through AudioContext; resolves when done
+  function _ttsPlay(buf, ctx){
+    return new Promise(function(resolve, reject){
+      ctx.decodeAudioData(buf, function(decoded){
+        var src = ctx.createBufferSource();
+        src.buffer = decoded;
+        src.connect(ctx.destination);
+        window._saTtsAudio = { pause: function(){ try{src.stop();}catch(_){} } };
+        src.onended = resolve;
+        src.start(0);
+      }, reject);
+    });
+  }
+
   window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
     if(!text) return;
 
-    // If already playing, stop
+    // Toggle stop if already playing
     if(window._saTtsPlaying){
       window._saTtsPlaying = false;
-window._streamTtsEnabled = false; // auto-speak mode: first sentence plays as it streams
-window._streamTtsFired = false;
-      try{ window._saTtsAudio.pause(); }catch(_){}
+      window._streamTtsEnabled = false;
+      window._streamTtsFired  = false;
+      try{ window._saTtsAudio && window._saTtsAudio.pause(); }catch(_){}
       try{ speechSynthesis.cancel(); }catch(_){}
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
       return;
@@ -36552,63 +36595,42 @@ window._streamTtsFired = false;
     window._saTtsPlaying = true;
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
-    /* ── Primary: OpenAI TTS with teammate's configured voice ── */
+    /* ── Primary: OpenAI TTS, sentence-by-sentence for fast first-word latency ── */
     try{
-      // Fetch audio from OpenAI via our server
-      var resp = await fetch("/api/tts", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({text: text.slice(0,2000), voice: voice || "alloy"})
-      });
-
-      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
-
-      if(!resp.ok){
-        var errJson = null;
-        try{ errJson = await resp.json(); }catch(_){}
-        throw new Error((errJson && errJson.error) || ("HTTP "+resp.status));
-      }
-
-      var arrayBuf = await resp.arrayBuffer();
-      if(!window._saTtsPlaying){ if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
-
-      if(!arrayBuf || arrayBuf.byteLength < 100){
-        throw new Error("Empty audio response");
-      }
-
-      // Use AudioContext — works even when autoplay policy blocks HTMLAudioElement
       var AudioCtx = window.AudioContext || window.webkitAudioContext;
       if(!AudioCtx) throw new Error("No AudioContext");
-
       var ctx = new AudioCtx();
-      // Resume required in some browsers after user gesture expires
-      if(ctx.state === "suspended") await ctx.resume();
+      if(ctx.state==="suspended") await ctx.resume();
 
-      var decoded = await ctx.decodeAudioData(arrayBuf);
+      var chunks = _ttsSplit(text);
 
-      if(!window._saTtsPlaying){ ctx.close(); if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } return; }
+      // Kick off the first TWO fetches immediately in parallel so sentence 2
+      // is ready before sentence 1 finishes playing (no gap between sentences).
+      var fetched = new Array(chunks.length);
+      fetched[0] = _ttsFetch(chunks[0], voice);
+      if(chunks.length > 1) fetched[1] = _ttsFetch(chunks[1], voice);
 
-      var source = ctx.createBufferSource();
-      source.buffer = decoded;
-      source.connect(ctx.destination);
+      for(var i=0; i<chunks.length; i++){
+        if(!window._saTtsPlaying) break;
 
-      // Allow stop mid-play
-      window._saTtsAudio = { pause: function(){ try{ source.stop(); }catch(_){} try{ ctx.close(); }catch(_){} } };
+        // Ensure this chunk is fetching
+        if(!fetched[i]) fetched[i] = _ttsFetch(chunks[i], voice);
+        // Pre-fetch the next two while current plays
+        if(i+1 < chunks.length && !fetched[i+1]) fetched[i+1] = _ttsFetch(chunks[i+1], voice);
+        if(i+2 < chunks.length && !fetched[i+2]) fetched[i+2] = _ttsFetch(chunks[i+2], voice);
 
-      source.onended = function(){
-        window._saTtsPlaying = false;
-        window._saTtsAudio = null;
-        try{ ctx.close(); }catch(_){}
-        if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      };
+        var buf = await fetched[i];
+        if(!window._saTtsPlaying) break;
+        if(!buf || buf.byteLength < 50) continue; // skip empty
+        await _ttsPlay(buf, ctx);
+      }
 
-      source.start(0);
+      try{ ctx.close(); }catch(_){}
 
-    } catch(err) {
-      window._saTtsPlaying = false;
-      if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
-      console.error("[TTS] failed:", err.message || err);
+    } catch(err){
+      console.error("[TTS] failed:", err.message||err);
 
+      // Fallback: browser SpeechSynthesis
       if(window.speechSynthesis){
         try{
           speechSynthesis.cancel();
@@ -36616,20 +36638,22 @@ window._streamTtsFired = false;
           var voices = speechSynthesis.getVoices();
           var pick = voices.find(function(v){ return v.lang==="en-US"; }) || voices[0];
           if(pick) utt.voice = pick;
-          if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
           window._saTtsPlaying = true;
-          utt.onend = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
-          utt.onerror = function(){ window._saTtsPlaying=false; if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; } };
+          if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
+          utt.onend  = function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
+          utt.onerror= function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
           speechSynthesis.speak(utt);
-          if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI: "+msg+")","error");
-        }catch(_){
-          window._saTtsPlaying = false;
-          if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
-        }
+          if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI TTS unavailable)","error");
+          return; // button state managed by utt events above
+        }catch(_){}
       } else {
-        if(typeof showToast==="function") showToast("Voice error: "+msg,"error");
+        if(typeof showToast==="function") showToast("Voice error: "+(err.message||err),"error");
       }
     }
+
+    window._saTtsPlaying = false;
+    window._saTtsAudio   = null;
+    if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
   };
 
   /* Attach 📋 Copy + 🔊 Speak buttons to a streamed assistant message div */
@@ -42559,7 +42583,9 @@ window.toggleNotifPanel = function(){
         </select>
       </div>
     </div>
-    <button onclick="tpLaunch()" style="margin-top:24px;width:100%;padding:16px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.02em;">&#128640; Launch Teleprompter</button>
+    <div style="margin-top:24px;text-align:center;">
+      <button onclick="tpLaunch()" style="display:inline-flex;align-items:center;gap:8px;padding:13px 32px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:0 4px 18px rgba(124,58,237,.4);">&#128640; Launch Teleprompter</button>
+    </div>
     <div style="margin-top:14px;padding:14px 16px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#94a3b8;line-height:1.7;">
       <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. A 3-second countdown gives you a moment before scroll begins. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> to start — it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop</strong> when done and download your take.
     </div>
@@ -43849,94 +43875,129 @@ window.addEventListener('focus', function(){
 </script>
 
 <!-- ===== VIDEO EDITOR ===== -->
-<div id="videoEditorModal" style="display:none;position:fixed;inset:0;z-index:999950;background:#04080f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
-  <!-- Header bar -->
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid rgba(124,58,237,.25);background:rgba(10,16,38,.99);flex-shrink:0;">
+<div id="videoEditorModal" style="display:none;position:fixed;inset:0;z-index:999950;background:#04080f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;overflow:hidden;">
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(124,58,237,.25);background:rgba(10,16,38,.98);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:10px;">
       <span style="font-size:18px;">✂️</span>
       <div>
         <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Video Editor</div>
-        <div style="font-size:11px;color:#64748b;">Upload · AI Auto-clip · Trim · Export</div>
+        <div style="font-size:11px;color:#64748b;">Upload · AI Clips · Trim · Export</div>
       </div>
     </div>
     <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
   </div>
-  <!-- Main layout: left panel + right panel -->
-  <div style="display:flex;flex:1;min-height:0;overflow:hidden;">
-    <!-- LEFT PANEL: Upload + Clips -->
-    <div style="width:280px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.5);display:flex;flex-direction:column;background:rgba(7,10,22,.6);overflow-y:auto;">
+
+  <!-- Body: sidebar + main -->
+  <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
+
+    <!-- SIDEBAR -->
+    <div style="width:270px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(42,58,106,.5);background:rgba(7,10,22,.7);overflow-y:auto;">
+
       <!-- Upload zone -->
-      <div id="veUploadZone" style="margin:16px;border:2px dashed rgba(124,58,237,.4);border-radius:12px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color .2s;"
+      <div id="veUploadZone"
+           style="margin:14px;border:2px dashed rgba(124,58,237,.4);border-radius:12px;padding:18px 10px;text-align:center;cursor:pointer;transition:border-color .2s;"
            onclick="document.getElementById('veFileInput').click()"
-           ondragover="event.preventDefault();document.getElementById('veUploadZone').style.borderColor='#7c3aed'"
-           ondragleave="document.getElementById('veUploadZone').style.borderColor='rgba(124,58,237,.4)'"
+           ondragover="event.preventDefault();this.style.borderColor='#7c3aed'"
+           ondragleave="this.style.borderColor='rgba(124,58,237,.4)'"
            ondrop="veHandleDrop(event)">
-        <div style="font-size:28px;margin-bottom:8px;">🎬</div>
-        <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
-        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 200MB</div>
-        <input id="veFileInput" type="file" accept="video/*" style="display:none;" onchange="veLoadFile(this.files[0])"/>
+        <div style="font-size:28px;margin-bottom:6px;">🎬</div>
+        <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">Drop video or click to upload</div>
+        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 200 MB</div>
+        <input id="veFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,video/x-msvideo,.mp4,.webm,.mov,.avi,.mkv" style="display:none;" onchange="veLoadFile(this.files[0])"/>
       </div>
-      <!-- Status -->
-      <div id="veStatus" style="margin:0 16px 12px;font-size:12px;color:#94a3b8;text-align:center;display:none;line-height:1.5;"></div>
-      <!-- Auto-clip button -->
-      <div style="margin:0 16px 14px;">
-        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.6),rgba(99,102,241,.4));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;">✨ AI Auto-detect Clips</button>
+
+      <!-- Status bar -->
+      <div id="veStatus" style="display:none;margin:0 14px 10px;padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.5;text-align:center;background:rgba(14,22,48,.6);"></div>
+
+      <!-- Upload progress -->
+      <div id="veProgressWrap" style="display:none;margin:0 14px 10px;">
+        <div style="height:4px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden;">
+          <div id="veProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#6366f1);border-radius:4px;transition:width .2s;"></div>
+        </div>
+        <div id="veProgressLabel" style="font-size:11px;color:#64748b;text-align:center;margin-top:4px;">Uploading…</div>
       </div>
+
+      <!-- AI clip button -->
+      <div style="margin:0 14px 12px;">
+        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.6),rgba(99,102,241,.4));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;transition:opacity .15s;">✨ AI Auto-detect Clips</button>
+      </div>
+
       <!-- Clip list -->
-      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 16px;">
-        <div id="veClipListEmpty" style="color:#475569;font-size:12px;text-align:center;padding:20px 0;">Upload a video to get started</div>
-      </div>
+      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 14px;"></div>
     </div>
-    <!-- RIGHT PANEL: Preview + Timeline + Controls -->
-    <div style="flex:1;display:flex;flex-direction:column;min-width:0;background:#04080f;">
-      <!-- Video preview -->
-      <div style="flex:1;display:flex;align-items:center;justify-content:center;background:#000;min-height:0;position:relative;overflow:hidden;">
-        <video id="vePlayer" style="max-width:100%;max-height:100%;object-fit:contain;display:none;"
-               preload="metadata" ontimeupdate="veOnTimeUpdate()" onloadedmetadata="veOnMetadata()" onended="veOnEnded()" playsinline>
+
+    <!-- MAIN PANEL -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#000;">
+
+      <!-- Video area -->
+      <div style="flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000;">
+        <video id="vePlayer"
+               style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;"
+               preload="auto"
+               playsinline
+               crossorigin="use-credentials"
+               onloadedmetadata="veOnMeta()"
+               ontimeupdate="veOnTick()"
+               onended="veOnEnd()"
+               onerror="veOnErr()">
         </video>
-        <div id="vePlayerPlaceholder" style="position:absolute;color:#475569;font-size:14px;text-align:center;">
-          <div style="font-size:48px;margin-bottom:12px;opacity:.4;">🎥</div>
-          <div>Upload a video to preview it here</div>
+        <div id="vePlaceholder" style="color:#334155;text-align:center;pointer-events:none;user-select:none;">
+          <div style="font-size:52px;opacity:.35;">🎥</div>
+          <div style="font-size:13px;margin-top:10px;">Upload a video to begin</div>
         </div>
       </div>
-      <!-- Transport + Timeline bar -->
-      <div style="background:rgba(7,10,22,.95);border-top:1px solid rgba(42,58,106,.4);padding:14px 20px;flex-shrink:0;">
+
+      <!-- Controls bar -->
+      <div style="flex-shrink:0;background:rgba(7,10,22,.97);border-top:1px solid rgba(42,58,106,.4);padding:12px 18px;">
+
         <!-- Transport row -->
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-          <button id="vePlayBtn" onclick="vePlayPause()" style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);border-radius:8px;color:#c4b5fd;font-size:16px;padding:6px 16px;cursor:pointer;min-width:48px;">▶</button>
-          <span id="veCurrentTime" style="font-size:13px;font-family:monospace;color:#94a3b8;min-width:48px;">0:00</span>
-          <span style="color:#475569;font-size:11px;">/</span>
-          <span id="veDuration" style="font-size:13px;font-family:monospace;color:#64748b;">0:00</span>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <button id="vePlayBtn" onclick="veTogglePlay()" title="Play / Pause"
+                  style="background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);border-radius:8px;color:#c4b5fd;font-size:15px;padding:7px 16px;cursor:pointer;min-width:46px;">▶</button>
+          <span id="veCurrentTime" style="font-size:12px;font-family:monospace;color:#94a3b8;min-width:44px;">0:00</span>
+          <span style="color:#334155;font-size:11px;">/</span>
+          <span id="veDuration" style="font-size:12px;font-family:monospace;color:#475569;min-width:44px;">0:00</span>
           <div style="flex:1;"></div>
-          <span id="veClipDur" style="font-size:12px;color:#64748b;"></span>
+          <span id="veSelLabel" style="font-size:11px;color:#64748b;"></span>
         </div>
-        <!-- Timeline: progress bar + scrubber -->
-        <div style="position:relative;height:24px;margin-bottom:14px;cursor:pointer;" id="veTimelineWrap" onclick="veClickTimeline(event)">
-          <!-- Track -->
-          <div style="position:absolute;top:8px;left:0;right:0;height:8px;background:rgba(255,255,255,.08);border-radius:4px;">
-            <!-- Range highlight -->
-            <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.5);border-radius:4px;"></div>
-            <!-- Playhead -->
-            <div id="vePlayhead" style="position:absolute;top:-4px;width:4px;height:16px;background:#c4b5fd;border-radius:2px;transform:translateX(-50%);"></div>
+
+        <!-- Timeline scrubber -->
+        <div id="veTimeline" onclick="veSeek(event)" style="position:relative;height:28px;cursor:pointer;margin-bottom:12px;user-select:none;">
+          <!-- Track background -->
+          <div style="position:absolute;top:10px;left:0;right:0;height:8px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden;">
+            <!-- Buffered -->
+            <div id="veBuffered" style="position:absolute;inset:0;width:0%;background:rgba(255,255,255,.06);"></div>
+            <!-- Selection range -->
+            <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.45);"></div>
           </div>
+          <!-- In / Out handles -->
+          <div id="veInHandle"  style="position:absolute;top:2px;width:3px;height:24px;background:#34d399;border-radius:2px;cursor:ew-resize;transform:translateX(-50%);left:0%;"></div>
+          <div id="veOutHandle" style="position:absolute;top:2px;width:3px;height:24px;background:#f87171;border-radius:2px;cursor:ew-resize;transform:translateX(-50%);left:100%;"></div>
+          <!-- Playhead -->
+          <div id="vePlayhead" style="position:absolute;top:4px;width:2px;height:20px;background:#c4b5fd;border-radius:1px;transform:translateX(-50%);left:0%;pointer-events:none;"></div>
         </div>
-        <!-- Trim controls row -->
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:11px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">In</span>
+
+        <!-- Trim row -->
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:10px;color:#34d399;font-weight:700;letter-spacing:.08em;">IN</span>
             <input id="veTrimIn" type="number" min="0" step="0.1" value="0"
-              style="width:72px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
-              oninput="veInChanged(this.value)"/>
-            <button onclick="veSetIn()" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">⬅ Now</button>
+                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(52,211,153,.25);border-radius:6px;padding:4px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
+                   oninput="veInTyped(this.value)"/>
+            <button onclick="veMarkIn()" title="Set In to current time"
+                    style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:4px 8px;cursor:pointer;">⬅ Now</button>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:11px;color:#475569;font-weight:700;text-transform:uppercase;letter-spacing:.06em;">Out</span>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:10px;color:#f87171;font-weight:700;letter-spacing:.08em;">OUT</span>
             <input id="veTrimOut" type="number" min="0" step="0.1" value="0"
-              style="width:72px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
-              oninput="veOutChanged(this.value)"/>
-            <button onclick="veSetOut()" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">Now ➡</button>
+                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(248,113,113,.25);border-radius:6px;padding:4px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"
+                   oninput="veOutTyped(this.value)"/>
+            <button onclick="veMarkOut()" title="Set Out to current time"
+                    style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);border-radius:6px;color:#fca5a5;font-size:11px;padding:4px 8px;cursor:pointer;">Now ➡</button>
           </div>
-          <button id="veExportBtn" onclick="veExportClip()" style="display:none;margin-left:auto;background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(99,102,241,.5));border:1px solid rgba(124,58,237,.6);border-radius:8px;color:#fff;font-size:13px;font-weight:700;padding:8px 20px;cursor:pointer;">⬇ Export Clip</button>
+          <button id="veExportBtn" onclick="veExport()"
+                  style="display:none;margin-left:auto;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:700;padding:8px 20px;cursor:pointer;box-shadow:0 2px 12px rgba(124,58,237,.4);">⬇ Export Clip</button>
         </div>
       </div>
     </div>
@@ -43944,178 +44005,380 @@ window.addEventListener('focus', function(){
 </div>
 
 <script>
-/* ═══════════════════════════════════════════════════════
-   VIDEO EDITOR
-═══════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════
+   VIDEO EDITOR  —  clean rebuild
+════════════════════════════════════════════════════════ */
 (function(){
-  var _veVidId = null, _veDur = 0, _veIn = 0, _veOut = 0, _veClips = [];
+  'use strict';
 
+  /* ── state ── */
+  var S = {
+    vidId   : null,   // server video_id after upload
+    dur     : 0,      // full video duration
+    inPt    : 0,      // trim in (seconds)
+    outPt   : 0,      // trim out (seconds)
+    clips   : [],     // AI suggested clips
+    selClip : -1,     // index of selected clip
+    ready   : false   // player has metadata
+  };
+
+  /* ── helpers ── */
+  function $(id){ return document.getElementById(id); }
+
+  function fmtTime(s){
+    if(!isFinite(s)||s<0) s=0;
+    var m=Math.floor(s/60), sc=Math.floor(s%60);
+    return m+':'+(sc<10?'0':'')+sc;
+  }
+
+  function escH(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function veSt(msg, type){
+    var el=$('veStatus'); if(!el) return;
+    el.style.display = msg ? 'block' : 'none';
+    var colors = {err:'#fca5a5', ok:'#6ee7b7', info:'#94a3b8', warn:'#fbbf24'};
+    el.style.color = colors[type]||'#94a3b8';
+    el.textContent = msg;
+  }
+
+  // Safe fetch→JSON — never crashes on HTML responses
+  function apiFetch(url, opts){
+    return fetch(url, opts).then(function(r){
+      var ct = r.headers.get('content-type')||'';
+      if(ct.indexOf('application/json')<0){
+        return r.text().then(function(){ return {ok:false, error:'Server error ('+r.status+'). Refresh and try again.'}; });
+      }
+      return r.json().catch(function(){ return {ok:false, error:'Bad server response. Refresh and try again.'}; });
+    });
+  }
+
+  /* ── open / close ── */
   window.showVideoEditorModal = function(){
-    var m = document.getElementById('videoEditorModal');
-    if(m){ m.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+    var m=$('videoEditorModal');
+    if(m){ m.style.display='flex'; document.body.style.overflow='hidden'; }
   };
   window.closeVideoEditorModal = function(){
-    var m = document.getElementById('videoEditorModal');
-    if(m){ m.style.display = 'none'; document.body.style.overflow = ''; }
-    var p = document.getElementById('vePlayer'); if(p) p.pause();
+    var m=$('videoEditorModal');
+    if(m){ m.style.display='none'; document.body.style.overflow=''; }
+    var p=$('vePlayer'); if(p && !p.paused) p.pause();
   };
-
-  document.addEventListener('keydown', function(e){
-    if(e.key !== 'Escape') return;
-    var tp = document.getElementById('teleprompterModal');
-    if(tp && tp.style.display !== 'none') { closeTeleprompterModal(); return; }
-    var ve = document.getElementById('videoEditorModal');
-    if(ve && ve.style.display !== 'none') { closeVideoEditorModal(); return; }
+  document.addEventListener('keydown',function(e){
+    if(e.key!=='Escape') return;
+    var tp=$('teleprompterModal');
+    if(tp && tp.style.display!=='none'){ closeTeleprompterModal(); return; }
+    var ve=$('videoEditorModal');
+    if(ve && ve.style.display!=='none') closeVideoEditorModal();
   });
 
+  /* ── upload ── */
   window.veHandleDrop = function(e){
     e.preventDefault();
-    document.getElementById('veUploadZone').style.borderColor = 'rgba(124,58,237,.4)';
-    var f = e.dataTransfer.files[0]; if(f) window.veLoadFile(f);
+    $('veUploadZone').style.borderColor='rgba(124,58,237,.4)';
+    var f=e.dataTransfer.files[0]; if(f) veLoadFile(f);
   };
   window.veLoadFile = function(file){
     if(!file) return;
-    if(file.size > 200*1024*1024){ veSt('File too large — max 200 MB','err'); return; }
-    var url = URL.createObjectURL(file);
-    var p = document.getElementById('vePlayer');
-    if(p){ p.src = url; p.load(); p.style.display = 'block'; }
-    document.getElementById('vePlayerPlaceholder').style.display = 'none';
-    veSt('Uploading...','info');
-    var fd = new FormData(); fd.append('file', file);
-    fetch('/api/video/upload',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
-      if(!d.ok){ veSt(d.error||'Upload failed','err'); return; }
-      _veVidId = d.video_id;
-      veSt('Ready. Preview below, or click ✨ AI Auto-detect Clips.','ok');
-      document.getElementById('veAutoClipBtn').style.display = 'block';
-      document.getElementById('veExportBtn').style.display = 'block';
-    }).catch(e=>veSt('Upload error: '+e.message,'err'));
+    var MAX = 200*1024*1024;
+    if(file.size > MAX){ veSt('File too large — max 200 MB','err'); return; }
+    var ext = (file.name||'').split('.').pop().toLowerCase();
+    if(!['mp4','webm','mov','avi','mkv'].includes(ext)){
+      veSt('Unsupported format. Use MP4, MOV, or WEBM.','err'); return;
+    }
+    // Reset state
+    S.vidId=null; S.dur=0; S.inPt=0; S.outPt=0; S.clips=[]; S.selClip=-1; S.ready=false;
+    renderClips();
+    $('veAutoClipBtn').style.display='none';
+    $('veExportBtn').style.display='none';
+    $('vePlayer').style.display='none';
+    $('vePlaceholder').style.display='flex';
+
+    veSt('Uploading…','info');
+    // Show progress bar
+    var pw=$('veProgressWrap'), pb=$('veProgressBar'), pl=$('veProgressLabel');
+    if(pw){pw.style.display='block';pb.style.width='0%';pl.textContent='Uploading…';}
+
+    // Fetch CSRF token first, then XHR upload (so we get upload progress)
+    window._nativeFetch('/api/csrf_token',{credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .catch(function(){ return {csrf_token:''}; })
+      .then(function(td){
+        var csrfToken = td.csrf_token || '';
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST','/api/video/upload');
+        xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+        xhr.withCredentials = true;
+
+        xhr.upload.onprogress = function(ev){
+          if(!ev.lengthComputable) return;
+          var pct = Math.round(ev.loaded/ev.total*100);
+          if(pb) pb.style.width=pct+'%';
+          if(pl) pl.textContent='Uploading… '+pct+'%';
+        };
+        xhr.onload = function(){
+          if(pw) pw.style.display='none';
+          var d;
+          try{ d=JSON.parse(xhr.responseText); }catch(x){ veSt('Upload failed — bad server response.','err'); return; }
+          if(!d.ok){ veSt(d.error||'Upload failed','err'); return; }
+          S.vidId = d.video_id;
+          S.clips=[]; S.selClip=-1;
+          renderClips();
+          // Point the player at the server-streamed URL (enables range requests + seeking)
+          var p=$('vePlayer');
+          p.src = '/api/video/stream/'+S.vidId;
+          p.style.display='block';
+          p.load();
+          $('vePlaceholder').style.display='none';
+          $('veAutoClipBtn').style.display='block';
+          veSt('✅ Video ready! Press ▶ to preview or use ✨ AI Auto-detect Clips.','ok');
+        };
+        xhr.onerror = function(){
+          if(pw) pw.style.display='none';
+          veSt('Upload failed — network error.','err');
+        };
+        var fd = new FormData(); fd.append('file', file);
+        xhr.send(fd);
+      });
   };
 
-  function veSt(msg,type){
-    var s=document.getElementById('veStatus');
-    if(!s)return; s.style.display='block';
-    s.style.color = type==='err'?'#fca5a5':type==='ok'?'#6ee7b7':'#94a3b8';
-    s.textContent = msg;
+  /* ── player events ── */
+  window.veOnMeta = function(){
+    var p=$('vePlayer'); if(!p) return;
+    S.dur  = isFinite(p.duration) ? p.duration : 0;
+    S.inPt = 0;
+    S.outPt= S.dur;
+    S.ready= true;
+    $('veDuration').textContent = fmtTime(S.dur);
+    $('veTrimIn').max  = S.dur;
+    $('veTrimOut').max = S.dur;
+    $('veExportBtn').style.display='block';
+    updateUI();
+  };
+
+  window.veOnTick = function(){
+    var p=$('vePlayer'); if(!p||!S.ready) return;
+    var t=p.currentTime;
+    $('veCurrentTime').textContent=fmtTime(t);
+    // Move playhead
+    if(S.dur>0){
+      var pct=(t/S.dur)*100;
+      $('vePlayhead').style.left=pct+'%';
+    }
+    // Update buffered bar
+    try{
+      if(p.buffered.length>0 && S.dur>0){
+        var bEnd=p.buffered.end(p.buffered.length-1);
+        $('veBuffered').style.width=(bEnd/S.dur*100)+'%';
+      }
+    }catch(x){}
+    // Loop within clip selection
+    if(S.outPt>0 && t>=S.outPt && !p.paused){
+      p.currentTime=S.inPt; p.pause(); setPlayIcon(false);
+    }
+  };
+
+  window.veOnEnd = function(){ setPlayIcon(false); };
+
+  window.veOnErr = function(){
+    var p=$('vePlayer');
+    var code = p && p.error ? p.error.code : '?';
+    veSt('Video load error (code '+code+'). Try a different format.','err');
+  };
+
+  /* ── playback ── */
+  window.veTogglePlay = function(){
+    var p=$('vePlayer'); if(!p||!S.ready) return;
+    if(p.paused){
+      if(S.outPt>0 && p.currentTime>=S.outPt-0.1) p.currentTime=S.inPt;
+      p.play().then(function(){ setPlayIcon(true); }).catch(function(e){ veSt('Playback error: '+e.message,'err'); setPlayIcon(false); });
+    } else {
+      p.pause(); setPlayIcon(false);
+    }
+  };
+  function setPlayIcon(playing){ var b=$('vePlayBtn'); if(b) b.textContent=playing?'⏸':'▶'; }
+
+  /* ── timeline scrub + drag handles ── */
+  window.veSeek = function(e){
+    if(!S.ready||S.dur<=0) return;
+    var tl=$('veTimeline'), rect=tl.getBoundingClientRect();
+    var pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    var p=$('vePlayer'); if(p){ p.currentTime=pct*S.dur; }
+  };
+
+  // Drag in/out handles
+  (function(){
+    var dragging=null; // 'in' or 'out'
+    function startDrag(handle){
+      return function(e){ e.preventDefault(); dragging=handle; };
+    }
+    $('veInHandle').addEventListener('mousedown', startDrag('in'));
+    $('veOutHandle').addEventListener('mousedown', startDrag('out'));
+    document.addEventListener('mousemove',function(e){
+      if(!dragging||!S.ready||S.dur<=0) return;
+      var tl=$('veTimeline'), rect=tl.getBoundingClientRect();
+      var pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+      var t=pct*S.dur;
+      if(dragging==='in'){
+        S.inPt=Math.min(t,S.outPt-0.5);
+        var p=$('vePlayer'); if(p){ p.currentTime=S.inPt; }
+      } else {
+        S.outPt=Math.max(t,S.inPt+0.5);
+        var p=$('vePlayer'); if(p){ p.currentTime=S.outPt; }
+      }
+      updateUI();
+    });
+    document.addEventListener('mouseup',function(){ dragging=null; });
+    // Touch support
+    function touchDrag(handle){
+      return function(e){ e.preventDefault(); dragging=handle; };
+    }
+    $('veInHandle').addEventListener('touchstart', touchDrag('in'),{passive:false});
+    $('veOutHandle').addEventListener('touchstart', touchDrag('out'),{passive:false});
+    document.addEventListener('touchmove',function(e){
+      if(!dragging||!S.ready||S.dur<=0) return;
+      var touch=e.touches[0];
+      var tl=$('veTimeline'), rect=tl.getBoundingClientRect();
+      var pct=Math.max(0,Math.min(1,(touch.clientX-rect.left)/rect.width));
+      var t=pct*S.dur;
+      if(dragging==='in') S.inPt=Math.min(t,S.outPt-0.5);
+      else S.outPt=Math.max(t,S.inPt+0.5);
+      updateUI();
+    },{passive:false});
+    document.addEventListener('touchend',function(){ dragging=null; });
+  })();
+
+  /* ── trim inputs ── */
+  window.veMarkIn = function(){
+    var p=$('vePlayer'); if(!p||!S.ready) return;
+    S.inPt=Math.max(0,Math.min(p.currentTime,S.outPt-0.5));
+    updateUI();
+  };
+  window.veMarkOut = function(){
+    var p=$('vePlayer'); if(!p||!S.ready) return;
+    S.outPt=Math.min(S.dur,Math.max(p.currentTime,S.inPt+0.5));
+    updateUI();
+  };
+  window.veInTyped = function(v){
+    var n=parseFloat(v); if(!isFinite(n)) return;
+    S.inPt=Math.max(0,Math.min(n,S.outPt-0.5));
+    updateHL();
+  };
+  window.veOutTyped = function(v){
+    var n=parseFloat(v); if(!isFinite(n)) return;
+    S.outPt=Math.min(S.dur,Math.max(n,S.inPt+0.5));
+    updateHL();
+  };
+
+  /* ── UI sync ── */
+  function updateUI(){
+    $('veTrimIn').value  = S.inPt.toFixed(1);
+    $('veTrimOut').value = S.outPt.toFixed(1);
+    updateHL();
+  }
+  function updateHL(){
+    if(S.dur<=0) return;
+    var lPct=(S.inPt/S.dur)*100, rPct=(S.outPt/S.dur)*100;
+    var hl=$('veRangeHL');
+    hl.style.left=lPct+'%'; hl.style.width=(rPct-lPct)+'%';
+    $('veInHandle').style.left=lPct+'%';
+    $('veOutHandle').style.left=rPct+'%';
+    var dur=S.outPt-S.inPt;
+    $('veSelLabel').textContent = dur>0 ? 'Selection: '+fmtTime(dur) : '';
   }
 
+  /* ── AI auto-clip ── */
   window.veRunAutoClip = function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    var btn=document.getElementById('veAutoClipBtn');
-    if(btn){ btn.disabled=true; btn.textContent='⏳ Analyzing…'; }
+    if(!S.vidId){ veSt('Upload a video first','err'); return; }
+    var p=$('vePlayer');
+    if(p && p.duration && isFinite(p.duration) && p.duration>0) S.dur=p.duration;
+    if(S.dur<=0){ veSt('Video not ready yet — wait a moment','err'); return; }
+    var btn=$('veAutoClipBtn');
+    btn.disabled=true; btn.textContent='⏳ Analyzing…';
     veSt('Transcribing audio and finding best clips…','info');
-    fetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
-    .then(r=>r.json()).then(d=>{
-      if(btn){ btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips'; }
+    apiFetch('/api/video/autoclip',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:S.vidId, duration:S.dur})
+    }).then(function(d){
+      btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips';
       if(!d.ok){ veSt(d.error||'Analysis failed','err'); return; }
-      _veClips = d.clips||[];
-      veRenderClips();
-      veSt(_veClips.length+' clips found — click any to load it.','ok');
-    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';} veSt('Error: '+e.message,'err'); });
+      S.clips=d.clips||[]; S.selClip=-1;
+      renderClips();
+      veSt(S.clips.length+(S.clips.length===1?' clip':' clips')+' found — click any to preview.','ok');
+    }).catch(function(e){
+      btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips';
+      veSt('Error: '+e.message,'err');
+    });
   };
 
-  function veRenderClips(){
-    var list=document.getElementById('veClipList');
-    var empty=document.getElementById('veClipListEmpty');
-    if(!list)return;
-    if(_veClips.length===0){ if(empty)empty.style.display='block'; return; }
-    if(empty) empty.style.display='none';
-    var html='<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;padding:0 4px;">AI Suggested Clips</div>';
-    _veClips.forEach(function(c,i){
-      html+='<div onclick="veSelectClip('+i+')" style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color .15s;"'
-        +' onmouseover="this.style.borderColor=\'rgba(124,58,237,.5)\'" onmouseout="this.style.borderColor=\'rgba(124,58,237,.2)\'">'
-        +'<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+escHtml(c.title||'Clip '+(i+1))+'</div>'
-        +'<div style="font-size:11px;color:#64748b;">'+veFmt(c.start)+' → '+veFmt(c.end)+' · '+veFmt((c.end||0)-(c.start||0))+'</div>'
-        +(c.reason?'<div style="font-size:11px;color:#475569;margin-top:4px;line-height:1.4;">'+escHtml(c.reason)+'</div>':'')
+  /* ── clip list ── */
+  function renderClips(){
+    var list=$('veClipList'); if(!list) return;
+    if(!S.clips.length){
+      list.innerHTML='<div style="color:#334155;font-size:12px;text-align:center;padding:20px 6px;">'+
+        (S.vidId ? 'Click ✨ AI Auto-detect Clips to find highlights.' : 'Upload a video to get started.')+'</div>';
+      return;
+    }
+    var html='<div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;padding:0 2px;">AI Suggested Clips</div>';
+    S.clips.forEach(function(c,i){
+      var sel=(i===S.selClip);
+      var len=fmtTime((c.end||0)-(c.start||0));
+      html+='<div onclick="vePickClip('+i+')" style="'
+        +'background:'+(sel?'rgba(124,58,237,.2)':'rgba(124,58,237,.07)')+';'
+        +'border:1px solid '+(sel?'rgba(124,58,237,.75)':'rgba(124,58,237,.18)')+';'
+        +'border-radius:10px;padding:9px 11px;margin-bottom:7px;cursor:pointer;'
+        +(sel?'box-shadow:0 0 0 2px rgba(124,58,237,.3);':'')
+        +'">'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:4px;">'
+        +'<span style="font-size:12px;font-weight:600;color:'+(sel?'#e9d5ff':'#c4b5fd')+';">'+escH(c.title||('Clip '+(i+1)))+'</span>'
+        +(sel?'<span style="font-size:10px;background:rgba(124,58,237,.4);color:#e9d5ff;border-radius:4px;padding:1px 5px;white-space:nowrap;">▶ active</span>':'')
+        +'</div>'
+        +'<div style="font-size:11px;color:#475569;">'+fmtTime(c.start)+' – '+fmtTime(c.end)+'&ensp;·&ensp;'+len+'</div>'
+        +(c.reason?'<div style="font-size:11px;color:#334155;margin-top:4px;line-height:1.4;">'+escH(c.reason)+'</div>':'')
         +'</div>';
     });
-    list.innerHTML = html;
-  }
-  function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  window.veSelectClip = function(i){
-    var c=_veClips[i]; if(!c)return;
-    _veIn=c.start||0; _veOut=c.end||_veDur;
-    veUpdateUI();
-    var p=document.getElementById('vePlayer'); if(p){p.currentTime=_veIn; p.play(); veUpdPlay(false);}
-  };
-
-  window.veOnMetadata = function(){
-    var p=document.getElementById('vePlayer'); if(!p)return;
-    _veDur=p.duration||0; _veIn=0; _veOut=_veDur;
-    document.getElementById('veDuration').textContent=veFmt(_veDur);
-    document.getElementById('veTrimIn').max=_veDur;
-    document.getElementById('veTrimOut').max=_veDur;
-    veUpdateUI();
-  };
-  window.veOnTimeUpdate = function(){
-    var p=document.getElementById('vePlayer'); if(!p)return;
-    var t=p.currentTime;
-    document.getElementById('veCurrentTime').textContent=veFmt(t);
-    if(_veDur>0){
-      var pct=(t/_veDur)*100;
-      var ph=document.getElementById('vePlayhead'); if(ph)ph.style.left=pct+'%';
-    }
-    if(t>=_veOut&&_veOut>0&&!p.paused){ p.currentTime=_veIn; p.pause(); veUpdPlay(false); }
-  };
-  window.veOnEnded=function(){ veUpdPlay(false); };
-
-  window.vePlayPause=function(){
-    var p=document.getElementById('vePlayer'); if(!p||!p.src)return;
-    if(p.paused){ if(p.currentTime>=_veOut-0.05)p.currentTime=_veIn; p.play(); veUpdPlay(true); }
-    else{ p.pause(); veUpdPlay(false); }
-  };
-  function veUpdPlay(playing){ var b=document.getElementById('vePlayBtn'); if(b)b.textContent=playing?'⏸':'▶'; }
-
-  window.veClickTimeline=function(e){
-    var wrap=document.getElementById('veTimelineWrap'); if(!wrap||_veDur<=0)return;
-    var rect=wrap.getBoundingClientRect();
-    var pct=(e.clientX-rect.left)/rect.width;
-    var t=Math.max(0,Math.min(_veDur,pct*_veDur));
-    var p=document.getElementById('vePlayer'); if(p)p.currentTime=t;
-  };
-
-  window.veSetIn=function(){ var p=document.getElementById('vePlayer'); if(!p)return; _veIn=Math.max(0,p.currentTime); if(_veIn>=_veOut)_veOut=Math.min(_veDur,_veIn+1); veUpdateUI(); };
-  window.veSetOut=function(){ var p=document.getElementById('vePlayer'); if(!p)return; _veOut=Math.min(_veDur,p.currentTime); if(_veOut<=_veIn)_veIn=Math.max(0,_veOut-1); veUpdateUI(); };
-  window.veInChanged=function(v){ _veIn=Math.max(0,parseFloat(v)||0); veUpdateHL(); };
-  window.veOutChanged=function(v){ _veOut=Math.min(_veDur,parseFloat(v)||0); veUpdateHL(); };
-
-  function veUpdateUI(){
-    document.getElementById('veTrimIn').value=_veIn.toFixed(1);
-    document.getElementById('veTrimOut').value=_veOut.toFixed(1);
-    veUpdateHL();
-  }
-  function veUpdateHL(){
-    if(_veDur<=0)return;
-    var hl=document.getElementById('veRangeHL'); if(!hl)return;
-    var l=(_veIn/_veDur)*100, r=(_veOut/_veDur)*100;
-    hl.style.left=l+'%'; hl.style.width=(r-l)+'%';
-    var cd=document.getElementById('veClipDur'); if(cd)cd.textContent='Clip: '+veFmt(_veOut-_veIn);
+    list.innerHTML=html;
   }
 
-  window.veExportClip=function(){
-    if(!_veVidId){ veSt('Upload a video first','err'); return; }
-    if(_veOut-_veIn<0.5){ veSt('Set a trim range (In → Out)','err'); return; }
-    var btn=document.getElementById('veExportBtn');
-    if(btn){ btn.disabled=true; btn.textContent='⏳ Exporting…'; }
-    veSt('Exporting clip — this takes a moment…','info');
-    fetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
-    .then(r=>r.json()).then(d=>{
-      if(btn){ btn.disabled=false; btn.textContent='⬇ Export Clip'; }
+  window.vePickClip = function(i){
+    var c=S.clips[i]; if(!c) return;
+    S.inPt=c.start||0;
+    S.outPt=c.end||S.dur;
+    S.selClip=i;
+    renderClips();
+    updateUI();
+    var p=$('vePlayer'); if(!p||!S.ready) return;
+    p.currentTime=S.inPt;
+    p.play().then(function(){ setPlayIcon(true); veSt('Playing: '+escH(c.title||'Clip '+(i+1)),'ok'); })
+            .catch(function(){ setPlayIcon(false); veSt('Clip loaded — press ▶ to play.','info'); });
+  };
+
+  /* ── export ── */
+  window.veExport = function(){
+    if(!S.vidId){ veSt('Upload a video first','err'); return; }
+    var dur=S.outPt-S.inPt;
+    if(dur<0.5){ veSt('Selection is too short. Set In and Out points.','err'); return; }
+    var btn=$('veExportBtn');
+    btn.disabled=true; btn.textContent='⏳ Exporting…';
+    veSt('Exporting — this may take a moment…','info');
+    apiFetch('/api/video/export',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:S.vidId, start:S.inPt, end:S.outPt})
+    }).then(function(d){
+      btn.disabled=false; btn.textContent='⬇ Export Clip';
       if(!d.ok){ veSt(d.error||'Export failed','err'); return; }
+      // Trigger download
       var a=document.createElement('a');
       a.href='/api/video/download/'+d.export_id;
-      a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      veSt('Clip exported and downloaded!','ok');
-    }).catch(e=>{ if(btn){btn.disabled=false;btn.textContent='⬇ Export Clip';} veSt('Error: '+e.message,'err'); });
+      a.download='clip.mp4';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      veSt('✅ Clip downloaded!','ok');
+    }).catch(function(e){
+      btn.disabled=false; btn.textContent='⬇ Export Clip';
+      veSt('Export error: '+e.message,'err');
+    });
   };
 
-  function veFmt(s){
-    if(isNaN(s)||s<0)s=0;
-    var m=Math.floor(s/60),sec=Math.floor(s%60);
-    return m+':'+(sec<10?'0':'')+sec;
-  }
 })();
 </script>
 
@@ -47384,153 +47647,216 @@ import threading as _vc_threading
 _vc_jobs = {}  # job_id -> {"status": "pending"|"done"|"error", "html": ..., "error": ...}
 _vc_jobs_lock = _vc_threading.Lock()
 
-def _vc_run_job(job_id: str, claude_key: str, system: str, user_msg: str) -> None:
-    """Run Claude generation in background thread."""
+# ── Per-type generation rules ─────────────────────────────────────────────────
+_vc_type_rules = {
+    "claymation": (
+        "CLAYMATION REQUIREMENTS: Build a charming animated scene with clay-like aesthetics. "
+        "Heavy border-radius (40px+) on every shape. Characters/objects built from multiple CSS divs with "
+        "layered box-shadows (offset+color) to simulate 3D clay depth. Warm desaturated palette. "
+        "All animations use bouncy cubic-bezier(0.34,1.56,0.64,1) with squash-and-stretch scale(). "
+        "Include: one main animated character/object (3+ CSS parts), a background scene, 2+ ambient loops. "
+        "Use @keyframes. SVG shapes acceptable. Loop seamlessly. No nav controls."
+    ),
+    "story-ad": (
+        "STORY AD: 9:16 mobile. Root: width:100vw;height:100vh;overflow:hidden. "
+        "TOP HOOK (bold animated text/visual top 20%), CENTER VALUE (main visual+benefit), "
+        "BOTTOM CTA (glowing button+animated arrow). Min 20px body, 36px+ headlines. "
+        "Staggered entrance animations. Core message clear in 3 seconds."
+    ),
+    "social-ad": (
+        "SOCIAL AD: 1:1 square. Root: width:100vw;height:100vh;overflow:hidden. "
+        "Animated hook headline, strong central CSS visual, brand name, CTA button. "
+        "Thumb-stopping high contrast. Entrance animation on load + subtle loop."
+    ),
+    "product": (
+        "PRODUCT SHOWCASE: Premium 3D-ish CSS product (gradients, layered box-shadows). "
+        "Feature badges (staggered), price/CTA, sparkle particles. Continuous float animation. "
+        "Hover: product scales + info reveals. Dark bg with radial glow."
+    ),
+    "logo-reveal": (
+        "LOGO REVEAL: Cinematic single-play. Phase 1 (0-2s): atmospheric build (particles/light). "
+        "Phase 2 (2-4s): brand name reveals (assemble/stroke/shatter). "
+        "Phase 3 (4-6s): logo glows. Phase 4 (6-7s): tagline fades in. "
+        "SVG stroke animations or JS letter-by-letter. Cinematic quality."
+    ),
+    "particles": (
+        "PARTICLE SCENE: Full-screen Canvas with requestAnimationFrame. 120+ particles, velocity, drift. "
+        "Mouse repel/attract within 100px. Connect lines within 120px (low alpha). "
+        "Deep dark bg with vignette. Performance-optimized."
+    ),
+    "text-reveal": (
+        "CINEMATIC TEXT REVEAL: Movie-trailer quality. 3-5 sequential text moments. "
+        "Techniques: letter-by-letter (50ms stagger), word scale, fade+blur, glitch, clip-path wipe. "
+        "Atmospheric bg animation. 80px+ typography for main lines. JS setTimeout/RAF. Loop."
+    ),
+    "slideshow": (
+        "SLIDESHOW: Exactly 4 slides, each 100vw x 100vh. "
+        "Left/right arrows (always visible), dot indicators, keyboard arrows, auto-advance 5s (pause on hover). "
+        "Slide counter top-right. Distinct bg + bold headline + body + CSS visual per slide. "
+        "Smooth fade or horizontal-slide with cubic-bezier."
+    ),
+    "carousel": (
+        "CAROUSEL: Horizontal card carousel. 3 cards desktop, 1 mobile. "
+        "Arrows outside cards. Dot row below. CSS translateX animation. Touch swipe support. "
+        "Each card: 48px emoji, bold title, 2-line description. Consistent height."
+    ),
+    "presentation": (
+        "PRESENTATION: Exactly 5 full-screen slides (100vw x 100vh). "
+        "Slide 1: title+subtitle+brand. Slides 2-4: heading+content. Slide 5: CTA. "
+        "Prev/next + keyboard. Slide number top-right. Dramatic transitions. No auto-advance."
+    ),
+    "infographic": (
+        "INFOGRAPHIC: Tall scrollable (min-height:250vh). IntersectionObserver per section. "
+        "Animated number counters (RAF 0 to value, 1.5s), bar charts with animated fill, "
+        "icon+stat grid, timeline, closing summary. Sticky title header."
+    ),
+    "landing": (
+        "LANDING HERO: 3-section page. "
+        "(1) HERO: full-viewport animated bg, word-by-word headline, subheading, glowing pulse CTA. "
+        "(2) FEATURES: 3-column grid with animated CSS icons, title, desc (IntersectionObserver). "
+        "(3) SOCIAL PROOF: 3-4 animated stat counters. Smooth scroll. Sticky nav."
+    ),
+}
+
+_vc_style_descs = {
+    "dark-cinematic":  "Deep black (#0a0a0a). Gold (#c9a84c) and warm white (#f0ead6). Radial spotlight gradients. Vignette. Bold serif (Playfair Display or Cinzel from Google Fonts). Cinematic.",
+    "claymation-clay": "Warm cream (#f5e6c8). Terracotta (#e07a5f), sage (#81b29a), dusty blue (#3d405b), yellow (#f2cc8f). Extreme border-radius. Layered shadows for clay depth. Playful.",
+    "neon-cyberpunk":  "Near-black (#080010). Neon cyan (#00fff5), hot pink (#ff0080), acid green (#39ff14). Scan-line overlay. Glitch animations. Monospace font (Share Tech Mono).",
+    "pastel-dream":    "Soft lavender (#faf0ff). Rose (#ffb7c5), sky (#b7d7ff), mint (#b7ffd8), butter (#fff9b7). Dreamy blur/glow. Floating animations. Rounded font (Nunito or Quicksand).",
+    "bold-corporate":  "Navy (#0f1f3d) or white. Strong blue (#0052cc). Bold sans-serif 700-900 (Montserrat or Inter). Clean grid. Confident animations.",
+    "retro-80s":       "Dark purple-black (#120024). Hot pink (#ff2d8a), purple (#b000ff), cyan (#00e5ff). Perspective grid. Scan lines. Chrome gradient text. Retro font (Orbitron).",
+    "minimal-luxury":  "White (#ffffff) or cream (#faf9f7). Gold (#b8965a) single accent. Massive white space. Font-weight 200 (Cormorant Garamond or Raleway). Editorial.",
+    "nature-organic":  "Warm off-white (#fdf6ec). Forest green (#2d6a4f), earth brown (#8b5e3c), sky (#87ceeb), sun yellow (#f4d03f). Organic clip-path shapes. Natural font (Lora or Merriweather).",
+}
+
+_vc_font_hints = {
+    "modern":  "Import Inter or DM Sans from Google Fonts.",
+    "classic": "Import Playfair Display or Merriweather from Google Fonts.",
+    "playful": "Import Nunito or Poppins from Google Fonts.",
+    "bold":    "Import Montserrat or Oswald from Google Fonts. font-weight 800-900.",
+    "elegant": "Import Cormorant Garamond or Raleway from Google Fonts. font-weight 200-300.",
+}
+
+_vc_ratio_hints = {
+    "16:9": "16:9 widescreen. Root: width:100vw;height:100vh;overflow:hidden.",
+    "9:16": "9:16 portrait mobile. Root: width:100vw;height:100vh;overflow:hidden. Design vertically.",
+    "1:1":  "1:1 square. Root: width:100vw;height:100vh;overflow:hidden.",
+    "4:5":  "4:5 portrait. Root: width:100vw;height:100vh;overflow:hidden. Slightly taller than wide.",
+}
+
+def _vc_clean_html(raw: str) -> str:
+    html = raw.strip()
+    if "```" in html:
+        html = "\n".join(l for l in html.split("\n") if not l.strip().startswith("```")).strip()
+    for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
+        idx = html.find(marker)
+        if idx != -1:
+            html = html[idx:]; break
+    return html
+
+def _vc_run_job(job_id: str, engine: str, api_key: str, system: str, user_msg: str) -> None:
+    """Run generation in a background thread — supports Claude and GPT-4o."""
     try:
-        cl = _anthropic_sdk.Anthropic(api_key=claude_key)
-        resp = cl.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=8000,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-            temperature=1.0,
-        )
-        html = (resp.content[0].text or "").strip()
-        if "```" in html:
-            lines = html.split("\n")
-            html = "\n".join(l for l in lines if not l.strip().startswith("```")).strip()
-        for marker in ["<!DOCTYPE", "<!doctype", "<html"]:
-            idx2 = html.find(marker)
-            if idx2 != -1:
-                html = html[idx2:]
-                break
+        if engine == "gpt":
+            oai  = OpenAI(api_key=api_key)
+            resp = oai.chat.completions.create(
+                model="gpt-4o", max_tokens=8000, temperature=1.0,
+                messages=[{"role":"system","content":system},{"role":"user","content":user_msg}],
+            )
+            html = (resp.choices[0].message.content or "").strip()
+        else:
+            cl   = _anthropic_sdk.Anthropic(api_key=api_key)
+            cl   = _anthropic_sdk.Anthropic(api_key=api_key)
+            resp = cl.messages.create(
+                model="claude-opus-4-5", max_tokens=8000, system=system, temperature=1.0,
+                messages=[{"role":"user","content":user_msg}],
+            )
+            html = (resp.content[0].text or "").strip()
+        html = _vc_clean_html(html)
         if len(html) < 100:
             with _vc_jobs_lock:
-                _vc_jobs[job_id] = {"status": "error", "error": "Generation produced no output — please try again."}
+                _vc_jobs[job_id] = {"status":"error","error":"Generation produced no output — please try again."}
         else:
             with _vc_jobs_lock:
-                _vc_jobs[job_id] = {"status": "done", "html": html}
+                _vc_jobs[job_id] = {"status":"done","html":html}
     except Exception as e:
         err = str(e)
-        if "401" in err or "api_key" in err.lower() or "invalid_api_key" in err.lower():
-            err = "Invalid Anthropic API key. Check your key in Settings \u2192 API Keys."
+        if any(x in err.lower() for x in ("401","api_key","invalid_api_key","authentication","invalid x-api-key")):
+            err = "Invalid API key — check your key in Settings > API Keys."
         with _vc_jobs_lock:
-            _vc_jobs[job_id] = {"status": "error", "error": err}
+            _vc_jobs[job_id] = {"status":"error","error":err}
 
 @app.post("/api/visual_creator")
 def api_visual_creator():
     try:
         u = current_user()
         if not u:
-            return jsonify({"ok": False, "error": "Not authenticated — please refresh and log in."}), 401
+            return jsonify({"ok": False, "error": "Not authenticated — please refresh."}), 401
         payload = request.get_json(silent=True) or {}
-        prompt = (payload.get("prompt") or "").strip()
-        theme  = (payload.get("theme")  or "dark purple").strip()
-        vtype  = (payload.get("type")   or "animation").strip()
-        brand  = (payload.get("brand")  or "").strip()
+        prompt  = (payload.get("prompt") or "").strip()
+        vtype   = (payload.get("type")   or "claymation").strip()
+        style   = (payload.get("style")  or "dark-cinematic").strip()
+        ratio   = (payload.get("ratio")  or "16:9").strip()
+        brand   = (payload.get("brand")  or "").strip()
+        color1  = (payload.get("color1") or "#7c3aed").strip()
+        color2  = (payload.get("color2") or "#06b6d4").strip()
+        font    = (payload.get("font")   or "modern").strip()
+        engine  = (payload.get("engine") or "auto").strip()
         if not prompt:
             return jsonify({"ok": False, "error": "Prompt is required"}), 400
-
-        claude_key = ""
-        try:
-            settings = (u.get("settings") or {})
-            claude_key = _decrypt_field((settings.get("claude_key") or settings.get("anthropic_key") or "").strip())
-        except Exception:
-            pass
-        if not claude_key or not _anthropic_sdk:
-            return jsonify({"ok": False,
-                "error": "Visual Creator requires your Anthropic API key. Go to Settings \u2192 API Keys and add your key (sk-ant-...)."}), 400
-
-        brand_note = f" Brand name: {brand}." if brand else ""
-
-        # Per-type structural rules — enforced in addition to the base system prompt
-        _type_rules = {
-            "slideshow": (
-                "SLIDESHOW REQUIREMENTS (mandatory): "
-                "Build exactly 4 slides. Each slide fills 100vw × 100vh. "
-                "Include: left/right arrow buttons (positioned center-left and center-right, always visible), "
-                "a slide counter (e.g. '2 / 4') centered at bottom, dot navigation row below counter, "
-                "keyboard arrow-key support, auto-advance every 5 seconds that pauses on hover. "
-                "Slides transition with a smooth CSS fade or horizontal slide animation. "
-                "Each slide has a bold headline, 2-3 lines of body text, and a distinct background or illustration. "
-            ),
-            "carousel": (
-                "CAROUSEL REQUIREMENTS (mandatory): "
-                "Build a horizontal card carousel. Show 3 cards at once on desktop, 1 on mobile. "
-                "Left/right arrow buttons always visible outside the cards. "
-                "Dot/indicator row below. Smooth CSS transform slide animation. "
-                "Each card has an icon (emoji or CSS shape), bold title, and 1-2 lines of description. "
-                "Cards must have consistent height. Touch swipe support via touchstart/touchend events. "
-            ),
-            "presentation": (
-                "PRESENTATION REQUIREMENTS (mandatory): "
-                "Build exactly 5 full-screen slides styled like a professional PowerPoint deck. "
-                "Slide 1: Title + subtitle. Slides 2-4: content with bullet points or visual. Slide 5: closing CTA. "
-                "Slide number shown top-right (e.g. '3 / 5'). Previous/next buttons and keyboard arrow navigation. "
-                "Dramatic slide transitions (scale, fade, or 3D flip). No auto-advance. "
-            ),
-            "animation": (
-                "ANIMATION REQUIREMENTS (mandatory): "
-                "Create a looping visual animation — no slides, no navigation controls, no pagination. "
-                "Use @keyframes, CSS transforms, SVG paths, or JS canvas/requestAnimationFrame. "
-                "The animation must loop seamlessly. Make it visually impressive: particles, morphing shapes, "
-                "flowing gradients, or a cinematic reveal sequence. "
-            ),
-            "infographic": (
-                "INFOGRAPHIC REQUIREMENTS (mandatory): "
-                "Build a tall, scrollable infographic (min-height 200vh). "
-                "Use IntersectionObserver to trigger animations when sections enter the viewport. "
-                "Include: animated number counters (count from 0 to final value over 1.5s), "
-                "progress/bar charts, icon+stat blocks, and a clear visual hierarchy with section headings. "
-                "No navigation controls needed — scroll is the interaction. "
-            ),
-            "landing section": (
-                "LANDING SECTION REQUIREMENTS (mandatory): "
-                "Build: (1) a hero section with animated headline reveal, subheading, and a glowing CTA button; "
-                "(2) a 3-column features/benefits grid with icon, title, and description per card; "
-                "(3) a social proof / stats bar with 3-4 animated counters. "
-                "Each section animates in when scrolled into view (IntersectionObserver + CSS classes). "
-                "Full-page layout, vertically stacked. "
-            ),
-        }
-        type_rule = _type_rules.get(vtype, "")
-
+        settings    = u.get("settings") or {}
+        user_claude = _decrypt_field((settings.get("claude_key") or "").strip())
+        user_openai = _decrypt_field((settings.get("openai_key") or "").strip())
+        srv_claude  = (ANTHROPIC_API_KEY or "").strip()
+        srv_openai  = (OPENAI_API_KEY    or "").strip()
+        resolved_engine, resolved_key = engine, ""
+        if engine == "claude":
+            resolved_key = user_claude or srv_claude
+            if not resolved_key or not _anthropic_sdk:
+                return jsonify({"ok": False, "error": "Claude requires an Anthropic API key. Add it in Settings > API Keys (sk-ant-...)."}), 400
+        elif engine == "gpt":
+            resolved_key = user_openai or srv_openai
+            if not resolved_key:
+                return jsonify({"ok": False, "error": "GPT-4o requires an OpenAI API key. Add it in Settings > API Keys (sk-...)."}), 400
+        else:
+            if (user_claude or srv_claude) and _anthropic_sdk:
+                resolved_engine, resolved_key = "claude", user_claude or srv_claude
+            elif user_openai or srv_openai:
+                resolved_engine, resolved_key = "gpt", user_openai or srv_openai
+            else:
+                return jsonify({"ok": False, "error": "Add an OpenAI or Anthropic API key in Settings > API Keys to use Visual Creator."}), 400
+        type_rule  = _vc_type_rules.get(vtype, "")
+        style_desc = _vc_style_descs.get(style, f"{style} aesthetic")
+        ratio_hint = _vc_ratio_hints.get(ratio, "full-screen 100vw x 100vh")
+        font_hint  = _vc_font_hints.get(font, "system-ui sans-serif")
+        brand_note = f" Brand: \"{brand}\"." if brand else ""
+        color_note = f" Primary color: {color1}. Secondary: {color2}."
         system = (
-            "You are an elite creative HTML/CSS/JavaScript developer. "
-            "Output ONLY a single complete self-contained HTML file. "
-            "No explanation, no markdown fences, no commentary. "
-            "Start with <!DOCTYPE html> and end with </html>. "
-            "Base requirements: all CSS/JS inline; only Google Fonts external; "
-            "real @keyframes animations; fully interactive; mobile responsive; "
-            "beautiful typography; smooth cubic-bezier transitions; production quality. "
-            + (type_rule if type_rule else "") +
-            "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
+            "You are an elite creative HTML/CSS/JS developer specialising in visually stunning web experiences. "
+            "Output ONLY a single complete self-contained HTML file — no explanation, no markdown. "
+            "Start with <!DOCTYPE html> and end with </html>. All CSS and JS must be inline. "
+            "Only Google Fonts may load externally. Must work in sandbox=allow-scripts iframe. "
+            "Make it visually stunning, production-quality, and fully functional. " +
+            type_rule +
+            " Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
         )
-
-        theme_map = {
-            "dark purple": "dark background (#07091a) with purple/violet accents (#7c3aed, #a78bfa, #c4b5fd)",
-            "dark blue":   "dark background (#060c1e) with electric blue accents (#3b82f6, #60a5fa, #93c5fd)",
-            "light clean": "clean white/light-grey background (#f8fafc, #f1f5f9) with dark text and minimal accents",
-            "dark minimal": "near-black background (#09090b) with white text and single muted accent (#52525b)",
-            "vibrant gradient": "vivid gradient backgrounds (purple→blue→teal) with bright, saturated accents",
-        }
-        theme_desc = theme_map.get(theme, f"{theme} color theme")
-
         user_msg = (
-            f"Create a {vtype}.{brand_note} "
-            f"Color theme: {theme_desc}. "
-            f"Request: {prompt} "
-            f"Make it genuinely beautiful, impressive, and production-ready. "
-            f"Output only the complete HTML file starting with <!DOCTYPE html>."
+            f"Create a {vtype}.{brand_note}{color_note} "
+            f"Visual style: {style_desc} "
+            f"Aspect ratio: {ratio_hint} "
+            f"Typography: {font_hint} "
+            f"Creative brief: {prompt} "
+            f"Make it genuinely beautiful and production-ready. Output only <!DOCTYPE html>..."
         )
-
-        import uuid as _uuid
-        job_id = _uuid.uuid4().hex
+        job_id = uuid.uuid4().hex
         with _vc_jobs_lock:
             _vc_jobs[job_id] = {"status": "pending"}
-        t = _vc_threading.Thread(target=_vc_run_job, args=(job_id, claude_key, system, user_msg), daemon=True)
-        t.start()
-        return jsonify({"ok": True, "job_id": job_id})
+        _vc_threading.Thread(
+            target=_vc_run_job,
+            args=(job_id, resolved_engine, resolved_key, system, user_msg),
+            daemon=True
+        ).start()
+        return jsonify({"ok": True, "job_id": job_id, "engine": resolved_engine})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -47684,23 +48010,41 @@ def api_crm_log_note():
 
 @app.errorhandler(Exception)
 def _handle_exception(e):
+    # Determine HTTP status code from the exception (default 500)
+    code = 500
     try:
-        # Skip logging 404s and auth errors — they're not real crashes
-        code = getattr(e, "code", 500) or 500
+        code = int(getattr(e, "code", 500) or 500)
+    except Exception:
+        pass
+
+    # Best-effort error capture — must never prevent the JSON response from being sent
+    try:
         if code not in (404, 401, 403):
             _capture_error(e, context="unhandled_exception")
+    except Exception:
+        pass
+
+    # Always return JSON for API routes — even if every other step above failed
+    try:
+        path = request.path or ""
+    except Exception:
+        path = ""
+    if path.startswith("/api/"):
         try:
-            path = request.path or ""
-        except Exception:
-            path = ""
-        if path.startswith("/api/"):
-            # Never expose internal exception details to the client — log internally only
             resp = jsonify({"ok": False, "error": "An internal error occurred. Please try again."})
             resp.headers["Content-Type"] = "application/json"
             resp.headers["Cache-Control"] = "no-store"
             return resp, code
-    except Exception:
-        pass
+        except Exception:
+            # Absolute last resort — hand-craft a JSON response so the client never gets HTML
+            from flask import Response as _FlaskResponse
+            return _FlaskResponse(
+                '{"ok":false,"error":"Internal server error"}',
+                status=500,
+                mimetype="application/json"
+            )
+
+    # Non-API routes: let Flask render its normal HTML error page
     raise e
 
 @app.errorhandler(404)
@@ -52394,15 +52738,25 @@ def api_tts():
     openai_key = openai_key.strip()
 
     try:
-        oai  = OpenAI(api_key=openai_key)
-        print(f"[TTS] calling openai tts-1 voice={voice} text_preview={text[:60]!r}", flush=True)
-        resp = oai.audio.speech.create(model="tts-1", voice=voice, input=text)
+        oai = OpenAI(api_key=openai_key)
+        print(f"[TTS] streaming tts-1 voice={voice} chars={len(text)} preview={text[:60]!r}", flush=True)
+
+        # Stream bytes directly from OpenAI → client. No server-side buffering.
+        # This removes ~0.3–0.8s of latency vs collecting resp.content first.
+        def _generate():
+            with oai.audio.speech.with_streaming_response.create(
+                model="tts-1", voice=voice, input=text
+            ) as stream:
+                for chunk in stream.iter_bytes(chunk_size=4096):
+                    yield chunk
+
         return Response(
-            resp.content,
+            _generate(),
             mimetype="audio/mpeg",
             headers={
-                "Cache-Control":        "no-store",
-                "Content-Disposition":  "inline; filename=speech.mp3",
+                "Cache-Control":       "no-store",
+                "X-Accel-Buffering":   "no",       # tell Nginx/proxies not to buffer
+                "Content-Disposition": "inline; filename=speech.mp3",
             },
         )
     except Exception as exc:
@@ -52484,7 +52838,8 @@ def api_transcribe():
 import subprocess as _subprocess_ve
 import shutil as _shutil_ve
 
-_VE_TEMP = Path("/tmp/sa_video")
+import tempfile as _tempfile_ve
+_VE_TEMP = Path(_tempfile_ve.gettempdir()) / "sa_video"
 
 def _ve_cleanup_old():
     try:
@@ -52496,6 +52851,29 @@ def _ve_cleanup_old():
                     _shutil_ve.rmtree(d, ignore_errors=True)
     except Exception:
         pass
+
+_VE_MIME = {
+    'mp4': 'video/mp4', 'webm': 'video/webm',
+    'mov': 'video/quicktime', 'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska'
+}
+
+@app.get("/api/video/stream/<vid_id>")
+def api_video_stream(vid_id):
+    """Serve the uploaded video with HTTP range-request support (enables seeking)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if not re.match(r'^[a-f0-9]+$', vid_id):
+        return jsonify({"ok": False, "error": "Invalid ID"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — re-upload it."}), 404
+    orig_path = orig_files[0]
+    ext = orig_path.suffix.lstrip('.').lower()
+    mime = _VE_MIME.get(ext, 'video/mp4')
+    from flask import send_file as _sf
+    return _sf(str(orig_path), mimetype=mime, conditional=True)
 
 @app.post("/api/video/upload")
 def api_video_upload():
