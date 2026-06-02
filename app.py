@@ -34608,7 +34608,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
      ═══════════════════════════════════════════════════════════════════════ -->
 
 <!-- Dashboard Modal -->
-<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:calc(100vh - 54px);top:54px;left:0;border-radius:0;overflow:hidden;">
+<div id="dashboardModal" class="sa-float-win" style="display:none;z-index:99990;background:#07091a;width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
   <!-- Ambient glow layers matching app background -->
   <div style="position:absolute;inset:0;pointer-events:none;z-index:0;">
     <div style="position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);"></div>
@@ -34733,15 +34733,20 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(!modal) return;
     if(!modal._wmReady){
       modal._wmReady = true;
-      saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
+      saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){
+        modal.style.display='none';
+        const nb=document.getElementById('saNavBar'); if(nb) nb.style.display='';
+        saWM._updateTaskbar();
+      });
     }
     if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
 
-    // Always position below the nav bar so it never bleeds under it
+    // Hide the nav bar so dashboard gets the full screen unobstructed
     const nb = document.getElementById('saNavBar');
-    const navH = nb ? nb.offsetHeight : 54;
-    modal.style.top    = navH + 'px';
-    modal.style.height = 'calc(100vh - ' + navH + 'px)';
+    if(nb) nb.style.display = 'none';
+
+    modal.style.top    = '0';
+    modal.style.height = '100vh';
     modal.style.width  = '100vw';
     modal.style.left   = '0';
     modal.style.borderRadius = '0';
@@ -34872,7 +34877,11 @@ if(typeof maybeAutoShowOnboarding === "function"){
       if(b2) b2.innerHTML=`<div style="color:#fca5a5;padding:24px;text-align:center;font-size:13px;">Failed to load dashboard: ${_e((err||{}).message||err)}</div>`;
     }
   };
-  window.saCloseDashboard = function(){ const m=document.getElementById("dashboardModal"); if(m)m.style.display="none"; document.body.style.overflow=""; };
+  window.saCloseDashboard = function(){
+    const m=document.getElementById("dashboardModal"); if(m)m.style.display="none";
+    const nb=document.getElementById('saNavBar'); if(nb) nb.style.display='';
+    document.body.style.overflow="";
+  };
 
   /* ── 2. THREAD ACTIONS TOOLBAR ────────────────────────────────────────────── */
   (function patchMarkActiveSeat(){
