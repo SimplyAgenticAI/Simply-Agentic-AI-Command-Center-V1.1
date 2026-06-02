@@ -52467,7 +52467,14 @@ def api_video_autoclip():
     seg_text = ""
     if segments:
         for s in segments[:200]:
-            seg_text += f"[{s.get('start',0):.1f}s-{s.get('end',0):.1f}s] {s.get('text','').strip()}\n"
+            try:
+                # OpenAI SDK returns Pydantic objects (s.start) not dicts (s.get('start'))
+                _s = s.get('start', 0) if isinstance(s, dict) else float(getattr(s, 'start', 0) or 0)
+                _e = s.get('end', 0)   if isinstance(s, dict) else float(getattr(s, 'end',   0) or 0)
+                _t = s.get('text', '') if isinstance(s, dict) else str(getattr(s,  'text',  '') or '')
+                seg_text += f"[{_s:.1f}s-{_e:.1f}s] {_t.strip()}\n"
+            except Exception:
+                pass
     if not seg_text:
         seg_text = transcript[:3000]
     vid_duration = duration or 60
