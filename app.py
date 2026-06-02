@@ -31728,7 +31728,7 @@ async function showImageLibraryModal(startTab){
     return t;
   }
   tabBar.appendChild(makeTab("images", "🖼 Images", startTab==="images"));
-  tabBar.appendChild(makeTab("visuals", "✨ Visuals", startTab==="visuals"));
+  tabBar.appendChild(makeTab("visuals", "🎥 Videos", startTab==="visuals"));
   body.appendChild(tabBar);
 
   /* override .modal pre max-width so the grid fills the window */
@@ -31736,66 +31736,165 @@ async function showImageLibraryModal(startTab){
   body.style.width = "100%";
   body.style.padding = "0";
   body.style.margin = "0";
-  const pane = document.createElement("div");
-  pane.style.cssText = "width:100%;box-sizing:border-box;padding:0 4px;";
-  body.appendChild(pane);
+
+  /* ── Folder helpers (localStorage) ── */
+  const _FOLDER_KEY = 'sa_ml_folders';
+  function _fldLoad(){ try{ return JSON.parse(localStorage.getItem(_FOLDER_KEY)||'{}'); }catch(e){ return {}; } }
+  function _fldSave(d){ try{ localStorage.setItem(_FOLDER_KEY,JSON.stringify(d)); }catch(e){} }
+  function _fldGet(tab){ var d=_fldLoad(); return d[tab]||{}; }
+  function _fldSet(tab,folders){ var d=_fldLoad(); d[tab]=folders; _fldSave(d); }
+  function _fldGetItem(tab,key){ var f=_fldGet(tab); for(var fn in f){ if(f[fn].indexOf(key)>-1) return fn; } return null; }
+  function _fldMoveItem(tab,key,toFolder){
+    var f=_fldGet(tab);
+    for(var fn in f){ var idx=f[fn].indexOf(key); if(idx>-1){ f[fn].splice(idx,1); if(!f[fn].length) delete f[fn]; } }
+    if(toFolder){ if(!f[toFolder]) f[toFolder]=[]; if(f[toFolder].indexOf(key)===-1) f[toFolder].push(key); }
+    _fldSet(tab,f);
+  }
+  function _fldNewFolder(tab){
+    var name=(prompt('Folder name:')||'').trim();
+    if(!name) return null;
+    var f=_fldGet(tab); if(!f[name]) f[name]=[]; _fldSet(tab,f); return name;
+  }
+  function _fldDeleteFolder(tab,name){
+    if(!confirm('Delete folder "'+name+'"? Items will move to All.')) return;
+    var f=_fldGet(tab); delete f[name]; _fldSet(tab,f);
+  }
+
+  /* ── Shared layout: folder sidebar + content area ── */
+  const layout = document.createElement("div");
+  layout.style.cssText = "display:flex;width:100%;min-height:0;box-sizing:border-box;";
+
+  const sidebar = document.createElement("div");
+  sidebar.id = "mlFolderSidebar";
+  sidebar.style.cssText = "width:170px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);padding:10px 8px;display:flex;flex-direction:column;gap:4px;background:rgba(7,10,22,.4);";
+
+  const content = document.createElement("div");
+  content.style.cssText = "flex:1;min-width:0;padding:12px 14px;overflow-y:auto;box-sizing:border-box;";
+
+  layout.appendChild(sidebar);
+  layout.appendChild(content);
+  body.appendChild(layout);
+
+  let _mlActiveFolder = null; /* null = All */
+
+  function _buildSidebar(tab){
+    sidebar.innerHTML='';
+    const f=_fldGet(tab);
+    const folders=Object.keys(f);
+
+    function mkFolderBtn(label,icon,isActive,onClick,onDel){
+      const row=document.createElement("div");
+      row.style.cssText="display:flex;align-items:center;gap:0;border-radius:8px;overflow:hidden;"+(isActive?"background:rgba(124,58,237,.25);":"");
+      const btn=document.createElement("button");
+      btn.style.cssText="flex:1;text-align:left;padding:7px 10px;background:transparent;border:none;color:"+(isActive?"#c4b5fd":"#94a3b8")+";font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+      btn.innerText=icon+' '+label;
+      btn.onclick=onClick;
+      row.appendChild(btn);
+      if(onDel){
+        const x=document.createElement("button");
+        x.style.cssText="padding:4px 6px;background:transparent;border:none;color:#475569;cursor:pointer;font-size:10px;flex-shrink:0;";
+        x.title="Delete folder";x.innerText="✕";
+        x.onclick=function(e){e.stopPropagation();onDel();};
+        row.appendChild(x);
+      }
+      return row;
+    }
+
+    /* All */
+    sidebar.appendChild(mkFolderBtn('All','📂',_mlActiveFolder===null,function(){
+      _mlActiveFolder=null; _buildSidebar(tab); renderContent();
+    },null));
+
+    folders.forEach(function(fn){
+      sidebar.appendChild(mkFolderBtn(fn,'📁',_mlActiveFolder===fn,function(){
+        _mlActiveFolder=fn; _buildSidebar(tab); renderContent();
+      },function(){
+        _fldDeleteFolder(tab,fn);
+        if(_mlActiveFolder===fn) _mlActiveFolder=null;
+        _buildSidebar(tab); renderContent();
+      }));
+    });
+
+    /* New Folder btn */
+    const newBtn=document.createElement("button");
+    newBtn.style.cssText="margin-top:8px;width:100%;padding:6px 8px;background:rgba(124,58,237,.12);border:1px dashed rgba(124,58,237,.3);border-radius:8px;color:#7c3aed;font-size:11px;font-weight:700;cursor:pointer;";
+    newBtn.innerText="+ New Folder";
+    newBtn.onclick=function(){
+      var n=_fldNewFolder(tab);
+      if(n){ _mlActiveFolder=n; _buildSidebar(tab); renderContent(); }
+    };
+    sidebar.appendChild(newBtn);
+  }
+
+  var renderContent = function(){};  /* assigned below per tab */
 
   if(startTab === "visuals"){
-    // ── Visuals tab ──────────────────────────────────────────────────────────
-    pane.innerHTML = '<div style="text-align:center;padding:24px;color:#475569;font-size:13px;">Loading visuals…</div>';
+    content.innerHTML = '<div style="text-align:center;padding:24px;color:#475569;font-size:13px;">Loading videos…</div>';
     try{
       const vRes = await fetch("/api/visuals");
       const vData = await vRes.json();
       const visuals = vData.visuals || [];
-      pane.innerHTML = "";
-      if(!visuals.length){
-        pane.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:.3;">✨</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">No saved visuals yet</div><div style="font-size:13px;color:#475569;max-width:300px;line-height:1.6;">Ask a teammate to create an animation and click 💾 Save to add it here.</div></div>';
-        return;
-      }
-      const grid = document.createElement("div");
-      grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;";
-      visuals.forEach(function(v){
-        const card = document.createElement("div");
-        card.style.cssText = "border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:10px;background:rgba(14,22,48,.6);";
-        // Mini preview using iframe
-        const prev = document.createElement("div");
-        prev.style.cssText = "position:relative;height:130px;border-radius:8px;overflow:hidden;background:#060c1e;cursor:pointer;margin-bottom:8px;";
-        const fr = document.createElement("iframe");
-        fr.sandbox="allow-scripts allow-same-origin";
-        fr.srcdoc=v.html;
-        fr.style.cssText="width:100%;height:130px;border:none;pointer-events:none;transform:scale(0.85);transform-origin:top left;width:117.6%;height:152px;";
-        const overlay = document.createElement("div");
-        overlay.style.cssText = "position:absolute;inset:0;cursor:zoom-in;";
-        overlay.onclick = function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html, v.teammate, v.prompt); };
-        prev.appendChild(fr); prev.appendChild(overlay);
-        card.appendChild(prev);
-        const meta = document.createElement("div");
-        meta.style.cssText = "font-size:11px;color:#64748b;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-        meta.innerText = (v.prompt||"Visual animation") + (v.saved_at?" · "+v.saved_at:"");
-        meta.title = v.prompt||"";
-        card.appendChild(meta);
-        const actions = document.createElement("div");
-        actions.style.cssText = "display:flex;gap:6px;";
-        const openBtn = document.createElement("button");
-        openBtn.className="btn btnMini"; openBtn.innerText="⛶ Open";
-        openBtn.onclick=function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html, v.teammate, v.prompt); };
-        const dlBtn = document.createElement("button");
-        dlBtn.className="btn btnMini"; dlBtn.innerText="⬇ HTML";
-        dlBtn.onclick=function(){ var a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(v.html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); };
-        const delBtn = document.createElement("button");
-        delBtn.className="btn btnMini"; delBtn.style.cssText="color:#f87171;border-color:rgba(248,113,113,.3);"; delBtn.innerText="✕";
-        delBtn.onclick=async function(){
-          if(!confirm("Delete this visual?")) return;
-          await fetch("/api/visuals/"+v.id,{method:"DELETE"});
-          showImageLibraryModal("visuals");
-        };
-        actions.appendChild(openBtn); actions.appendChild(dlBtn); actions.appendChild(delBtn);
-        card.appendChild(actions);
-        grid.appendChild(card);
-      });
-      pane.appendChild(grid);
+      _buildSidebar("visuals");
+
+      renderContent = function(){
+        content.innerHTML="";
+        const f=_fldGet("visuals");
+        const filtered = _mlActiveFolder===null ? visuals : visuals.filter(v=>( f[_mlActiveFolder]||[]).indexOf(String(v.id))>-1);
+        if(!filtered.length){
+          content.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;gap:12px;text-align:center;color:#475569;font-size:13px;">'
+            +(_mlActiveFolder?'<div>No videos in this folder yet.</div><div style="font-size:11px;">Move videos here using the 📁 button on each card.</div>':'<div style="font-size:48px;opacity:.3;">🎥</div><div style="font-size:16px;font-weight:700;color:#e2e8f0;">No saved videos yet</div><div>Ask a teammate to create an animation and click 💾 Save to add it here.</div>')
+            +'</div>';
+          return;
+        }
+        const grid=document.createElement("div");
+        grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;";
+        filtered.forEach(function(v){
+          const card=document.createElement("div");
+          card.style.cssText="border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:10px;background:rgba(14,22,48,.6);";
+          const prev=document.createElement("div");
+          prev.style.cssText="position:relative;height:130px;border-radius:8px;overflow:hidden;background:#060c1e;cursor:pointer;margin-bottom:8px;";
+          const fr=document.createElement("iframe");
+          fr.sandbox="allow-scripts allow-same-origin";fr.srcdoc=v.html;
+          fr.style.cssText="width:117.6%;height:152px;border:none;pointer-events:none;transform:scale(0.85);transform-origin:top left;";
+          const ov=document.createElement("div");ov.style.cssText="position:absolute;inset:0;cursor:zoom-in;";
+          ov.onclick=function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html,v.teammate,v.prompt); };
+          prev.appendChild(fr);prev.appendChild(ov);card.appendChild(prev);
+          const meta=document.createElement("div");
+          meta.style.cssText="font-size:11px;color:#64748b;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+          meta.innerText=(v.prompt||"Visual animation")+(v.saved_at?" · "+v.saved_at:"");
+          card.appendChild(meta);
+          const actions=document.createElement("div");actions.style.cssText="display:flex;gap:5px;flex-wrap:wrap;";
+          function _vBtn(txt,fn){ var b=document.createElement("button");b.className="btn btnMini";b.innerText=txt;b.onclick=fn;return b; }
+          actions.appendChild(_vBtn("⛶ Open",function(){ if(typeof window._saOpenVisualFullscreen==="function") window._saOpenVisualFullscreen(v.html,v.teammate,v.prompt); }));
+          actions.appendChild(_vBtn("⬇ HTML",function(){ var a=document.createElement("a");a.href="data:text/html;charset=utf-8,"+encodeURIComponent(v.html);a.download="visual-"+Date.now()+".html";document.body.appendChild(a);a.click();document.body.removeChild(a); }));
+          /* Move to folder */
+          const moveBtn=_vBtn("📁",function(){
+            var folders=Object.keys(_fldGet("visuals"));
+            if(!folders.length){ alert("Create a folder first using + New Folder."); return; }
+            var opts=["(Remove from folder)"].concat(folders);
+            var choice=prompt("Move to folder:\n"+opts.map((f,i)=>i+". "+f).join("\n")+"\n\nEnter number:");
+            if(choice===null) return;
+            var idx=parseInt(choice);
+            if(isNaN(idx)) return;
+            if(idx===0){ _fldMoveItem("visuals",String(v.id),null); }
+            else if(opts[idx]){ _fldMoveItem("visuals",String(v.id),opts[idx]); }
+            _buildSidebar("visuals"); renderContent();
+          });
+          moveBtn.title="Move to folder";
+          actions.appendChild(moveBtn);
+          actions.appendChild(_vBtn("✕",async function(){
+            if(!confirm("Delete this video?")) return;
+            await fetch("/api/visuals/"+v.id,{method:"DELETE"});
+            _fldMoveItem("visuals",String(v.id),null);
+            _buildSidebar("visuals"); renderContent();
+          }));
+          card.appendChild(actions);grid.appendChild(card);
+        });
+        content.appendChild(grid);
+      };
+      renderContent();
     }catch(e){
-      pane.innerHTML = '<div style="color:#f87171;padding:20px;">Failed to load visuals: '+e.message+'</div>';
+      content.innerHTML='<div style="color:#f87171;padding:20px;">Failed to load videos: '+e.message+'</div>';
     }
     return;
   }
@@ -31805,107 +31904,107 @@ async function showImageLibraryModal(startTab){
     const res = await fetch("/api/images");
     const data = await res.json();
     if(!data.ok){
-      pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+escapeHtml(data.error||"Failed to load images")+'</div>';
+      content.innerHTML = '<div style="color:#f87171;padding:20px;">'+escapeHtml(data.error||"Failed to load images")+'</div>';
       return;
     }
     const imgs = data.images || [];
-
-    if(imgs.length === 0){
-      pane.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:0.4;">🖼️</div><div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div><div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style=\'color:#c4b5fd;\'>\"Create a logo for my business\"</em> and the image will appear here.</div></div>';
-      return;
-    }
-
-    pane.innerHTML = "";
-
-    // Toolbar: image count + download-all
-    const toolbar = document.createElement("div");
-    toolbar.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;";
-    toolbar.innerHTML = `
-      <span style="font-size:12px;color:#475569;font-weight:600;">${imgs.length} image${imgs.length===1?"":"s"}</span>
-      <div style="display:flex;gap:8px;">
-        <button id="mlSizeSmall" class="btn btnMini" title="Small grid" style="font-size:13px;padding:3px 8px;">⊞</button>
-        <button id="mlSizeLarge" class="btn btnMini btnPrimary" title="Large grid" style="font-size:13px;padding:3px 8px;">⊟</button>
-      </div>`;
-    pane.appendChild(toolbar);
+    _buildSidebar("images");
 
     let _mlCols = "repeat(auto-fill,minmax(280px,1fr))";
     let _mlHeight = "220px";
 
-    const grid = document.createElement("div");
-    grid.style.cssText = `display:grid;grid-template-columns:${_mlCols};gap:14px;`;
+    renderContent = function(){
+      content.innerHTML="";
+      const f=_fldGet("images");
+      const filtered = _mlActiveFolder===null ? imgs : imgs.filter(r=>(f[_mlActiveFolder]||[]).indexOf(r.url)>-1);
 
-    function _mlRebuild(cols, h){
-      _mlCols=cols; _mlHeight=h;
-      grid.style.gridTemplateColumns=cols;
-      grid.querySelectorAll(".ml-img").forEach(im=>im.style.height=h);
-    }
-
-    toolbar.querySelector("#mlSizeSmall").onclick=()=>{ _mlRebuild("repeat(auto-fill,minmax(180px,1fr))","150px"); };
-    toolbar.querySelector("#mlSizeLarge").onclick=()=>{ _mlRebuild("repeat(auto-fill,minmax(280px,1fr))","220px"); };
-
-    imgs.slice(0, 200).forEach((r)=>{
-      const card = document.createElement("div");
-      card.style.cssText = "position:relative;border-radius:14px;overflow:hidden;background:rgba(7,11,28,.8);border:1px solid rgba(42,58,106,.4);cursor:zoom-in;group;transition:border-color .15s,box-shadow .15s;";
-      card.onmouseenter=()=>{ card.style.borderColor="rgba(124,58,237,.5)"; card.style.boxShadow="0 8px 32px rgba(0,0,0,.5)"; overlay.style.opacity="1"; };
-      card.onmouseleave=()=>{ card.style.borderColor="rgba(42,58,106,.4)"; card.style.boxShadow=""; overlay.style.opacity="0"; };
-
-      const im = document.createElement("img");
-      im.src = r.url;
-      im.alt = r.filename || "image";
-      im.className = "ml-img";
-      im.style.cssText = `width:100%;height:${_mlHeight};object-fit:cover;display:block;transition:transform .2s;`;
-      im.onmouseenter=()=>im.style.transform="scale(1.03)";
-      im.onmouseleave=()=>im.style.transform="";
-      im.onclick = ()=> openLightbox(r.url);
-
-      // Hover overlay with actions
-      const overlay = document.createElement("div");
-      overlay.style.cssText = "position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(4,8,24,.95) 100%);opacity:0;transition:opacity .18s;pointer-events:none;";
-
-      const actionBar = document.createElement("div");
-      actionBar.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:10px 10px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;";
-
-      const metaSpan = document.createElement("span");
-      metaSpan.style.cssText = "font-size:11px;color:#94a3b8;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50%;";
-      metaSpan.innerText = r.teammate || "";
-
-      const btnRow = document.createElement("div");
-      btnRow.style.cssText = "display:flex;gap:5px;flex-shrink:0;";
-
-      function _mlBtn(label, title, onClick){
-        const b = document.createElement("button");
-        b.className="btn btnMini";
-        b.innerText=label; b.title=title;
-        b.style.cssText="font-size:11px;padding:3px 8px;background:rgba(7,11,28,.85);border-color:rgba(100,116,139,.4);";
-        b.onclick=e=>{e.stopPropagation();onClick();};
-        return b;
+      if(!filtered.length){
+        content.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;">'
+          +(_mlActiveFolder?'<div style="color:#475569;font-size:13px;">No images in this folder yet.<br><span style="font-size:11px;">Move images here using the 📁 button on each card.</span></div>'
+            :'<div style="font-size:48px;opacity:0.4;">🖼️</div><div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div><div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic and the image will appear here.</div>')
+          +'</div>';
+        return;
       }
 
-      btnRow.appendChild(_mlBtn("⛶","Open full size",()=>openLightbox(r.url)));
-      btnRow.appendChild(_mlBtn("⬇","Download",()=>{
-        const a=document.createElement("a");
-        a.href=r.url; a.download=r.url.split("/").pop()||"image.png";
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      }));
-      btnRow.appendChild(_mlBtn("🔗","Copy link",()=>{
-        const fullUrl=window.location.origin+r.url;
-        navigator.clipboard.writeText(fullUrl).then(()=>showToast("Link copied!")).catch(()=>prompt("Copy link:",fullUrl));
-      }));
+      const toolbar = document.createElement("div");
+      toolbar.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;";
+      toolbar.innerHTML = `<span style="font-size:12px;color:#475569;font-weight:600;">${filtered.length} image${filtered.length===1?"":"s"}</span>
+        <div style="display:flex;gap:8px;">
+          <button id="mlSizeSmall" class="btn btnMini" title="Small" style="font-size:13px;padding:3px 8px;">⊞</button>
+          <button id="mlSizeLarge" class="btn btnMini btnPrimary" title="Large" style="font-size:13px;padding:3px 8px;">⊟</button>
+        </div>`;
+      content.appendChild(toolbar);
 
-      actionBar.appendChild(metaSpan);
-      actionBar.appendChild(btnRow);
-      overlay.style.pointerEvents="none";
-      actionBar.style.pointerEvents="auto";
+      const grid = document.createElement("div");
+      grid.style.cssText = `display:grid;grid-template-columns:${_mlCols};gap:14px;`;
 
-      card.appendChild(im);
-      card.appendChild(overlay);
-      card.appendChild(actionBar);
-      grid.appendChild(card);
-    });
+      toolbar.querySelector("#mlSizeSmall").onclick=()=>{ _mlCols="repeat(auto-fill,minmax(180px,1fr))";_mlHeight="150px"; grid.style.gridTemplateColumns=_mlCols; grid.querySelectorAll(".ml-img").forEach(im=>im.style.height=_mlHeight); };
+      toolbar.querySelector("#mlSizeLarge").onclick=()=>{ _mlCols="repeat(auto-fill,minmax(280px,1fr))";_mlHeight="220px"; grid.style.gridTemplateColumns=_mlCols; grid.querySelectorAll(".ml-img").forEach(im=>im.style.height=_mlHeight); };
 
-    pane.appendChild(grid);
+      filtered.slice(0,200).forEach((r)=>{
+        const card = document.createElement("div");
+        card.style.cssText = "position:relative;border-radius:14px;overflow:hidden;background:rgba(7,11,28,.8);border:1px solid rgba(42,58,106,.4);cursor:zoom-in;transition:border-color .15s,box-shadow .15s;";
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(4,8,24,.95) 100%);opacity:0;transition:opacity .18s;pointer-events:none;";
+        card.onmouseenter=()=>{ card.style.borderColor="rgba(124,58,237,.5)"; card.style.boxShadow="0 8px 32px rgba(0,0,0,.5)"; overlay.style.opacity="1"; };
+        card.onmouseleave=()=>{ card.style.borderColor="rgba(42,58,106,.4)"; card.style.boxShadow=""; overlay.style.opacity="0"; };
+
+        const im = document.createElement("img");
+        im.src = r.url; im.alt = r.filename||"image"; im.className="ml-img";
+        im.style.cssText = `width:100%;height:${_mlHeight};object-fit:cover;display:block;transition:transform .2s;`;
+        im.onmouseenter=()=>im.style.transform="scale(1.03)";
+        im.onmouseleave=()=>im.style.transform="";
+        im.onclick = ()=> openLightbox(r.url);
+
+        const actionBar = document.createElement("div");
+        actionBar.style.cssText = "position:absolute;bottom:0;left:0;right:0;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;";
+
+        const metaSpan = document.createElement("span");
+        metaSpan.style.cssText = "font-size:11px;color:#94a3b8;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%;";
+        metaSpan.innerText = r.teammate||"";
+
+        const btnRow = document.createElement("div");
+        btnRow.style.cssText = "display:flex;gap:4px;flex-shrink:0;";
+
+        function _mlBtn(label,title,onClick){
+          const b=document.createElement("button");b.className="btn btnMini";b.innerText=label;b.title=title;
+          b.style.cssText="font-size:11px;padding:3px 7px;background:rgba(7,11,28,.85);border-color:rgba(100,116,139,.4);";
+          b.onclick=e=>{e.stopPropagation();onClick();};return b;
+        }
+
+        btnRow.appendChild(_mlBtn("⛶","Open",()=>openLightbox(r.url)));
+        btnRow.appendChild(_mlBtn("⬇","Download",()=>{ const a=document.createElement("a");a.href=r.url;a.download=r.url.split("/").pop()||"image.png";document.body.appendChild(a);a.click();document.body.removeChild(a); }));
+        btnRow.appendChild(_mlBtn("🔗","Copy link",()=>{ const u=window.location.origin+r.url; navigator.clipboard.writeText(u).then(()=>showToast("Link copied!")).catch(()=>prompt("Copy link:",u)); }));
+        /* Move to folder */
+        btnRow.appendChild(_mlBtn("📁","Move to folder",()=>{
+          var folders=Object.keys(_fldGet("images"));
+          if(!folders.length){ alert("Create a folder first using + New Folder."); return; }
+          var opts=["(Remove from folder)"].concat(folders);
+          var choice=prompt("Move to folder:\n"+opts.map((fn,i)=>i+". "+fn).join("\n")+"\n\nEnter number:");
+          if(choice===null) return;
+          var idx=parseInt(choice);
+          if(isNaN(idx)) return;
+          if(idx===0){ _fldMoveItem("images",r.url,null); }
+          else if(opts[idx]){ _fldMoveItem("images",r.url,opts[idx]); }
+          _buildSidebar("images"); renderContent();
+        }));
+
+        actionBar.appendChild(metaSpan); actionBar.appendChild(btnRow);
+        overlay.style.pointerEvents="none"; actionBar.style.pointerEvents="auto";
+        card.appendChild(im); card.appendChild(overlay); card.appendChild(actionBar);
+        grid.appendChild(card);
+      });
+      content.appendChild(grid);
+    };
+
+    if(!imgs.length){
+      content.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:14px;text-align:center;"><div style="font-size:48px;opacity:0.4;">🖼️</div><div style="font-size:18px;font-weight:700;color:#e6edff;opacity:0.75;">No images yet</div><div style="font-size:14px;color:rgba(180,196,255,.6);max-width:320px;line-height:1.6;">Ask a teammate to create a graphic — type something like <em style=\'color:#c4b5fd;\'>\"Create a logo for my business\"</em> and the image will appear here.</div></div>';
+      return;
+    }
+
+    renderContent();
   }catch(e){
-    pane.innerHTML = '<div style="color:#f87171;padding:20px;">'+String(e||"Failed to load images")+'</div>';
+    content.innerHTML = '<div style="color:#f87171;padding:20px;">'+String(e||"Failed to load images")+'</div>';
   }
 }
 
