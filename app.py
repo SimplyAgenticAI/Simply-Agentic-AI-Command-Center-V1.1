@@ -34622,6 +34622,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
     if(!modal._wmReady){
       modal._wmReady = true;
       saWM.attachFloat(modal, function(){ return '📊 Operator Dashboard'; }, '📊', function(){ modal.style.display='none'; saWM._updateTaskbar(); });
+      var nb=document.getElementById('saNavBar'); var navH=(nb?nb.offsetHeight:54)+8;
+      var W=Math.min(1100,Math.round(window.innerWidth*.9));
+      var H=Math.min(820,Math.round((window.innerHeight-navH)*.92));
+      modal.style.width=W+'px'; modal.style.height=H+'px';
+      modal.style.top=navH+'px'; modal.style.left=Math.round((window.innerWidth-W)/2)+'px';
+      modal.style.borderRadius='12px';
     }
     if(modal.classList.contains('sa-minimized')){ saWM.minimize(modal); return; }
     modal.style.display = "flex";
