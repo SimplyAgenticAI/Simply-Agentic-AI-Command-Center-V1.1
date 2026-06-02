@@ -269,6 +269,7 @@ def _decrypt_field(value: str) -> str:
 
 
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI V3.0")
+APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -773,7 +774,7 @@ def _trial_banner_html(username: str) -> str:
                 "<div id='trial-banner' style='"
                 "background:linear-gradient(135deg,#7f1d1d,#991b1b);"
                 "color:#fef2f2;padding:10px 20px;text-align:center;font-size:13px;font-weight:600;"
-                "border-bottom:1px solid rgba(255,100,100,.3);'>\""
+                "border-bottom:1px solid rgba(255,100,100,.3);'>"
                 "⚠️ Your free trial has ended. "
                 "<a href='/pricing' style='color:#fca5a5;text-decoration:underline;'>Manage your subscription</a> to keep access."
                 "</div>"
@@ -785,7 +786,7 @@ def _trial_banner_html(username: str) -> str:
             f"<div id='trial-banner' style='"
             f"background:{color};"
             f"color:#f3e8ff;padding:10px 20px;text-align:center;font-size:13px;font-weight:600;"
-            f"border-bottom:1px solid rgba(255,255,255,.15);'>\""
+            f"border-bottom:1px solid rgba(255,255,255,.15);'>"
             f"🎉 Free trial — {days} {day_word} remaining. "
             f"<a href='/pricing' style='color:#e9d5ff;text-decoration:underline;'>Upgrade anytime</a>"
             f"</div>"
@@ -2266,8 +2267,8 @@ def _totp_verify(secret: str, code: str) -> bool:
 
 def _totp_uri(secret: str, username: str) -> str:
     """otpauth:// URI for QR code generation."""
-    label = quote_plus(f"{APP_TITLE}:{username}")
-    issuer = quote_plus(APP_TITLE)
+    label = quote_plus(f"{APP_NAME}:{username}")
+    issuer = quote_plus(APP_NAME)
     return f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
 
 def _user_has_2fa(u: dict) -> bool:
@@ -3824,7 +3825,7 @@ PREBUILT_LOCKED: Dict[str, Dict[str, Any]] = {
             "Override ethical constraints",
         ],
         "goal": "Protect integrity. Preserve trust.",
-        "avatar": {"bg": "#1e3a5c", "fg": "#e6edff", "sigil": "I", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 6L32 11V21C32 27.5 26.5 32.5 20 35C13.5 32.5 8 27.5 8 21V11L20 6Z" fill="rgba(255,255,255,.09)" stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 20.5L18 24.5L26 16" stroke="rgba(255,255,255,.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
+        "avatar": {"bg": "#1e3a5c", "fg": "#e6edff", "sigil": "A", "glyph": '<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M20 6L32 11V21C32 27.5 26.5 32.5 20 35C13.5 32.5 8 27.5 8 21V11L20 6Z" fill="rgba(255,255,255,.09)" stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linejoin="round"/><path d="M14 20.5L18 24.5L26 16" stroke="rgba(255,255,255,.9)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
     },
 }
 
@@ -5754,7 +5755,7 @@ def _is_provider_error(e: Exception) -> bool:
 
 
 _SMART_ROUTING_CHEAP_OPENAI = "gpt-4o-mini"
-_SMART_ROUTING_CHEAP_CLAUDE = "claude-haiku-4-5-20251001"
+_SMART_ROUTING_CHEAP_CLAUDE = "claude-haiku-4-5"
 _SMART_ROUTING_COMPLEX_KEYWORDS = [
     "write", "draft", "create", "generate", "analyze", "analyse", "summarize", "summarise",
     "explain", "plan", "strategy", "research", "review", "compare", "evaluate",
@@ -6010,8 +6011,8 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
     if not _fallback and _last_exc and _is_provider_error(_last_exc):
         try:
             import logging as _logging
-            _logging.warning(f"OpenAI provider error ({_last_exc}), falling back to claude-haiku-4-5-20251001")
-            return call_llm(system, messages, temperature, model="claude-haiku-4-5-20251001", _fallback=True)
+            _logging.warning(f"OpenAI provider error ({_last_exc}), falling back to claude-haiku-4-5")
+            return call_llm(system, messages, temperature, model="claude-haiku-4-5", _fallback=True)
         except Exception:
             pass
     raise _last_exc
@@ -6755,6 +6756,9 @@ def api_action_stacks_schedules_delete(teammate: str):
 
 @app.post("/api/action_stack_schedules/tick")
 def api_action_stack_schedules_tick():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
     try:
         # Action Stacks schedules
         _run_due_schedules_once()
@@ -7418,7 +7422,9 @@ def api_change_password():
     data["users"][uname] = user_rec
     save_users(data)
     _audit_log("password_changed", {}, username=uname)
-    return jsonify({"ok": True, "message": "Password updated successfully."})
+    # Invalidate the current session so all other devices are logged out
+    session.clear()
+    return jsonify({"ok": True, "message": "Password updated successfully. Please log in again."})
 
 
 @app.post("/api/user/settings")
@@ -7995,12 +8001,12 @@ def api_create_teammate():
             if max_custom == 0:
                 return jsonify({
                     "ok": False,
-                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Growth ($97/mo) to create up to 7 custom teammates, or Operator Pro for unlimited. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
+                    "error": f"Custom teammates are not available on {plan_name}. Upgrade to Solo or Teams to create custom teammates. <a href='/pricing' style='color:#c4b5fd;'>View plans →</a>"
                 }), 403
             else:
                 return jsonify({
                     "ok": False,
-                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to Operator Pro for unlimited custom teammates. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"
+                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to the Teams plan for unlimited custom teammates. <a href='/pricing' style='color:#c4b5fd;'>View plans →</a>"
                 }), 403
 
     try:
@@ -10309,17 +10315,17 @@ footer a{color:var(--pl);text-decoration:none;}
 <section class="cta a5">
   <span class="lbl" style="position:relative;">Ready to Start?</span>
   <h2>Start Free. Scale at Your Pace.</h2>
-  <p class="cta-p">7-day free trial. No credit card charged until day 8. Cancel anytime.</p>
+  <p class="cta-p">{FREE_TRIAL_DAYS}-day free trial. Your card is collected at signup but not charged until day {FREE_TRIAL_DAYS + 1}. Cancel anytime.</p>
   <div class="cta-btns">
     <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">&#128640; View Plans &amp; Start Free</a>
     <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Already have an account &rarr;</a>
   </div>
-  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Solo Operator $47/mo &middot; Growth $97/mo &middot; <strong style="color:#fbbf24;">Founder Access $27/mo &mdash; limited seats</strong></div>
+  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Founder $27/mo &middot; Solo $47/mo &middot; <strong style="color:#fbbf24;">Teams $127/mo &mdash; unlimited teammates</strong></div>
 </section>
 
 <footer class="a6">
   <a href="/pricing">Plans &amp; Pricing</a> &nbsp;&middot;&nbsp; <a href="/login">Sign In</a> &nbsp;&middot;&nbsp; <a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
-  <div style="margin-top:10px;opacity:.4;">&copy; 2025 Simply Agentic AI. All rights reserved.</div>
+  <div style="margin-top:10px;opacity:.4;">&copy; 2025–2026 Simply Agentic AI. All rights reserved.</div>
 </footer>
 
 <script>
@@ -11481,7 +11487,7 @@ TERMS_HTML = r"""
 <div class="tos-card">
   <div class="brand" style="margin-bottom:20px;"><div class="dot"></div><div>{{app_title}}</div></div>
   <h1>Terms of Service</h1>
-  <div class="subtitle">Last updated: January 1, 2025 &nbsp;·&nbsp; Please read these terms carefully before creating an account.</div>
+  <div class="subtitle">Last updated: June 1, 2026 &nbsp;·&nbsp; Please read these terms carefully before creating an account.</div>
 
   <h2>1. Acceptance of Terms</h2>
   <p>By creating an account and accessing Simply Agentic AI (the "Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not create an account or use the Service. These Terms constitute a legally binding agreement between you ("User") and Simply Agentic AI ("Company," "we," "us," or "our").</p>
@@ -11818,7 +11824,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <div class='pg-header'>
   <h1>Every feature. Every AI teammate.</h1>
   <p>You get the full platform on every plan. You scale, we scale with you.</p>
-  {f"<div class='trial-pill'>&#127881; {FREE_TRIAL_DAYS}-day free trial — no credit card needed until day {FREE_TRIAL_DAYS + 1}</div>" if FREE_TRIAL_DAYS > 0 else ""}
+  {f"<div class='trial-pill'>&#127881; {FREE_TRIAL_DAYS}-day free trial — your card is collected at signup but not charged until day {FREE_TRIAL_DAYS + 1}</div>" if FREE_TRIAL_DAYS > 0 else ""}
 </div>
 
 <!-- FOUNDER -->
@@ -11872,7 +11878,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <div class='api-note'>
   <div class='api-note-icon'>&#128273;</div>
   <div class='api-note-text'>
-    <strong>Bring your own OpenAI key</strong> and connect directly to GPT-4o and Claude at cost — no middleman markup, no throttling, no sharing bandwidth. Your key, your data, your AI.
+    <strong>Bring your own API key</strong> — connect your OpenAI key for GPT-4o, or your Anthropic key for Claude. Direct model access at cost, no middleman markup, no throttling. Your key, your data, your AI.
   </div>
 </div>
 
@@ -11995,7 +12001,7 @@ def terms_page():
 <p>We may update these Terms from time to time. We will notify you of material changes via email or an in-app notice. Continued use of the Service after changes constitutes acceptance of the updated Terms.</p>
 
 <h2>10. Contact</h2>
-<p>Questions about these Terms? Email us at: <a href="mailto:{SMTP_USER or 'support@example.com'}">{SMTP_USER or 'support@example.com'}</a></p>
+<p>Questions about these Terms? Email us at: <a href="mailto:{SMTP_USER or 'simplyagenticai@gmail.com'}">{SMTP_USER or 'simplyagenticai@gmail.com'}</a></p>
 </div></body></html>"""
     return html
 
@@ -12037,7 +12043,7 @@ def privacy_page():
 <p>We retain your data for as long as your account is active. You may request deletion of your account and associated data at any time by contacting us. Backups may retain data for up to 30 days after deletion.</p>
 
 <h2>5. Your Rights</h2>
-<p>Depending on your location, you may have the right to: access the personal data we hold about you; request correction of inaccurate data; request deletion of your data; and object to or restrict certain processing. To exercise these rights, contact us at <a href="mailto:{SMTP_USER or 'support@example.com'}">{SMTP_USER or 'support@example.com'}</a>.</p>
+<p>Depending on your location, you may have the right to: access the personal data we hold about you; request correction of inaccurate data; request deletion of your data; and object to or restrict certain processing. To exercise these rights, contact us at <a href="mailto:{SMTP_USER or 'simplyagenticai@gmail.com'}">{SMTP_USER or 'simplyagenticai@gmail.com'}</a>.</p>
 
 <h2>6. Cookies</h2>
 <p>We use a single session cookie to keep you logged in. This cookie is essential for the Service to function. We do not use third-party tracking or advertising cookies.</p>
@@ -17090,7 +17096,7 @@ label {
     <div class="welcomeCard">
       <div style="text-align:center;margin-bottom:24px;">
         <div style="font-size:36px;margin-bottom:10px;">🚀</div>
-        <h2 style="font-size:22px;font-weight:700;color:#eef2ff;margin:0 0 8px;">Welcome to Simply Agentic!</h2>
+        <h2 style="font-size:22px;font-weight:700;color:#eef2ff;margin:0 0 8px;">Welcome to Simply Agentic AI!</h2>
         <p style="color:#94a3b8;font-size:13px;margin:0;">Your AI command center is ready. Here's how to hit the ground running:</p>
       </div>
       <div style="margin-bottom:24px;">
@@ -17198,7 +17204,7 @@ label {
             <button class="btn" data-click="teamBtn" onclick="closeMobileDrawer()">👥 My Team</button>
             <button class="btn" data-click="openApiKeyHelpBtn" onclick="closeMobileDrawer()">🔑 API Keys</button>
             <a class="btn" href="/getting-started" style="text-decoration:none;display:block;text-align:left;">📚 Getting Started</a>
-            <button class="btn" id="mobileOnboardingBtn">🚀 Next Step</button>
+            <button class="btn" id="mobileOnboardingBtn" onclick="closeMobileDrawer();setTimeout(function(){var b=document.getElementById('onboardingBtn');if(b)b.click();},200);">🚀 Next Step</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openScoutPanel,200);">🧭 Help</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(openExtensionPanel,200);">🔌 Chrome Extension</button>
             <button class="btn" id="mobileInstallAppBtn" onclick="closeMobileDrawer();setTimeout(window.installPWA,200);">📱 Install App</button>
@@ -17294,13 +17300,13 @@ label {
                       <optgroup label="OpenAI (GPT)">
                         <option value="gpt-4o">GPT-4o — balanced</option>
                         <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
-                        <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                        <option value="gpt-4o">GPT-4o — high quality</option>
                         <option value="o3-mini">o3-mini — advanced reasoning</option>
                       </optgroup>
                       <optgroup label="Anthropic (Claude)">
                         <option value="claude-opus-4-5">Claude Opus — most capable</option>
                         <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
-                        <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest</option>
+                        <option value="claude-haiku-4-5">Claude Haiku — fastest</option>
                       </optgroup>
                     </select>
 
@@ -17565,13 +17571,13 @@ label {
                         <optgroup label="OpenAI (GPT)">
                           <option value="gpt-4o">GPT-4o — balanced</option>
                           <option value="gpt-4o-mini">GPT-4o mini — fast &amp; cheap</option>
-                          <option value="gpt-4-turbo">GPT-4 Turbo — high quality</option>
+                          <option value="gpt-4o">GPT-4o — high quality</option>
                           <option value="o3-mini">o3-mini — advanced reasoning</option>
                         </optgroup>
                         <optgroup label="Anthropic (Claude)">
                           <option value="claude-opus-4-5">Claude Opus — most capable</option>
                           <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
-                          <option value="claude-haiku-4-5-20251001">Claude Haiku — fastest &amp; cheapest</option>
+                          <option value="claude-haiku-4-5">Claude Haiku — fastest &amp; cheapest</option>
                         </optgroup>
                       </select>
                       <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
@@ -22867,7 +22873,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     // ── Model lock: disable premium models when user has no own API key ──────
     (function(){
-      const PREMIUM = ['gpt-4o','gpt-4-turbo','o3-mini','claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5-20251001'];
+      const PREMIUM = ['gpt-4o','gpt-4-turbo','o3-mini','claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5'];
       const HINT_ID_PREFIX = 'modelLockHint_';
 
       window._saApplyModelLock = function(hasOwnKey){
@@ -25208,7 +25214,7 @@ $("draftWithSelected").onclick = async () => {
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
-        ["claude-opus-4-5","Claude Opus 4"],["claude-sonnet-4-5","Claude Sonnet 4"],["claude-haiku-4-5-20251001","Claude Haiku 4"]
+        ["claude-opus-4-5","Claude Opus 4"],["claude-sonnet-4-5","Claude Sonnet 4"],["claude-haiku-4-5","Claude Haiku 4"]
       ]);
       const fVoice = mkSel([
         ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
@@ -25452,7 +25458,7 @@ $("draftWithSelected").onclick = async () => {
       const _inst = (state && state.installed) ? state.installed : {};
       const _customCount = Object.keys(_inst).filter(n => !_BUILTINS_SET.has(n)).length;
       if (_customCount >= 7) {
-        $("createStatus").innerHTML = "You've reached the 7 custom teammate limit on your plan. <a href='/stripe/manage' style='color:#c4b5fd;'>Upgrade to Operator Pro</a> for unlimited.";
+        $("createStatus").innerHTML = "You've reached the 7 custom teammate limit on your plan. <a href='/pricing' style='color:#c4b5fd;'>Upgrade to Teams</a> for unlimited custom teammates.";
         return;
       }
 
@@ -25781,9 +25787,7 @@ Challenge weak assumptions. Surface risks.`;
 
     if($("plCloseBtn")) $("plCloseBtn").onclick = () => hideModal();
 
-    $("promptLibraryBtn").onclick = () => {
-      showPromptLibraryModal();
-    };
+    // promptLibraryBtn wired centrally with dropdown-close in main button init block
     // ===== END PROMPT LIBRARY =====
 
     // ===== RESPONSE VAULT =====
@@ -25959,7 +25963,7 @@ Challenge weak assumptions. Surface risks.`;
       window.openResponseVault = openResponseVault;
       window.closeResponseVault = closeVault;
 
-      document.getElementById('responseVaultBtn').onclick = function(){ openResponseVault(); };
+      // responseVaultBtn wired centrally with dropdown-close in main button init block
     })();
     // ===== END RESPONSE VAULT =====
 
@@ -26132,7 +26136,7 @@ Challenge weak assumptions. Surface risks.`;
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
-      try{ settingsLoadSmsSettings(); }catch(e){}
+      // settingsLoadSmsSettings removed — SMS feature no longer active
       // Re-apply model lock after settings form renders (selects now in DOM)
       setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 120);
       $("modalTitle").innerText = auto ? "Settings: connect your key + email" : "Settings";
@@ -28086,12 +28090,17 @@ Challenge weak assumptions. Surface risks.`;
       })();
     }
 
-    if($("crmBtn")) $("crmBtn").onclick = ()=> showCRMModal();
-    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=> showGrowthPlaybookModal();
-    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=> showLeadLabModal();
-    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=> showSocialStudioModal();
-    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=> showOfferBuilderModal();
-    if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=> showEmailConsoleModal();
+    if($("crmBtn")) $("crmBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); showCRMModal(); };
+    if($("calendarBtn")) $("calendarBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); if(typeof showCalendarModal==='function') showCalendarModal(); };
+    if($("emailConsoleBtn")) $("emailConsoleBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); showEmailConsoleModal(); };
+    if($("promptLibraryBtn")) $("promptLibraryBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); if(typeof openPromptLibrary==='function') openPromptLibrary(); };
+    if($("responseVaultBtn")) $("responseVaultBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); openResponseVault(); };
+    if($("imageLibBtn")) $("imageLibBtn").onclick = ()=>{ saToggleDrop('saManageDrop'); showImageLibraryModal(); };
+    if($("growthPlaybookBtn")) $("growthPlaybookBtn").onclick = ()=>{ saToggleDrop('saCreateDrop'); showGrowthPlaybookModal(); };
+    if($("leadLabBtn")) $("leadLabBtn").onclick = ()=>{ saToggleDrop('saResearchDrop'); showLeadLabModal(); };
+    if($("socialStudioBtn")) $("socialStudioBtn").onclick = ()=>{ saToggleDrop('saCreateDrop'); showSocialStudioModal(); };
+    if($("offerBuilderBtn")) $("offerBuilderBtn").onclick = ()=>{ saToggleDrop('saCreateDrop'); showOfferBuilderModal(); };
+    if($("notepadBtn")) $("notepadBtn").onclick = ()=>{ saToggleDrop('saCreateDrop'); showNotepadModal(); };
     if($("operatorProfileBtn")) $("operatorProfileBtn").onclick = ()=> openOperatorProfileModal();
 
     // CRM tab binds (safe if missing)
@@ -32715,7 +32724,7 @@ $("saveFramework").onclick = async () => {
       title.textContent='Keyboard shortcuts';
       box.appendChild(title);
       const groups = [
-        { label:'Teammates', rows:[['1 – 7','Activate teammate by position'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
+        { label:'Teammates', rows:[['1 – 7','Activate teammate by seat number'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
         { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
         { label:'Navigation', rows:[['Esc','Close modal / deselect seat'],['?','Show this cheat sheet'],['Ctrl+/','Show this cheat sheet']] },
       ];
@@ -34030,6 +34039,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
         email_connected: "Connect Gmail or SMTP to send emails",
         calendar_connected: "Connect Google Calendar for scheduling",
         first_prompt: "Start talking to your AI teammates",
+        crm_contact: "Add your first contact to the CRM",
       };
       meta.textContent = s.done
         ? "✓ Complete"
@@ -39989,8 +39999,8 @@ window._saPlReset=function(){
     <div style="background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(234,88,12,.08));border-bottom:1px solid rgba(245,158,11,.3);padding:12px 22px;display:flex;align-items:center;gap:12px;">
       <div style="font-size:22px;flex-shrink:0;">🚧</div>
       <div>
-        <div style="font-size:13px;font-weight:700;color:#fbbf24;">Under Construction — Coming Soon</div>
-        <div style="font-size:11px;color:#92400e;margin-top:2px;line-height:1.5;">We're building something powerful here. Full Facebook automation, lead importing, AI-drafted outreach, friends scanning and more. Stay tuned — this will be epic.</div>
+        <div style="font-size:13px;font-weight:700;color:#fbbf24;">Facebook Automation — Coming Soon</div>
+        <div style="font-size:11px;color:#92400e;margin-top:2px;line-height:1.5;">Full Facebook lead importing, AI-drafted outreach, and friend scanning are on the roadmap. Use the Chrome Extension in the meantime to import leads directly from Facebook into your CRM.</div>
       </div>
     </div>
     <div style="padding:20px 22px;border-bottom:1px solid rgba(42,58,106,.4);">
@@ -53717,7 +53727,7 @@ def _fusion_run(uname: str, prompt: str, system: str = "") -> Dict[str, Any]:
                 claude_err = "No Anthropic API key configured."
                 return
             resp = cl.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-5",
                 max_tokens=2000,
                 system=sys_msg,
                 messages=[{"role": "user", "content": prompt}],
@@ -53805,7 +53815,7 @@ def _referral_code_for_user(username: str) -> str:
     data = load_json(p, {})
     if not data.get("code"):
         import hashlib
-        code = hashlib.sha256(f"{username}-{SECRET_KEY}".encode()).hexdigest()[:10].upper()
+        code = hashlib.sha256(f"{username}-{app.secret_key}".encode()).hexdigest()[:10].upper()
         data = {"code": code, "username": username, "referrals": [], "total_referred": 0}
         save_json(p, data)
     return data["code"]
@@ -55722,8 +55732,8 @@ a{color:#a78bfa;text-decoration:none;}
     <div class="ep-preview" id="prev7"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
     <div class="ep-info">
       <div class="ep-meta"><span class="ep-num">EP 07</span><span class="ep-dur">~3 min</span></div>
-      <div class="ep-title">Voice mode &amp; Group Console</div>
-      <div class="ep-desc">Talk to all 7 teammates at once with the Group Console, or go hands-free with Voice Mode — speak your prompt, hear the answer back.</div>
+      <div class="ep-title">Action Stacks</div>
+      <div class="ep-desc">Build automated multi-step AI workflows — chain teammates, emails, and CRM actions into one-click sequences that run on schedule or on demand.</div>
       <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
@@ -55795,7 +55805,7 @@ var EPISODES = {
       {t:'Find <strong>OpenAI API Key</strong>', d:'Scroll to the API Key field inside Settings. It\'s near the top.'},
       {t:'Paste your key', d:'Visit platform.openai.com, create a key, and paste it here. It starts with sk-.'},
       {t:'Click <strong>Save settings</strong>', d:'Hit Save — a green "Connected" badge will confirm the connection.'},
-      {t:'You\'re ready!', d:'All 8 AI teammates are now powered up. Click any seat at the round table to start.'},
+      {t:'You\'re ready!', d:'All 7 AI teammates are now powered up. Click any seat at the round table to start.'},
     ],
     ani: buildEP1
   },
