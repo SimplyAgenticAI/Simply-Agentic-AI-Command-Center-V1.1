@@ -44028,7 +44028,7 @@ function _saRenderTaskbar(){
     var info = window._saMinimized[key];
     var btn = document.createElement('button');
     btn.className = 'sa-tb-item';
-    btn.innerHTML = info.icon+' '+info.title+' <span class="sa-tb-x" title="Close">✕</span>';
+    btn.innerHTML = info.title+' <span class="sa-tb-x" title="Close">✕</span>';
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       if(e.target.classList.contains('sa-tb-x')){
