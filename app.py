@@ -14094,6 +14094,7 @@ HTML = r"""
       white-space: pre-wrap;
       word-break: break-word;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
+      contain: layout style; /* isolate reflows so streaming updates don't thrash the whole page */
     }
 
     /* Exchange grouping — tighter within same speaker, more space between turns */
@@ -23784,14 +23785,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 fullText+=ev.token;
                 if(aBody){
                   if(_vsdFirstToken){ _vsdFirstToken=false; aBody.innerHTML=""; }
-                  const _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
-                  if(typeof window.saMarkdown==="function"){
-                    aBody.innerHTML=window.saMarkdown(_st||fullText);
-                  } else {
-                    aBody.innerText=_st||fullText;
+                  // Batch DOM writes to one per animation frame — eliminates flicker
+                  if(!aBody._rafPending){
+                    aBody._rafPending=true;
+                    requestAnimationFrame(function(){
+                      aBody._rafPending=false;
+                      var _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
+                      // textContent avoids full DOM reconstruction on every token
+                      aBody.textContent=_st||fullText;
+                      if(aCursor) aBody.appendChild(aCursor);
+                      if(threadEl) threadEl.scrollTop=threadEl.scrollHeight;
+                    });
                   }
-                  if(aCursor) aBody.appendChild(aCursor);
-                  if(threadEl) threadEl.scrollTop=threadEl.scrollHeight;
                 }
               }
               if(ev.done){
@@ -24778,7 +24783,7 @@ function _saJobNotify(seatName, status){
             try{
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
-              if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim(); aBody.innerHTML = saMarkdown(_st3||fullText); cursor.remove(); aBody.appendChild(cursor); if(threadBox) threadBox.scrollTop = threadBox.scrollHeight; }
+              if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} if(!aBody._rafPending){aBody._rafPending=true;requestAnimationFrame(function(){aBody._rafPending=false;var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();aBody.textContent=_st3||fullText;cursor.remove();aBody.appendChild(cursor);if(threadBox)threadBox.scrollTop=threadBox.scrollHeight;});} }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
             }catch(e){}
           }
@@ -37492,16 +37497,19 @@ document.addEventListener("click", function(e) {
               }
               aBody._visHtml = _htmlSoFar;
             } else {
-              // Strip complete and incomplete email blocks so no code-block scrollbar appears during streaming
-              var _stText = fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
-              if(typeof window.saMarkdown==="function"){
-                aBody.innerHTML = window.saMarkdown(_stText||fullText);
-              } else {
-                aBody.innerText = _stText||fullText;
+              // Batch DOM writes to one per animation frame — eliminates flicker
+              if(!aBody._rafPending){
+                aBody._rafPending = true;
+                requestAnimationFrame(function(){
+                  aBody._rafPending = false;
+                  var _stText = fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
+                  // textContent avoids full DOM reconstruction on every token
+                  aBody.textContent = _stText || fullText;
+                  if(aCursor) aBody.appendChild(aCursor);
+                  if(threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+                });
               }
-              aBody.appendChild(aCursor);
             }
-            threadEl.scrollTop = threadEl.scrollHeight;
             // ── Sentence-streaming TTS: speak first sentence ~1s after it arrives ──
             if(window._streamTtsEnabled && !window._streamTtsFired){
               var sentEnd = fullText.search(/[.!?][\s\n]/);
