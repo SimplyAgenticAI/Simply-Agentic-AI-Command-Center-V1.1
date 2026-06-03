@@ -42813,8 +42813,8 @@ window.toggleNotifPanel = function(){
       navigator.serviceWorker.register('/sw.js', {scope:'/', updateViaCache:'none'})
         .then(function(reg){
 
-          // Poll for updates every 60 s while the app is open
-          setInterval(function(){ reg.update(); }, 60000);
+          // Poll for updates every 12 hours — browser already checks on every page load/tab focus
+          setInterval(function(){ reg.update(); }, 43200000);
 
           // When a new SW finishes installing, tell it to skip waiting immediately
           reg.addEventListener('updatefound', function(){
