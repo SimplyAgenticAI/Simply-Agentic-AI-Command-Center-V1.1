@@ -2595,9 +2595,8 @@ def pwa_icon_svg():
 @app.get("/sw.js")
 def service_worker():
     """Service worker — handles PWA install, auto-update, and offline fallback."""
-    import time as _t
-    # Build stamp changes every deploy so the SW file is always fresh
-    build = str(int(_t.time() // 300))  # rotates every 5 min max
+    # Build stamp changes on every deploy so the SW file is always fresh
+    build = str(int(time.time() // 300))  # rotates every 5 min max
     js = f"""
 /* Simply Agentic AI — Service Worker | build:{build} */
 const CACHE = 'sa-v7-{build}';
