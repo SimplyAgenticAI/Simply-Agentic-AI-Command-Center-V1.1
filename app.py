@@ -40564,6 +40564,17 @@ window._saPlReset=function(){
   var _dragging   = false;
   var _sheetHistoryPushed = false;
 
+  /* ── Close the repositioned attach dropdown when tapping outside it ── */
+  document.addEventListener('click', function(e){
+    var drop = ge('dmAttachDrop');
+    var btn  = ge('saSheetAttachBtn');
+    if(!drop || drop.style.display === 'none') return;
+    if(btn && btn.contains(e.target)) return;
+    if(drop.contains(e.target)) return;
+    drop.style.display = 'none';
+    if(btn) btn.style.background = '';
+  }, true);
+
   /* ── Internal close (DOM only, no history manipulation) ── */
   function _doCloseSheet(){
     if(!_sheetOpen) return;
@@ -40778,9 +40789,32 @@ window._saPlReset=function(){
   /* ── Attach button mirrors desktop ── */
   var sheetAttach = ge('saSheetAttachBtn');
   if(sheetAttach){
-    sheetAttach.addEventListener('click',function(){
+    sheetAttach.addEventListener('click', function(e){
+      e.stopPropagation();
+      var drop = ge('dmAttachDrop');
+      // Toggle: close if already open
+      if(drop && drop.style.display !== 'none'){
+        drop.style.display = 'none';
+        sheetAttach.style.background = '';
+        return;
+      }
+      // Fire the normal toggle so all state (active highlights etc.) stays consistent
       var dmBtn = ge('dmAttachBtn');
       if(dmBtn) dmBtn.click();
+      // Reposition the dropdown to float above the mobile + button instead of
+      // the hidden desktop dmAttachWrap (which is off-screen on mobile)
+      if(drop && drop.style.display !== 'none'){
+        var r = sheetAttach.getBoundingClientRect();
+        drop.style.position   = 'fixed';
+        drop.style.bottom     = (window.innerHeight - r.top + 10) + 'px';
+        drop.style.left       = '12px';
+        drop.style.right      = '12px';
+        drop.style.width      = 'auto';
+        drop.style.maxHeight  = (r.top - 20) + 'px';
+        drop.style.overflowY  = 'auto';
+        drop.style.zIndex     = '9999999';
+        sheetAttach.style.background = 'rgba(124,58,237,.35)';
+      }
     });
   }
 
