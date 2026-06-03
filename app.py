@@ -2594,30 +2594,42 @@ def pwa_icon_svg():
 
 @app.get("/sw.js")
 def service_worker():
-    """Service worker — required for PWA installability (Chrome needs fetch handler)."""
-    js = r"""
-const CACHE = 'sa-shell-v5';
-self.addEventListener('install', e => {
+    """Service worker — handles PWA install, auto-update, and offline fallback."""
+    import time as _t
+    # Build stamp changes every deploy so the SW file is always fresh
+    build = str(int(_t.time() // 300))  # rotates every 5 min max
+    js = f"""
+/* Simply Agentic AI — Service Worker | build:{build} */
+const CACHE = 'sa-v7-{build}';
+
+/* ── Install: skip waiting immediately so update activates without tab close ── */
+self.addEventListener('install', e => {{
   e.waitUntil(self.skipWaiting());
-});
-self.addEventListener('activate', e => {
+}});
+
+/* ── Activate: wipe old caches, claim all open tabs ── */
+self.addEventListener('activate', e => {{
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
-});
-self.addEventListener('fetch', e => {
-  if (e.request.mode === 'navigate') {
-    e.respondWith(
-      fetch(e.request).catch(() => caches.match(e.request))
-    );
-  }
-});
+}});
+
+/* ── Message: accept SKIP_WAITING command from the page ── */
+self.addEventListener('message', e => {{
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
+}});
+
+/* ── Fetch: network-first for navigation, pass-through everything else ── */
+self.addEventListener('fetch', e => {{
+  if (e.request.mode === 'navigate') {{
+    e.respondWith(fetch(e.request).catch(() => caches.match('/')));
+  }}
+}});
 """.strip()
     resp = make_response(js)
     resp.headers["Content-Type"] = "application/javascript"
-    # SW must not be cached aggressively or updates won't roll out
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Service-Worker-Allowed"] = "/"
     return resp
@@ -2642,6 +2654,8 @@ def pwa_manifest():
             {"src": "/pwa-icon-192.png", "sizes": "192x192", "type": "image/png",     "purpose": "any maskable"},
         ],
         "categories": ["productivity", "business"],
+        "prefer_related_applications": False,
+        "launch_handler": {"client_mode": "focus-existing"},
         "shortcuts": [
             {"name": "Round Table", "url": "/",          "description": "Open your AI team"},
             {"name": "CRM",         "url": "/?tool=crm", "description": "Open your CRM"},
@@ -2649,7 +2663,7 @@ def pwa_manifest():
     }
     resp = make_response(json.dumps(manifest))
     resp.headers["Content-Type"] = "application/manifest+json"
-    resp.headers["Cache-Control"] = "public, max-age=3600"
+    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
 
 @app.get("/api/debug/key_status")
@@ -42794,10 +42808,41 @@ window.toggleNotifPanel = function(){
 
 <script>
 (function(){
-  // ── Service worker ────────────────────────────────────────────────────────
+  // ── Service worker + auto-update ─────────────────────────────────────────
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('/sw.js', {scope:'/'}).catch(function(){});
+      navigator.serviceWorker.register('/sw.js', {scope:'/', updateViaCache:'none'})
+        .then(function(reg){
+
+          // Poll for updates every 60 s while the app is open
+          setInterval(function(){ reg.update(); }, 60000);
+
+          // When a new SW finishes installing, tell it to skip waiting immediately
+          reg.addEventListener('updatefound', function(){
+            var newWorker = reg.installing;
+            if(!newWorker) return;
+            newWorker.addEventListener('statechange', function(){
+              if(newWorker.state === 'installed' && navigator.serviceWorker.controller){
+                // New version ready — send SKIP_WAITING so it activates now
+                newWorker.postMessage({type:'SKIP_WAITING'});
+              }
+            });
+          });
+        }).catch(function(){});
+
+      // When the controller changes (new SW took over), reload to serve fresh content
+      var _reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function(){
+        if(_reloading) return;
+        _reloading = true;
+        // Show a brief toast before reloading so the user isn't surprised
+        if(typeof showToast === 'function'){
+          showToast('⚡ App updated — refreshing…');
+          setTimeout(function(){ window.location.reload(); }, 1200);
+        } else {
+          window.location.reload();
+        }
+      });
     });
   }
 
@@ -42860,24 +42905,14 @@ window.toggleNotifPanel = function(){
   window._pwaAfterInstall = function(){
     _dlg(
       '<div style="'+C.card+'">'
-      +'<div style="font-size:42px;text-align:center;margin-bottom:8px;">🎉</div>'
-      +'<div style="font-size:21px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Simply Agentic is Installed!</div>'
-      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:18px;line-height:1.6;">Chrome just placed the icon on your phone. Here\'s where to find it:</div>'
-      +'<div style="'+C.box+'">'
-      +'<div style="'+C.step+'">'
-      +'<div style="'+C.num+'">1</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Press your <strong style="'+C.hl+'">Home button</strong></div>'
+      +'<div style="font-size:48px;text-align:center;margin-bottom:8px;">🎉</div>'
+      +'<div style="font-size:21px;font-weight:900;color:#f3e8ff;text-align:center;margin-bottom:6px;">Simply Agentic AI Installed!</div>'
+      +'<div style="font-size:14px;color:#94a3b8;text-align:center;margin-bottom:20px;line-height:1.6;">The app icon has been added to your <strong style="color:#c4b5fd;">home screen</strong>. Press your home button now to see it — look for the purple icon.</div>'
+      +'<div style="'+C.box+' text-align:center;">'
+      +'<div style="font-size:13px;color:#a78bfa;font-weight:700;margin-bottom:6px;">🔄 Updates are automatic</div>'
+      +'<div style="font-size:12px;color:#64748b;line-height:1.6;">Whenever we ship new features, the app updates itself in the background. You\'ll see a quick "App updated" notice — no reinstall ever needed.</div>'
       +'</div>'
-      +'<div style="'+C.step+'">'
-      +'<div style="'+C.num+'">2</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;"><strong style="'+C.hl+'">Swipe left or right</strong> through your home screen pages — it was placed on the first open spot</div>'
-      +'</div>'
-      +'<div style="display:flex;align-items:flex-start;gap:12px;">'
-      +'<div style="'+C.num+'">3</div>'
-      +'<div style="color:#e2e8f0;font-size:15px;line-height:1.5;">Still can\'t see it? <strong style="'+C.hl+'">Swipe up</strong> from the home screen to open all apps → search <strong style="'+C.hl+'">"Simply Agentic"</strong></div>'
-      +'</div>'
-      +'</div>'
-      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Got it!</button>'
+      +'<button style="'+C.btn+'" onclick="window._pwaClose(this)">Take me to the app ✨</button>'
       +'</div>'
     );
   };
