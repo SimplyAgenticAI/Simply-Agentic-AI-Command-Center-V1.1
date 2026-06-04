@@ -5254,6 +5254,21 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "'I cannot identify individuals' — that phrase is banned. IMPORTANT: This rule ONLY applies to "
         "image generation requests. If the user is emailing a graphic, discussing a person, or doing "
         "anything other than generating an image of a real person, do NOT apply this rule at all.\n"
+        "UPLOADED IMAGE EDITING — CRITICAL RULES:\n"
+        "When a user uploads an image and asks you to enhance, edit, modify, or recreate it, you MUST:\n"
+        "1. DESCRIBE the uploaded image in full visual detail before proposing any changes — "
+        "include every visible element: subjects, colors, layout, text/words shown, style, mood, background.\n"
+        "2. When you confirm your plan, restate the FULL visual description of what you will produce "
+        "so the image system has a rich, specific prompt to work with.\n"
+        "3. NEVER give a vague confirmation like 'Sounds great!' without including the full visual "
+        "description in that same message. The image will be generated FROM your words — if your "
+        "description is vague, the result will be random and unrelated to the original.\n"
+        "4. When the user says 'go ahead', 'give me the graphic', 'make it', 'proceed', or similar "
+        "short confirmations, RESTATE your full visual plan in that response so the generation prompt "
+        "contains all the visual detail needed.\n"
+        "Example of CORRECT behavior: 'Here it is! Generating: [UFO shaped like a silver disc hovering "
+        "over a city skyline at night, blue glow underneath, retro 1950s poster style, bold text at "
+        "top reading \\'THEY ARE REAL\\', yellow and black color scheme, slight film grain texture.]'\n"
     )
 
     vision_analysis_rules = (
@@ -6364,6 +6379,42 @@ def _get_openai_client_for_username(username: str):
 
 _LAST_REFINED_PROMPT: Dict[str, str] = {}  # thread-safe enough for single-worker; keyed by thread id
 
+def _vision_describe_image(image_bytes: bytes, mimetype: str, user_prompt: str, client) -> str:
+    """Use GPT-4o vision to generate a detailed visual description of an uploaded image.
+    Returns a rich DALL-E compatible description, or empty string on failure."""
+    try:
+        import base64 as _b64
+        b64_str = _b64.b64encode(image_bytes).decode("utf-8")
+        mt = mimetype or "image/png"
+        if "jpeg" in mt or "jpg" in mt:
+            mt = "image/jpeg"
+        elif "webp" in mt:
+            mt = "image/webp"
+        elif "gif" in mt:
+            mt = "image/gif"
+        else:
+            mt = "image/png"
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mt};base64,{b64_str}", "detail": "high"}},
+                    {"type": "text", "text": (
+                        f"Describe this image in rich visual detail suitable for DALL-E image generation. "
+                        f"Include: all subjects/characters, colors, layout, any text visible, background, style, "
+                        f"mood, lighting, and composition. Then incorporate this requested change: {user_prompt}. "
+                        f"Write only the image description, no commentary."
+                    )}
+                ]
+            }]
+        )
+        return (resp.choices[0].message.content or "").strip()
+    except Exception as _ve:
+        _log("WARNING", "Vision describe failed", error=str(_ve)[:200])
+        return ""
+
 def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, lighting_mode: bool = False, mode: str = "new", source_file_id: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
     Returns (upload_record, image_url, error_message)
@@ -6390,6 +6441,12 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     last_err = ""
     ref_bytes, ref_mimetype = _read_upload_bytes(source_rec)
     can_edit = bool(ref_bytes) and mode in ("edit", "variation")
+
+    # If we have a reference image, try GPT-4o vision to build a rich visual description.
+    # This description becomes the generation prompt when the edit API fails (e.g. non-PNG format).
+    _vision_desc = ""
+    if ref_bytes and mode in ("edit", "variation"):
+        _vision_desc = _vision_describe_image(ref_bytes, ref_mimetype, prompt, client)
 
     for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
         tried.append(m)
@@ -6420,9 +6477,12 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                     except Exception:
                         pass
             if resp is None:
+                # Use vision-generated description if we have a reference image —
+                # this preserves visual fidelity when the edit API isn't available
+                gen_prompt = (_vision_desc or prompt2).strip() or prompt2
                 gen_kw: Dict[str, Any] = {
                     "model": m,
-                    "prompt": prompt2,
+                    "prompt": gen_prompt,
                     "size": os.getenv("IMAGE_SIZE", "1024x1024"),
                 }
                 resp = client.images.generate(**gen_kw)
@@ -8583,6 +8643,32 @@ def _api_followup_impl(data):
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
+
+        # If the user prompt is vague (short follow-up like "sounds great, give me the graphic"),
+        # enrich the job prompt with the last AI message from the thread — which typically contains
+        # the visual plan/description Alex just described. This prevents random unrelated images.
+        _is_vague = len((msg or "").strip()) < 60 or any(
+            x in (msg or "").lower() for x in [
+                "sounds great", "go ahead", "give me", "proceed", "do it", "make it",
+                "let's do it", "ok", "okay", "yes", "sure", "perfect", "great", "looks good",
+                "make the graphic", "create it", "generate it", "send it"
+            ]
+        )
+        if _is_vague:
+            try:
+                _thread_snap = load_thread(name, uname)
+                # Find the last assistant message — it should contain the visual plan
+                _last_ai = ""
+                for _tm in reversed(_thread_snap):
+                    if _tm.get("role") == "assistant":
+                        _content = _tm.get("content", "")
+                        if isinstance(_content, str) and len(_content) > 50:
+                            _last_ai = _content[:1200]
+                            break
+                if _last_ai and _last_ai not in job_prompt:
+                    job_prompt = f"{job_prompt}\n\nContext from previous plan:\n{_last_ai}"
+            except Exception:
+                pass
         # Rate limit image generation separately (expensive API calls)
         _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
         if _img_rl: return _img_rl
