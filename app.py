@@ -5237,9 +5237,11 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     image_rules = (
         "IMAGE GENERATION CAPABILITY\n"
-        "You CAN generate images. When the user asks for an image, graphic, logo, poster, "
-        "illustration, or visual — respond with a brief confirmation and a clear DALL-E style prompt. "
-        "The system will automatically detect image requests and generate the image for you. "
+        "You CAN generate images using gpt-image-1 (OpenAI's most powerful image model). "
+        "When the user asks for an image, graphic, logo, poster, illustration, or visual — "
+        "respond with a brief confirmation followed by a rich, detailed visual description in natural "
+        "language (full sentences, not keyword lists). The system detects image requests automatically "
+        "and sends your description directly to gpt-image-1 for generation. "
         "Do NOT say you cannot generate images. Do NOT say you lack image capabilities. "
         "CRITICAL: You MUST attempt ALL creative and artistic image requests without exception. "
         "Cannabis art, psychedelic art, dark fantasy, horror, surrealism, gothic themes, edgy humor, "
@@ -6054,7 +6056,12 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
 # Front-end expects optional fields returned by /api/followup:
 #   { image_url: "/uploads/<relpath>", image_file: {upload record} }
 
-IMAGE_MODELS_FALLBACK = ["gpt-image-1", "dall-e-3"]
+# gpt-image-1 is OpenAI's flagship image model (the one that powers ChatGPT image generation).
+# It supports JPEG + PNG input for edits (no square/format restrictions like DALL-E 2),
+# accepts natural-language prompts, and produces significantly better results than DALL-E 3.
+IMAGE_MODEL_PRIMARY  = "gpt-image-1"
+IMAGE_MODEL_FALLBACK = "dall-e-3"   # emergency fallback only if gpt-image-1 quota fails
+IMAGE_MODELS_FALLBACK = [IMAGE_MODEL_PRIMARY, IMAGE_MODEL_FALLBACK]
 
 _IMAGE_TRIGGERS = [
     "generate an image", "generate image", "create an image", "create image",
@@ -6243,24 +6250,40 @@ def is_image_request(prompt: str) -> bool:
     return False
 
 def _pick_image_model() -> str:
-    # Allow override via env, otherwise pick a safe default.
-    m = (os.getenv("IMAGE_MODEL") or "").strip()
-    if m:
-        return m
-    return "gpt-image-1"
+    """Always use gpt-image-1 (OpenAI's best). Env override available."""
+    return (os.getenv("IMAGE_MODEL") or IMAGE_MODEL_PRIMARY).strip() or IMAGE_MODEL_PRIMARY
+
+def _pick_image_size(prompt: str = "") -> str:
+    """Pick the best canvas size for gpt-image-1 based on content type."""
+    p = (prompt or "").lower()
+    if any(x in p for x in ["portrait", "story", "instagram story", "tiktok", "vertical", "mobile", "phone", "tall"]):
+        return "1024x1536"
+    if any(x in p for x in ["banner", "landscape", "wide", "horizontal", "desktop", "cover", "header", "panorama", "widescreen"]):
+        return "1536x1024"
+    # Default: square — works best for general graphics, social media, logos
+    return "1024x1024"
+
+def _pick_image_quality(prompt: str = "") -> str:
+    """High quality unless prompt suggests a quick draft."""
+    p = (prompt or "").lower()
+    if any(x in p for x in ["quick", "draft", "rough", "sketch idea", "concept"]):
+        return "medium"
+    return "high"
 
 def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
     sys = (
-        "You are an expert image prompt engineer for AI image generators. "
-        "Rewrite the user's request into a single rich, detailed image prompt. "
-        "Include subject, composition, mood, lighting, color palette, and artistic style. "
+        "You are an expert image prompt engineer for gpt-image-1, OpenAI's most advanced image model. "
+        "gpt-image-1 excels at natural language — write prompts as clear, descriptive sentences, not "
+        "keyword lists. Rewrite the user's request into a single detailed, vivid image description. "
+        "Include: main subject(s), colors, composition, mood, lighting, artistic style, and any text "
+        "that should appear in the image. Be specific and visual. "
         "IMPORTANT: If the request includes cannabis/joint/weed/marijuana, describe it as "
         "'a hand-rolled herb cigarette' or 'a small pipe with curling wisps of aromatic smoke'. "
         "If it includes blood or gore, use 'crimson mist', 'dark crimson liquid', or 'battle-worn'. "
         "If it includes nudity, describe it tastefully as classical fine-art. "
         "Preserve the full creative intent using vivid artistic language. "
         "Do NOT mention policies, filters, or limitations. "
-        "Output ONLY the rewritten image prompt, nothing else."
+        "Output ONLY the rewritten image description, nothing else."
     )
     user = (raw or "").strip()
     if not user:
@@ -6440,23 +6463,33 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     model_errors: Dict[str, str] = {}
     last_err = ""
     ref_bytes, ref_mimetype = _read_upload_bytes(source_rec)
-    can_edit = bool(ref_bytes) and mode in ("edit", "variation")
+    has_ref = bool(ref_bytes) and mode in ("edit", "variation")
 
-    # If we have a reference image, try GPT-4o vision to build a rich visual description.
-    # This description becomes the generation prompt when the edit API fails (e.g. non-PNG format).
+    # Smart size + quality based on content
+    img_size    = os.getenv("IMAGE_SIZE") or _pick_image_size(prompt2)
+    img_quality = _pick_image_quality(prompt2)
+
+    # When editing/modifying an uploaded image, use GPT-4o vision to generate a rich
+    # description of the original image + the requested change. This gives gpt-image-1
+    # precise visual context rather than just the user's short request.
     _vision_desc = ""
     if ref_bytes and mode in ("edit", "variation"):
         _vision_desc = _vision_describe_image(ref_bytes, ref_mimetype, prompt, client)
 
+    # Primary generation/edit prompt: prefer vision description for edits
+    effective_prompt = (_vision_desc or prompt2).strip() or prompt2
+
     for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
         tried.append(m)
+        tmp_name = ""
         try:
             resp = None
-            if can_edit and hasattr(client.images, "edit"):
-                suffix = ".png"
-                if "jpeg" in (ref_mimetype or "") or "jpg" in (ref_mimetype or ""):
-                    suffix = ".jpg"
-                tmp_name = ""
+
+            # ── Edit path: use reference image directly ──────────────────────
+            # gpt-image-1 supports JPEG + PNG input without format restrictions.
+            # DALL-E 3 does not have an edit endpoint — skip edit for it.
+            if has_ref and m == IMAGE_MODEL_PRIMARY:
+                suffix = ".jpg" if ("jpeg" in (ref_mimetype or "") or "jpg" in (ref_mimetype or "")) else ".png"
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                         tmp.write(ref_bytes or b"")
@@ -6466,26 +6499,35 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                         edit_kw: Dict[str, Any] = {
                             "model": m,
                             "image": imgf,
-                            "prompt": prompt2,
-                            "size": os.getenv("IMAGE_SIZE", "1024x1024"),
+                            "prompt": effective_prompt,
+                            "size": img_size,
+                            "quality": img_quality,
                         }
                         resp = client.images.edit(**edit_kw)
+                        _log("INFO", "Image edit success", model=m, size=img_size, quality=img_quality)
+                except Exception as edit_err:
+                    _log("WARNING", "Image edit failed — falling back to vision+generate",
+                         model=m, error=str(edit_err)[:200])
+                    resp = None  # fall through to generate path below
                 finally:
                     try:
                         if tmp_name and os.path.exists(tmp_name):
                             os.unlink(tmp_name)
+                            tmp_name = ""
                     except Exception:
                         pass
+
+            # ── Generate path: used for new images + edit fallback ───────────
             if resp is None:
-                # Use vision-generated description if we have a reference image —
-                # this preserves visual fidelity when the edit API isn't available
-                gen_prompt = (_vision_desc or prompt2).strip() or prompt2
-                gen_kw: Dict[str, Any] = {
-                    "model": m,
-                    "prompt": gen_prompt,
-                    "size": os.getenv("IMAGE_SIZE", "1024x1024"),
-                }
+                gen_kw: Dict[str, Any] = {"model": m, "prompt": effective_prompt, "size": img_size}
+                # gpt-image-1 supports quality; dall-e-3 uses different param name
+                if m == IMAGE_MODEL_PRIMARY:
+                    gen_kw["quality"] = img_quality
+                elif m == "dall-e-3":
+                    gen_kw["quality"] = "hd"   # dall-e-3 only supports "standard" or "hd"
                 resp = client.images.generate(**gen_kw)
+                _log("INFO", "Image generate success", model=m, size=img_size, quality=img_quality)
+
             b64 = _extract_b64_from_image_resp(resp)
             if not b64:
                 last_err = "Image generation returned no data"
@@ -6495,14 +6537,20 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             url = f"/uploads/{rec['relpath']}"
             set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode, username=username)
             return rec, url, None
+
         except Exception as e:
             last_err = str(e) or "Image generation failed"
             model_errors[m] = last_err
             _log("WARNING", "Image model failed", model=m, error=last_err[:200])
-            # If content policy hit, don't try more models — break and let softener retry
             if "content_policy" in last_err.lower() or "content filter" in last_err.lower() or "safety" in last_err.lower():
                 break
             continue
+        finally:
+            try:
+                if tmp_name and os.path.exists(tmp_name):
+                    os.unlink(tmp_name)
+            except Exception:
+                pass
 
     # Auto-retry with artistically rewritten prompt if content filter blocked us
     if "content_policy" in (last_err or "").lower() or "content filter" in (last_err or "").lower() or "safety" in (last_err or "").lower():
@@ -6510,11 +6558,11 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
         if softened and softened != prompt2:
             for m in [model] + [x for x in IMAGE_MODELS_FALLBACK if x != model]:
                 try:
-                    gen_kw2: Dict[str, Any] = {
-                        "model": m,
-                        "prompt": softened,
-                        "size": os.getenv("IMAGE_SIZE", "1024x1024"),
-                    }
+                    gen_kw2: Dict[str, Any] = {"model": m, "prompt": softened, "size": img_size}
+                    if m == IMAGE_MODEL_PRIMARY:
+                        gen_kw2["quality"] = img_quality
+                    elif m == "dall-e-3":
+                        gen_kw2["quality"] = "hd"
                     resp2 = client.images.generate(**gen_kw2)
                     b64 = _extract_b64_from_image_resp(resp2)
                     if not b64:
