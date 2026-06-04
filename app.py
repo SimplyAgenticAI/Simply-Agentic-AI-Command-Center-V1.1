@@ -4002,7 +4002,7 @@ def _summarize_thread_segment(msgs: List[Dict[str, Any]]) -> str:
             role = (m.get("role") or "").strip()
             content = str(m.get("content") or "").strip()
             if content and role in ("user", "assistant"):
-                flat.append(f"{role.upper()}: {content[:300]}")
+                flat.append(f"{role.upper()}: {content[:1500]}")
         combined = "\n".join(flat[:20])
         if not combined:
             return "earlier conversation"
@@ -4487,9 +4487,22 @@ def approve_current_image_for_teammate(teammate_name: str, username: str = "") -
     return state
 
 def _latest_image_record_from_state(teammate_name: str, username: str = "") -> Optional[Dict[str, Any]]:
-    state = load_image_state(teammate_name, username or _get_session_username())
+    uname = username or _get_session_username()
+    state = load_image_state(teammate_name, uname)
     fid = (state.get("current_image_id") or state.get("approved_image_id") or state.get("last_uploaded_image_id") or "").strip()
-    return get_upload_record(fid) if fid else None
+    if not fid:
+        return None
+    rec = get_upload_record(fid)
+    if not rec:
+        return None
+    # Verify the file still exists on disk — purge stale state if it was deleted
+    relpath = rec.get("relpath", "")
+    if relpath and not (UPLOADS_DIR / relpath).exists():
+        state["current_image_id"] = ""
+        state["current_image_url"] = ""
+        save_image_state(teammate_name, state, uname)
+        return None
+    return rec
 
 def bind_uploaded_images_to_teammate(teammate_name: str, file_ids: List[str], username: str = "") -> Optional[Dict[str, Any]]:
     uname = username or _get_session_username()
@@ -4528,7 +4541,9 @@ def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_i
         return "edit"
     if has_reference_image:
         return "edit"
-    if has_current and not any(x in p for x in ["create", "generate", "new", "from scratch"]):
+    # Only default to edit for short/ambiguous follow-ups.
+    # Long descriptive prompts (> 60 chars) are almost certainly fresh image requests.
+    if has_current and len(p) <= 60 and not any(x in p for x in ["create", "generate", "new", "from scratch"]):
         return "edit"
     return "new"
 
@@ -5060,7 +5075,7 @@ def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str,
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
-    with smtplib.SMTP(host, port) as server:
+    with smtplib.SMTP(host, port, timeout=15) as server:
         server.starttls()
         server.login(user, password)
         server.send_message(msg)
@@ -5075,7 +5090,7 @@ def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
         server.starttls()
         server.login(SMTP_USER, SMTP_PASS)
         server.send_message(msg)
@@ -5293,10 +5308,11 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     )
 
     web_search_rules = (
-        "WEB SEARCH CAPABILITY: When a user asks you to search the web, find current information, "
-        "or look something up, you MUST perform an actual web search using your built-in capability. "
-        "Never say you cannot browse the internet — you can and should search when asked. "
-        "Search thoroughly, then present your findings clearly with source names and key facts.\n"
+        "WEB SEARCH: You do not have a live web browsing tool. When users ask for current prices, "
+        "today's news, real-time data, or specific URLs, be honest: tell them to paste the URL or "
+        "search result directly into the chat — you can then analyze it accurately and thoroughly. "
+        "For questions from your training data (history, concepts, strategies, frameworks) answer "
+        "directly with confidence. Never fabricate search results or pretend to browse the internet.\n"
     )
 
     _op_name_for_email = (_load_operator_profile(
@@ -5517,6 +5533,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         + (f"10. **Personal touch**: {'Use the name '+_op_name+' naturally when it fits. ' if _op_name else ''}"
            f"{'Reference '+_op_biz+' by name when relevant. ' if _op_biz else ''}"
            "You are their dedicated teammate, not a generic assistant. Sound like it.\n")
+
+        + "CONSISTENCY RULE: If you are about to recommend something that contradicts advice you gave "
+          "earlier in this conversation, acknowledge the update explicitly. Say: 'I want to update my "
+          "earlier suggestion on [topic] — here's why: [reason].' Never silently contradict yourself. "
+          "If context is limited, ask the user to recap before committing to a direction.\n"
+
+        + "PROMISE RULE: Never say you are 'generating', 'creating', 'sending', or 'running' something "
+          "unless the system is actually executing that action. If you describe a plan but the action "
+          "requires the user to say 'go ahead', say so explicitly: 'Ready to generate this — just confirm "
+          "and I will.' Do not say 'Generating now' if generation has not started.\n"
 
         + "PERSONALITY: You have a distinct voice defined in your ROLE BLOCK. Keep it consistent. "
           "Have actual preferences and share them when asked. Sound like a sharp, opinionated colleague "
@@ -6222,11 +6248,43 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         return f"__ERROR__{str(e)}"
 
 
-def is_image_request(prompt: str) -> bool:
+def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
+    """Return True if the prompt is asking for image generation or editing.
+
+    has_image_context=True means a current image already exists in this
+    teammate's state (previously generated or uploaded). When True the exclusion
+    list is bypassed so edit phrases like 'change the color', 'fix the lighting',
+    'make it darker' are correctly routed to the image pipeline instead of the LLM.
+    """
     p = (prompt or "").strip().lower()
     if not p:
         return False
-    # Exclusion keywords — never treat help/fix/code requests as image generation
+
+    # ── EDIT PATH: image already in context ───────────────────────────────
+    # When the user has an existing image, ANY edit/modification phrase counts.
+    # We NEVER apply the exclusion list here — 'change', 'fix', 'update', 'color'
+    # etc. are all legitimate image-edit verbs when an image is active.
+    if has_image_context:
+        _edit_in_context = [
+            "edit", "change", "revise", "adjust", "tweak", "make it", "make the",
+            "move", "replace", "add", "remove", "fix", "clean up", "enhance",
+            "use this", "try again", "based on this", "same graphic", "same image",
+            "this one", "that one", "keep", "preserve", "redo", "update",
+            "make it darker", "make it lighter", "make it bigger", "make it smaller",
+            "darken", "brighten", "saturate", "desaturate", "blur", "sharpen",
+            "add color", "change color", "change the color", "change the background",
+            "change the text", "fix the lighting", "update the colors", "add depth",
+            "enhance the depth", "make it pop", "add contrast", "add shadow",
+            "add glow", "add texture", "change style", "make it look",
+        ]
+        if any(x in p for x in _edit_in_context):
+            return True
+        # Also catch all _EDIT_HINTS
+        if any(x in p for x in _EDIT_HINTS):
+            return True
+
+    # ── EXCLUSION LIST: only when no image in context ─────────────────────
+    # These words signal code/text/help requests, not image requests.
     _img_excl = [
         "fix", "debug", "prompt", "code", "write", "explain", "help",
         "how do", "how to", "how can", "issue", "error", "problem",
@@ -6234,18 +6292,29 @@ def is_image_request(prompt: str) -> bool:
         "review", "check", "update", "change", "edit", "refactor",
         "remove", "delete", "why ", "font", "color", "style",
     ]
-    if any(ex in p for ex in _img_excl):
+    if not has_image_context and any(ex in p for ex in _img_excl):
         return False
-    # Strong triggers
-    for t in _IMAGE_TRIGGERS:
+
+    # ── STRONG TRIGGERS ───────────────────────────────────────────────────
+    _extended_triggers = list(_IMAGE_TRIGGERS) + [
+        "visualize", "mockup", "mock up", "thumbnail for", "banner for",
+        "social post", "create art", "generate art", "concept art",
+        "icon of", "icon for", "avatar of", "headshot of",
+    ]
+    for t in _extended_triggers:
         if t in p:
             return True
-    # Heuristic: explicit creative ask for image/graphic/picture (not discussion about one)
-    _img_nouns = ("graphic", "image", "picture", "photo", "illustration", "poster", "logo", "artwork", "painting", "sketch", "drawing")
-    _img_verbs = ("create", "make", "generate", "draw", "paint", "sketch", "design", "render", "depict", "show")
+
+    # ── HEURISTIC: verb + visual noun ─────────────────────────────────────
+    _img_nouns = ("graphic", "image", "picture", "photo", "illustration", "poster",
+                  "logo", "artwork", "painting", "sketch", "drawing", "thumbnail",
+                  "banner", "avatar", "icon", "mockup")
+    _img_verbs = ("create", "make", "generate", "draw", "paint", "sketch", "design",
+                  "render", "depict", "show", "visualize", "build")
     for verb in _img_verbs:
         for noun in _img_nouns:
-            if f"{verb} a {noun}" in p or f"{verb} an {noun}" in p or f"{verb} me a {noun}" in p or f"{verb} me an {noun}" in p:
+            if (f"{verb} a {noun}" in p or f"{verb} an {noun}" in p
+                    or f"{verb} me a {noun}" in p or f"{verb} me an {noun}" in p):
                 return True
     return False
 
@@ -8501,7 +8570,7 @@ def _api_convene_impl(data):
 
         sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
 
-        thread = _truncate_thread_with_note(load_thread(name, uname), max_messages=14)
+        thread = _truncate_thread_with_note(load_thread(name, uname), max_messages=20)
 
         msgs: List[Dict[str, Any]] = []
         msgs.extend(thread)
@@ -8673,7 +8742,7 @@ def _api_followup_impl(data):
     user_content = _build_user_content(msg2, vision_images)
 
     thread = load_thread(name, uname)
-    thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
+    thread = _truncate_thread_with_note(thread, max_messages=20)
 
     latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids, uname)
 
@@ -8686,7 +8755,11 @@ def _api_followup_impl(data):
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
-    if is_image_request(msg2):
+    # Determine image context before routing — needed for is_image_request
+    _img_state_check = load_image_state(name, uname)
+    _has_img_ctx = bool((_img_state_check.get("current_image_id") or "").strip()) or bool(latest_uploaded_image)
+
+    if is_image_request(msg2, has_image_context=_has_img_ctx):
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
@@ -8695,11 +8768,16 @@ def _api_followup_impl(data):
         # If the user prompt is vague (short follow-up like "sounds great, give me the graphic"),
         # enrich the job prompt with the last AI message from the thread — which typically contains
         # the visual plan/description Alex just described. This prevents random unrelated images.
-        _is_vague = len((msg or "").strip()) < 60 or any(
+        _is_vague = len((msg or "").strip()) < 80 or any(
             x in (msg or "").lower() for x in [
                 "sounds great", "go ahead", "give me", "proceed", "do it", "make it",
                 "let's do it", "ok", "okay", "yes", "sure", "perfect", "great", "looks good",
-                "make the graphic", "create it", "generate it", "send it"
+                "make the graphic", "create it", "generate it", "send it",
+                "love it", "that works", "exactly", "absolutely", "yeah", "yep", "yup",
+                "do that", "let's go", "go for it", "run it", "build it", "that's perfect",
+                "spot on", "nailed it", "that's the one", "let's make it", "make it happen",
+                "fire away", "can you do that", "please do", "i'm in", "do this",
+                "sounds good", "sounds perfect", "i like it", "love that", "great plan",
             ]
         )
         if _is_vague:
@@ -40796,12 +40874,10 @@ window._saPlReset=function(){
       sheetThread.scrollTop = sheetThread.scrollHeight;
     }
 
-    /* Show pass row if desktop one is visible */
-    var desktopPass = ge('seatPassRow');
-    var sheetPass   = ge('saSheetPassRow');
-    if(sheetPass){
-      sheetPass.style.display = (desktopPass && desktopPass.style.display !== 'none') ? 'flex' : 'none';
-    }
+    /* Always show pass row — seatPassRow element doesn't exist on mobile
+       so the old check always returned false and kept it hidden permanently */
+    var sheetPass = ge('saSheetPassRow');
+    if(sheetPass) sheetPass.style.display = 'flex';
 
     /* Mark active seat */
     document.querySelectorAll('.seat').forEach(function(s){ s.classList.remove('sa-sheet-seat'); });
@@ -52103,7 +52179,9 @@ def api_followup_stream():
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
-    if is_image_request(msg2):
+    _img_state_s = load_image_state(name, uname)
+    _has_img_ctx_s = bool((_img_state_s.get("current_image_id") or "").strip())
+    if is_image_request(msg2, has_image_context=_has_img_ctx_s):
         latest_uploaded_image = None
         try:
             _bound = [get_upload_record(fid) for fid in (file_ids or []) if fid]
@@ -52143,7 +52221,7 @@ def api_followup_stream():
     # ─────────────────────────────────────────────────────────────────────────
 
     thread = load_thread(name, uname)
-    thread = _truncate_thread_with_note(thread, max_messages=14)  # [UPGRADE 3]
+    thread = _truncate_thread_with_note(thread, max_messages=20)
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
     # Smart routing: downgrade to cheap model for simple messages when user enables the setting
@@ -52934,8 +53012,17 @@ def api_tts():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
     payload = request.get_json(force=True) or {}
-    text    = (payload.get("text")  or "").strip()[:2000]   # cap at ~30 s
-    voice   = (payload.get("voice") or "alloy").strip()
+    _raw_text = (payload.get("text") or "").strip()
+    # Strip markdown so TTS doesn't speak "asterisk asterisk bold text asterisk asterisk"
+    import re as _re
+    _raw_text = _re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', _raw_text)      # bold/italic
+    _raw_text = _re.sub(r'#{1,6}\s+', '', _raw_text)                     # headings
+    _raw_text = _re.sub(r'`{1,3}[^`]*`{1,3}', '', _raw_text)            # code
+    _raw_text = _re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', _raw_text)     # links
+    _raw_text = _re.sub(r'^\s*[-*+]\s+', '', _raw_text, flags=_re.MULTILINE)  # bullets
+    _raw_text = _re.sub(r'^\s*\d+\.\s+', '', _raw_text, flags=_re.MULTILINE)  # numbered
+    text  = _raw_text.strip()[:2000]   # cap at ~30 s
+    voice = (payload.get("voice") or "alloy").strip()
     if voice not in ("alloy", "echo", "fable", "onyx", "nova", "shimmer"):
         voice = "alloy"
     if not text:
