@@ -27217,18 +27217,29 @@ Challenge weak assumptions. Surface risks.`;
         var blob=_tpLastBlob;
         var isAlreadyMp4=(_tpBlobMime||'').indexOf('mp4')>-1;
 
-        // Convert WebM → MP4 so the file opens in every video player / editor
-        if(!isAlreadyMp4 && typeof window._saConvertToMp4==='function'){
+        // Convert WebM → MP4 via server (ffmpeg) so the file has proper duration
+        // metadata and opens in every video player and editor including our own.
+        if(!isAlreadyMp4){
           if(typeof showToast==='function') showToast('⏳ Converting to MP4…');
           try{
-            var mp4Blob=await window._saConvertToMp4(blob);
-            if(mp4Blob&&mp4Blob.size>0){ blob=mp4Blob; isAlreadyMp4=true; }
-            else{ if(typeof showToast==='function') showToast('MP4 convert unavailable — downloading as WebM'); }
-          }catch(e){ /* fall through to WebM download */ }
+            var fd=new FormData(); fd.append('file', blob, 'recording.webm');
+            var convResp=await fetch('/api/video/convert_to_mp4',{method:'POST',body:fd,credentials:'same-origin'});
+            if(convResp.ok){
+              var mp4Blob=await convResp.blob();
+              if(mp4Blob&&mp4Blob.size>100){ blob=mp4Blob; isAlreadyMp4=true; }
+              else{ if(typeof showToast==='function') showToast('Conversion returned empty — downloading as WebM'); }
+            } else {
+              var errData={error:'Server conversion failed'};
+              try{ errData=await convResp.json(); }catch(e){}
+              if(typeof showToast==='function') showToast('⚠️ '+errData.error+' — downloading as WebM');
+            }
+          }catch(e){
+            if(typeof showToast==='function') showToast('⚠️ Conversion unavailable — downloading as WebM');
+          }
         }
 
         var ext=isAlreadyMp4?'.mp4':'.webm';
-        var filename='recording-'+Date.now()+ext;
+        var filename='teleprompter-recording-'+Date.now()+ext;
         var mtype=blob.type||(isAlreadyMp4?'video/mp4':'video/webm');
 
         // Web Share API: saves to camera roll on mobile
@@ -27373,10 +27384,10 @@ Challenge weak assumptions. Surface risks.`;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-          // iOS needs mp4 first; Android/desktop prefer vp9+opus
-          var mimeTypes=_tpIsIOS
-            ?['video/mp4','video/webm;codecs=vp9,opus','video/webm']
-            :['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+          // Try MP4 first on all platforms — gives proper duration metadata.
+          // Fall back to WebM if MP4 recording isn't supported (Chrome/Firefox).
+          // The save function converts WebM→MP4 server-side anyway.
+          var mimeTypes=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
           var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
           var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:192000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:192000};
           try{ _tpRecorder=new MediaRecorder(stream,recOpts); }
@@ -53395,6 +53406,65 @@ def api_video_download(export_id):
         return jsonify({"ok": False, "error": "Clip not found or expired"}), 404
     from flask import send_file as _send_file
     return _send_file(str(clip_path), as_attachment=True, download_name=f"clip_{clip_id}.mp4", mimetype="video/mp4")
+
+
+@app.post("/api/video/convert_to_mp4")
+def api_video_convert_to_mp4():
+    """Accept a WebM blob, convert to MP4 with ffmpeg, return the MP4.
+    Used by the Teleprompter so recorded videos download as proper MP4 files
+    with correct duration metadata instead of durationless WebM."""
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+    f = request.files["file"]
+    data = f.read()
+    if len(data) > 500 * 1024 * 1024:  # 500 MB cap
+        return jsonify({"ok": False, "error": "File too large (max 500 MB)"}), 400
+    if len(data) < 100:
+        return jsonify({"ok": False, "error": "File too small to convert"}), 400
+
+    conv_id = uuid.uuid4().hex[:12]
+    conv_dir = _VE_TEMP / f"conv_{conv_id}"
+    conv_dir.mkdir(parents=True, exist_ok=True)
+    in_path  = conv_dir / "input.webm"
+    out_path = conv_dir / "output.mp4"
+    in_path.write_bytes(data)
+    print(f"[CONVERT] user={u.get('username','?')} size={len(data)} id={conv_id}", flush=True)
+    try:
+        result = _subprocess_ve.run([
+            "ffmpeg", "-y",
+            "-i", str(in_path),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",   # moves metadata to front for proper duration display
+            str(out_path)
+        ], capture_output=True, timeout=300)
+        if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size < 100:
+            err = (result.stderr or b"").decode("utf-8", errors="replace")[-400:]
+            print(f"[CONVERT] ffmpeg failed: {err}", flush=True)
+            return jsonify({"ok": False, "error": "Video conversion failed — your browser may not support MP4 recording directly."}), 500
+        print(f"[CONVERT] done size={out_path.stat().st_size}", flush=True)
+        return _sf(
+            str(out_path),
+            as_attachment=True,
+            download_name="teleprompter-recording.mp4",
+            mimetype="video/mp4"
+        )
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "ffmpeg not available on this server."}), 500
+    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
+        return jsonify({"ok": False, "error": "Conversion timed out — try a shorter recording."}), 500
+    finally:
+        # Clean up temp files after a short delay (file still being sent)
+        import threading as _ct
+        def _cleanup():
+            import time as _ct_t; _ct_t.sleep(30)
+            try: _shutil_ve.rmtree(conv_dir, ignore_errors=True)
+            except Exception: pass
+        _ct.Thread(target=_cleanup, daemon=True).start()
 
 
 # ═══════════════════════════════════════════════════════════════════
