@@ -20586,6 +20586,9 @@ window.saWM = (function(){
       handle.addEventListener('mousedown', function(e){
         if(e.button!==0) return;
         if(e.target.closest&&e.target.closest('.modalBarBtns,.sa-float-btns')) return;
+        // Never steal focus/default from interactive elements — textarea, input, select, button, a
+        var _tag = (e.target.tagName||'').toUpperCase();
+        if(['INPUT','TEXTAREA','SELECT','BUTTON','A'].indexOf(_tag)!==-1) return;
         e.preventDefault();
         win.style.zIndex = ++pub.z;
         _startDrag(e, win);
@@ -43005,7 +43008,7 @@ window.toggleNotifPanel = function(){
 
 <!-- ===== TELEPROMPTER ===== -->
 <div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;">
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
+  <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="font-size:20px;">🎙</div>
       <div>
