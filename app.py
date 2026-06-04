@@ -52856,6 +52856,7 @@ def api_transcribe():
         return jsonify({"ok": False, "error": f"Transcription error: {str(exc)}"}), 500
 
 def _api_transcribe_inner():
+    from flask import Response
     import io, threading, queue as _tq, json as _tj
     u = current_user()
     if not u:
