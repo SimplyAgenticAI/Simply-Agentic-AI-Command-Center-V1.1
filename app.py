@@ -3160,8 +3160,9 @@ def read_task_log(limit: int = 200, teammate: str = "", status: str = "") -> Lis
 # =========================
 #
 # Per-teammate stacks that run steps sequentially.
-# Scheduling is safe: no background threads at import.
-# Schedules run via /api/action_stack_schedules/tick which the UI pings.
+# Schedules run via two paths:
+# 1. /api/action_stack_schedules/tick — UI ping (redundant trigger)
+# 2. _bg_schedule_tick daemon thread — fires every 60s without browser open
 
 ACTION_STACKS_DIR = DATA / "action_stacks"
 ACTION_STACK_RUNS_DIR = DATA / "action_stack_runs"
@@ -5488,10 +5489,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
         # ── Rule 2: Capability confidence ────────────────────────────────────
         "2. **Know what you can do and say so**: You CAN generate images, draft emails, analyze URLs, "
-        "search the web, analyze uploaded images, create animations, and write any type of content. "
-        "NEVER say 'I can't do that' for any of these. If you receive a request that involves one of "
-        "these capabilities, proceed immediately and confidently. The system handles the execution — "
-        "your job is to engage fully and act.\n"
+        "analyze uploaded files and images, create animations and visuals, and write any type of content. "
+        "You do NOT have live web search — for current data, ask the user to paste the URL or result. "
+        "NEVER say 'I can't do that' for the capabilities you have. Proceed immediately and confidently. "
+        "The system handles the execution — your job is to engage fully and act.\n"
 
         # ── Rule 3: Email requests → always draft immediately ─────────────────
         "3. **Email requests — always draft immediately**: When a user asks you to 'email X to Y' or "
@@ -5500,11 +5501,21 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "Produce the draft immediately using the email block format, with the recipient in the To: field. "
         "The UI handles sending — your only job is to write a great email.\n"
 
-        # ── Rule 4: Specificity ───────────────────────────────────────────────
+    )
+
+    # ── Rule 4: Specificity (conditionally chosen based on profile completeness) ──
+    _rule4 = (
+        "4. **Specificity — profile not set**: The operator has not filled in their profile yet. "
+        "In your FIRST response of a new session, ask ONE concise question to learn about "
+        "their business (industry, what they sell, or who they serve). Do not give generic advice "
+        "until you know at least one of these things. Once you know, reference it in every reply.\n"
+    ) if not (_op_biz or _op_aud or _op_name) else (
         f"4. **Specificity**: Never give generic advice. Tie every recommendation to what you know about {_op_ref}"
         + (f", their ideal client ({_op_aud})" if _op_aud else "")
         + ". Generic advice that could apply to anyone is wrong.\n"
+    )
 
+    behavior_rules = behavior_rules + _rule4 + (
         # ── Rule 5: Action close ──────────────────────────────────────────────
         "5. **Action close**: End every reply with one clear next step or one direct question. "
         "Never close with a recap, a summary of what you just said, or a trailing list of options.\n"
@@ -5555,7 +5566,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
           "- Orion (Systems): Quiet precision. Thinks in states, triggers, failure modes. Will say 'before we build this, here is what will break' without drama.\n"
           "- Sunshine (Sales): Warm but not soft. Reads the human on the other side. Asks about the buyer's situation before suggesting a script. Believes in real urgency, not manufactured.\n"
           "- Atlis (Integrity): Measured and fair. Identifies the specific rule being bent. Offers the correction as a question before a statement.\n"
-    )
+    )  # end of rule 4+ continuation
 
     format_rules = (
         "RESPONSE FORMAT — follow every single rule, every single reply, no exceptions:\n"
@@ -6469,7 +6480,8 @@ def _get_openai_client_for_username(username: str):
         raise RuntimeError("No OpenAI API key found. Add your OpenAI key in Settings.")
     return OpenAI(api_key=key)
 
-_LAST_REFINED_PROMPT: Dict[str, str] = {}  # thread-safe enough for single-worker; keyed by thread id
+_LAST_REFINED_PROMPT: Dict[str, str] = {}      # keyed by thread id
+_LAST_REFINED_PROMPT_TS: Dict[str, float] = {} # timestamps for TTL eviction
 
 def _vision_describe_image(image_bytes: bytes, mimetype: str, user_prompt: str, client) -> str:
     """Use GPT-4o vision to generate a detailed visual description of an uploaded image.
@@ -6520,7 +6532,15 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
 
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
     # Store refined prompt keyed by calling thread so _run_image_job can retrieve it
-    _LAST_REFINED_PROMPT[str(_thr.current_thread().ident)] = prompt2
+    _tid = str(_thr.current_thread().ident)
+    _LAST_REFINED_PROMPT[_tid] = prompt2
+    _LAST_REFINED_PROMPT_TS[_tid] = time.time()
+    # Evict entries older than 10 minutes to prevent memory leak
+    _now_t = time.time()
+    _stale_keys = [k for k, ts in _LAST_REFINED_PROMPT_TS.items() if _now_t - ts > 600]
+    for _sk in _stale_keys:
+        _LAST_REFINED_PROMPT.pop(_sk, None)
+        _LAST_REFINED_PROMPT_TS.pop(_sk, None)
 
     model = _pick_image_model()
     try:
@@ -8297,7 +8317,10 @@ def api_upload():
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
 
     out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
-    f.save(out_path)
+    try:
+        f.save(out_path)
+    except OSError as _fs_err:
+        return jsonify({"ok": False, "error": f"Upload failed — storage error. Please try again. ({str(_fs_err)[:80]})"}), 500
 
     size_bytes = out_path.stat().st_size if out_path.exists() else 0
     if size_bytes > MAX_UPLOAD_BYTES:
@@ -8308,14 +8331,18 @@ def api_upload():
         return jsonify({"ok": False, "error": f"File too large. Maximum {MAX_UPLOAD_MB} MB allowed."}), 413
     mimetype = (f.mimetype or "").strip()
 
-    owner = ""
+    # Require authenticated owner — fail explicitly rather than creating an orphaned file
+    _u = current_user()
+    if not _u:
+        try: out_path.unlink()
+        except Exception: pass
+        return jsonify({"ok": False, "error": "Session expired — please refresh and try again."}), 401
+    owner = (_u.get("username") if isinstance(_u, dict) else None) or ""
     try:
-        u = current_user()
-        owner = (u.get("username") if isinstance(u, dict) else None) or ""
         if owner:
             _award_points(owner, "Uploaded a file", 20)
     except Exception:
-        owner = ""
+        pass
     rec = {
         "id": file_id,
         "filename": filename,
@@ -8821,7 +8848,11 @@ def _api_followup_impl(data):
 
     # Message limit check (mirrors streaming path)
     _plan_k = _get_user_plan(uname)
-    _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
+    try:
+        _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
+    except Exception as _lim_exc:
+        _log("ERROR", "msg_limit check failed", error=str(_lim_exc)[:200])
+        return jsonify({"ok": False, "error": "Could not verify usage — please try again in a moment."}), 503
     if not _allowed:
         _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
         return jsonify({"ok": False, "error": f"You've used all {_limit} AI Credits included with {_plan_nm} this month. Connect your own API key in ⚙️ Settings to unlock unlimited credits and all premium models — or your credits reset on the 1st.", "limit_hit": True}), 429
@@ -24982,7 +25013,7 @@ function _saJobNotify(seatName, status){
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let buf = "", fullText = "", emailDraft = null, jobId = null;
+        let buf = "", fullText = "", emailDraft = null, jobId = null, _serverDone = false;
 
         while(true){
           const {done, value} = await reader.read();
@@ -24996,12 +25027,22 @@ function _saJobNotify(seatName, status){
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
               if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} if(!aBody._rafPending){aBody._rafPending=true;requestAnimationFrame(function(){aBody._rafPending=false;var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();aBody.textContent=_st3||fullText;cursor.remove();aBody.appendChild(cursor);if(threadBox)threadBox.scrollTop=threadBox.scrollHeight;});} }
-              if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; }
+              if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; _serverDone = true; }
             }catch(e){}
           }
         }
 
         cursor.remove();
+
+        // If the stream ended without a server-side done event, the connection likely dropped mid-response
+        if(!_serverDone && fullText.length > 0){
+          const _notice = document.createElement("span");
+          _notice.style.cssText = "color:#f59e0b;font-size:0.8em;display:block;margin-top:6px;opacity:.75;";
+          _notice.textContent = "⚠️ Connection interrupted — this response may be incomplete. Tap to retry.";
+          _notice.style.cursor = "pointer";
+          _notice.onclick = function(){ document.getElementById('sendFollow') && document.getElementById('sendFollow').click(); };
+          aBody.appendChild(_notice);
+        }
 
         if(jobId){
           setSeatLive(selectedSeat,"thinking"); setOpStatus("Generating image");
@@ -55879,6 +55920,24 @@ def api_teammate_extract_memory():
         return jsonify({"ok": True, "extracted": bool(new_data)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+# ── Background scheduler: fire Action Stack schedules without needing browser open ──
+def _bg_schedule_tick():
+    """Runs in a daemon thread — checks for due schedules every 60 s.
+    This ensures scheduled Action Stacks fire even when no browser tab is open."""
+    import time as _bst
+    _bst.sleep(15)  # let app fully start first
+    while True:
+        try:
+            with app.app_context():
+                _run_due_schedules_once()
+        except Exception as _bse:
+            _log("WARNING", "Background schedule tick error", error=str(_bse)[:200])
+        _bst.sleep(60)
+
+_bg_sched_thread = threading.Thread(target=_bg_schedule_tick, daemon=True, name="sa-scheduler")
+_bg_sched_thread.start()
+print("[STARTUP] Background scheduler started — Action Stacks run without browser", flush=True)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False, use_reloader=False, threaded=True)
