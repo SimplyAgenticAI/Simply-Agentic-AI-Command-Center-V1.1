@@ -27384,12 +27384,21 @@ Challenge weak assumptions. Surface risks.`;
           var vid=document.getElementById('tpCamVideo');
           if(vid){ vid.srcObject=stream; vid.style.display='block'; }
           _applyMirror();
-          // Try MP4 first on all platforms — gives proper duration metadata.
-          // Fall back to WebM if MP4 recording isn't supported (Chrome/Firefox).
-          // The save function converts WebM→MP4 server-side anyway.
-          var mimeTypes=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+          // Codec priority: VP9 gives best quality/size on desktop, H264 MP4 on iOS/Safari.
+          // We convert to MP4 on save anyway, so use the best codec the browser supports.
+          var mimeTypes=[
+            'video/webm;codecs=vp9,opus',   // best quality on Chrome/Firefox desktop
+            'video/webm;codecs=vp9',
+            'video/mp4;codecs=avc1.42E01E,mp4a.40.2', // Safari/iOS native MP4
+            'video/mp4',
+            'video/webm;codecs=vp8,opus',
+            'video/webm'
+          ];
           var mime=mimeTypes.find(function(m){ try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;} })||'';
-          var recOpts=mime?{mimeType:mime,videoBitsPerSecond:8000000,audioBitsPerSecond:192000}:{videoBitsPerSecond:8000000,audioBitsPerSecond:192000};
+          // Max quality settings — 15 Mbps video, 320kbps audio (lossless-ish for voice)
+          var recOpts=mime
+            ?{mimeType:mime, videoBitsPerSecond:15000000, audioBitsPerSecond:320000}
+            :{videoBitsPerSecond:15000000, audioBitsPerSecond:320000};
           try{ _tpRecorder=new MediaRecorder(stream,recOpts); }
           catch(e){
             try{ _tpRecorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
@@ -27431,8 +27440,9 @@ Challenge weak assumptions. Surface risks.`;
           _tpRunCountdown(function(){
             try{
               // iOS MediaRecorder bugs out with a timeslice — use no-timeslice + requestData on stop
+              // Desktop/Android: 250ms timeslice so chunks arrive frequently, less data at risk
               if(_tpIsIOS){ _tpRecorder.start(); }
-              else { try{ _tpRecorder.start(1000); }catch(e){ _tpRecorder.start(); } }
+              else { try{ _tpRecorder.start(250); }catch(e){ _tpRecorder.start(); } }
               _tpRecording=true; _tpPaused=false;
               _tpShowRecBar(false);
               _startRecTimer();
@@ -27471,12 +27481,15 @@ Challenge weak assumptions. Surface risks.`;
         _tpScrolling=false; _tpPaused=false;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpRecorder&&_tpRecording){
+          // IMPORTANT: Do NOT call _tpStopCamera() here.
+          // Stopping the camera stream before onstop fires truncates the recording —
+          // the final buffer hasn't been flushed yet. _tpStopCamera() is called
+          // inside onstop AFTER the last chunk is received.
           try{ if(typeof _tpRecorder.requestData==='function') _tpRecorder.requestData(); }catch(e){}
           try{ _tpRecorder.stop(); }catch(e){}
-          _tpStopCamera(); // release mic+camera hardware NOW — don't wait for async onstop
-          // onstop fires async: hides recBar, creates blob, shows download bar
+          // onstop fires async: flushes final buffer, creates blob, then calls _tpStopCamera
         } else {
-          // Scroll-only mode: just stopped scrolling
+          _tpStopCamera();
           _tpHideRecBar();
         }
       };
@@ -53437,9 +53450,9 @@ def api_video_convert_to_mp4():
         result = _subprocess_ve.run([
             "ffmpeg", "-y",
             "-i", str(in_path),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "192k",
-            "-movflags", "+faststart",   # moves metadata to front for proper duration display
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18",  # crf 18 = near-lossless quality
+            "-c:a", "aac", "-b:a", "320k",                          # max audio quality
+            "-movflags", "+faststart",   # moves moov atom to front — required for duration display
             str(out_path)
         ], capture_output=True, timeout=300)
         if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size < 100:
