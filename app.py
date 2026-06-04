@@ -40545,6 +40545,16 @@ window._saPlReset=function(){
     <button class="btn btnMini passBtn" id="saSheetPassOpt">⚡ Optimize</button>
   </div>
   <div class="thread" id="saSheetThread"></div>
+  <!-- Mobile-only attach menu — lives INSIDE the sheet so it's never killed by ghost-panel CSS -->
+  <div id="saSheetAttachMenu" style="display:none;padding:6px 10px 2px;border-top:1px solid rgba(42,58,106,.4);background:rgba(7,10,22,.97);">
+    <input type="file" id="saSheetFiles" multiple accept="image/*,video/*,application/pdf,.txt,.doc,.docx,.csv" style="display:none;"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+      <button id="saSheetPickFiles" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#e2e8f0;font-size:13px;font-weight:600;cursor:pointer;text-align:left;">📎 Attach Files</button>
+      <button id="saSheetWhisper"   style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:10px;color:#c4b5fd;font-size:13px;font-weight:600;cursor:pointer;text-align:left;">🎙 Whisper</button>
+      <button id="saSheetPromptLib" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#e2e8f0;font-size:13px;font-weight:600;cursor:pointer;text-align:left;">📚 Prompt Library</button>
+      <button id="saSheetSummarize" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#86efac;font-size:13px;font-weight:600;cursor:pointer;text-align:left;">📋 Summarize</button>
+    </div>
+  </div>
   <div class="sa-sheet-input">
     <textarea id="saSheetMsg" placeholder="Message teammate…" rows="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
     <div class="sa-sheet-btn-row">
@@ -40572,22 +40582,17 @@ window._saPlReset=function(){
   var _dragging   = false;
   var _sheetHistoryPushed = false;
 
-  /* ── Close the repositioned attach dropdown when tapping outside it ── */
-  document.addEventListener('click', function(e){
-    var drop = ge('dmAttachDrop');
-    var btn  = ge('saSheetAttachBtn');
-    if(!drop || drop.style.display === 'none') return;
-    if(btn && btn.contains(e.target)) return;
-    if(drop.contains(e.target)) return;
-    drop.style.display = 'none';
-    if(btn) btn.style.background = '';
-  }, true);
+  /* Outside-tap close now handled inside the sheetAttach block above */
 
   /* ── Internal close (DOM only, no history manipulation) ── */
   function _doCloseSheet(){
     if(!_sheetOpen) return;
     _sheetOpen = false;
     _sheetSeat = null;
+    // Close the attach menu if it was open
+    var am = ge('saSheetAttachMenu'), ab = ge('saSheetAttachBtn');
+    if(am) am.style.display = 'none';
+    if(ab){ ab.style.background = ''; ab.style.color = ''; }
     var bs = ge('saBottomSheet');
     bs.classList.remove('sa-sheet-open','sa-sheet-full');
     bs.style.transform = 'translateY(100%)';
@@ -40796,34 +40801,93 @@ window._saPlReset=function(){
 
   /* ── Attach button mirrors desktop ── */
   var sheetAttach = ge('saSheetAttachBtn');
-  if(sheetAttach){
+  var sheetMenu   = ge('saSheetAttachMenu');
+  if(sheetAttach && sheetMenu){
+    // Toggle the in-sheet menu open/closed
     sheetAttach.addEventListener('click', function(e){
       e.stopPropagation();
-      var drop = ge('dmAttachDrop');
-      // Toggle: close if already open
-      if(drop && drop.style.display !== 'none'){
-        drop.style.display = 'none';
-        sheetAttach.style.background = '';
-        return;
-      }
-      // Fire the normal toggle so all state (active highlights etc.) stays consistent
-      var dmBtn = ge('dmAttachBtn');
-      if(dmBtn) dmBtn.click();
-      // Reposition the dropdown to float above the mobile + button instead of
-      // the hidden desktop dmAttachWrap (which is off-screen on mobile)
-      if(drop && drop.style.display !== 'none'){
-        var r = sheetAttach.getBoundingClientRect();
-        drop.style.position   = 'fixed';
-        drop.style.bottom     = (window.innerHeight - r.top + 10) + 'px';
-        drop.style.left       = '12px';
-        drop.style.right      = '12px';
-        drop.style.width      = 'auto';
-        drop.style.maxHeight  = (r.top - 20) + 'px';
-        drop.style.overflowY  = 'auto';
-        drop.style.zIndex     = '9999999';
-        sheetAttach.style.background = 'rgba(124,58,237,.35)';
-      }
+      var open = sheetMenu.style.display !== 'none';
+      sheetMenu.style.display = open ? 'none' : 'block';
+      sheetAttach.style.background = open ? '' : 'rgba(124,58,237,.35)';
+      sheetAttach.style.color = open ? '' : '#fff';
     });
+
+    // 📎 Attach Files — uses its own file input inside the sheet
+    var sheetFiles = ge('saSheetFiles');
+    var pickFiles  = ge('saSheetPickFiles');
+    if(pickFiles && sheetFiles){
+      pickFiles.addEventListener('click', function(){
+        sheetMenu.style.display = 'none';
+        sheetAttach.style.background = '';
+        sheetAttach.style.color = '';
+        sheetFiles.click();
+      });
+      sheetFiles.addEventListener('change', function(){
+        // Forward to the desktop dmFiles handler so existing upload logic runs
+        var dmFilesInput = ge('dmFiles');
+        if(dmFilesInput && sheetFiles.files.length > 0){
+          // Transfer files via DataTransfer so the desktop handler fires
+          try{
+            var dt = new DataTransfer();
+            Array.from(sheetFiles.files).forEach(function(f){ dt.items.add(f); });
+            dmFilesInput.files = dt.files;
+            dmFilesInput.dispatchEvent(new Event('change', {bubbles:true}));
+          }catch(ex){
+            // DataTransfer not supported — fall back: just trigger the desktop picker
+            dmFilesInput.click();
+          }
+        }
+        sheetFiles.value = '';
+      });
+    }
+
+    // 🎙 Whisper
+    var sheetWhisper = ge('saSheetWhisper');
+    if(sheetWhisper){
+      sheetWhisper.addEventListener('click', function(){
+        sheetMenu.style.display = 'none';
+        sheetAttach.style.background = '';
+        sheetAttach.style.color = '';
+        var alwaysBtn = ge('alwaysListenDmBtn');
+        if(alwaysBtn) alwaysBtn.click();
+      });
+    }
+
+    // 📚 Prompt Library
+    var sheetPromptLib = ge('saSheetPromptLib');
+    if(sheetPromptLib){
+      sheetPromptLib.addEventListener('click', function(){
+        sheetMenu.style.display = 'none';
+        sheetAttach.style.background = '';
+        sheetAttach.style.color = '';
+        var plBtn = ge('promptLibraryBtn');
+        if(plBtn) plBtn.click();
+      });
+    }
+
+    // 📋 Summarize
+    var sheetSummarize = ge('saSheetSummarize');
+    if(sheetSummarize){
+      sheetSummarize.addEventListener('click', function(){
+        sheetMenu.style.display = 'none';
+        sheetAttach.style.background = '';
+        sheetAttach.style.color = '';
+        var fm = ge('followMsg'), sf = ge('sendFollow');
+        if(fm && sf){
+          fm.value = 'Summarize our conversation so far in clear bullet points.';
+          sf.click();
+        }
+      });
+    }
+
+    // Close menu when tapping outside
+    document.addEventListener('click', function(e){
+      if(!sheetMenu || sheetMenu.style.display === 'none') return;
+      if(sheetAttach.contains(e.target) || sheetMenu.contains(e.target)) return;
+      sheetMenu.style.display = 'none';
+      sheetAttach.style.background = '';
+      sheetAttach.style.color = '';
+    }, true);
   }
 
   /* ── Intercept seat clicks on mobile ── */
