@@ -48033,23 +48033,37 @@ def api_crm_log_note():
 
 @app.errorhandler(Exception)
 def _handle_exception(e):
+    # Determine HTTP status code
+    code = 500
     try:
-        # Skip logging 404s and auth errors — they're not real crashes
-        code = getattr(e, "code", 500) or 500
+        code = int(getattr(e, "code", 500) or 500)
+    except Exception:
+        pass
+
+    # Best-effort error capture — must never block the response
+    try:
         if code not in (404, 401, 403):
             _capture_error(e, context="unhandled_exception")
+    except Exception:
+        pass
+
+    # Always return JSON for API routes — even if every other step above failed
+    try:
+        path = request.path or ""
+    except Exception:
+        path = ""
+
+    if path.startswith("/api/"):
         try:
-            path = request.path or ""
-        except Exception:
-            path = ""
-        if path.startswith("/api/"):
-            # Never expose internal exception details to the client — log internally only
             resp = jsonify({"ok": False, "error": "An internal error occurred. Please try again."})
             resp.headers["Content-Type"] = "application/json"
             resp.headers["Cache-Control"] = "no-store"
             return resp, code
-    except Exception:
-        pass
+        except Exception:
+            from flask import Response as _FR
+            return _FR('{"ok":false,"error":"Internal server error"}', status=500, mimetype="application/json")
+
+    # Non-API: let Flask render its normal HTML error page
     raise e
 
 @app.errorhandler(404)
@@ -52770,6 +52784,14 @@ def api_tts():
 def api_transcribe():
     """Transcribe via OpenAI Whisper-1. Streams heartbeat lines to survive proxy timeouts,
     then sends a final JSON line with the result."""
+    try:
+        return _api_transcribe_inner()
+    except Exception as exc:
+        import traceback as _tb
+        print(f"[TRANSCRIBE] UNHANDLED EXCEPTION: {exc}\n{_tb.format_exc()}", flush=True)
+        return jsonify({"ok": False, "error": f"Transcription error: {str(exc)}"}), 500
+
+def _api_transcribe_inner():
     import io, threading, queue as _tq, json as _tj
     u = current_user()
     if not u:
@@ -52810,21 +52832,27 @@ def api_transcribe():
             result_q.put({"ok": True, "transcript": transcript})
         except Exception as exc:
             print(f"[TRANSCRIBE] EXCEPTION: {exc}", flush=True)
-            _, msg = _classify_openai_error(exc)
+            try:
+                _, msg = _classify_openai_error(exc)
+            except Exception:
+                msg = str(exc) or "Transcription failed — please try again."
             result_q.put({"ok": False, "error": msg})
 
     threading.Thread(target=_do_transcribe, daemon=True).start()
 
     def _stream():
-        # Send a heartbeat space+newline every 5 s to keep Render's proxy alive.
-        # When Whisper finishes, yield the JSON result line and stop.
-        while True:
+        # Send heartbeat every 5 s to keep Render's proxy alive.
+        # Give up after 180 s so the connection doesn't hang forever.
+        import time as _t
+        deadline = _t.time() + 180
+        while _t.time() < deadline:
             try:
                 res = result_q.get(timeout=5)
                 yield _tj.dumps(res) + "\n"
                 return
             except _tq.Empty:
                 yield " \n"   # heartbeat — keeps the HTTP connection open
+        yield _tj.dumps({"ok": False, "error": "Transcription timed out — try a shorter clip."}) + "\n"
 
     return Response(
         _stream(),
