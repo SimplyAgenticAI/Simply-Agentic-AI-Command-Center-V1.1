@@ -26866,6 +26866,30 @@ Challenge weak assumptions. Surface risks.`;
             ta.addEventListener('input',function(){ try{localStorage.setItem('tp_script',ta.value);}catch(e){} });
           }
         }
+        // Restore saved speed and font size preferences
+        var spEl=document.getElementById('tpSpeed'), fsEl=document.getElementById('tpFontSize');
+        try{
+          var savedSpeed=localStorage.getItem('tp_speed');
+          if(savedSpeed && spEl){ spEl.value=savedSpeed; _tpSpeed=parseInt(savedSpeed); _updateSpeedDisp(); }
+          var savedFont=localStorage.getItem('tp_fontsize');
+          if(savedFont && fsEl){ fsEl.value=savedFont; _tpFontSize=parseInt(savedFont); }
+        }catch(e){}
+        // Wire save-on-change if not already done
+        if(spEl && !spEl._tpWired){
+          spEl._tpWired=true;
+          spEl.addEventListener('input',function(){
+            _tpSpeed=parseInt(spEl.value)||2;
+            _updateSpeedDisp();
+            try{localStorage.setItem('tp_speed',spEl.value);}catch(e){}
+          });
+        }
+        if(fsEl && !fsEl._tpWired){
+          fsEl._tpWired=true;
+          fsEl.addEventListener('change',function(){
+            _tpFontSize=parseInt(fsEl.value)||36;
+            try{localStorage.setItem('tp_fontsize',fsEl.value);}catch(e){}
+          });
+        }
         if(m.classList.contains('sa-minimized')){ saWinRestore('teleprompterModal::🎙 Teleprompter'); return; }
         if(!m._wmReady){
           m._wmReady=true;
