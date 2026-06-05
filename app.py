@@ -497,7 +497,9 @@ def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, An
                 d["image_count"] = int(d.get("image_count", 0)) + 1
             else:
                 d["count"] = int(d.get("count", 0)) + 1
-            path.write_text(json.dumps(d), encoding="utf-8")
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(d), encoding="utf-8")
+            tmp.replace(path)
             return d
         except Exception:
             return {"month": month, "count": 0, "image_count": 0}
@@ -561,8 +563,9 @@ def _load_founder_seats() -> Dict[str, Any]:
 
 def _save_founder_seats(data: Dict[str, Any]) -> None:
     try:
-        with open(FOUNDER_SEATS_PATH, "w") as f:
-            json.dump(data, f)
+        tmp = Path(str(FOUNDER_SEATS_PATH) + ".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(FOUNDER_SEATS_PATH)
     except Exception:
         pass
 
@@ -710,6 +713,9 @@ def _get_user_plan(username: str) -> str:
         seats = (_load_seats().get("seats") or {})
         for seat in seats.values():
             if seat.get("claimed_by") == username:
+                if seat.get("status") in ("cancelled", "inactive"):
+                    result = "solo"  # cancelled users drop back to free tier
+                    break
                 result = _normalize_plan_key((seat.get("plan") or "solo").strip().lower())
                 break
     except Exception:
@@ -1369,7 +1375,9 @@ def _load_seats() -> Dict[str, Any]:
 
 def _save_seats(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
-    SEATS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp = SEATS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(SEATS_PATH)
 
 def _ensure_seats_initialized() -> None:
     """Auto-generate seats on first run if none exist."""
@@ -2286,7 +2294,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/extension/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -2719,9 +2727,15 @@ def api_csrf_token() -> Any:
     return jsonify({"ok": True, "csrf_token": token})
 
 @app.before_request
-def _raise_video_upload_limit():
-    if request.path == '/api/video/upload' and request.method == 'POST':
-        app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+def _adjust_content_length_for_video():
+    """Set a higher upload limit for video routes, without permanently raising it for all routes."""
+    if request.method == 'POST':
+        if request.path == '/api/video/upload':
+            app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
+        elif request.path == '/api/video/convert_to_mp4':
+            app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
+        else:
+            app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES  # reset to normal
 
 @app.errorhandler(413)
 def _handle_413(e):
@@ -2741,7 +2755,11 @@ def _auth_guard() -> Optional[Any]:
     if request.path.startswith("/stripe/"):
         return None
     if request.path.startswith("/admin/"):
-        return None  # Admin routes do their own auth checks
+        # Enforce auth globally for all admin routes — don't rely on per-route checks
+        _au = current_user()
+        if not _au or not _is_admin_user(_au):
+            return redirect(url_for("login"))
+        return None
 
     # allow setup if no users exist
     if request.path.startswith("/setup") and not has_any_user():
@@ -4322,6 +4340,8 @@ def create_teammate(payload: Dict[str, Any], username: str = "") -> Dict[str, An
         "avatar": _make_avatar_for(name),
         "custom": True,
         "created_by": uname,
+        "preferred_model": str(payload.get("preferred_model", "")).strip(),
+        "tts_voice": str(payload.get("tts_voice", "alloy")).strip() or "alloy",
     }
 
     installed[name] = t
@@ -5231,7 +5251,7 @@ def _invalidate_sys_prompt_cache(username: str = "", teammate: str = "") -> None
             _SYS_PROMPT_CACHE.clear()
 
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
-                           rag_context: str = "") -> str:
+                           rag_context: str = "", memory_context: str = "") -> str:
     role_block = {
         "name": defn.get("name", ""),
         "job_title": defn.get("job_title", ""),
@@ -5623,7 +5643,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     with _SYS_PROMPT_CACHE_LOCK:
         _cached = _SYS_PROMPT_CACHE.get(_cache_key)
         if _cached and (_t.monotonic() - _cached["ts"]) < _SYS_PROMPT_CACHE_TTL:
-            return _cached["prompt"] + (f"\n{rag_context}" if rag_context else "")
+            _sfx = ""
+            if rag_context: _sfx += f"\n{rag_context}"
+            if memory_context: _sfx += f"\n{memory_context}"
+            return _cached["prompt"] + _sfx
 
     _base_prompt = (
         "You are a persistent, expert AI teammate inside a multi-teammate command center.\n"
@@ -5653,7 +5676,12 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     )
     with _SYS_PROMPT_CACHE_LOCK:
         _SYS_PROMPT_CACHE[_cache_key] = {"prompt": _base_prompt, "ts": _t.monotonic()}
-    return _base_prompt + (f"\n{rag_context}" if rag_context else "")
+    suffix = ""
+    if rag_context:
+        suffix += f"\n{rag_context}"
+    if memory_context:
+        suffix += f"\n{memory_context}"
+    return _base_prompt + suffix
 
 
 ContentType = Union[str, List[Dict[str, Any]]]
@@ -8780,7 +8808,14 @@ def _api_followup_impl(data):
     except Exception:
         rag_context = ""
 
-    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
+    # Load long-term memory for this teammate and inject it into the system prompt
+    _tm_mem = load_teammate_memory(uname, name)
+    _mem_lines = []
+    if _tm_mem.get("facts"):       _mem_lines.append("Facts about this user: " + " | ".join(_tm_mem["facts"][:8]))
+    if _tm_mem.get("preferences"): _mem_lines.append("User preferences: " + " | ".join(_tm_mem["preferences"][:5]))
+    if _tm_mem.get("open_loops"):  _mem_lines.append("Open items to follow up: " + " | ".join(_tm_mem["open_loops"][:4]))
+    _mem_ctx = ("LONG-TERM MEMORY (from previous sessions):\n" + "\n".join(_mem_lines)) if _mem_lines else ""
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx)
 
     # Determine image context before routing — needed for is_image_request
     _img_state_check = load_image_state(name, uname)
@@ -8830,7 +8865,7 @@ def _api_followup_impl(data):
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
         placeholder = f"[{mode_label}] job:{job_id}"
         thread2 = load_thread(name, uname)
-        thread2 = thread2[-14:] if len(thread2) > 14 else thread2
+        thread2 = _truncate_thread_with_note(thread2, max_messages=20)
         new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread, uname)
 
@@ -12196,7 +12231,10 @@ function startCheckout(plan){{
 
 @app.get("/showcase")
 def showcase_page():
-    return SHOWCASE_HTML
+    # Substitute dynamic values into the showcase HTML at request time
+    html = SHOWCASE_HTML.replace("{FREE_TRIAL_DAYS}", str(FREE_TRIAL_DAYS))
+    html = html.replace("{FREE_TRIAL_DAYS + 1}", str(FREE_TRIAL_DAYS + 1))
+    return html
 
 
 _LEGAL_PAGE_CSS = """
@@ -12397,7 +12435,7 @@ def login_post():
     session["user"] = username
     session.permanent = bool(remember)
     if remember:
-        app.permanent_session_lifetime = timedelta(days=30)
+        pass  # session lifetime already set at startup in app.config
     _audit_log("login", {"remember": bool(remember)}, username=username)
 
     # Safe same-origin ?next= redirect (prevents open redirect attacks)
@@ -12472,7 +12510,7 @@ def verify_2fa_post():
     session["user"] = pending
     session.permanent = bool(remember)
     if remember:
-        app.permanent_session_lifetime = timedelta(days=30)
+        pass  # session lifetime already set at startup in app.config
     if next_url and next_url.startswith("/") and not next_url.startswith("//"):
         return redirect(next_url)
     return redirect(url_for("index"))
@@ -12901,6 +12939,8 @@ If you ever need help, just reply to this email.
         ), daemon=True).start()
 
     return redirect(url_for("index"))
+
+@app.get("/verify/resend")
 def verify_resend():
     token = session.get("_pending_verify_token", "")
     if not token:
@@ -13527,8 +13567,9 @@ def reset_password_post():
     token = (request.form.get("token") or "").strip()
     new_password = (request.form.get("new_password") or "").strip()
 
-    if len(new_password) < 8:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="New password must be at least 8 characters", token=None, ok=None)
+    _pw_ok, _pw_err = _validate_password_strength(new_password)
+    if not _pw_ok:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_pw_err, token=None, ok=None)
 
     data = load_users()
     u = (data.get("users") or {}).get(username)
@@ -26916,7 +26957,7 @@ Challenge weak assumptions. Surface risks.`;
         if(!script){ if(typeof showToast==='function') showToast('Paste your script first'); return; }
         // Kill Voice Mode before teleprompter takes over audio — two mic users = static + conflicts
         try{ if(alwaysOn && typeof stopAlwaysListening==='function') stopAlwaysListening(); }catch(_){}
-        _tpSpeed=parseInt((document.getElementById('tpSpeed')||{}).value||'4');
+        _tpSpeed=parseInt((document.getElementById('tpSpeed')||{}).value||'2');
         _tpFontSize=parseInt((document.getElementById('tpFontSize')||{}).value||'36');
         _tpScrolling=false; _tpScrollPos=0; _tpLastTs=null; _tpMirrored=true; _tpCamOn=true;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
@@ -27173,6 +27214,11 @@ Challenge weak assumptions. Surface risks.`;
         if(!ov||ov.style.display==='none') return; // teleprompter not open — ignore
         if(document.hidden){
           if(!_tpRecording) _tpStopCamera(); // free mic for other apps immediately
+        } else {
+          // Returning from background — restore camera if it was on and not recording
+          if(!_tpRecording && _tpCamOn && !_tpCamStream){
+            _tpStartCamera && _tpStartCamera();
+          }
         }
       });
 
@@ -27344,12 +27390,18 @@ Challenge weak assumptions. Surface risks.`;
       window.tpAdjustSpeed = function(d){
         _tpSpeed=Math.max(1,Math.min(10,_tpSpeed+d));
         _updateSpeedDisp();
+        var spEl=document.getElementById('tpSpeed');
+        if(spEl) spEl.value=_tpSpeed;
+        try{localStorage.setItem('tp_speed',String(_tpSpeed));}catch(e){}
       };
 
       window.tpAdjustFont = function(d){
         _tpFontSize=Math.max(20,Math.min(96,_tpFontSize+d));
         var textEl=document.getElementById('tpText');
         if(textEl) textEl.style.fontSize=_tpFontSize+'px';
+        var fsEl=document.getElementById('tpFontSize');
+        if(fsEl) fsEl.value=_tpFontSize;
+        try{localStorage.setItem('tp_fontsize',String(_tpFontSize));}catch(e){}
       };
 
 
@@ -27383,6 +27435,8 @@ Challenge weak assumptions. Surface risks.`;
       // Record = stop video-only preview → single getUserMedia(video+audio) → countdown → record
       // One stream, one hardware clock = zero combining artifacts, zero robotic processing
       window.tpStartRecording = function(){
+        // Stop voice scroll detection first — iOS permits only one active audio stream
+        if(_tpVoiceEnabled){ _tpStopVoiceDetect(); }
         var dlBar=document.getElementById('tpDownloadBar');
         if(dlBar) dlBar.style.display='none';
         if(_tpCamPending){
@@ -27444,8 +27498,12 @@ Challenge weak assumptions. Surface risks.`;
             if(prog) prog.style.height='0%';
             if(_tpAutoSaveClose){
               _tpAutoSaveClose=false;
-              if(blob.size>0) window.tpSave();
-              _tpDoClose();
+              if(blob.size>0){
+                // tpSave is async (MP4 conversion) — wait for it before closing
+                Promise.resolve(window.tpSave()).then(_tpDoClose).catch(_tpDoClose);
+              } else {
+                _tpDoClose();
+              }
               return;
             }
             if(_tpRestarting){ _tpDoRestart(); return; }
@@ -45503,7 +45561,7 @@ def _crm_tick_once() -> None:
 
             if changed:
                 crm["enrollments"] = enroll
-                save_json(user_path, crm)
+                _crm_save(uname, crm)  # use _crm_save to enforce messages cap
 
         except Exception:
             continue
@@ -45660,6 +45718,7 @@ def api_crm_clients_create():
         "next_followup": (payload.get("next_followup") or "").strip(),
         "notes": (payload.get("notes") or "").strip(),
         "last_summary": (payload.get("last_summary") or "").strip(),
+        "deal_value": float(payload.get("deal_value") or 0),
         "custom_fields": payload.get("custom_fields") if isinstance(payload.get("custom_fields"), dict) else {},
         "created_at": now,
         "updated_at": now,
@@ -45702,6 +45761,8 @@ def api_crm_clients_update(client_id: str):
     for k in ["name","company","email","phone","status","last_contact","next_followup","notes","last_summary"]:
         if k in payload:
             c[k] = (payload.get(k) or "").strip()
+    if "deal_value" in payload:
+        c["deal_value"] = float(payload.get("deal_value") or 0)
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
         if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
@@ -45910,7 +45971,14 @@ def api_crm_pipeline_set():
     stages = [str(s).strip() for s in stages if str(s).strip()]
     stages = stages[:40]
     crm = _crm_load(uname)
+    old_stages = (crm.get("pipeline") or {}).get("stages") or []
     crm["pipeline"] = {"stages": stages}
+    # Migrate contacts whose stage no longer exists to the first valid stage
+    first_stage = stages[0] if stages else "Lead"
+    clients = crm.get("clients") or {}
+    for c in clients.values():
+        if isinstance(c, dict) and c.get("pipeline_stage") not in stages:
+            c["pipeline_stage"] = first_stage
     _crm_save(uname, crm)
     return jsonify({"ok": True, "pipeline": crm["pipeline"]})
 
@@ -52268,7 +52336,14 @@ def api_followup_stream():
     except Exception:
         rag_context = ""
 
-    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context)
+    # Load long-term memory and inject into system prompt
+    _tm_mem_s = load_teammate_memory(uname, name)
+    _mem_lines_s = []
+    if _tm_mem_s.get("facts"):       _mem_lines_s.append("Facts about this user: " + " | ".join(_tm_mem_s["facts"][:8]))
+    if _tm_mem_s.get("preferences"): _mem_lines_s.append("User preferences: " + " | ".join(_tm_mem_s["preferences"][:5]))
+    if _tm_mem_s.get("open_loops"):  _mem_lines_s.append("Open items to follow up: " + " | ".join(_tm_mem_s["open_loops"][:4]))
+    _mem_ctx_s = ("LONG-TERM MEMORY (from previous sessions):\n" + "\n".join(_mem_lines_s)) if _mem_lines_s else ""
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s)
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
     _img_state_s = load_image_state(name, uname)
@@ -53415,8 +53490,9 @@ def api_video_export():
     out_path = vid_dir / f"clip_{export_id}.mp4"
     try:
         _subprocess_ve.run([
-            "ffmpeg", "-y", "-ss", str(start), "-i", str(orig_path),
-            "-t", str(end - start), "-c:v", "libx264", "-preset", "fast",
+            "ffmpeg", "-y", "-i", str(orig_path),
+            "-ss", str(start), "-t", str(end - start),  # post-input -ss = frame-accurate trim
+            "-c:v", "libx264", "-preset", "fast",
             "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path)
         ], check=True, capture_output=True, timeout=300)
     except FileNotFoundError:
@@ -56032,9 +56108,24 @@ def api_teammate_extract_memory():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 # ── Background scheduler: fire Action Stack schedules without needing browser open ──
+def _prune_logs_dir(max_files: int = 3000) -> None:
+    """Keep only the most recent max_files log entries to prevent disk exhaustion."""
+    try:
+        if not LOGS_DIR.exists():
+            return
+        files = sorted(LOGS_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime)
+        for f in files[:-max_files]:
+            try: f.unlink()
+            except Exception: pass
+    except Exception:
+        pass
+
+_bg_evict_counter = 0
+
 def _bg_schedule_tick():
     """Runs in a daemon thread — checks for due schedules every 60 s.
     This ensures scheduled Action Stacks fire even when no browser tab is open."""
+    global _bg_evict_counter
     import time as _bst
     _bst.sleep(15)  # let app fully start first
     while True:
@@ -56043,6 +56134,13 @@ def _bg_schedule_tick():
                 _run_due_schedules_once()
         except Exception as _bse:
             _log("WARNING", "Background schedule tick error", error=str(_bse)[:200])
+        # Every 10 minutes: prune logs + evict old image jobs
+        _bg_evict_counter += 1
+        if _bg_evict_counter % 10 == 0:
+            try: _prune_logs_dir()
+            except Exception: pass
+            try: _image_jobs_evict_old()
+            except Exception: pass
         _bst.sleep(60)
 
 _bg_sched_thread = threading.Thread(target=_bg_schedule_tick, daemon=True, name="sa-scheduler")
