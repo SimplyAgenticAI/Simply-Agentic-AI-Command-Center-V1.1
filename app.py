@@ -14264,9 +14264,7 @@ HTML = r"""
       z-index: 40;
       opacity: 0;
       transition: opacity .18s;
-      border-top: 1px solid rgba(124,58,237,.25);
-      background: rgba(8,12,32,.96);
-      backdrop-filter: blur(8px);
+      background: transparent;
       border-radius: 0 0 16px 16px;
     }
     .seat:hover .seatTools{ opacity: 1; }
