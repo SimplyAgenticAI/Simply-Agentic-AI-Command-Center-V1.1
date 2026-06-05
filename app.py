@@ -1364,20 +1364,32 @@ TEAM_INVITES_PATH    = DATA / "team_invites.json"
 
 DEFAULT_SEAT_COUNT = int(os.getenv("SEAT_COUNT", "25"))
 
+_SEATS_CACHE: Dict[str, Any] = {"data": None, "ts": 0.0}
+_SEATS_CACHE_TTL = 3  # seconds
+
 def _load_seats() -> Dict[str, Any]:
+    _now = time.time()
+    if _SEATS_CACHE["data"] is not None and _now - _SEATS_CACHE["ts"] < _SEATS_CACHE_TTL:
+        return _SEATS_CACHE["data"]
     if not SEATS_PATH.exists():
-        return {"seats": {}, "updated_at": None}
-    try:
-        d = json.loads(SEATS_PATH.read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else {"seats": {}, "updated_at": None}
-    except Exception:
-        return {"seats": {}, "updated_at": None}
+        d = {"seats": {}, "updated_at": None}
+    else:
+        try:
+            d = json.loads(SEATS_PATH.read_text(encoding="utf-8"))
+            if not isinstance(d, dict):
+                d = {"seats": {}, "updated_at": None}
+        except Exception:
+            d = {"seats": {}, "updated_at": None}
+    _SEATS_CACHE["data"] = d
+    _SEATS_CACHE["ts"] = _now
+    return d
 
 def _save_seats(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
     tmp = SEATS_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     tmp.replace(SEATS_PATH)
+    _SEATS_CACHE["data"] = None  # invalidate cache after write
 
 def _ensure_seats_initialized() -> None:
     """Auto-generate seats on first run if none exist."""
@@ -1570,6 +1582,12 @@ def _load_stripe_sessions() -> Dict[str, Any]:
     return load_json(STRIPE_SESSIONS_PATH, {})
 
 def _save_stripe_sessions(data: Dict[str, Any]) -> None:
+    # Prune entries older than 90 days to prevent unbounded growth
+    try:
+        cutoff = (datetime.utcnow() - timedelta(days=90)).isoformat()
+        data = {k: v for k, v in data.items() if (v.get("created_at") or "") > cutoff}
+    except Exception:
+        pass
     save_json(STRIPE_SESSIONS_PATH, data)
 
 def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, name: str = "", plan: str = "solo") -> str:
@@ -7665,6 +7683,32 @@ def api_change_password():
     return jsonify({"ok": True, "message": "Password updated successfully. Please log in again."})
 
 
+@app.post("/api/smtp/test")
+def api_smtp_test():
+    """Test SMTP credentials without sending a real email."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    p = request.get_json(silent=True) or {}
+    host = (p.get("host") or SMTP_HOST or "").strip()
+    port = int(p.get("port") or SMTP_PORT or 587)
+    user = (p.get("user") or SMTP_USER or "").strip()
+    pw   = (p.get("password") or SMTP_PASS or "").strip()
+    if not host or not user:
+        return jsonify({"ok": False, "error": "Host and username are required"}), 400
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as srv:
+            srv.ehlo()
+            srv.starttls()
+            srv.ehlo()
+            if pw: srv.login(user, pw)
+        return jsonify({"ok": True, "message": "SMTP connection successful!"})
+    except smtplib.SMTPAuthenticationError:
+        return jsonify({"ok": False, "error": "Authentication failed — check username and password."})
+    except smtplib.SMTPConnectError as e:
+        return jsonify({"ok": False, "error": f"Could not connect to {host}:{port} — {str(e)[:100]}"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]})
+
 @app.post("/api/user/settings")
 def api_set_user_settings():
     u = current_user()
@@ -8271,6 +8315,7 @@ def api_get_teammate(n: str):
         "responsibilities": t.get("responsibilities", []), "thinking_style": t.get("thinking_style", ""),
         "will_not_do": t.get("will_not_do", []), "goal": t.get("goal", ""),
         "preferred_model": t.get("preferred_model", ""), "tts_voice": t.get("tts_voice", "alloy"),
+        "avatar": t.get("avatar", {}),
     }})
 
 
@@ -9491,17 +9536,34 @@ def api_calendar_move_event():
     if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
     payload = request.get_json(force=True, silent=True) or {}
-    event_id = (payload.get("event_id") or "").strip()
-    start     = (payload.get("start") or "").strip()
-    end       = (payload.get("end")   or "").strip()
-    timezone  = (payload.get("timezone") or "America/New_York").strip()
-    send_upd  = "all" if payload.get("resend") else "none"
+    event_id   = (payload.get("event_id") or "").strip()
+    start      = (payload.get("start") or "").strip()
+    end        = (payload.get("end")   or "").strip()
+    timezone   = (payload.get("timezone") or "America/New_York").strip()
+    send_upd   = "all" if payload.get("resend") else "none"
+    calendar_id = (payload.get("calendar_id") or "primary").strip()
     if not event_id or not start or not end:
         return jsonify({"ok": False, "error": "Missing event_id, start, or end"}), 400
     try:
-        updated = _calendar_move_event(access_token, event_id=event_id,
-                                       new_start_iso=start, new_end_iso=end,
-                                       timezone=timezone, send_updates=send_upd)
+        # Build patch body — also accept title/description/attendees/location updates
+        patch_body: Dict[str, Any] = {
+            "start": {"dateTime": start, "timeZone": timezone},
+            "end":   {"dateTime": end,   "timeZone": timezone},
+        }
+        if payload.get("summary"):     patch_body["summary"]     = payload["summary"]
+        if payload.get("description"): patch_body["description"] = payload["description"]
+        if payload.get("location"):    patch_body["location"]    = payload["location"]
+        if payload.get("attendees"):   patch_body["attendees"]   = [{"email": e} for e in payload["attendees"]]
+        r2 = requests.patch(
+            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json=patch_body, params={"sendUpdates": send_upd}, timeout=20
+        )
+        updated = r2.json() if r2.status_code < 300 else None
+        if not updated:
+            updated = _calendar_move_event(access_token, event_id=event_id,
+                                           new_start_iso=start, new_end_iso=end,
+                                           timezone=timezone, send_updates=send_upd)
         append_log("calendar_event_moved", {"user": u.get("username",""), "event_id": event_id,
                                              "start": start, "at": now_iso()})
         return jsonify({"ok": True, "event": updated})
@@ -9519,14 +9581,15 @@ def api_calendar_delete_event():
     access_token, reason = _calendar_creds_for_user(u)
     if not access_token:
         return jsonify({"ok": False, "error": reason}), 400
-    payload  = request.get_json(force=True, silent=True) or {}
-    event_id = (payload.get("event_id") or "").strip()
+    payload     = request.get_json(force=True, silent=True) or {}
+    event_id    = (payload.get("event_id") or "").strip()
+    calendar_id = (payload.get("calendar_id") or "primary").strip()
     if not event_id:
         return jsonify({"ok": False, "error": "Missing event_id"}), 400
     try:
         _req = requests
         r = _req.delete(
-            f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
+            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=20,
         )
@@ -12867,6 +12930,9 @@ def verify_email_post():
     token = session.get("_pending_verify_token", "")
     if not token:
         return redirect(url_for("register_get"))
+    # Rate limit: max 10 attempts per token to prevent brute-force of 6-digit codes
+    _vrl = _check_rate_limit(f"verify:{token[:16]}", 10)
+    if _vrl: return _vrl
     pending = _load_pending_verifications()
     rec = pending.get(token)
     if not rec:
@@ -17311,7 +17377,7 @@ label {
           <div class="saDrop" id="saManageDrop">
             <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
             <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
-            <button class="saDropItem" id="emailConsoleBtn" data-tip="View sent emails & broadcast history">📧 Email Console</button>
+            <button class="saDropItem" id="emailConsoleBtn" data-tip="Compose & send emails, manage broadcasts">📧 Email Console</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
@@ -26202,6 +26268,10 @@ Challenge weak assumptions. Surface risks.`;
                   'style="background:rgba(6,182,212,.12);border:1px solid rgba(6,182,212,.3);border-radius:7px;',
                   'color:#67e8f9;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
                   'title="Load into DM message field">→ Use in DM</button>',
+                  '<button onclick="_rvUseInChat(\''+e.id+'\')" ',
+                  'style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.3);border-radius:7px;',
+                  'color:#c4b5fd;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
+                  'title="Load into main chat input">💬 Use in Chat</button>',
                   '<button onclick="_rvCopy(\''+e.id+'\')" ',
                   'style="background:rgba(124,58,237,.15);border:1px solid rgba(124,58,237,.3);border-radius:7px;',
                   'color:#c4b5fd;cursor:pointer;font-size:11px;font-weight:700;padding:4px 10px;white-space:nowrap;" ',
@@ -26242,6 +26312,19 @@ Challenge weak assumptions. Surface risks.`;
           if(typeof hideModal==='function') hideModal();
           fm.focus();
           if(typeof showToast==='function') showToast('📋 Loaded into message field — edit and send');
+        }
+      };
+      window._rvUseInChat = function(id){
+        var e = _vaultEntries.find(function(x){ return x.id===id; });
+        if(!e) return;
+        // Try main chat input (opPrompt), fall back to DM field
+        var target = document.getElementById('opPrompt') || document.getElementById('followMsg');
+        if(target){
+          if((target.value||'').trim() && !confirm('Replace the text already in the chat input?')) return;
+          target.value = e.text||'';
+          if(typeof hideModal==='function') hideModal();
+          target.focus();
+          if(typeof showToast==='function') showToast('💬 Loaded into chat — edit and send');
         }
       };
 
@@ -35696,7 +35779,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     {
       id: "tip_seat_click",
       target: ".seat",
-      text: "Click any seat to open a private conversation with that teammate. Use Cmd+1-7 to switch seats by keyboard.",
+      text: "Click any seat to open a private conversation with that teammate. Press 1–7 to switch seats by keyboard.",
       level: "low", position: "bottom", trigger: "hover"
     },
     {
@@ -35764,7 +35847,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     {
       id: "tip_keyboard_shortcuts",
       target: ".saNavRight,#modelTag",
-      text: "⌨️ Keyboard shortcuts: Cmd+Enter to send, Cmd+1-7 to switch seats, Cmd+K to open the prompt library.",
+      text: "⌨️ Keyboard shortcuts: Cmd+Enter to send, 1–7 to switch seats, Cmd+K to open the prompt library.",
       level: "high", position: "bottom", trigger: "delay", delay: 5000
     },
     {
@@ -38173,7 +38256,7 @@ document.addEventListener("click", function(e) {
     </div>
     <div class="cp-tabs">
       <div class="cp-tab active" id="cpTab-leaderboard" onclick="cpSwitchTab('leaderboard')">🏆 Leaderboard</div>
-      <div class="cp-tab" id="cpTab-unlocks"     onclick="cpSwitchTab('unlocks')">🔓 Unlocks</div>
+      <div class="cp-tab" id="cpTab-unlocks"     onclick="cpSwitchTab('unlocks')">🏆 Achievements</div>
       <div class="cp-tab" id="cpTab-ideas"       onclick="cpSwitchTab('ideas')">💡 Ideas</div>
       <div class="cp-tab" id="cpTab-stats"       onclick="cpSwitchTab('stats')">📊 My Stats</div>
       <div class="cp-tab" id="cpTab-moderate" style="display:none;" onclick="cpSwitchTab('moderate')">🔧 Moderate <span id="cpModBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 6px;margin-left:3px;"></span></div>
@@ -40917,7 +41000,7 @@ window._saPlReset=function(){
       <button id="saSheetSummarize" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#86efac;font-size:13px;font-weight:600;cursor:pointer;text-align:left;">📋 Summarize</button>
     </div>
   </div>
-  <div class="sa-sheet-input">
+  <div class="sa-sheet-input" id="saSheetInputRow">
     <textarea id="saSheetMsg" placeholder="Message teammate…" rows="2" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
     <div class="sa-sheet-btn-row">
       <button id="saSheetAttachBtn" title="Attach / voice / more">+</button>
@@ -41071,8 +41154,22 @@ window._saPlReset=function(){
   };
 
   /* ── Close sheet (button / programmatic) ── */
+  // Android: push input above software keyboard using visualViewport
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', function(){
+      var inputRow = document.getElementById('saSheetInputRow');
+      var sheet    = document.getElementById('saBottomSheet');
+      if(!inputRow || !sheet || sheet.style.display === 'none') return;
+      var offset = window.innerHeight - window.visualViewport.height;
+      inputRow.style.transform = offset > 50 ? 'translateY(-' + offset + 'px)' : '';
+    });
+  }
+
   window.saCloseSheet = function(){
     if(!_sheetOpen) return;
+    // Reset keyboard offset when closing
+    var inputRow = document.getElementById('saSheetInputRow');
+    if(inputRow) inputRow.style.transform = '';
     /* If we pushed a history entry, pop it — this triggers popstate which calls _doCloseSheet */
     if(_sheetHistoryPushed){
       _sheetHistoryPushed = false;
@@ -43131,7 +43228,7 @@ window.toggleNotifPanel = function(){
   <div style="flex:1;overflow-y:auto;padding:24px;width:100%;box-sizing:border-box;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="font-size:12px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">Your Script</div>
-      <button onclick="document.getElementById('tpScript').value='';try{localStorage.removeItem('tp_script');}catch(e){}" style="font-size:11px;color:#475569;background:none;border:none;cursor:pointer;padding:2px 6px;">Clear</button>
+      <button onclick="document.getElementById('tpScript').value='';if(typeof tpUpdateMeta==='function')tpUpdateMeta('');try{localStorage.removeItem('tp_script');}catch(e){}" style="font-size:11px;color:#475569;background:none;border:none;cursor:pointer;padding:2px 6px;">Clear</button>
     </div>
     <textarea id="tpScript" placeholder="Paste or type your script here..." style="width:100%;height:220px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:12px 14px;font-size:14px;color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;line-height:1.7;" oninput="tpUpdateMeta(this.value)"></textarea>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
@@ -43261,7 +43358,7 @@ window.toggleNotifPanel = function(){
 </div>
 
 <!-- Notification panel — direct body child so backdrop-filter on nav bar cannot trap it -->
-<div id="notifPanel" style="display:none;position:fixed;width:320px;max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:99999;">
+<div id="notifPanel" style="display:none;position:fixed;width:320px;max-width:calc(100vw - 24px);max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:99999;">
   <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.08);">
     <span style="font-size:13px;font-weight:600;color:#e2e8f0;">Notifications</span>
     <button onclick="clearAllNotifs()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;">Clear all</button>
@@ -43345,7 +43442,7 @@ window.toggleNotifPanel = function(){
     if(document.getElementById('_pwaBanner')) return;
     var b = document.createElement('div');
     b.id = '_pwaBanner';
-    b.style.cssText = 'position:fixed;bottom:76px;left:12px;right:12px;z-index:9999990;'
+    b.style.cssText = 'position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));left:12px;right:12px;z-index:9999990;'
       +'background:linear-gradient(135deg,#7c3aed,#4338ca);border-radius:18px;'
       +'padding:14px 14px 14px 16px;display:flex;align-items:center;gap:12px;'
       +'box-shadow:0 8px 32px rgba(124,58,237,.7);animation:_pwaBannerIn .35s ease;';
@@ -44751,7 +44848,7 @@ window.addEventListener('focus', function(){
     var t=p.currentTime;
     $('veCurrentTime').textContent=veFmt(t);
     $('vePlayhead').style.left=(t/_veDur*100)+'%';
-    if(_veOut>0&&t>=_veOut&&!p.paused){p.currentTime=_veIn;p.pause();vePlayIcon(false);}
+    if(_veOut>0&&t>=_veOut-0.1&&!p.paused){p.currentTime=_veIn;p.pause();vePlayIcon(false);}
   };
   window.veOnEnd=function(){vePlayIcon(false);};
   window.veOnErr=function(){
@@ -45765,7 +45862,10 @@ def api_crm_clients_update(client_id: str):
         c["deal_value"] = float(payload.get("deal_value") or 0)
     if "pipeline_stage" in payload:
         stage = (payload.get("pipeline_stage") or "").strip()
-        if stage and stage in (crm.get("pipeline",{}).get("stages") or []):
+        valid_stages = crm.get("pipeline",{}).get("stages") or []
+        if stage and stage not in valid_stages:
+            return jsonify({"ok": False, "error": f"Invalid stage '{stage}'. Valid stages: {', '.join(valid_stages)}"}), 400
+        if stage:
             old_stage = c.get("pipeline_stage", "")
             c["pipeline_stage"] = stage
             if stage != old_stage and old_stage:
@@ -46154,7 +46254,7 @@ def api_crm_broadcast_email():
         max_recipients = plan_info.get("broadcast_recipients")  # None = unlimited
         if max_recipients is not None and len(recipients) > max_recipients:
             plan_name   = plan_info.get("name", "your plan")
-            upgrade_to  = "Teams ($97/mo)"
+            upgrade_to  = "Teams ($127/mo)"
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
@@ -46539,6 +46639,25 @@ def api_crm_enroll_client():
     crm["enrollments"][eid] = enrollment
     _crm_save(uname, crm)
     return jsonify({"ok": True, "enrollment": enrollment})
+
+@app.post("/api/crm/enroll/<eid>/pause")
+@app.post("/api/crm/enroll/<eid>/resume")
+@app.post("/api/crm/enroll/<eid>/cancel")
+def api_crm_enroll_status(eid: str):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    action = request.path.split("/")[-1]  # pause / resume / cancel
+    status_map = {"pause": "paused", "resume": "active", "cancel": "stopped"}
+    new_status = status_map.get(action, "stopped")
+    crm = _crm_load(uname)
+    enr = (crm.get("enrollments") or {}).get(eid)
+    if not enr:
+        return jsonify({"ok": False, "error": "Enrollment not found"}), 404
+    enr["status"] = new_status
+    enr["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    _crm_save(uname, crm)
+    return jsonify({"ok": True, "enrollment": enr})
 
 @app.post("/api/crm/calendar/create_event")
 def api_crm_calendar_create_event():
@@ -53368,15 +53487,19 @@ def api_video_upload():
     ext = (f.filename or "upload").rsplit(".", 1)[-1].lower()
     if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
         return jsonify({"ok": False, "error": f"Unsupported format .{ext}. Use MP4, MOV, or WEBM."}), 400
-    data = f.read()
-    if len(data) > 200 * 1024 * 1024:
-        return jsonify({"ok": False, "error": "File exceeds 200 MB limit."}), 400
-    _ve_cleanup_old()
+    # Stream directly to disk — avoids reading 200MB into RAM
+    threading.Thread(target=_ve_cleanup_old, daemon=True).start()
     vid_id = uuid.uuid4().hex[:16]
     vid_dir = _VE_TEMP / vid_id
     vid_dir.mkdir(parents=True, exist_ok=True)
-    (vid_dir / f"original.{ext}").write_bytes(data)
-    print(f"[VE] upload user={u.get('username')} vid={vid_id} size={len(data)} ext={ext}", flush=True)
+    dest = vid_dir / f"original.{ext}"
+    f.save(str(dest))
+    size = dest.stat().st_size if dest.exists() else 0
+    if size > 200 * 1024 * 1024:
+        try: dest.unlink()
+        except Exception: pass
+        return jsonify({"ok": False, "error": "File exceeds 200 MB limit."}), 400
+    print(f"[VE] upload user={u.get('username')} vid={vid_id} size={size} ext={ext}", flush=True)
     return jsonify({"ok": True, "video_id": vid_id})
 
 @app.post("/api/video/autoclip")
