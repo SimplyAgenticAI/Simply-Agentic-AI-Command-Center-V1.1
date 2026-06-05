@@ -22960,23 +22960,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               setTimeout(()=>{ thumbDnBtn.innerText="👎"; thumbDnBtn.style.opacity=".55"; }, 1500);
             };
 
-            // ── Regenerate ─────────────────────────────────────────────────────
-            const regenBtn = document.createElement("button");
-            regenBtn.className = "btn btnMini";
-            regenBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 9px;";
-            regenBtn.title = "Regenerate this response";
-            regenBtn.innerText = "↩ Redo";
-            regenBtn.onclick = (e) => {
-              e.stopPropagation();
-              // Find preceding user message
-              const prevUser = (msgs[msgIdx-1] || {});
-              const lastUserMsg = prevUser.role === "user" ? (prevUser.content || "") : "";
-              if(!lastUserMsg){ if(typeof showToast==="function") showToast("⚠️ No prior message to regenerate"); return; }
-              const field = document.getElementById("followMsg");
-              if(field){ field.value = lastUserMsg; }
-              if(typeof window.sendFollow === "function") window.sendFollow();
-            };
-
             // ── Pin ────────────────────────────────────────────────────────────
             const threadPinBtn = document.createElement("button");
             threadPinBtn.className = "btn btnMini";
@@ -23014,7 +22997,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             actRow.appendChild(pinBtn);
             actRow.appendChild(thumbUpBtn);
             actRow.appendChild(thumbDnBtn);
-            actRow.appendChild(regenBtn);
             actRow.appendChild(threadPinBtn);
             content.appendChild(actRow);
           }
