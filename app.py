@@ -14258,45 +14258,51 @@ HTML = r"""
       position:absolute;
       bottom:0; left:0; right:0;
       display:flex;
-      gap:0;
+      gap:4px;
+      padding: 6px 6px;
       pointer-events:auto;
       z-index: 40;
       opacity: 0;
-      transition: opacity .15s;
-      border-top: 1px solid rgba(42,58,106,.5);
-      background: rgba(10,15,38,.9);
+      transition: opacity .18s;
+      border-top: 1px solid rgba(124,58,237,.25);
+      background: rgba(8,12,32,.96);
+      backdrop-filter: blur(8px);
       border-radius: 0 0 16px 16px;
     }
     .seat:hover .seatTools{ opacity: 1; }
     .seatToolBtn{
       flex:1;
-      border:none;
-      border-right: 1px solid rgba(42,58,106,.4);
-      background: transparent;
-      color: rgba(196,181,253,.8);
-      padding: 5px 4px;
-      font-size: 10px;
-      font-weight: 600;
+      border: 1px solid rgba(124,58,237,.3);
+      border-radius: 10px;
+      background: rgba(124,58,237,.1);
+      color: #c4b5fd;
+      padding: 7px 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .02em;
       cursor:pointer;
       pointer-events:auto;
-      transition: background .12s, color .12s;
+      transition: background .15s, color .15s, transform .12s, box-shadow .15s;
     }
-    .seatToolBtn:last-child{ border-right:none; border-radius: 0 0 16px 0; }
-    .seatToolBtn:first-child{ border-radius: 0 0 0 16px; }
-    .seatToolBtn:only-child{ border-radius: 0 0 16px 16px; }
     .seatToolBtn:hover{
-      background: rgba(124,58,237,.2);
-      color: #c4b5fd;
+      background: rgba(124,58,237,.35);
+      color: #fff;
+      transform: translateY(-1px) scale(1.04);
+      box-shadow: 0 4px 14px rgba(124,58,237,.45);
+    }
+    .seatToolBtn:active{
+      transform: scale(.97);
     }
     .seatStackBtn{
       color: #a78bfa;
-      border-color: rgba(124,58,237,.5);
-      background: rgba(124,58,237,.1);
+      border-color: rgba(124,58,237,.45);
+      background: rgba(124,58,237,.15);
     }
     .seatStackBtn:hover{
-      background: rgba(124,58,237,.22);
-      border-color: rgba(124,58,237,.75);
-      color: #c4b5fd;
+      background: rgba(124,58,237,.4);
+      border-color: rgba(124,58,237,.8);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(124,58,237,.55);
     }
 
     .side{
