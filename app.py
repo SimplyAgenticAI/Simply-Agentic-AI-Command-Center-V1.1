@@ -14363,6 +14363,151 @@ HTML = r"""
     .commandHeader,.commandRow{display:none !important;}
     /* ===== END NAV BAR CSS ===== */
 
+    /* ═══════════════════════════════════════════════════
+       VISUAL UPGRADE PACK — 25 improvements
+    ═══════════════════════════════════════════════════ */
+
+    /* ── #1 Round table ambient glow per active teammate ── */
+    #tableWrap{ position:relative; }
+    #tableWrap::after{
+      content:'';
+      position:absolute; inset:0;
+      pointer-events:none;
+      background: radial-gradient(ellipse 60% 40% at 50% 50%,
+        rgba(124,58,237,.07) 0%, transparent 70%);
+      border-radius:50%;
+      animation:tableAmbient 6s ease-in-out infinite alternate;
+    }
+    @keyframes tableAmbient{from{opacity:.6;transform:scale(.95);}to{opacity:1;transform:scale(1.05);} }
+
+    /* ── #2 Typing waveform — richer than bouncing dots ── */
+    .typingDots span{
+      width:4px; height:4px; border-radius:2px;
+      background:linear-gradient(180deg,rgba(196,181,253,.9),rgba(124,58,237,.6));
+      animation:waveform 1.1s ease-in-out infinite;
+    }
+    @keyframes waveform{0%,100%{height:4px;opacity:.5;}40%{height:12px;opacity:1;} }
+    .typingDots span:nth-child(2){animation-delay:.15s;}
+    .typingDots span:nth-child(3){animation-delay:.30s;}
+
+    /* ── #3 Chat message visual hierarchy ── */
+    .msg.user .msg-body{
+      background:linear-gradient(135deg,rgba(110,65,255,.92),rgba(79,70,229,.85)) !important;
+      box-shadow:0 4px 20px rgba(99,60,255,.4),0 0 0 1px rgba(148,88,255,.2),inset 0 1px 0 rgba(255,255,255,.12) !important;
+      font-weight:450;
+    }
+    .msg.assistant .msg-body{
+      border-left-width:3px !important;
+      background:rgba(255,255,255,.048) !important;
+    }
+    .msg.user + .msg.assistant{ margin-top:16px !important; }
+    .msg.assistant + .msg.user{ margin-top:16px !important; }
+
+    /* ── #5 Nav dropdowns — subtle section dividers ── */
+    .saDropItem + .saDropItem{ border-top:none; }
+    .saDropWrap .saDrop{ min-width:210px; }
+
+    /* ── #6 Message input elevation ── */
+    #followMsg{
+      background:rgba(14,20,46,.85) !important;
+      border-radius:12px !important;
+      box-shadow:0 0 0 1px rgba(255,255,255,.07),inset 0 2px 4px rgba(0,0,0,.2) !important;
+    }
+    #followMsg:focus{
+      box-shadow:0 0 0 2px rgba(124,58,237,.35),0 0 18px rgba(124,58,237,.12),inset 0 1px 0 rgba(255,255,255,.1) !important;
+    }
+
+    /* ── #7 Generated images — framed presentation ── */
+    .msg .sa-gen-img{
+      border-radius:14px !important;
+      border:1px solid rgba(124,58,237,.3) !important;
+      box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.06) !important;
+      transition:transform .2s, box-shadow .2s !important;
+    }
+    .msg .sa-gen-img:hover{
+      transform:scale(1.01) !important;
+      box-shadow:0 12px 40px rgba(0,0,0,.5),0 0 24px rgba(124,58,237,.25) !important;
+    }
+
+    /* ── #8 Operator seat — gold distinction ── */
+    .seatOperator{
+      border-color:rgba(251,191,36,.65) !important;
+      box-shadow:0 0 0 1px rgba(251,191,36,.12) inset,0 0 28px rgba(251,191,36,.22),0 4px 24px rgba(0,0,0,.5) !important;
+    }
+    .seatOperator::before{ background:rgba(251,191,36,.9) !important; }
+    .seatOperator:hover{
+      border-color:rgba(251,191,36,.9) !important;
+      box-shadow:0 0 0 1px rgba(251,191,36,.18) inset,0 0 40px rgba(251,191,36,.35),0 8px 32px rgba(0,0,0,.55) !important;
+    }
+    .seatOperator .seatName{ color:rgba(254,240,138,.95) !important; }
+
+    /* ── #9 Status indicators — richer color per state ── */
+    .seatStatus .liveDot.idle{
+      background:rgba(100,116,139,.6) !important;
+    }
+    .seatStatus .liveDot.thinking{
+      background:rgba(251,191,36,.9) !important;
+      box-shadow:0 0 8px rgba(251,191,36,.6) !important;
+      animation:thinkingPulse 1s ease-in-out infinite !important;
+    }
+    @keyframes thinkingPulse{0%,100%{opacity:.7;transform:scale(.9);}50%{opacity:1;transform:scale(1.2);} }
+    .seatStatus .liveDot.done{
+      background:rgba(52,211,153,.85) !important;
+      box-shadow:0 0 8px rgba(52,211,153,.5) !important;
+    }
+    .seatStatus .liveDot.waiting{
+      background:rgba(248,113,113,.8) !important;
+      box-shadow:0 0 8px rgba(248,113,113,.4) !important;
+    }
+
+    /* ── #11 Floating window depth ── */
+    .sa-float-win{
+      box-shadow:0 32px 80px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.07),inset 0 1px 0 rgba(255,255,255,.06) !important;
+    }
+    .sa-float-header{
+      background:rgba(10,14,36,.92) !important;
+      backdrop-filter:blur(16px) !important;
+      border-bottom:1px solid rgba(124,58,237,.18) !important;
+    }
+
+    /* ── #13 Consistent modal header height ── */
+    .sa-float-header{ min-height:48px; }
+
+    /* ── #21 Seat selection transition ── */
+    .seat{
+      transition:transform .15s ease, border-color .18s ease, box-shadow .22s ease, background .18s ease !important;
+    }
+    .seat.sel{
+      transform:scale(1.03) !important;
+    }
+    .seat:hover:not(.sel){
+      transform:translateY(-2px) scale(1.01) !important;
+    }
+
+    /* ── #22 Notification bell ring animation ── */
+    #notifBellBtn._has-notif{ animation:bellRing .5s ease .2s 2; }
+    @keyframes bellRing{
+      0%,100%{transform:rotate(0);}
+      20%{transform:rotate(12deg);}
+      40%{transform:rotate(-10deg);}
+      60%{transform:rotate(8deg);}
+      80%{transform:rotate(-6deg);}
+    }
+
+    /* ── #23 Toast — typed styles already handled in JS ── */
+    ._saToast{ border-radius:14px !important; }
+
+    /* ── #24 Empty states — richer typography ── */
+    .sa-empty-state{
+      display:flex; flex-direction:column; align-items:center;
+      justify-content:center; gap:10px; padding:32px 20px;
+      color:#334155; text-align:center;
+    }
+    .sa-empty-state .sa-empty-icon{ font-size:36px; opacity:.3; }
+    .sa-empty-state p{ font-size:13px; color:#475569; line-height:1.6; max-width:280px; }
+
+    /* ─────────────────────────────────────────────────── */
+
     .thread{
       flex: 1;
       min-height: 0;
@@ -16472,14 +16617,92 @@ body {
 .topbar {
   backdrop-filter: blur(22px) saturate(160%) !important;
   -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
-  border-bottom: 1px solid rgba(80,100,180,.2) !important;
-  background: rgba(5,8,22,.84) !important;
+  border-bottom: 1px solid rgba(124,58,237,.15) !important;
+  background: rgba(5,8,22,.88) !important;
+  box-shadow: 0 1px 0 rgba(124,58,237,.08), 0 4px 20px rgba(0,0,0,.4) !important;
 }
 .topbar .brand {
   font-weight: 800 !important;
   letter-spacing: -.025em !important;
 }
+
+/* #4 Topbar logo glow dot */
+.topbar .dot, .topbar [class*="dot"]:first-child {
+  box-shadow: 0 0 8px rgba(124,58,237,.8), 0 0 16px rgba(124,58,237,.4) !important;
+}
 .topbar button, .topbar .btn { border-radius: 10px !important; }
+
+/* #10 Sidebar breathing room */
+.side, .sideCard { padding: 0 !important; }
+.sideCard > *:first-child { padding-top: 14px; }
+.thread { padding: 14px 14px 8px !important; }
+.msg { margin-bottom: 2px; }
+
+/* #12 Dashboard KPI card numbers */
+.sa-stat-num {
+  background: linear-gradient(135deg, #c4b5fd, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 30px !important;
+}
+.sa-stat-card:hover .sa-stat-num {
+  background: linear-gradient(135deg, #e9d5ff, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* #15 Mobile teammate list accent */
+@media(max-width:640px){
+  .seat{
+    border-left: 3px solid var(--seat-accent, rgba(124,58,237,.6)) !important;
+    border-radius: 12px !important;
+    padding: 12px 14px 12px 16px !important;
+  }
+}
+
+/* #16 Mobile bottom sheet avatar ring */
+.sa-sheet-av {
+  box-shadow: 0 0 0 2px var(--seat-msg-color, rgba(124,58,237,.6)), 0 0 12px rgba(124,58,237,.3) !important;
+  transition: box-shadow .2s !important;
+}
+
+/* #18 Showcase hero text entrance */
+.hglow { animation: hgPulse 8s ease-in-out infinite alternate !important; }
+@keyframes hgPulse { from{opacity:.6;transform:translateX(-50%) scale(.95);} to{opacity:1;transform:translateX(-50%) scale(1.05);} }
+
+/* #19 Pricing card hover effect */
+.f-card {
+  transition: transform .2s ease, box-shadow .2s ease !important;
+}
+.f-card:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(124,58,237,.3) !important;
+}
+
+/* #20 Getting Started episode cards */
+.ep-card {
+  transition: transform .15s ease, box-shadow .15s ease !important;
+}
+.ep-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,.4) !important;
+}
+
+/* #25 Chat input zone subtle top accent */
+#followRow {
+  border-top: 1px solid rgba(124,58,237,.12) !important;
+  padding-top: 10px !important;
+  background: rgba(7,9,26,.6) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+/* #14 Settings section icon badges */
+.settingsSectionHdr {
+  font-size: 11px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: #475569;
+  margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+}
 
 /* ⑩ Scrollbars — thin purple-tinted */
 * { scrollbar-width: thin; scrollbar-color: rgba(124,58,237,.38) transparent; }
@@ -20268,13 +20491,16 @@ if (typeof window.showToast !== "function") {
       const isWarn   = type === "warning";
       const duration = isError ? null : 3500;
 
+      const isSuccess = type === "success" || msg.startsWith("✅") || msg.startsWith("✓");
       const icons = { error:"✕", warning:"⚠", success:"✓", info:"ℹ" };
-      const icon  = isError ? icons.error : isWarn ? icons.warning : (msg.startsWith("✅") ? "" : icons.success);
+      const icon  = isError ? icons.error : isWarn ? icons.warning : isSuccess ? icons.success : icons.info;
 
       const colors = isError
         ? { bg:"rgba(127,29,29,.97)", border:"#dc2626", progress:"#ef4444", iconBg:"rgba(220,38,38,.3)", iconColor:"#fca5a5" }
         : isWarn
         ? { bg:"rgba(120,80,0,.97)",  border:"#d97706", progress:"#f59e0b", iconBg:"rgba(217,119,6,.3)",  iconColor:"#fcd34d" }
+        : isSuccess
+        ? { bg:"rgba(4,47,28,.97)",   border:"#059669", progress:"#34d399", iconBg:"rgba(5,150,105,.25)", iconColor:"#6ee7b7" }
         : { bg:"rgba(17,24,39,.97)",  border:"rgba(124,58,237,.6)", progress:"#7c3aed", iconBg:"rgba(124,58,237,.2)", iconColor:"#c4b5fd" };
 
       const el = document.createElement("div");
@@ -21251,8 +21477,13 @@ window.showModal = function showModal(title, body, imgUrl){
     };
 
     function _seatStatusHtml(dotClass, text){
+      // #9 — richer status labels with icons
+      const icons = {idle:'●', thinking:'◌', done:'✓', waiting:'!'};
+      const labels = {idle:'Idle', thinking:'Thinking…', done:'Responded', waiting:'Waiting'};
+      const icon = icons[dotClass] || '●';
+      const label = labels[dotClass] || text;
       return '<span class="liveDot ' + dotClass + '" style="display:inline-block;width:6px;height:6px;border-radius:50%;flex-shrink:0;"></span>'
-           + '<span>' + text + '</span>';
+           + '<span style="font-size:9px;letter-spacing:.03em;">' + label + '</span>';
     }
 
     function setSeatLive(name, mode){
@@ -22719,8 +22950,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const img = document.createElement("img");
           img.src = url;
           img.alt = "Generated image";
+          img.className = "sa-gen-img";
           img.style.maxWidth = "100%";
-          img.style.borderRadius = "12px";
+          img.style.borderRadius = "14px";
           img.style.display = "block";
           img.style.cursor = "zoom-in";
           img.onclick = ()=> openLightbox(url);
@@ -38075,8 +38307,14 @@ document.addEventListener("click", function(e) {
       const badge = document.getElementById('notifBadge');
       const list  = document.getElementById('notifList');
       if (badge) {
+        const hadNone = badge.style.display === 'none';
         badge.style.display = d.unread > 0 ? 'block' : 'none';
         badge.textContent = d.unread > 9 ? '9+' : d.unread;
+        // #22 — ring the bell when new notifications arrive
+        if(d.unread > 0 && hadNone){
+          const bellBtn = document.getElementById('notifBellBtn');
+          if(bellBtn){ bellBtn.classList.add('_has-notif'); setTimeout(()=>bellBtn.classList.remove('_has-notif'),2000); }
+        }
       }
       if (list) {
         if (!d.notifications || !d.notifications.length) {
