@@ -19248,7 +19248,8 @@ label {
 
   <!-- Social Studio -->
   <!-- ===== VISUAL CREATOR ===== -->
-  <div id="visualCreatorModal" style="display:none;position:fixed;inset:0;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;">
+  <div id="visualCreatorModal" class="sa-cosmic-win" style="display:none;position:fixed;inset:0;z-index:999900;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;overflow:hidden;">
+    <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
     <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
       <div style="display:flex;align-items:center;gap:12px;">
@@ -27888,70 +27889,8 @@ Challenge weak assumptions. Surface risks.`;
     })();
     // ── End Teleprompter ─────────────────────────────────────────────────────
 
-    // ── Teleprompter cosmic background canvas ────────────────────────────────
-    (function(){
-      var cv=document.getElementById('tpBgCanvas');
-      if(!cv)return;
-      var cx=cv.getContext('2d');
-      var W,H;
-      var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
-      var N=70,MAXD=170,pts=[],animId=null;
-      function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
-      function mkPt(){
-        var a=Math.random()*Math.PI*2,sp=Math.random()*0.22+0.06;
-        var c=COLS[Math.floor(Math.random()*COLS.length)];
-        return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
-               r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,
-               tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
-      }
-      function frame(){
-        cx.clearRect(0,0,W,H);
-        var i,j,p,dx,dy,d,la;
-        for(i=0;i<N;i++){
-          p=pts[i];p.x+=p.vx;p.y+=p.vy;
-          if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
-          if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
-          p.tp+=p.ts;
-        }
-        for(i=0;i<N;i++){
-          for(j=i+1;j<N;j++){
-            dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
-            d=Math.sqrt(dx*dx+dy*dy);
-            if(d<MAXD){
-              la=0.22*(1-d/MAXD);
-              var ci=pts[i].c;
-              cx.beginPath();
-              cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
-              cx.lineWidth=0.7;
-              cx.moveTo(pts[i].x,pts[i].y);
-              cx.lineTo(pts[j].x,pts[j].y);
-              cx.stroke();
-            }
-          }
-        }
-        for(i=0;i<N;i++){
-          p=pts[i];
-          var tw=p.al*(0.70+0.30*Math.sin(p.tp));
-          cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);
-          cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';
-          cx.fill();
-        }
-        animId=requestAnimationFrame(frame);
-      }
-      function start(){
-        resize();
-        if(!pts.length){pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
-        if(animId){cancelAnimationFrame(animId);animId=null;}
-        animId=requestAnimationFrame(frame);
-      }
-      function stop(){if(animId){cancelAnimationFrame(animId);animId=null;}}
-      window.addEventListener('resize',function(){if(!animId)return;resize();});
-      // Hook into show/close
-      var _origShow=window.showTeleprompterModal;
-      window.showTeleprompterModal=function(){if(_origShow)_origShow.apply(this,arguments);start();};
-      var _origClose=window.closeTeleprompterModal;
-      window.closeTeleprompterModal=function(){if(_origClose)_origClose.apply(this,arguments);stop();};
-    })();
+    // ── openPromptLibrary alias (was missing — fixes broken Prompt Library button) ──
+    window.openPromptLibrary = function(){ if(typeof showPromptLibraryModal==='function') showPromptLibraryModal(); };
 
     // ── Real Web Search from chat ────────────────────────────────────────────
     window._saWebSearchSend = function(){
@@ -35394,8 +35333,9 @@ if(typeof maybeAutoShowOnboarding === "function"){
 </div>
 
 <!-- RAG Index Modal -->
-<div id="ragModal" class="sa-float-win" style="display:none;z-index:99991;background:rgba(10,14,30,.98);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="ragModal" class="sa-float-win sa-cosmic-win" style="display:none;z-index:99991;background:#07091a;width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(10,14,30,.98);border-bottom:1px solid rgba(42,58,106,.6);">
       <span style="font-weight:700;font-size:15px;color:#c4b5fd;">🔬 Knowledge Base (RAG)</span>
       <div class="sa-float-btns">
@@ -38867,8 +38807,9 @@ document.addEventListener("click", function(e) {
 <!-- ===== END COMMUNITY HUB PANEL ===== -->
 
 <!-- ═══ ACTION STACK MODAL ═══ -->
-<div id="stackModal" class="sa-float-win" style="display:none;z-index:99995;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="stackModal" class="sa-float-win sa-cosmic-win" style="display:none;z-index:99995;background:#07091a;border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div class="sa-float-header" style="background:rgba(10,14,30,.99);border-bottom:1px solid rgba(42,58,106,.6);background:rgba(124,58,237,.07);">
@@ -39685,8 +39626,9 @@ document.addEventListener('click',e=>{
 <!-- ═══ END CHANGELOG + REFERRAL ═══ -->
 
 <!-- ═══ ORCHESTRA MODE MODAL ═══ -->
-<div id="orchestraModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.45);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div id="orchInner" style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="orchestraModal" class="sa-float-win sa-cosmic-win" style="display:none;z-index:99994;background:#07091a;border:1px solid rgba(124,58,237,.45);width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div id="orchInner" style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div class="sa-float-header" style="background:rgba(124,58,237,.08);border-bottom:1px solid rgba(42,58,106,.6);">
@@ -39747,8 +39689,9 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ DEEP DIVE MODAL ═══ -->
-<div id="deepDiveModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(245,158,11,.35);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="deepDiveModal" class="sa-float-win sa-cosmic-win" style="display:none;z-index:99994;background:#07091a;border:1px solid rgba(245,158,11,.35);width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
     <div class="sa-float-header" style="background:rgba(245,158,11,.06);border-bottom:1px solid rgba(42,58,106,.6);">
       <div>
         <div style="font-size:16px;font-weight:800;color:#fbbf24;">🔬 Deep Dive Mode</div>
@@ -39798,8 +39741,9 @@ document.addEventListener('click',e=>{
 </div>
 
 <!-- ═══ PIPELINE MODE MODAL ═══ -->
-<div id="pipelineModal" class="sa-float-win" style="display:none;z-index:99994;background:rgba(10,14,30,.99);border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;">
-  <div style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+<div id="pipelineModal" class="sa-float-win sa-cosmic-win" style="display:none;z-index:99994;background:#07091a;border:1px solid rgba(124,58,237,.4);width:100vw;height:100vh;top:0;left:0;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
     <!-- Header -->
     <div class="sa-float-header" style="background:rgba(124,58,237,.07);border-bottom:1px solid rgba(42,58,106,.6);">
@@ -43490,9 +43434,8 @@ window.toggleNotifPanel = function(){
 </script>
 
 <!-- ===== TELEPROMPTER ===== -->
-<div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;overflow:hidden;">
-  <!-- Cosmic neural-web canvas — same teal/purple animation as other windows -->
-  <canvas id="tpBgCanvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+<div id="teleprompterModal" class="sa-float-win sa-cosmic-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
   <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
   <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(7,9,26,.92);backdrop-filter:blur(12px);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
@@ -44025,7 +43968,9 @@ function saUseGlyph(){
 </style>
 
 <!-- ===== CONTENT PLANNER MODAL ===== -->
-<div id="contentPlannerModal" style="display:none;position:fixed;inset:0;z-index:999900;background:#040612;flex-direction:column;color:#e2e8f0;">
+<div id="contentPlannerModal" class="sa-cosmic-win" style="display:none;position:fixed;inset:0;z-index:999900;background:#07091a;flex-direction:column;color:#e2e8f0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
   <!-- Header -->
   <div id="cpHeader" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;flex-shrink:0;gap:12px;flex-wrap:wrap;">
@@ -44177,6 +44122,7 @@ function saUseGlyph(){
   </div>
 
   <input type="file" id="cpCsvInput" accept=".csv" style="display:none;" onchange="cpHandleCsvUpload(event)"/>
+  </div><!-- end z-index:1 content wrapper -->
 </div>
 
 <script>
@@ -44848,9 +44794,85 @@ window.addEventListener('focus', function(){
 })();
 </script>
 
+<!-- ===== SHARED COSMIC BACKGROUND ENGINE =====
+     Any full-screen window with class "sa-cosmic-win" and a child
+     <canvas class="sa-cosmic-canvas"> gets the teal/purple neural-web
+     animation automatically via MutationObserver on display changes.
+-->
+<script>
+(function(){
+  var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
+  var N=70,MAXD=170;
+
+  function mkEngine(cv){
+    var cx=cv.getContext('2d'),W,H,pts=[],animId=null;
+    function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
+    function mkPt(){
+      var a=Math.random()*Math.PI*2,sp=Math.random()*0.22+0.06;
+      var c=COLS[Math.floor(Math.random()*COLS.length)];
+      return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+             r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,
+             tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
+    }
+    function frame(){
+      cx.clearRect(0,0,W,H);
+      var i,j,p,dx,dy,d,la,ci,tw;
+      for(i=0;i<N;i++){p=pts[i];p.x+=p.vx;p.y+=p.vy;
+        if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
+        if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}p.tp+=p.ts;}
+      for(i=0;i<N;i++)for(j=i+1;j<N;j++){
+        dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;d=Math.sqrt(dx*dx+dy*dy);
+        if(d<MAXD){la=0.22*(1-d/MAXD);ci=pts[i].c;
+          cx.beginPath();cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
+          cx.lineWidth=0.7;cx.moveTo(pts[i].x,pts[i].y);cx.lineTo(pts[j].x,pts[j].y);cx.stroke();}}
+      for(i=0;i<N;i++){p=pts[i];tw=p.al*(0.70+0.30*Math.sin(p.tp));
+        cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);
+        cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';cx.fill();}
+      animId=requestAnimationFrame(frame);
+    }
+    return{
+      start:function(){resize();if(!pts.length){pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
+        if(animId)cancelAnimationFrame(animId);animId=requestAnimationFrame(frame);},
+      stop:function(){if(animId){cancelAnimationFrame(animId);animId=null;}},
+      resize:function(){if(animId)resize();}
+    };
+  }
+
+  var engines={};
+  function sync(el){
+    var id=el.id;if(!id)return;
+    var cv=el.querySelector('.sa-cosmic-canvas');if(!cv)return;
+    var vis=(el.style.display!==''&&el.style.display!=='none');
+    if(vis){
+      if(!engines[id])engines[id]=mkEngine(cv);
+      engines[id].start();
+    }else{
+      if(engines[id])engines[id].stop();
+    }
+  }
+
+  function initAll(){
+    document.querySelectorAll('.sa-cosmic-win').forEach(function(el){
+      var obs=new MutationObserver(function(){sync(el);});
+      obs.observe(el,{attributes:true,attributeFilter:['style']});
+      sync(el);
+    });
+  }
+
+  window.addEventListener('resize',function(){
+    Object.keys(engines).forEach(function(id){if(engines[id])engines[id].resize();});
+  });
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initAll);
+  else initAll();
+})();
+</script>
+
 <!-- ===== VIDEO EDITOR ===== -->
 <!-- ===== VIDEO EDITOR ===== -->
-<div id="videoEditorModal" style="display:none;position:fixed;inset:0;z-index:999950;background:#04080f;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;">
+<div id="videoEditorModal" class="sa-cosmic-win" style="display:none;position:fixed;inset:0;z-index:999950;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;overflow:hidden;">
+  <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
 
   <!-- Header -->
   <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(124,58,237,.2);background:rgba(7,9,26,.97);flex-shrink:0;">
@@ -44989,6 +45011,7 @@ window.addEventListener('focus', function(){
       </div>
     </div>
   </div>
+  </div><!-- end z-index:1 content wrapper -->
 </div>
 
 <script>
