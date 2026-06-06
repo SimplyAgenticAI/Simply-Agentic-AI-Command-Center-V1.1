@@ -10421,13 +10421,13 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .td span{width:4px;height:4px;border-radius:50%;background:rgba(255,207,112,.85);animation:tb 1.1s ease-in-out infinite;}
 .td span:nth-child(2){animation-delay:.18s;}.td span:nth-child(3){animation-delay:.36s;}
 @keyframes tb{0%,80%,100%{transform:translateY(0);opacity:.5;}40%{transform:translateY(-4px);opacity:1;}}
-/* Operator card — cyan, head of table */
-.op-card{background:linear-gradient(160deg,rgba(8,20,48,.97),rgba(10,16,42,.97));border:1px solid rgba(34,211,238,.5);border-radius:14px;padding:11px 8px 11px;text-align:center;box-shadow:0 0 20px rgba(34,211,238,.15),0 4px 20px rgba(0,0,0,.4);position:relative;width:100%;}
-.op-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(34,211,238,.8);border-radius:14px 14px 0 0;}
-.op-av{width:36px;height:36px;border-radius:11px;background:#0a1628;border:1px solid rgba(34,211,238,.35);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#67e8f9;margin:0 auto 6px;}
-.op-name{font-size:11px;font-weight:800;color:#67e8f9;}
+/* Operator card — blue border, gold top strip */
+.op-card{background:linear-gradient(160deg,rgba(8,20,48,.97),rgba(10,16,42,.97));border:1px solid rgba(59,130,246,.5);border-radius:14px;padding:11px 8px 11px;text-align:center;box-shadow:0 0 20px rgba(59,130,246,.15),0 4px 20px rgba(0,0,0,.4);position:relative;width:100%;}
+.op-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(247,211,106,.85);border-radius:14px 14px 0 0;}
+.op-av{width:36px;height:36px;border-radius:11px;background:#0a1628;border:1px solid rgba(59,130,246,.35);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#93c5fd;margin:0 auto 6px;}
+.op-name{font-size:11px;font-weight:800;color:#93c5fd;}
 .op-sub{font-size:9px;color:var(--mt);margin-top:2px;}
-.op-btn{display:inline-block;margin-top:5px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.3);color:#67e8f9;}
+.op-btn{display:inline-block;margin-top:5px;font-size:9px;padding:2px 9px;border-radius:5px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.3);color:#93c5fd;}
 .gc{background:rgba(20,28,60,.97);border:1px solid rgba(247,211,106,.4);border-radius:14px;padding:12px;box-shadow:0 0 36px rgba(0,0,0,.45),0 0 28px rgba(247,211,106,.08),0 0 0 1px rgba(247,211,106,.10) inset;}
 .gc-send{margin-top:8px;width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font-size:11px;font-weight:700;text-align:center;border:none;cursor:default;}
 .gc-t{font-size:11px;font-weight:800;color:var(--tx);margin-bottom:2px;}
@@ -14092,22 +14092,22 @@ HTML = r"""
     }
 
     .seatOperator{
-      border-color: rgba(34,211,238,.55) !important;
+      border-color: rgba(59,130,246,.55) !important;
       background: rgba(8,20,48,.96) !important;
       box-shadow:
-        0 0 0 1px rgba(34,211,238,.10) inset,
-        0 0 22px rgba(34,211,238,.20),
+        0 0 0 1px rgba(59,130,246,.10) inset,
+        0 0 22px rgba(59,130,246,.20),
         0 4px 24px rgba(0,0,0,.5) !important;
     }
     .seatOperator::before{
-      background: rgba(34,211,238,.8) !important;
-      opacity: .8 !important;
+      background: rgba(247,211,106,.85) !important;
+      opacity: 1 !important;
     }
     .seatOperator:hover{
-      border-color: rgba(34,211,238,.85) !important;
+      border-color: rgba(59,130,246,.85) !important;
       box-shadow:
-        0 0 0 1px rgba(34,211,238,.15) inset,
-        0 0 34px rgba(34,211,238,.35),
+        0 0 0 1px rgba(59,130,246,.15) inset,
+        0 0 34px rgba(59,130,246,.35),
         0 8px 32px rgba(0,0,0,.55) !important;
     }
     /* seatOperatorPulse handled by standard seatPulse */
@@ -14430,16 +14430,7 @@ HTML = r"""
     }
 
     /* ── #8 Operator seat — gold distinction ── */
-    .seatOperator{
-      border-color:rgba(251,191,36,.65) !important;
-      box-shadow:0 0 0 1px rgba(251,191,36,.12) inset,0 0 28px rgba(251,191,36,.22),0 4px 24px rgba(0,0,0,.5) !important;
-    }
-    .seatOperator::before{ background:rgba(251,191,36,.9) !important; }
-    .seatOperator:hover{
-      border-color:rgba(251,191,36,.9) !important;
-      box-shadow:0 0 0 1px rgba(251,191,36,.18) inset,0 0 40px rgba(251,191,36,.35),0 8px 32px rgba(0,0,0,.55) !important;
-    }
-    .seatOperator .seatName{ color:rgba(254,240,138,.95) !important; }
+    /* Operator seat stays cyan — original style preserved */
 
     /* ── #9 Status indicators — richer color per state ── */
     .seatStatus .liveDot.idle{
@@ -16528,8 +16519,8 @@ body {
     0 0 28px color-mix(in srgb, var(--sc,#7c3aed) 45%, transparent),
     0 6px 32px rgba(0,0,0,.5) !important;
 }
-/* Operator seat stays cyan */
-.seatOperator { border-color: rgba(34,211,238,.65) !important; }
+/* Operator seat stays blue */
+.seatOperator { border-color: rgba(59,130,246,.65) !important; }
 
 /* ⑤ Chat bubbles — depth, polish, breathing room */
 .msg { margin-bottom: 4px; }
@@ -43434,8 +43425,15 @@ window.toggleNotifPanel = function(){
 </script>
 
 <!-- ===== TELEPROMPTER ===== -->
-<div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:rgba(4,8,24,.96);flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;">
-  <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(10,16,38,.99);flex-shrink:0;">
+<div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;overflow:hidden;">
+  <!-- Ambient glow layers matching app background -->
+  <div style="position:absolute;inset:0;pointer-events:none;z-index:0;">
+    <div style="position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);"></div>
+    <div style="position:absolute;bottom:-80px;right:10%;width:600px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(99,102,241,.09),transparent 65%);"></div>
+    <div style="position:absolute;top:40%;left:-80px;width:400px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(59,130,246,.06),transparent 70%);"></div>
+  </div>
+  <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+  <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(7,9,26,.92);backdrop-filter:blur(12px);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
       <div style="font-size:20px;">🎙</div>
       <div>
@@ -43483,6 +43481,7 @@ window.toggleNotifPanel = function(){
       <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. A 3-second countdown gives you a moment before scroll begins. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> to start — it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop</strong> when done and download your take.
     </div>
   </div>
+  </div><!-- end z-index:1 wrapper -->
 </div>
 
 <!-- Teleprompter fullscreen overlay -->
