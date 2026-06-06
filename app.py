@@ -27888,6 +27888,71 @@ Challenge weak assumptions. Surface risks.`;
     })();
     // ── End Teleprompter ─────────────────────────────────────────────────────
 
+    // ── Teleprompter cosmic background canvas ────────────────────────────────
+    (function(){
+      var cv=document.getElementById('tpBgCanvas');
+      if(!cv)return;
+      var cx=cv.getContext('2d');
+      var W,H;
+      var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
+      var N=70,MAXD=170,pts=[],animId=null;
+      function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
+      function mkPt(){
+        var a=Math.random()*Math.PI*2,sp=Math.random()*0.22+0.06;
+        var c=COLS[Math.floor(Math.random()*COLS.length)];
+        return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
+               r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,
+               tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
+      }
+      function frame(){
+        cx.clearRect(0,0,W,H);
+        var i,j,p,dx,dy,d,la;
+        for(i=0;i<N;i++){
+          p=pts[i];p.x+=p.vx;p.y+=p.vy;
+          if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
+          if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
+          p.tp+=p.ts;
+        }
+        for(i=0;i<N;i++){
+          for(j=i+1;j<N;j++){
+            dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
+            d=Math.sqrt(dx*dx+dy*dy);
+            if(d<MAXD){
+              la=0.22*(1-d/MAXD);
+              var ci=pts[i].c;
+              cx.beginPath();
+              cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
+              cx.lineWidth=0.7;
+              cx.moveTo(pts[i].x,pts[i].y);
+              cx.lineTo(pts[j].x,pts[j].y);
+              cx.stroke();
+            }
+          }
+        }
+        for(i=0;i<N;i++){
+          p=pts[i];
+          var tw=p.al*(0.70+0.30*Math.sin(p.tp));
+          cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);
+          cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';
+          cx.fill();
+        }
+        animId=requestAnimationFrame(frame);
+      }
+      function start(){
+        resize();
+        if(!pts.length){pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
+        if(animId){cancelAnimationFrame(animId);animId=null;}
+        animId=requestAnimationFrame(frame);
+      }
+      function stop(){if(animId){cancelAnimationFrame(animId);animId=null;}}
+      window.addEventListener('resize',function(){if(!animId)return;resize();});
+      // Hook into show/close
+      var _origShow=window.showTeleprompterModal;
+      window.showTeleprompterModal=function(){if(_origShow)_origShow.apply(this,arguments);start();};
+      var _origClose=window.closeTeleprompterModal;
+      window.closeTeleprompterModal=function(){if(_origClose)_origClose.apply(this,arguments);stop();};
+    })();
+
     // ── Real Web Search from chat ────────────────────────────────────────────
     window._saWebSearchSend = function(){
       var fm = document.getElementById('followMsg');
@@ -43426,12 +43491,8 @@ window.toggleNotifPanel = function(){
 
 <!-- ===== TELEPROMPTER ===== -->
 <div id="teleprompterModal" class="sa-float-win" style="display:none;position:fixed;top:0;left:0;right:auto;bottom:auto;width:100vw;height:100vh;z-index:999900;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;border-radius:0;overflow:hidden;">
-  <!-- Ambient glow layers matching app background -->
-  <div style="position:absolute;inset:0;pointer-events:none;z-index:0;">
-    <div style="position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:900px;height:500px;border-radius:50%;background:radial-gradient(ellipse,rgba(124,58,237,.13),transparent 68%);"></div>
-    <div style="position:absolute;bottom:-80px;right:10%;width:600px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(99,102,241,.09),transparent 65%);"></div>
-    <div style="position:absolute;top:40%;left:-80px;width:400px;height:400px;border-radius:50%;background:radial-gradient(ellipse,rgba(59,130,246,.06),transparent 70%);"></div>
-  </div>
+  <!-- Cosmic neural-web canvas — same teal/purple animation as other windows -->
+  <canvas id="tpBgCanvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
   <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
   <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(7,9,26,.92);backdrop-filter:blur(12px);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
