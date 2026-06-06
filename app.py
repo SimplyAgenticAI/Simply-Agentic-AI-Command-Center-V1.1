@@ -14171,7 +14171,7 @@ HTML = r"""
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.20);
       border-radius: 16px;
-      padding: 14px 10px 30px;
+      padding: 14px 10px 46px;
       cursor: pointer;
       display:flex;
       flex-direction: column;
