@@ -7277,6 +7277,13 @@ a.back:hover{color:#c4b5fd;}
 <script>
 (function() {
   var allSeats = [];
+  var _csrf = '';
+
+  // Fetch CSRF token once at page load so POST requests are accepted
+  fetch('/api/csrf_token', {credentials:'same-origin',cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if(d && d.csrf_token) _csrf = d.csrf_token; })
+    .catch(function(){});
 
   function ge(id) { return document.getElementById(id); }
   function esc(s) {
@@ -7403,7 +7410,7 @@ a.back:hover{color:#c4b5fd;}
       method: 'POST',
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: {'Content-Type':'application/json'},
+      headers: {'Content-Type':'application/json','X-CSRF-Token':_csrf},
       body: JSON.stringify({count:count, holder_name:name, holder_email:email, plan:plan})
     })
     .then(function(r){ return r.json().then(function(d){return {s:r.status,d:d};}); })
@@ -7435,7 +7442,7 @@ a.back:hover{color:#c4b5fd;}
       method: 'POST',
       credentials: 'same-origin',
       cache: 'no-store',
-      headers: {'Content-Type':'application/json'},
+      headers: {'Content-Type':'application/json','X-CSRF-Token':_csrf},
       body: JSON.stringify({
         holder_name:  ge('editName').value.trim(),
         holder_email: ge('editEmail').value.trim(),
