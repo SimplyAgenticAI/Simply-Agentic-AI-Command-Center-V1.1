@@ -44214,8 +44214,92 @@ function cpRenderPlatformPills(){
 }
 
 window.cpConnect = function(platform){
+  if(platform === 'facebook' || platform === 'instagram'){
+    cpConnectMetaToken(platform);
+    return;
+  }
   window.open('/social/connect/'+platform, '_blank', 'width=600,height=700');
   setTimeout(function(){ cpLoadState(); }, 4000);
+};
+
+// ── Connect Facebook / Instagram via pasted Page Access Token ──────────────
+window.cpConnectMetaToken = function(platform){
+  var isFb = platform === 'facebook';
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+
+  overlay.innerHTML = [
+    '<div style="background:#0f1629;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px 22px;width:min(500px,100%);box-shadow:0 24px 80px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto;">',
+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">',
+    '<div style="font-size:16px;font-weight:700;color:#c4b5fd;">'+(isFb?'🔵 Connect Facebook Page':'◎ Connect Instagram')+'</div>',
+    '<button id="_cpMetaClose" style="background:none;border:none;color:#64748b;font-size:20px;cursor:pointer;line-height:1;">✕</button>',
+    '</div>',
+    '<div style="font-size:12px;color:#64748b;margin-bottom:18px;">Paste your Page Access Token — no developer app needed</div>',
+
+    '<div style="background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:14px 16px;margin-bottom:18px;font-size:12px;color:#94a3b8;line-height:1.65;">',
+    '<strong style="color:#c4b5fd;">How to get your token (2 min):</strong><br>',
+    '1. Go to <a href="https://business.facebook.com" target="_blank" style="color:#818cf8;">business.facebook.com</a> → your Page → <strong>Settings → Page Access Tokens</strong><br>',
+    '<em style="color:#64748b;">— or use the shortcut below —</em><br>',
+    '2. Visit <a href="https://developers.facebook.com/tools/explorer" target="_blank" style="color:#818cf8;">Graph API Explorer</a>, select your Page from the dropdown, click <strong>Generate Access Token</strong>, grant permissions, copy the token.<br>',
+    '3. Paste it here. Done.',
+    '</div>',
+
+    '<label style="font-size:12px;font-weight:600;color:#94a3b8;display:block;margin-bottom:5px;">Page Access Token</label>',
+    '<textarea id="_cpMetaToken" rows="3" placeholder="EAABw..." style="width:100%;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:8px;padding:10px 12px;font-size:12px;color:#e2e8f0;font-family:monospace;box-sizing:border-box;resize:vertical;outline:none;"></textarea>',
+
+    '<label style="font-size:12px;font-weight:600;color:#94a3b8;display:block;margin:10px 0 5px;">Page ID <span style="font-weight:400;opacity:.6;">(numbers only — find it in Facebook Page → About → Page ID)</span></label>',
+    '<input id="_cpMetaPageId" type="text" placeholder="123456789012345" style="width:100%;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:8px;padding:9px 12px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;">',
+
+    '<label style="font-size:12px;font-weight:600;color:#94a3b8;display:block;margin:10px 0 5px;">Page Name <span style="font-weight:400;opacity:.6;">(display label)</span></label>',
+    '<input id="_cpMetaPageName" type="text" placeholder="My Business Page" style="width:100%;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:8px;padding:9px 12px;font-size:13px;color:#e2e8f0;box-sizing:border-box;outline:none;">',
+
+    '<div id="_cpMetaErr" style="display:none;color:#fca5a5;font-size:12px;margin-top:8px;"></div>',
+
+    '<div style="display:flex;gap:10px;margin-top:18px;">',
+    '<button id="_cpMetaSave" style="flex:1;background:linear-gradient(135deg,rgba(124,58,237,.8),rgba(99,102,241,.7));border:1px solid rgba(148,88,255,.6);border-radius:10px;color:#fff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;">Save &amp; Connect</button>',
+    '<button id="_cpMetaCancel" style="padding:10px 18px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;color:#64748b;font-size:13px;cursor:pointer;">Cancel</button>',
+    '</div>',
+    '</div>'
+  ].join('');
+
+  document.body.appendChild(overlay);
+
+  function close(){ overlay.remove(); }
+  overlay.querySelector('#_cpMetaClose').onclick = close;
+  overlay.querySelector('#_cpMetaCancel').onclick = close;
+  overlay.onclick = function(e){ if(e.target===overlay) close(); };
+
+  overlay.querySelector('#_cpMetaSave').onclick = async function(){
+    var token = (overlay.querySelector('#_cpMetaToken').value||'').trim();
+    var pageId = (overlay.querySelector('#_cpMetaPageId').value||'').trim();
+    var pageName = (overlay.querySelector('#_cpMetaPageName').value||'').trim();
+    var errEl = overlay.querySelector('#_cpMetaErr');
+    if(!token){ errEl.textContent='Paste your Page Access Token first.'; errEl.style.display='block'; return; }
+    if(!pageId){ errEl.textContent='Enter your Page ID.'; errEl.style.display='block'; return; }
+    this.textContent='Saving…'; this.disabled=true;
+    try{
+      var r = await fetch('/api/social/connect/token', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({platform: platform, access_token: token, page_id: pageId, page_name: pageName||pageId})
+      });
+      var d = await r.json();
+      if(d.ok){
+        close();
+        if(typeof showToast==='function') showToast('✅ '+( isFb?'Facebook':'Instagram')+' connected!');
+        cpLoadState();
+      } else {
+        errEl.textContent = d.error || 'Could not save — check your token and try again.';
+        errEl.style.display = 'block';
+        this.textContent='Save & Connect'; this.disabled=false;
+      }
+    }catch(e){
+      errEl.textContent='Network error — please try again.';
+      errEl.style.display='block';
+      this.textContent='Save & Connect'; this.disabled=false;
+    }
+  };
 };
 
 window.cpDisconnect = function(platform){
@@ -56341,10 +56425,11 @@ def api_sp_connections():
     for platform in ("facebook", "instagram", "youtube", "tiktok"):
         c = conns.get(platform) or {}
         pages = c.get("pages") or []
+        page_name = c.get("page_name") or (pages[0].get("name") if pages else "") or c.get("name") or ""
         summary[platform] = {
             "connected": bool(c.get("access_token")),
             "name": c.get("name") or "",
-            "page_name": pages[0].get("name") if pages else "",
+            "page_name": page_name,
         }
     return jsonify({"ok": True, "connections": summary})
 
@@ -56357,6 +56442,54 @@ def api_sp_disconnect(platform):
     conns.pop(platform, None)
     _save_sp_conns(uname, conns)
     return jsonify({"ok": True})
+
+@app.post("/api/social/connect/token")
+def api_sp_connect_token():
+    """Accept a pasted Page Access Token for Facebook/Instagram — no OAuth needed."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    body = request.get_json(silent=True) or {}
+    platform = (body.get("platform") or "").lower().strip()
+    access_token = (body.get("access_token") or "").strip()
+    page_id = (body.get("page_id") or "").strip()
+    page_name = (body.get("page_name") or page_id).strip()
+    if platform not in ("facebook", "instagram"):
+        return jsonify({"ok": False, "error": "Platform must be facebook or instagram"}), 400
+    if not access_token:
+        return jsonify({"ok": False, "error": "access_token required"}), 400
+    if not page_id:
+        return jsonify({"ok": False, "error": "page_id required"}), 400
+
+    # Quick validation: hit Graph API to confirm token is valid
+    import urllib.request as _urlreq, urllib.error as _urlerr
+    try:
+        _url = f"https://graph.facebook.com/v19.0/me?fields=id,name&access_token={access_token}"
+        with _urlreq.urlopen(_url, timeout=8) as _resp:
+            _data = json.loads(_resp.read())
+        if "error" in _data:
+            return jsonify({"ok": False, "error": "Invalid token: " + _data["error"].get("message", "unknown error")})
+    except _urlerr.HTTPError as _e:
+        try:
+            _body = json.loads(_e.read())
+            _msg = _body.get("error", {}).get("message", str(_e))
+        except Exception:
+            _msg = str(_e)
+        return jsonify({"ok": False, "error": "Token validation failed: " + _msg})
+    except Exception as _e:
+        # Network error — save anyway; token may still work for posting
+        pass
+
+    conns = _load_sp_conns(uname)
+    conns[platform] = {
+        "access_token": access_token,
+        "page_id": page_id,
+        "page_name": page_name,
+        "token_type": "page",
+    }
+    _save_sp_conns(uname, conns)
+    return jsonify({"ok": True, "page_name": page_name})
+
 
 @app.post("/api/social/draft_ai")
 def api_sp_draft_ai():
