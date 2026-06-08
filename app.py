@@ -1046,7 +1046,7 @@ def _oauth_state_matches(key: str, incoming: str) -> bool:
 import logging
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB global ceiling; routes validate their own limits
 
 BASE = Path(__file__).parent
 
@@ -2744,22 +2744,16 @@ def api_csrf_token() -> Any:
     token = _csrf_token_for_session()
     return jsonify({"ok": True, "csrf_token": token})
 
-@app.before_request
-def _adjust_content_length_for_video():
-    """Set a higher upload limit for video routes, without permanently raising it for all routes."""
-    if request.method == 'POST':
-        if request.path == '/api/video/upload':
-            app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
-        elif request.path in ('/api/video/convert_to_mp4', '/api/transcribe'):
-            app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
-        else:
-            app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES  # reset to normal
+# _adjust_content_length_for_video removed — modifying global app.config per-request
+# is NOT thread-safe and causes a race condition where concurrent requests reset the
+# limit to 25 MB mid-upload, killing the connection with a 413 and "Failed to fetch".
+# The global ceiling is now 500 MB; individual routes enforce their own size limits.
 
 @app.errorhandler(413)
 def _handle_413(e):
     try:
         if (request.path or "").startswith("/api/"):
-            return jsonify({"ok": False, "error": "File too large. Transcription and Video Editor accept up to 500 MB; other uploads up to 25 MB."}), 413
+            return jsonify({"ok": False, "error": "File too large. Maximum upload size is 500 MB."}), 413
     except Exception:
         pass
     raise e
