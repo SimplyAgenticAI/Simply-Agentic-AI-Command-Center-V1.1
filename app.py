@@ -16104,11 +16104,11 @@ body.modal-open { overflow:hidden !important; }
 .sa-float-close-btn{ background:rgba(239,68,68,.18); border-color:rgba(239,68,68,.35); color:#fca5a5; }
 .sa-float-close-btn:hover{ background:rgba(239,68,68,.32); }
 
-/* Taskbar for minimized windows */
+/* Taskbar for minimized windows — sits BELOW modals/overlays so it never blocks content */
 #saWMTaskbar{
   display:none;
   position:fixed; bottom:0; left:0; right:0;
-  z-index:9999990;
+  z-index:999100;
   background:rgba(3,5,17,.97);
   border-top:1px solid rgba(124,58,237,.28);
   padding:5px 10px;
@@ -17602,7 +17602,7 @@ label {
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
-            <button class="saDropItem" id="imageLibBtn">🖼 Image Library</button>
+            <button class="saDropItem" id="imageLibBtn">🖼 Media Library</button>
           </div>
         </div>
 
@@ -17724,7 +17724,7 @@ label {
             <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
             <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
-            <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Image Library</button>
+            <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Media Library</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoTranscriptModal,200);">🎬 Video to Transcript</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoEditorModal,200);">✂️ Video Editor</button>
           </div>
@@ -23043,36 +23043,61 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               }
             };
 
-            // ── Thumbs up ──────────────────────────────────────────────────────
-            const thumbUpBtn = document.createElement("button");
-            thumbUpBtn.className = "btn btnMini";
-            thumbUpBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 7px;";
-            thumbUpBtn.title = "Good response (adds to memory)";
-            thumbUpBtn.innerText = "👍";
-            thumbUpBtn.onclick = async (e) => {
+            // ── Expand ─────────────────────────────────────────────────────────
+            const expandBtn = document.createElement("button");
+            expandBtn.className = "btn btnMini";
+            expandBtn.style.cssText = "font-size:11px;opacity:.7;padding:2px 7px;";
+            expandBtn.title = "Expand this response";
+            expandBtn.innerText = "🔼 Expand";
+            expandBtn.onclick = async (e) => {
               e.stopPropagation();
-              thumbUpBtn.style.opacity = "1"; thumbUpBtn.innerText = "👍✓";
+              expandBtn.disabled = true; expandBtn.innerText = "⏳";
               try{
-                await fetch("/api/teammate/feedback", {method:"POST",headers:{"Content-Type":"application/json"},
-                  body: JSON.stringify({name: selectedSeat, sentiment:"up", snippet: raw.slice(0,160)})});
-              }catch(_){}
-              setTimeout(()=>{ thumbUpBtn.innerText="👍"; thumbUpBtn.style.opacity=".55"; }, 1500);
+                const r = await fetch("/api/notepad/ai", {method:"POST", headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({action:"expand", content: raw.slice(0,4000)})});
+                const d = await r.json();
+                if(d.ok && d.result){
+                  // Append expanded version as a new assistant message visually
+                  const box = document.getElementById("seatConversation");
+                  if(box){
+                    const bubble = document.createElement("div");
+                    bubble.style.cssText = "margin:10px 0;padding:10px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:13px;color:#c4b5fd;line-height:1.6;white-space:pre-wrap;";
+                    bubble.textContent = "🔼 Expanded:\n\n" + d.result;
+                    box.appendChild(bubble);
+                    box.scrollTop = box.scrollHeight;
+                  }
+                  if(typeof showToast==="function") showToast("🔼 Expanded");
+                } else if(typeof showToast==="function") showToast(d.error||"Expand failed");
+              }catch(_){ if(typeof showToast==="function") showToast("Expand failed"); }
+              expandBtn.disabled = false; expandBtn.innerText = "🔼 Expand";
             };
 
-            // ── Thumbs down ────────────────────────────────────────────────────
-            const thumbDnBtn = document.createElement("button");
-            thumbDnBtn.className = "btn btnMini";
-            thumbDnBtn.style.cssText = "font-size:11px;opacity:.55;padding:2px 7px;";
-            thumbDnBtn.title = "Not helpful (adds to memory)";
-            thumbDnBtn.innerText = "👎";
-            thumbDnBtn.onclick = async (e) => {
+            // ── Summarize ──────────────────────────────────────────────────────
+            const summarizeBtn = document.createElement("button");
+            summarizeBtn.className = "btn btnMini";
+            summarizeBtn.style.cssText = "font-size:11px;opacity:.7;padding:2px 7px;";
+            summarizeBtn.title = "Summarize this response";
+            summarizeBtn.innerText = "📝 Summary";
+            summarizeBtn.onclick = async (e) => {
               e.stopPropagation();
-              thumbDnBtn.style.opacity = "1"; thumbDnBtn.innerText = "👎✓";
+              summarizeBtn.disabled = true; summarizeBtn.innerText = "⏳";
               try{
-                await fetch("/api/teammate/feedback", {method:"POST",headers:{"Content-Type":"application/json"},
-                  body: JSON.stringify({name: selectedSeat, sentiment:"down", snippet: raw.slice(0,160)})});
-              }catch(_){}
-              setTimeout(()=>{ thumbDnBtn.innerText="👎"; thumbDnBtn.style.opacity=".55"; }, 1500);
+                const r = await fetch("/api/notepad/ai", {method:"POST", headers:{"Content-Type":"application/json"},
+                  body: JSON.stringify({action:"summarize", content: raw.slice(0,4000)})});
+                const d = await r.json();
+                if(d.ok && d.result){
+                  const box = document.getElementById("seatConversation");
+                  if(box){
+                    const bubble = document.createElement("div");
+                    bubble.style.cssText = "margin:10px 0;padding:10px 14px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:10px;font-size:13px;color:#6ee7b7;line-height:1.6;white-space:pre-wrap;";
+                    bubble.textContent = "📝 Summary:\n\n" + d.result;
+                    box.appendChild(bubble);
+                    box.scrollTop = box.scrollHeight;
+                  }
+                  if(typeof showToast==="function") showToast("📝 Summary ready");
+                } else if(typeof showToast==="function") showToast(d.error||"Summarize failed");
+              }catch(_){ if(typeof showToast==="function") showToast("Summarize failed"); }
+              summarizeBtn.disabled = false; summarizeBtn.innerText = "📝 Summary";
             };
 
             // ── Pin ────────────────────────────────────────────────────────────
@@ -23110,8 +23135,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             actRow.appendChild(copyBtn);
             actRow.appendChild(speakBtn);
             actRow.appendChild(pinBtn);
-            actRow.appendChild(thumbUpBtn);
-            actRow.appendChild(thumbDnBtn);
+            actRow.appendChild(expandBtn);
+            actRow.appendChild(summarizeBtn);
             actRow.appendChild(threadPinBtn);
             content.appendChild(actRow);
           }
@@ -28883,12 +28908,18 @@ Challenge weak assumptions. Surface risks.`;
           })
         });
         clearInterval(ticker);
-        const ct=(res.headers.get('content-type')||'').toLowerCase();
+        // Streaming response — heartbeat lines (" \n") then final JSON line
         const raw=await res.text();
         let data=null;
-        try{ data=raw?JSON.parse(raw):null; }catch(e){}
-        if(!ct.includes('application/json')||!data) throw new Error('Invalid server response: '+raw.slice(0,200));
-        if(!res.ok||!data.ok) throw new Error(data.error||'Lead build failed');
+        const lines=raw.split('\n');
+        for(let i=0;i<lines.length;i++){
+          const ln=lines[i].trim();
+          if(ln.startsWith('{')&&ln.endsWith('}')){
+            try{ const p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
+          }
+        }
+        if(!data) throw new Error('Invalid server response: '+raw.slice(0,200));
+        if(!data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items||[]);
         const count=(data.items||[]).length;
         const withEmail=(data.items||[]).filter(x=>x.email).length;
@@ -32099,16 +32130,36 @@ async function showImageLibraryModal(startTab){
     var f=_fldGet(tab); delete f[name]; _fldSet(tab,f);
   }
 
+  /* ── Responsive styles ── */
+  if(!document.getElementById('mlStyles')){
+    const st=document.createElement('style');
+    st.id='mlStyles';
+    st.textContent=[
+      '#mlLayout{display:flex;width:100%;min-height:0;box-sizing:border-box;}',
+      '#mlFolderSidebar{width:160px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);padding:10px 8px;display:flex;flex-direction:column;gap:4px;background:rgba(7,10,22,.4);}',
+      '#mlContent{flex:1;min-width:0;padding:12px 14px;overflow-y:auto;box-sizing:border-box;}',
+      '#mlGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}',
+      '@media(max-width:620px){',
+      ' #mlLayout{flex-direction:column;}',
+      ' #mlFolderSidebar{width:100%;border-right:none;border-bottom:1px solid rgba(42,58,106,.4);flex-direction:row;flex-wrap:wrap;padding:6px 8px;gap:4px;overflow-x:auto;}',
+      ' #mlFolderSidebar>div{flex-shrink:0;}',
+      ' #mlContent{padding:10px 8px;}',
+      ' #mlGrid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;}',
+      '}',
+    ].join('');
+    document.head.appendChild(st);
+  }
+
   /* ── Shared layout: folder sidebar + content area ── */
   const layout = document.createElement("div");
-  layout.style.cssText = "display:flex;width:100%;min-height:0;box-sizing:border-box;";
+  layout.id = "mlLayout";
+  layout.style.cssText = "width:100%;min-height:0;box-sizing:border-box;";
 
   const sidebar = document.createElement("div");
   sidebar.id = "mlFolderSidebar";
-  sidebar.style.cssText = "width:170px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);padding:10px 8px;display:flex;flex-direction:column;gap:4px;background:rgba(7,10,22,.4);";
 
   const content = document.createElement("div");
-  content.style.cssText = "flex:1;min-width:0;padding:12px 14px;overflow-y:auto;box-sizing:border-box;";
+  content.id = "mlContent";
 
   layout.appendChild(sidebar);
   layout.appendChild(content);
@@ -32275,6 +32326,7 @@ async function showImageLibraryModal(startTab){
       content.appendChild(toolbar);
 
       const grid = document.createElement("div");
+      grid.id = "mlGrid";
       grid.style.cssText = `display:grid;grid-template-columns:${_mlCols};gap:14px;`;
 
       toolbar.querySelector("#mlSizeSmall").onclick=()=>{ _mlCols="repeat(auto-fill,minmax(180px,1fr))";_mlHeight="150px"; grid.style.gridTemplateColumns=_mlCols; grid.querySelectorAll(".ml-img").forEach(im=>im.style.height=_mlHeight); };
@@ -36553,7 +36605,12 @@ document.addEventListener("click", function(e) {
       if(btn){btn.disabled=true;btn.textContent="Analyzing...";}
       if(res)res.innerHTML="<div style='text-align:center;padding:60px 0;color:#94a3b8;'>Fetching "+escapeHtml(url)+"...</div>";
       try{
-        var r=await fetch("/api/analyze/website",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url})}),d=await r.json();
+        var r=await fetch("/api/analyze/website",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:url})});
+        // Streaming response — heartbeat lines then final JSON
+        var _raw=await r.text(),d=null;
+        var _lines=_raw.split('\n');
+        for(var _i=0;_i<_lines.length;_i++){var _ln=_lines[_i].trim();if(_ln.startsWith('{')&&_ln.endsWith('}')){try{var _p=JSON.parse(_ln);if(_p.ok===true||_p.ok===false){d=_p;}}catch(e){}} }
+        if(!d) throw new Error('Invalid server response: '+_raw.slice(0,200));
         if(!d.ok){if(res)res.innerHTML="<div style='color:#f87171;padding:20px;'>"+escapeHtml(d.error||"Failed")+"</div>";return;}
         var a=d.analysis,sc=a.score>=80?"#22c55e":a.score>=60?"#f59e0b":"#ef4444";
         var catH=Object.entries(a.categories||{}).map(function(e){return "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px;'><div style='width:110px;font-size:11px;color:#94a3b8;text-transform:capitalize;'>"+e[0].replace(/_/g," ")+"</div><div style='flex:1;height:6px;background:rgba(255,255,255,.08);border-radius:3px;'><div style='width:"+Math.round(e[1]*10)+"%;height:100%;background:"+sc+";border-radius:3px;'></div></div><div style='font-size:11px;color:#94a3b8;min-width:18px;'>"+e[1]+"</div></div>";}).join("");
@@ -44532,7 +44589,25 @@ window.addEventListener('focus', function(){
 </script>
 
 <!-- ===== VIDEO EDITOR ===== -->
-<!-- ===== VIDEO EDITOR ===== -->
+<style>
+  #veBody{display:flex;flex:1;min-height:0;overflow:hidden;}
+  #veSidebar{width:260px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);display:flex;flex-direction:column;background:rgba(7,10,22,.97);overflow-y:auto;}
+  #veMain{flex:1;min-width:0;display:flex;flex-direction:column;background:#000;}
+  #veToolbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 4px;}
+  #veToolbar button{flex:1;min-width:110px;}
+  @media(max-width:680px){
+    #veBody{flex-direction:column;overflow-y:auto;}
+    #veSidebar{width:100%;max-height:none;border-right:none;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;overflow-y:visible;}
+    #veMain{min-height:0;flex-shrink:0;}
+    #vePlayerWrap{height:220px!important;}
+    #veControls{padding:10px 12px!important;}
+    .ve-transport{flex-wrap:wrap;gap:6px!important;}
+    .ve-spacer{display:none!important;}
+    #veVolume{width:55px!important;}
+    .ve-trim-row{flex-direction:column;align-items:flex-start!important;gap:8px!important;}
+    .ve-shortcuts{display:none;}
+  }
+</style>
 <div id="videoEditorModal" class="sa-cosmic-win" style="display:none;position:fixed;inset:0;z-index:999950;background:#07091a;flex-direction:column;font-family:system-ui,sans-serif;color:#e2e8f0;overflow:hidden;">
   <canvas class="sa-cosmic-canvas" style="position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>
   <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
@@ -44550,10 +44625,10 @@ window.addEventListener('focus', function(){
   </div>
 
   <!-- Body: sidebar + preview -->
-  <div style="display:flex;flex:1;min-height:0;overflow:hidden;">
+  <div id="veBody">
 
     <!-- SIDEBAR -->
-    <div style="width:270px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);display:flex;flex-direction:column;background:rgba(7,10,22,.95);overflow-y:auto;">
+    <div id="veSidebar">
 
       <!-- Upload zone -->
       <div id="veUploadZone" style="margin:14px;border:2px dashed rgba(124,58,237,.35);border-radius:12px;padding:20px 10px;text-align:center;cursor:pointer;transition:all .2s;"
@@ -44563,7 +44638,7 @@ window.addEventListener('focus', function(){
            ondrop="veHandleDrop(event)">
         <div style="font-size:28px;margin-bottom:8px;">🎬</div>
         <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
-        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 200 MB</div>
+        <div style="font-size:11px;color:#475569;">MP4, MOV, WEBM · Max 500 MB</div>
         <input id="veFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.avi,.mkv" style="display:none;" onchange="veLoadFile(this.files[0])"/>
       </div>
 
@@ -44578,32 +44653,35 @@ window.addEventListener('focus', function(){
       <!-- Status -->
       <div id="veStatus" style="display:none;margin:0 14px 12px;font-size:12px;color:#94a3b8;padding:8px 10px;border-radius:8px;background:rgba(14,22,48,.5);text-align:center;line-height:1.5;"></div>
 
-      <!-- AI Auto-detect -->
-      <div style="margin:0 14px 12px;">
-        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;width:100%;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:13px;font-weight:700;padding:10px;cursor:pointer;">✨ AI Auto-detect Clips</button>
+      <!-- AI + Tool buttons (shown after upload) -->
+      <div id="veToolbar">
+        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:12px;font-weight:700;padding:9px 10px;cursor:pointer;">✨ Auto-detect Clips</button>
+        <button id="veExtractAudioBtn" onclick="veExtractAudio()" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;color:#6ee7b7;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">🎵 Extract Audio</button>
+        <button id="veMuteExportBtn" onclick="veMuteExport()" style="display:none;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);border-radius:10px;color:#a5b4fc;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">🔇 Remove Audio</button>
+        <button id="veScreenshotBtn" onclick="veScreenshot()" style="display:none;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:10px;color:#fde68a;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">📸 Screenshot</button>
       </div>
 
       <!-- Clip list -->
-      <div id="veClipList" style="flex:1;overflow-y:auto;padding:0 10px 14px;">
+      <div id="veClipList" style="flex:1;overflow-y:auto;padding:10px 10px 14px;">
         <div style="color:#334155;font-size:12px;text-align:center;padding:20px 0;">Upload a video to get started</div>
       </div>
 
-      <!-- Export (shown after upload) -->
+      <!-- Export -->
       <div id="veExportPanel" style="display:none;margin:0 14px 16px;">
         <button id="veExportBtn" onclick="veExportClip()" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 4px 16px rgba(124,58,237,.4);">⬇ Export Clip</button>
       </div>
 
-      <!-- Shortcuts -->
-      <div style="padding:0 14px 14px;font-size:10px;color:#1e293b;line-height:1.9;text-align:center;">
+      <!-- Shortcuts (hidden on mobile) -->
+      <div class="ve-shortcuts" style="padding:0 14px 14px;font-size:10px;color:#1e293b;line-height:1.9;text-align:center;">
         Space=play &nbsp;·&nbsp; I=set in &nbsp;·&nbsp; O=set out<br>J=−5s &nbsp;·&nbsp; L=+5s &nbsp;·&nbsp; ←/→=±1s
       </div>
     </div>
 
     <!-- MAIN: Video + Controls -->
-    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#000;">
+    <div id="veMain">
 
       <!-- Video -->
-      <div style="flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000;">
+      <div id="vePlayerWrap" style="flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;background:#000;">
         <video id="vePlayer"
                style="max-width:100%;max-height:100%;object-fit:contain;display:none;"
                preload="auto" playsinline
@@ -44619,17 +44697,17 @@ window.addEventListener('focus', function(){
       </div>
 
       <!-- Controls -->
-      <div style="flex-shrink:0;background:rgba(5,8,20,.98);border-top:1px solid rgba(42,58,106,.3);padding:14px 18px;">
+      <div id="veControls" style="flex-shrink:0;background:rgba(5,8,20,.98);border-top:1px solid rgba(42,58,106,.3);padding:14px 18px;">
 
         <!-- Transport -->
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-          <button onclick="veSkip(-5)" title="Back 5s · J" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 12px;cursor:pointer;font-weight:600;">⏮ 5s</button>
-          <button id="vePlayBtn" onclick="veTogglePlay()" title="Play/Pause · Space" style="background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(99,102,241,.3));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#c4b5fd;font-size:20px;padding:6px 22px;cursor:pointer;min-width:56px;font-weight:700;">▶</button>
-          <button onclick="veSkip(5)" title="Forward 5s · L" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 12px;cursor:pointer;font-weight:600;">5s ⏭</button>
-          <span id="veCurrentTime" style="font-size:13px;font-family:monospace;color:#94a3b8;min-width:42px;">0:00</span>
-          <span style="color:#1e293b;">·</span>
-          <span id="veDuration" style="font-size:13px;font-family:monospace;color:#334155;">0:00</span>
-          <div style="flex:1;"></div>
+        <div class="ve-transport" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+          <button onclick="veSkip(-5)" title="Back 5s (J)" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 10px;cursor:pointer;font-weight:600;">⏮ 5s</button>
+          <button id="vePlayBtn" onclick="veTogglePlay()" title="Play/Pause (Space)" style="background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(99,102,241,.3));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#c4b5fd;font-size:20px;padding:6px 20px;cursor:pointer;min-width:52px;font-weight:700;">▶</button>
+          <button onclick="veSkip(5)" title="Forward 5s (L)" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#64748b;font-size:12px;padding:6px 10px;cursor:pointer;font-weight:600;">5s ⏭</button>
+          <span id="veCurrentTime" style="font-size:12px;font-family:monospace;color:#94a3b8;min-width:38px;">0:00</span>
+          <span style="color:#1e293b;">/</span>
+          <span id="veDuration" style="font-size:12px;font-family:monospace;color:#334155;">0:00</span>
+          <div class="ve-spacer" style="flex:1;"></div>
           <button id="veMuteBtn" onclick="veMute()" style="background:none;border:none;color:#334155;font-size:15px;cursor:pointer;padding:0 4px;" title="Mute">🔊</button>
           <input id="veVolume" type="range" min="0" max="1" step="0.05" value="1" oninput="veSetVol(this.value)" title="Volume" style="width:72px;accent-color:#7c3aed;cursor:pointer;"/>
           <select id="veSpeed" onchange="veSetSpeed(this.value)" title="Playback speed" style="background:rgba(14,22,48,.9);border:1px solid rgba(42,58,106,.5);border-radius:6px;color:#475569;font-size:11px;padding:4px 6px;cursor:pointer;outline:none;">
@@ -44638,7 +44716,7 @@ window.addEventListener('focus', function(){
             <option value="1.5">1.5×</option>
             <option value="2">2×</option>
           </select>
-          <span id="veSelLabel" style="font-size:11px;color:#475569;margin-left:6px;"></span>
+          <span id="veSelLabel" style="font-size:11px;color:#475569;margin-left:4px;"></span>
         </div>
 
         <!-- Timeline -->
@@ -44646,27 +44724,24 @@ window.addEventListener('focus', function(){
           <div style="position:absolute;top:13px;left:0;right:0;height:10px;background:rgba(255,255,255,.07);border-radius:5px;overflow:hidden;">
             <div id="veRangeHL" style="position:absolute;top:0;height:100%;background:rgba(124,58,237,.45);left:0%;width:100%;"></div>
           </div>
-          <!-- IN handle -->
-          <div id="veInHandle" onmousedown="veDragStart('in',event)" ontouchstart="veDragStart('in',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#34d399;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:0%;box-shadow:0 0 8px rgba(52,211,153,.7);z-index:2;" title="Drag: set In point"></div>
-          <!-- OUT handle -->
-          <div id="veOutHandle" onmousedown="veDragStart('out',event)" ontouchstart="veDragStart('out',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#f87171;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:100%;box-shadow:0 0 8px rgba(248,113,113,.7);z-index:2;" title="Drag: set Out point"></div>
-          <!-- Playhead -->
+          <div id="veInHandle" onmousedown="veDragStart('in',event)" ontouchstart="veDragStart('in',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#34d399;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:0%;box-shadow:0 0 8px rgba(52,211,153,.7);z-index:2;" title="Drag to set In point"></div>
+          <div id="veOutHandle" onmousedown="veDragStart('out',event)" ontouchstart="veDragStart('out',event)" style="position:absolute;top:4px;width:5px;height:28px;background:#f87171;border-radius:3px;cursor:ew-resize;transform:translateX(-50%);left:100%;box-shadow:0 0 8px rgba(248,113,113,.7);z-index:2;" title="Drag to set Out point"></div>
           <div id="vePlayhead" style="position:absolute;top:6px;width:2px;height:24px;background:#c4b5fd;border-radius:2px;transform:translateX(-50%);left:0%;pointer-events:none;box-shadow:0 0 5px rgba(196,181,253,.9);z-index:3;"></div>
         </div>
 
         <!-- Trim row -->
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="ve-trim-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:5px;">
             <span style="font-size:10px;font-weight:700;color:#34d399;letter-spacing:.07em;">IN</span>
             <input id="veTrimIn" type="number" min="0" step="0.1" value="0" oninput="veInTyped(this.value)"
-                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(52,211,153,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
-            <button onclick="veMarkIn()" title="Set In to now · I" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">⬅ Now</button>
+                   style="width:64px;background:rgba(14,22,48,.9);border:1px solid rgba(52,211,153,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
+            <button onclick="veMarkIn()" title="Set In to now (I)" style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);border-radius:6px;color:#6ee7b7;font-size:11px;padding:5px 8px;cursor:pointer;">⬅ Now</button>
           </div>
           <div style="display:flex;align-items:center;gap:5px;">
             <span style="font-size:10px;font-weight:700;color:#f87171;letter-spacing:.07em;">OUT</span>
             <input id="veTrimOut" type="number" min="0" step="0.1" value="0" oninput="veOutTyped(this.value)"
-                   style="width:68px;background:rgba(14,22,48,.9);border:1px solid rgba(248,113,113,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
-            <button onclick="veMarkOut()" title="Set Out to now · O" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);border-radius:6px;color:#fca5a5;font-size:11px;padding:5px 8px;cursor:pointer;">Now ➡</button>
+                   style="width:64px;background:rgba(14,22,48,.9);border:1px solid rgba(248,113,113,.3);border-radius:6px;padding:5px 7px;color:#e2e8f0;font-size:12px;font-family:monospace;outline:none;"/>
+            <button onclick="veMarkOut()" title="Set Out to now (O)" style="background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.25);border-radius:6px;color:#fca5a5;font-size:11px;padding:5px 8px;cursor:pointer;">Now ➡</button>
           </div>
           <button onclick="veResetTrim()" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:6px;color:#334155;font-size:11px;padding:5px 10px;cursor:pointer;">↺ Reset</button>
         </div>
@@ -44738,7 +44813,7 @@ window.addEventListener('focus', function(){
 
   window.veLoadFile=function(file){
     if(!file)return;
-    if(file.size>200*1024*1024){veSt('File too large — max 200 MB','err');return;}
+    if(file.size>500*1024*1024){veSt('File too large — max 500 MB','err');return;}
     var ext=(file.name||'').split('.').pop().toLowerCase();
     if(['mp4','webm','mov','avi','mkv'].indexOf(ext)<0){veSt('Use MP4, MOV or WEBM','err');return;}
 
@@ -44782,6 +44857,9 @@ window.addEventListener('focus', function(){
           if(!d.ok){veSt(d.error||'Upload failed','err');return;}
           _veVidId=d.video_id;
           $('veAutoClipBtn').style.display='block';
+          $('veExtractAudioBtn').style.display='block';
+          $('veMuteExportBtn').style.display='block';
+          $('veScreenshotBtn').style.display='block';
           $('veExportPanel').style.display='block';
           $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
           veSt('Ready — use AI clips or set In/Out and export','ok');
@@ -44933,6 +45011,61 @@ window.addEventListener('focus', function(){
       a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
       veSt('✅ Clip exported and downloaded!','ok');
     }).catch(function(e){btn.disabled=false;btn.textContent='⬇ Export Clip';veSt('Export error: '+e.message,'err');});
+  };
+
+  /* ── Extract audio (download MP3 from server) ── */
+  window.veExtractAudio=function(){
+    if(!_veVidId){veSt('Upload a video first','err');return;}
+    var btn=$('veExtractAudioBtn');
+    btn.disabled=true; btn.textContent='⏳ Extracting…';
+    veSt('Extracting audio…','info');
+    veApiFetch('/api/video/extract_audio',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
+    .then(function(d){
+      btn.disabled=false; btn.textContent='🎵 Extract Audio';
+      if(!d.ok){veSt(d.error||'Extraction failed','err');return;}
+      var a=document.createElement('a');
+      a.href='/api/video/download/'+d.export_id;
+      a.download='audio.mp3'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      veSt('✅ Audio extracted and downloaded!','ok');
+    }).catch(function(e){btn.disabled=false;btn.textContent='🎵 Extract Audio';veSt('Error: '+e.message,'err');});
+  };
+
+  /* ── Remove audio from clip (export silent video) ── */
+  window.veMuteExport=function(){
+    if(!_veVidId){veSt('Upload a video first','err');return;}
+    if(_veOut-_veIn<0.5){veSt('Set your In and Out points first','err');return;}
+    var btn=$('veMuteExportBtn');
+    btn.disabled=true; btn.textContent='⏳ Processing…';
+    veSt('Removing audio and exporting…','info');
+    veApiFetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut,mute:true})})
+    .then(function(d){
+      btn.disabled=false; btn.textContent='🔇 Remove Audio';
+      if(!d.ok){veSt(d.error||'Export failed','err');return;}
+      var a=document.createElement('a');
+      a.href='/api/video/download/'+d.export_id;
+      a.download='clip_silent.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      veSt('✅ Silent clip downloaded!','ok');
+    }).catch(function(e){btn.disabled=false;btn.textContent='🔇 Remove Audio';veSt('Error: '+e.message,'err');});
+  };
+
+  /* ── Screenshot current frame ── */
+  window.veScreenshot=function(){
+    var p=$('vePlayer');
+    if(!p||p.style.display==='none'||!_veDur){veSt('Load a video first','err');return;}
+    var c=document.createElement('canvas');
+    c.width=p.videoWidth||p.offsetWidth||640;
+    c.height=p.videoHeight||p.offsetHeight||360;
+    c.getContext('2d').drawImage(p,0,0,c.width,c.height);
+    c.toBlob(function(blob){
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url; a.download='screenshot.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},3000);
+      veSt('✅ Screenshot saved!','ok');
+    },'image/png');
   };
 
   /* safe json fetch */
@@ -47995,6 +48128,8 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
 
 @app.post("/api/crm/lead_lab")
 def api_crm_lead_lab():
+    import hashlib as _hl, time as _t2, json as _json
+    from flask import stream_with_context, Response as _Resp
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -48002,111 +48137,127 @@ def api_crm_lead_lab():
     _rl_ll = _check_rate_limit("lead_lab", 2)  # max 2 calls per minute per user
     if _rl_ll:
         return _rl_ll
+    payload = request.get_json(silent=True) or {}
+    niche          = (payload.get("niche") or "").strip()
+    location       = (payload.get("location") or "").strip()
+    specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
+    search_mode    = (payload.get("search_mode") or "balanced").strip().lower()
+    require_contact= (payload.get("require_contact") or "phone_or_email").strip().lower()
+    biz_type_filter= (payload.get("business_type") or "any").strip().lower()
+    require_social = (payload.get("require_social") or "any").strip().lower()
+    require_reviews= payload.get("require_reviews") is True or str(payload.get("require_reviews","")).lower() == "true"
     try:
-        payload = request.get_json(silent=True) or {}
-        niche          = (payload.get("niche") or "").strip()
-        location       = (payload.get("location") or "").strip()
-        specific_areas = _crm_parse_specific_areas(payload.get("specific_areas") or "")
-        search_mode    = (payload.get("search_mode") or "balanced").strip().lower()
-        require_contact= (payload.get("require_contact") or "phone_or_email").strip().lower()
-        biz_type_filter= (payload.get("business_type") or "any").strip().lower()
-        require_social = (payload.get("require_social") or "any").strip().lower()
-        require_reviews= payload.get("require_reviews") is True or str(payload.get("require_reviews","")).lower() == "true"
+        lead_count = int(payload.get("lead_count") or 25)
+    except Exception:
+        lead_count = 25
+    lead_count = max(1, min(100, lead_count))
+
+    if not niche and not location and not specific_areas:
+        return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
+
+    def _generate():
+        import time as _ti
         try:
-            lead_count = int(payload.get("lead_count") or 25)
-        except Exception:
-            lead_count = 25
-        lead_count = max(1, min(100, lead_count))
+            # Check cache first
+            _cache_str = f"{niche}|{location}|{search_mode}|{require_contact}|{biz_type_filter}|{require_social}|{require_reviews}|{specific_areas}"
+            _cache_key = _hl.md5(_cache_str.encode()).hexdigest()
+            _LEAD_LAB_CACHE = getattr(api_crm_lead_lab, "_cache", None)
+            if _LEAD_LAB_CACHE is None:
+                api_crm_lead_lab._cache = {}
+            _cached_entry = api_crm_lead_lab._cache.get(_cache_key)
+            if _cached_entry and (_ti.monotonic() - _cached_entry["ts"]) < 7200:
+                _cached_final = _cached_entry["results"][:lead_count]
+                yield _json.dumps({"ok": True, "items": _cached_final, "count": len(_cached_final), "warning": "", "cached": True}) + "\n"
+                return
 
-        if not niche and not location and not specific_areas:
-            return jsonify({"ok": False, "error": "Add a niche, location, or specific areas to search"}), 400
+            # Heartbeat loop — send whitespace every 5 s to prevent Render 30 s proxy timeout
+            import threading as _thr
+            _done = [False]
+            _result = [None]
+            _error = [None]
 
-        # Cache results for identical searches to avoid 800+ outbound HTTP calls per repeat
-        import hashlib as _hl, time as _t2
-        _cache_str = f"{niche}|{location}|{search_mode}|{require_contact}|{biz_type_filter}|{require_social}|{require_reviews}|{specific_areas}"
-        _cache_key = _hl.md5(_cache_str.encode()).hexdigest()
-        _LEAD_LAB_CACHE = getattr(api_crm_lead_lab, "_cache", None)
-        if _LEAD_LAB_CACHE is None:
-            api_crm_lead_lab._cache = {}
-            _LEAD_LAB_CACHE = api_crm_lead_lab._cache
-        _cached_entry = _LEAD_LAB_CACHE.get(_cache_key)
-        if _cached_entry and (_t2.monotonic() - _cached_entry["ts"]) < 7200:  # 2-hour TTL
-            _cached_final = _cached_entry["results"][:lead_count]
-            return jsonify({"ok": True, "items": _cached_final, "count": len(_cached_final),
-                            "warning": "", "cached": True})
+            def _worker():
+                try:
+                    discovered = _crm_discover_public_leads(
+                        niche, location, lead_count * 3, search_mode,
+                        existing_domains=set(),
+                        specific_areas=specific_areas,
+                        require_contact=require_contact,
+                        min_score=1
+                    )
+                    final: list = []
+                    seen: set = set()
+                    for item in discovered:
+                        dom = (item.get("domain") or "").strip().lower()
+                        key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
+                        if not key or key in seen:
+                            continue
+                        if biz_type_filter != "any" and item.get("business_type") and item["business_type"] != biz_type_filter:
+                            continue
+                        if require_social == "linkedin" and not item.get("linkedin"):
+                            continue
+                        if require_social == "any_social" and not (item.get("linkedin") or item.get("facebook")):
+                            continue
+                        if require_reviews and not item.get("google_rating"):
+                            continue
+                        seen.add(key)
+                        if not item.get("warm_reason"):
+                            item["warm_reason"] = _crm_warm_reason(item, niche, location)
+                        if not item.get("confidence"):
+                            item["confidence"] = _crm_contact_confidence(item.get("email") or "", item.get("email_source") or "")
+                        final.append(item)
+                        if len(final) >= lead_count:
+                            break
+                    _result[0] = final
+                except Exception as ex:
+                    _error[0] = str(ex)
+                finally:
+                    _done[0] = True
 
-        discovered = _crm_discover_public_leads(
-            niche, location, lead_count * 3, search_mode,
-            existing_domains=set(),
-            specific_areas=specific_areas,
-            require_contact=require_contact,
-            min_score=1
-        )
+            t = _thr.Thread(target=_worker, daemon=True)
+            t.start()
+            while not _done[0]:
+                yield " \n"
+                _ti.sleep(5)
+            t.join(timeout=2)
 
-        # Apply new filters
-        final: List[Dict[str, Any]] = []
-        seen: set = set()
-        for item in discovered:
-            dom = (item.get("domain") or "").strip().lower()
-            key = dom or ((item.get("website") or item.get("company") or item.get("name") or "").strip().lower())
-            if not key or key in seen:
-                continue
-            # Business type filter
-            if biz_type_filter != "any" and item.get("business_type") and item["business_type"] != biz_type_filter:
-                continue
-            # Social presence filter
-            if require_social == "linkedin" and not item.get("linkedin"):
-                continue
-            if require_social == "any_social" and not (item.get("linkedin") or item.get("facebook")):
-                continue
-            # Google reviews filter
-            if require_reviews and not item.get("google_rating"):
-                continue
-            seen.add(key)
-            # Add warm_reason and confidence if not already set
-            if not item.get("warm_reason"):
-                item["warm_reason"] = _crm_warm_reason(item, niche, location)
-            if not item.get("confidence"):
-                item["confidence"] = _crm_contact_confidence(
-                    item.get("email") or "", item.get("email_source") or "")
-            final.append(item)
-            if len(final) >= lead_count:
-                break
+            if _error[0]:
+                yield _json.dumps({"ok": False, "error": f"Lead Lab server error: {_error[0]}"}) + "\n"
+                return
 
-        warning = ""
-        if not final:
-            warning = "No leads matched your filters. Try loosening the business type or social filters."
-        elif len(final) < lead_count:
-            warning = f"Found {len(final)} leads matching your filters."
+            final = _result[0] or []
+            warning = ""
+            if not final:
+                warning = "No leads matched your filters. Try loosening the business type or social filters."
+            elif len(final) < lead_count:
+                warning = f"Found {len(final)} leads matching your filters."
 
-        try:
-            _uname = (u.get("username") if isinstance(u, dict) else None) or ""
-            if _uname:
-                _pts = 10 + (2 * min(len(final), lead_count))
-                _award_points(_uname, f"Ran Lead Lab ({min(len(final),lead_count)} leads)", _pts)
-        except Exception:
-            pass
+            try:
+                _uname = (u.get("username") if isinstance(u, dict) else None) or ""
+                if _uname:
+                    _pts = 10 + (2 * min(len(final), lead_count))
+                    _award_points(_uname, f"Ran Lead Lab ({min(len(final),lead_count)} leads)", _pts)
+            except Exception:
+                pass
 
-        # Store results in cache for next identical search
-        try:
-            api_crm_lead_lab._cache[_cache_key] = {"results": final, "ts": _t2.monotonic()}
-            # Keep cache from growing unbounded — max 50 entries
-            if len(api_crm_lead_lab._cache) > 50:
-                oldest = min(api_crm_lead_lab._cache.items(), key=lambda x: x[1]["ts"])
-                api_crm_lead_lab._cache.pop(oldest[0], None)
-        except Exception:
-            pass
-        resp = jsonify({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp
-    except Exception as e:
-        try:
-            append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
-        except Exception:
-            pass
-        resp = jsonify({"ok": False, "error": f"Lead Lab server error: {str(e)}"})
-        resp.headers['Cache-Control'] = 'no-store'
-        return resp, 500
+            try:
+                api_crm_lead_lab._cache[_cache_key] = {"results": final, "ts": _ti.monotonic()}
+                if len(api_crm_lead_lab._cache) > 50:
+                    oldest = min(api_crm_lead_lab._cache.items(), key=lambda x: x[1]["ts"])
+                    api_crm_lead_lab._cache.pop(oldest[0], None)
+            except Exception:
+                pass
+
+            yield _json.dumps({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning}) + "\n"
+        except Exception as e:
+            try:
+                append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
+            except Exception:
+                pass
+            yield _json.dumps({"ok": False, "error": f"Lead Lab server error: {str(e)}"}) + "\n"
+
+    return _Resp(stream_with_context(_generate()), content_type="text/plain; charset=utf-8",
+                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/crm/social_studio")
@@ -48145,19 +48296,67 @@ def api_crm_social_studio():
             f"7. **Sunday** — CTA post (direct call to action, 2-4 sentences, one clear next step)\n\n"
             f"Write every single word for every day. No placeholders. No visual directions."
         )
-    else:
+    elif asset_type == "dm_pack":
         prompt = (
             f"Platform: {platform}\n"
             f"Audience: {audience}\n"
             f"Offer/angle: {offer}\n\n"
-            f"Write a complete, ready-to-post {asset_type.replace('_',' ')} with these sections:\n"
-            f"1. **Hook Post** — an attention-grabbing opening post (3-5 sentences, includes hashtags)\n"
-            f"2. **Value Post** — a post that teaches or shares insight related to the offer (4-6 sentences)\n"
-            f"3. **Story Post** — a short relatable story or before/after that leads into the offer\n"
-            f"4. **Engagement Post** — a question or conversation-starter that gets comments\n"
-            f"5. **DM Opener** — a short direct message to send to a cold or warm prospect (2-3 sentences max)\n"
-            f"6. **Call to Action Post** — a direct post asking people to take the next step\n\n"
-            f"Write every single word. Do not use placeholders. Do not add visual directions or size specs."
+            f"Write a complete DM Pack — 6 ready-to-send direct messages. No posts. No hashtags. No captions.\n"
+            f"These are private messages sent directly to a prospect. Keep each one conversational, short, and natural.\n\n"
+            f"1. **Cold Opener** — First DM to someone who has never heard of you (2-3 sentences, no pitch yet, lead with curiosity or a compliment)\n"
+            f"2. **Warm Follow-Up** — DM to someone who engaged with your content (reference the engagement, soft pivot to offer, 2-3 sentences)\n"
+            f"3. **Value-First DM** — Share a quick win or insight before asking for anything (3-4 sentences, give before you take)\n"
+            f"4. **Problem-Aware DM** — Speak to a specific frustration your audience has, position yourself as the solution (3-4 sentences)\n"
+            f"5. **Re-Engagement DM** — Message to a lead who went quiet after initial interest (2-3 sentences, low pressure)\n"
+            f"6. **Booking/CTA DM** — Ask for the call, chat, or next step in a natural, non-pushy way (2-3 sentences)\n\n"
+            f"Write every word fully. These must be ready to copy and paste as-is. Conversational tone only."
+        )
+    elif asset_type == "comment_pack":
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            f"Write a Comment Pack — 8 ready-to-post comments for use on {platform}. Not posts. Not captions. Comments only.\n"
+            f"Each comment should feel natural and human — not spammy, not self-promotional.\n\n"
+            f"1. **Authority Comment** — adds insight or a strong perspective on the original post (2-3 sentences)\n"
+            f"2. **Agreement + Value** — agrees with the post then adds a useful point (1-2 sentences)\n"
+            f"3. **Question Comment** — asks a thoughtful follow-up question that starts a conversation\n"
+            f"4. **Story Comment** — shares a quick personal experience relevant to the post (2-3 sentences)\n"
+            f"5. **Soft Promo Comment** — mentions your offer only if it genuinely fits the context (2 sentences max, natural)\n"
+            f"6. **Encouragement Comment** — supportive and genuine comment for someone sharing a win or struggle\n"
+            f"7. **Disagreement Comment** — respectfully offers a different point of view (professional, not combative)\n"
+            f"8. **CTA Comment** — invites people to DM or check out something relevant (1-2 sentences, not spammy)\n\n"
+            f"Write every word fully. These must be ready to paste as comments right now."
+        )
+    elif asset_type == "launch_pack":
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            f"Write a complete Launch Pack — a 7-piece content sequence to announce and launch an offer on {platform}.\n"
+            f"Every piece must be fully written, ready to post with no editing needed.\n\n"
+            f"1. **Teaser Post** — Build anticipation before the launch. Don't reveal the offer yet. Create curiosity (3-5 sentences)\n"
+            f"2. **Announcement Post** — Official launch. Reveal the offer clearly with a strong hook and CTA (4-6 sentences, hashtags)\n"
+            f"3. **Problem Post** — Call out the exact problem your offer solves. Make them feel seen (4-5 sentences)\n"
+            f"4. **Social Proof Post** — A result, win, or testimonial that builds trust around the offer (3-5 sentences)\n"
+            f"5. **FAQ Post** — Answer the top 3 objections or questions about the offer in a casual post format\n"
+            f"6. **Urgency Post** — Create urgency or scarcity (deadline, limited spots, bonus ending). No fake hype (3-4 sentences)\n"
+            f"7. **Last Call Post** — Final reminder. Simple, direct, and emotional (2-4 sentences)\n\n"
+            f"Write every word fully. No placeholders. Ready to post."
+        )
+    else:  # content_pack default
+        prompt = (
+            f"Platform: {platform}\n"
+            f"Audience: {audience}\n"
+            f"Offer/angle: {offer}\n\n"
+            f"Write a complete 6-post Content Pack for {platform}. Every post must be fully written and ready to copy-paste.\n\n"
+            f"1. **Hook Post** — Grabs attention immediately, stops the scroll (3-5 sentences, hashtags at end)\n"
+            f"2. **Value Post** — Teaches or shares a specific insight related to the offer (4-6 sentences)\n"
+            f"3. **Story Post** — A relatable before/after or personal moment that builds connection (4-6 sentences)\n"
+            f"4. **Engagement Post** — A question or bold statement that gets people commenting (2-4 sentences)\n"
+            f"5. **Social Proof Post** — A client result, outcome, or testimonial angle (3-5 sentences)\n"
+            f"6. **CTA Post** — Direct call to action — one clear next step (2-4 sentences)\n\n"
+            f"Write every single word. No placeholders. No visual directions."
         )
     fallback = (
         f"Content pack for {platform}\n"
@@ -51083,23 +51282,33 @@ def _save_notes(username: str, notes: list) -> None:
 # =========================
 @app.post("/api/analyze/website")
 def api_analyze_website():
-    """Fetch a URL and run a 1-100 scoring analysis on it."""
+    """Fetch a URL and run a 1-100 scoring analysis on it. Streams heartbeats to survive Render's 30s proxy timeout."""
+    import json as _json2, threading as _thr2, time as _ti2
+    from flask import stream_with_context, Response as _Resp2
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url: return jsonify({"ok": False, "error": "URL required"}), 400
 
-    content, err = _fetch_url_content(url, max_chars=10000)
-    if err or not content:
-        return jsonify({"ok": False, "error": err or "Could not fetch page content"}), 400
-
     system = (
         "You are an expert conversion rate optimizer, competitive intelligence analyst, and digital marketing strategist. "
         "Analyze the provided website content and return a structured JSON analysis. "
         "Respond ONLY with valid JSON, no markdown, no explanation outside the JSON."
     )
-    prompt = f"""Analyze this website content from {url} and return JSON in exactly this format:
+
+    def _generate():
+        _done = [False]
+        _result = [None]
+        _error = [None]
+
+        def _worker():
+            try:
+                content, err = _fetch_url_content(url, max_chars=10000)
+                if err or not content:
+                    _error[0] = err or "Could not fetch page content"
+                    return
+                prompt = f"""Analyze this website content from {url} and return JSON in exactly this format:
 {{
   "score": <integer 1-100>,
   "grade": "<A/B/C/D/F>",
@@ -51130,21 +51339,36 @@ def api_analyze_website():
 
 Website content:
 {content[:6000]}"""
+                raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2)
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                result = _json2.loads(raw)
+                _result[0] = result
+            except _json2.JSONDecodeError:
+                _error[0] = "Could not parse AI response. Try again."
+            except Exception as ex:
+                _, msg = _classify_openai_error(ex)
+                _error[0] = msg
+            finally:
+                _done[0] = True
 
-    try:
-        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        result = json.loads(raw)
-        return jsonify({"ok": True, "url": url, "analysis": result})
-    except json.JSONDecodeError:
-        return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
-    except Exception as e:
-        _, msg = _classify_openai_error(e)
-        return jsonify({"ok": False, "error": msg}), 500
+        t = _thr2.Thread(target=_worker, daemon=True)
+        t.start()
+        while not _done[0]:
+            yield " \n"
+            _ti2.sleep(5)
+        t.join(timeout=2)
+
+        if _error[0]:
+            yield _json2.dumps({"ok": False, "error": _error[0]}) + "\n"
+        else:
+            yield _json2.dumps({"ok": True, "url": url, "analysis": _result[0]}) + "\n"
+
+    return _Resp2(stream_with_context(_generate()), content_type="text/plain; charset=utf-8",
+                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 def _analyze_reports_path(uname: str) -> Path:
     return DATA_DIR / "analyze_reports" / f"{uname}.json"
@@ -53333,10 +53557,10 @@ def api_video_upload():
     dest = vid_dir / f"original.{ext}"
     f.save(str(dest))
     size = dest.stat().st_size if dest.exists() else 0
-    if size > 200 * 1024 * 1024:
+    if size > 500 * 1024 * 1024:
         try: dest.unlink()
         except Exception: pass
-        return jsonify({"ok": False, "error": "File exceeds 200 MB limit."}), 400
+        return jsonify({"ok": False, "error": "File exceeds 500 MB limit."}), 400
     print(f"[VE] upload user={u.get('username')} vid={vid_id} size={size} ext={ext}", flush=True)
     return jsonify({"ok": True, "video_id": vid_id})
 
@@ -53449,18 +53673,54 @@ def api_video_export():
     orig_path = orig_files[0]
     export_id = uuid.uuid4().hex[:12]
     out_path = vid_dir / f"clip_{export_id}.mp4"
+    mute = bool(body.get("mute"))
     try:
-        _subprocess_ve.run([
-            "ffmpeg", "-y", "-i", str(orig_path),
-            "-ss", str(start), "-t", str(end - start),  # post-input -ss = frame-accurate trim
-            "-c:v", "libx264", "-preset", "fast",
-            "-crf", "23", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(out_path)
-        ], check=True, capture_output=True, timeout=300)
+        ffmpeg_args = ["ffmpeg", "-y", "-i", str(orig_path),
+            "-ss", str(start), "-t", str(end - start),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23"]
+        if mute:
+            ffmpeg_args += ["-an"]  # strip audio
+        else:
+            ffmpeg_args += ["-c:a", "aac", "-b:a", "128k"]
+        ffmpeg_args += ["-movflags", "+faststart", str(out_path)]
+        _subprocess_ve.run(ffmpeg_args, check=True, capture_output=True, timeout=300)
     except FileNotFoundError:
         return jsonify({"ok": False, "error": "ffmpeg not available. Contact support to enable Video Editor."}), 500
     except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
         return jsonify({"ok": False, "error": "Export failed. Video may be corrupted or too large."}), 500
-    print(f"[VE] export user={u.get('username')} vid={vid_id} clip={export_id} {start:.1f}-{end:.1f}s", flush=True)
+    print(f"[VE] export user={u.get('username')} vid={vid_id} clip={export_id} mute={mute} {start:.1f}-{end:.1f}s", flush=True)
+    return jsonify({"ok": True, "export_id": f"{vid_id}/{export_id}"})
+
+@app.post("/api/video/extract_audio")
+def api_video_extract_audio():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    body = request.get_json(force=True) or {}
+    vid_id = (body.get("video_id") or "").strip()
+    start  = float(body.get("start") or 0)
+    end    = float(body.get("end") or 0)
+    if not vid_id:
+        return jsonify({"ok": False, "error": "No video_id provided"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    orig_path = orig_files[0]
+    export_id = uuid.uuid4().hex[:12]
+    out_path = vid_dir / f"clip_{export_id}.mp3"
+    duration_args = ["-t", str(end - start)] if end > start else []
+    try:
+        _subprocess_ve.run([
+            "ffmpeg", "-y", "-i", str(orig_path),
+            "-ss", str(start)] + duration_args + [
+            "-vn", "-ac", "2", "-ar", "44100", "-b:a", "192k", str(out_path)
+        ], check=True, capture_output=True, timeout=300)
+    except FileNotFoundError:
+        return jsonify({"ok": False, "error": "ffmpeg not available. Contact support to enable Video Editor."}), 500
+    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
+        return jsonify({"ok": False, "error": "Audio extraction failed."}), 500
+    print(f"[VE] extract_audio user={u.get('username')} vid={vid_id} clip={export_id}", flush=True)
     return jsonify({"ok": True, "export_id": f"{vid_id}/{export_id}"})
 
 @app.get("/api/video/download/<path:export_id>")
@@ -53475,11 +53735,16 @@ def api_video_download(export_id):
     # sanitize
     if not re.match(r'^[a-f0-9]+$', vid_id) or not re.match(r'^[a-f0-9]+$', clip_id):
         return jsonify({"ok": False, "error": "Invalid ID format"}), 400
-    clip_path = _VE_TEMP / vid_id / f"clip_{clip_id}.mp4"
-    if not clip_path.exists():
-        return jsonify({"ok": False, "error": "Clip not found or expired"}), 404
-    from flask import send_file as _send_file
-    return _send_file(str(clip_path), as_attachment=True, download_name=f"clip_{clip_id}.mp4", mimetype="video/mp4")
+    # check for mp4 or mp3
+    clip_path_mp4 = _VE_TEMP / vid_id / f"clip_{clip_id}.mp4"
+    clip_path_mp3 = _VE_TEMP / vid_id / f"clip_{clip_id}.mp3"
+    if clip_path_mp3.exists():
+        from flask import send_file as _send_file
+        return _send_file(str(clip_path_mp3), as_attachment=True, download_name=f"audio_{clip_id}.mp3", mimetype="audio/mpeg")
+    if clip_path_mp4.exists():
+        from flask import send_file as _send_file
+        return _send_file(str(clip_path_mp4), as_attachment=True, download_name=f"clip_{clip_id}.mp4", mimetype="video/mp4")
+    return jsonify({"ok": False, "error": "Clip not found or expired"}), 404
 
 
 @app.post("/api/video/convert_to_mp4")
