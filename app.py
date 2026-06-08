@@ -23062,24 +23062,25 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             expandBtn.innerText = "🔼 Expand";
             expandBtn.onclick = async (e) => {
               e.stopPropagation();
-              expandBtn.disabled = true; expandBtn.innerText = "⏳";
+              expandBtn.disabled = true; expandBtn.innerText = "⏳ Expanding…";
               try{
                 const r = await fetch("/api/notepad/ai", {method:"POST", headers:{"Content-Type":"application/json"},
                   body: JSON.stringify({action:"expand", content: raw.slice(0,4000)})});
                 const d = await r.json();
                 if(d.ok && d.result){
-                  // Append expanded version as a new assistant message visually
-                  const box = document.getElementById("seatConversation");
-                  if(box){
-                    const bubble = document.createElement("div");
-                    bubble.style.cssText = "margin:10px 0;padding:10px 14px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:13px;color:#c4b5fd;line-height:1.6;white-space:pre-wrap;";
-                    bubble.textContent = "🔼 Expanded:\n\n" + d.result;
-                    box.appendChild(bubble);
-                    box.scrollTop = box.scrollHeight;
-                  }
+                  // Replace the message content in-place — keep the action-row buttons
+                  const newHtml = (typeof saMarkdown==="function") ? saMarkdown(d.result) : d.result.replace(/\n/g,"<br>");
+                  // Remove all children of `content` except actRow, then prepend new text
+                  Array.from(content.childNodes).forEach(n=>{ if(n!==actRow) n.remove(); });
+                  const textWrap = document.createElement("div");
+                  textWrap.innerHTML = newHtml;
+                  content.insertBefore(textWrap, actRow);
+                  // Scroll the thread into view
+                  const threadEl = document.getElementById("thread");
+                  if(threadEl) threadEl.scrollTop = threadEl.scrollHeight;
                   if(typeof showToast==="function") showToast("🔼 Expanded");
                 } else if(typeof showToast==="function") showToast(d.error||"Expand failed");
-              }catch(_){ if(typeof showToast==="function") showToast("Expand failed"); }
+              }catch(err){ if(typeof showToast==="function") showToast("Expand failed"); }
               expandBtn.disabled = false; expandBtn.innerText = "🔼 Expand";
             };
 
@@ -23091,23 +23092,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             summarizeBtn.innerText = "📝 Summary";
             summarizeBtn.onclick = async (e) => {
               e.stopPropagation();
-              summarizeBtn.disabled = true; summarizeBtn.innerText = "⏳";
+              summarizeBtn.disabled = true; summarizeBtn.innerText = "⏳ Summarizing…";
               try{
                 const r = await fetch("/api/notepad/ai", {method:"POST", headers:{"Content-Type":"application/json"},
                   body: JSON.stringify({action:"summarize", content: raw.slice(0,4000)})});
                 const d = await r.json();
                 if(d.ok && d.result){
-                  const box = document.getElementById("seatConversation");
-                  if(box){
-                    const bubble = document.createElement("div");
-                    bubble.style.cssText = "margin:10px 0;padding:10px 14px;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:10px;font-size:13px;color:#6ee7b7;line-height:1.6;white-space:pre-wrap;";
-                    bubble.textContent = "📝 Summary:\n\n" + d.result;
-                    box.appendChild(bubble);
-                    box.scrollTop = box.scrollHeight;
-                  }
-                  if(typeof showToast==="function") showToast("📝 Summary ready");
+                  // Replace the message content in-place — keep the action-row buttons
+                  const newHtml = (typeof saMarkdown==="function") ? saMarkdown(d.result) : d.result.replace(/\n/g,"<br>");
+                  Array.from(content.childNodes).forEach(n=>{ if(n!==actRow) n.remove(); });
+                  const textWrap = document.createElement("div");
+                  textWrap.innerHTML = newHtml;
+                  content.insertBefore(textWrap, actRow);
+                  const threadEl = document.getElementById("thread");
+                  if(threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+                  if(typeof showToast==="function") showToast("📝 Summarized");
                 } else if(typeof showToast==="function") showToast(d.error||"Summarize failed");
-              }catch(_){ if(typeof showToast==="function") showToast("Summarize failed"); }
+              }catch(err){ if(typeof showToast==="function") showToast("Summarize failed"); }
               summarizeBtn.disabled = false; summarizeBtn.innerText = "📝 Summary";
             };
 
