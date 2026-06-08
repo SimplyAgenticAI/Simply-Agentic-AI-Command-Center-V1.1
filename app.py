@@ -10196,7 +10196,9 @@ AUTH_BASE_CSS = r"""
   .actions{ flex-wrap: wrap; }
   .grid{ grid-template-columns: 1fr !important; gap: 10px; }
   #modalWin{ width:100vw !important; left:0 !important; right:0 !important; top:0 !important; bottom:0 !important; height:100vh !important; max-height:100vh !important; transform:none !important; border-radius:0 !important; z-index:999201 !important; }
-  #modalScroll{ max-height:calc(100vh - 52px) !important; }
+  #modalScroll{ max-height:calc(100vh - 52px) !important; overflow-y:auto !important; padding-bottom:32px !important; }
+  /* Email console textarea — shorter on mobile so send button is reachable */
+  #emailBody{ height:200px !important; min-height:120px !important; }
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
@@ -15190,7 +15192,7 @@ HTML = r"""
   height: auto !important;
   max-height: none !important;
 }
-#modalScroll{ max-height: calc(100vh - 170px) !important; }
+#modalScroll{ max-height: calc(100vh - 170px) !important; padding-bottom: 32px !important; }
       /* iOS: prevent zoom on focus */
       textarea, input, select{ font-size: 16px; }
     }
@@ -19535,13 +19537,15 @@ input[type="range"]::-moz-range-progress {
 .wcal-col-header .wd { font-size:12px; color:rgba(180,200,240,.85); text-transform:uppercase; letter-spacing:.06em; }
 .wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(230,238,255,.95); line-height:1.1; }
 .wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 22px; font-size:12px; font-weight:600; cursor:grab; z-index:3; transition:filter 0.15s, box-shadow 0.15s, opacity 0.15s; min-height:22px; box-sizing:border-box; user-select:none; }
+.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 4px; font-size:12px; font-weight:600; cursor:grab; z-index:3; transition:filter 0.15s, box-shadow 0.15s, opacity 0.15s; min-height:22px; box-sizing:border-box; user-select:none; overflow:hidden; display:flex; flex-direction:row; align-items:flex-start; gap:4px; }
+/* Inner column that holds title row + time, fills remaining space */
+.wcal-event-body { display:flex; flex-direction:column; min-width:0; flex:1; }
 .wcal-event:hover { filter:brightness(1.2); box-shadow:0 3px 16px rgba(0,0,0,.5), 0 0 0 1px rgba(196,181,253,.18); transform:translateY(-1px); transition:filter 0.12s, box-shadow 0.12s, transform 0.12s; }
 .wcal-event.is-done { opacity:.72; }
 .wcal-event.is-done .wcal-event-title { text-decoration:line-through; text-decoration-color:currentColor; text-decoration-thickness:2px; }
-/* Check circle — always visible, pinned top-left */
+/* Check circle — flex sibling, never overlaps title */
 .wcal-event-check {
-  position:absolute; top:4px; left:5px;
+  position:static; flex-shrink:0; margin-top:3px;
   display:flex; align-items:center; justify-content:center;
   width:13px; height:13px; border-radius:50%;
   border:1.5px solid currentColor;
@@ -19567,7 +19571,7 @@ input[type="range"]::-moz-range-progress {
   pointer-events:none; line-height:1; opacity:.95;
   box-shadow:0 0 0 1px rgba(0,0,0,.3);
 }
-.wcal-event-row { display:flex; align-items:center; min-width:0; width:100%; padding-right:14px; }
+.wcal-event-row { display:flex; align-items:center; min-width:0; flex:1; padding-right:2px; }
 @keyframes shimmerSweep { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
 .shimmer-card { background:rgba(20,30,60,.6); border:1px solid rgba(80,110,180,.2); border-radius:10px; padding:14px; overflow:hidden; margin-bottom:10px; }
 .shimmer-line { height:10px; border-radius:5px; background:linear-gradient(90deg,rgba(80,110,180,.12) 25%,rgba(124,58,237,.2) 50%,rgba(80,110,180,.12) 75%); background-size:400px 100%; animation:shimmerSweep 1.4s ease-in-out infinite; margin-bottom:9px; }
@@ -19878,9 +19882,16 @@ input[type="range"]::-moz-range-progress {
       <button class="wcal-nav-btn" id="calNextBtn">&#8250;</button>
       <span class="wcal-range-label" id="wcalRangeLabel">Week</span>
       <div class="wcal-view-btns">
-        <button class="wcal-view-btn active" id="wcalViewWeek" onclick="wcalSetView('week')">Week</button>
+        <button class="wcal-view-btn" id="wcalViewWeek" onclick="wcalSetView('week')">Week</button>
         <button class="wcal-view-btn" id="wcalViewDay" onclick="wcalSetView('day')">Day</button>
       </div>
+      <script>
+        (function(){
+          var isMob=window.innerWidth<=720;
+          document.getElementById('wcalViewWeek').classList.toggle('active',!isMob);
+          document.getElementById('wcalViewDay').classList.toggle('active',isMob);
+        })();
+      </script>
     </div>
 
     <!-- Week/Day grid -->
@@ -29470,7 +29481,7 @@ const cal = {
   _rawTasks: [], // base tasks before expansion — always initialized, never undefined
   gcalMeta: {}, // event_id → {on_complete_teammate, on_complete_client_name, on_complete_client_email, done}
   tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York"),
-  view: "week",
+  view: (window.innerWidth <= 720 ? "day" : "week"), // mobile defaults to day view — week is too cramped
   weekStart: null,
   addTab: "event"
 };
@@ -29770,9 +29781,11 @@ function wcalEventHtml(ev, extraStyle=''){
   const prioCls=evPrioOverride?' task-prio-'+evPrioOverride:'';
   let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${top}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="event" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="📅 ${title}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
+  h+=`<div class="wcal-event-body">`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">📅 ${title}</span>${joinBadge}</div>`;
   if(height>32) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+  h+=`</div>`;
   h+='</div>';
   return h;
 }
@@ -29796,8 +29809,10 @@ function wcalTaskHtml(task, extraStyle=''){
   const durLabel=height>40?` · ${task.duration||30}m`:'';
   let h=`<div class="wcal-event${doneCls}${prioCls}${overdueCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-tid="${encodeURIComponent(task.id)}" data-etype="task" data-tstart="${task.start||'09:00'}" data-tdate="${task.date||''}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${title}">`;
   h+=`<span class="wcal-event-check${task.done?' checked':''}" onclick="wcalToggleTask(event,'${task.id}')" title="${task.done?'Unmark':'Mark done'}"></span>`;
+  h+=`<div class="wcal-event-body">`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${title}</span></div>`;
+  h+=`</div>`;
   h+=autoEmailBadge;
   h+=overdueBadge;
   h+='</div>';
@@ -29832,9 +29847,11 @@ function wcalGcalTaskHtml(ev, extraStyle=''){
   // Use data-etype="task" so both task types share one CSS tree, one glow, one toggle
   let h=`<div class="wcal-event${doneCls}${prioCls}" style="top:${startMins}px;height:${height}px;${extraStyle}" data-eid="${encodeURIComponent(evKey)}" data-etype="task" data-tdate="${(ev.start||'').slice(0,10)}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="☑ ${titleEsc}">`;
   h+=`<span class="wcal-event-check${isDone?' checked':''}" onclick="wcalToggleEvent(event,'${evKey.replace(/'/g,"\\'")}') " title="${isDone?'Unmark':'Mark done'}"></span>`;
+  h+=`<div class="wcal-event-body">`;
   if(isRecur) h+=recurBadge;
   h+=`<div class="wcal-event-row"><span class="wcal-event-title">${titleEsc}</span>${joinBadge}</div>`;
   if(height>36) h+=`<div class="wcal-event-time">${timeStr}</div>`;
+  h+=`</div>`;
   h+='</div>';
   return h;
 }
