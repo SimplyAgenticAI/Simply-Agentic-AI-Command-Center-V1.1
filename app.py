@@ -44925,39 +44925,79 @@ window.addEventListener('focus', function(){
     if(p){ p.src=_veBlobUrl; p.style.display=''; p.load(); }
     $('vePlayerPlaceholder').style.display='none';
 
-    /* upload to server in background (needed for AI detect + export) */
-    veSt('Uploading to server…','info');
+    /* upload to server in background via chunked upload
+       (3 MB chunks avoid Gunicorn 30s timeout on slow mobile connections) */
+    veSt('Uploading…','info');
     var pw=$('veProgressWrap'),pb=$('veProgressBar'),pl=$('veProgressLabel');
     if(pw) pw.style.display='block';
+
+    var VE_CHUNK = 3*1024*1024;
+    var veTotalChunks = Math.ceil(file.size / VE_CHUNK);
+    var veUploadId = 've_'+Date.now()+'_'+(Math.random().toString(36).slice(2,8));
+
+    function veOnUploadDone(videoId){
+      if(pw) pw.style.display='none';
+      _veVidId = videoId;
+      $('veAutoClipBtn').style.display='block';
+      $('veExtractAudioBtn').style.display='block';
+      $('veMuteExportBtn').style.display='block';
+      $('veScreenshotBtn').style.display='block';
+      $('veExportPanel').style.display='block';
+      $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
+      veSt('Ready — use AI clips or set In/Out and export','ok');
+    }
+
+    function veFinalize(csrfToken){
+      if(pl) pl.textContent='Processing…';
+      var xhr2=new XMLHttpRequest();
+      xhr2.open('POST','/api/video/upload');
+      xhr2.setRequestHeader('X-CSRF-Token',csrfToken);
+      xhr2.setRequestHeader('Content-Type','application/json');
+      xhr2.withCredentials=true;
+      xhr2.timeout=120000;
+      xhr2.onload=function(){
+        var d; try{d=JSON.parse(xhr2.responseText);}catch(x){veSt('Upload error — please retry','err');if(pw)pw.style.display='none';return;}
+        if(!d.ok){veSt(d.error||'Upload failed','err');if(pw)pw.style.display='none';return;}
+        veOnUploadDone(d.video_id);
+      };
+      xhr2.onerror=function(){if(pw)pw.style.display='none';veSt('Upload failed — please retry','err');};
+      xhr2.ontimeout=function(){if(pw)pw.style.display='none';veSt('Upload timed out — try a shorter clip','err');};
+      xhr2.send(JSON.stringify({upload_id:veUploadId,filename:file.name}));
+    }
 
     window._nativeFetch('/api/csrf_token',{credentials:'same-origin'})
       .then(function(r){return r.json();}).catch(function(){return{csrf_token:''};})
       .then(function(td){
-        var xhr=new XMLHttpRequest();
-        xhr.open('POST','/api/video/upload');
-        xhr.setRequestHeader('X-CSRF-Token',td.csrf_token||'');
-        xhr.withCredentials=true;
-        xhr.upload.onprogress=function(ev){
-          if(!ev.lengthComputable)return;
-          var pct=Math.round(ev.loaded/ev.total*100);
-          if(pb)pb.style.width=pct+'%';
-          if(pl)pl.textContent='Uploading… '+pct+'%';
-        };
-        xhr.onload=function(){
-          if(pw)pw.style.display='none';
-          var d; try{d=JSON.parse(xhr.responseText);}catch(x){veSt('Upload error — bad response','err');return;}
-          if(!d.ok){veSt(d.error||'Upload failed','err');return;}
-          _veVidId=d.video_id;
-          $('veAutoClipBtn').style.display='block';
-          $('veExtractAudioBtn').style.display='block';
-          $('veMuteExportBtn').style.display='block';
-          $('veScreenshotBtn').style.display='block';
-          $('veExportPanel').style.display='block';
-          $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
-          veSt('Ready — use AI clips or set In/Out and export','ok');
-        };
-        xhr.onerror=function(){if(pw)pw.style.display='none';veSt('Upload failed — check connection','err');};
-        var fd=new FormData(); fd.append('file',file); xhr.send(fd);
+        var csrfToken=td.csrf_token||'';
+        var chunkIdx=0;
+        function uploadNextChunk(){
+          if(chunkIdx>=veTotalChunks){ veFinalize(csrfToken); return; }
+          var start=chunkIdx*VE_CHUNK, end=Math.min(start+VE_CHUNK,file.size);
+          var blob=file.slice(start,end);
+          var pct=Math.round((chunkIdx/veTotalChunks)*90);
+          if(pb) pb.style.width=pct+'%';
+          if(pl) pl.textContent='Uploading… '+(chunkIdx+1)+'/'+veTotalChunks;
+          var fd=new FormData();
+          fd.append('upload_id',veUploadId);
+          fd.append('chunk_index',chunkIdx);
+          fd.append('total_chunks',veTotalChunks);
+          fd.append('filename',file.name);
+          fd.append('chunk',blob,'chunk_'+chunkIdx);
+          var xhr=new XMLHttpRequest();
+          xhr.open('POST','/api/video/upload_chunk');
+          xhr.setRequestHeader('X-CSRF-Token',csrfToken);
+          xhr.withCredentials=true;
+          xhr.timeout=60000;
+          xhr.onload=function(){
+            var d; try{d=JSON.parse(xhr.responseText);}catch(e){d=null;}
+            if(!d||!d.ok){veSt('Upload interrupted — please retry','err');if(pw)pw.style.display='none';return;}
+            chunkIdx++; uploadNextChunk();
+          };
+          xhr.onerror=function(){if(pw)pw.style.display='none';veSt('Upload interrupted — please retry','err');};
+          xhr.ontimeout=function(){if(pw)pw.style.display='none';veSt('Upload timed out — check connection','err');};
+          xhr.send(fd);
+        }
+        uploadNextChunk();
       });
   };
 
@@ -44993,9 +45033,14 @@ window.addEventListener('focus', function(){
   window.veOnEnd=function(){vePlayIcon(false);};
   window.veOnErr=function(){
     var p=$('vePlayer'),code=p&&p.error?p.error.code:0;
-    /* code 4 = format not supported by browser — fall back gracefully */
-    if(code===4){veSt('This format may not be supported in your browser. Try MP4.','err');}
-    else{veSt('Could not load video (error '+code+'). Try a different file.','err');}
+    /* code 4 = codec not supported by this browser (common for HEVC/H.265 on iOS/Android)
+       — the file is still valid; ffmpeg on the server handles it fine.
+       Show a soft warning, NOT a blocking error. Upload + export still work. */
+    if(code===4){
+      veSt('Preview unavailable in this browser — video will still upload and export fine.','info');
+    } else if(code){
+      veSt('Preview failed (error '+code+') — you can still upload and export.','info');
+    }
   };
 
   /* playback */
@@ -53700,24 +53745,86 @@ def api_video_stream(vid_id):
     from flask import send_file as _sf
     return _sf(str(orig_path), mimetype=mime, conditional=True)
 
-@app.post("/api/video/upload")
-def api_video_upload():
+@app.post("/api/video/upload_chunk")
+def api_video_upload_chunk():
+    """Receive one 3 MB chunk of a chunked video upload."""
+    import tempfile as _tvc, json as _jvc, re as _rvc
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    if "file" not in request.files:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-    f = request.files["file"]
-    ext = (f.filename or "upload").rsplit(".", 1)[-1].lower()
-    if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
-        return jsonify({"ok": False, "error": f"Unsupported format .{ext}. Use MP4, MOV, or WEBM."}), 400
-    # Stream directly to disk — avoids reading 200MB into RAM
+    upload_id    = (request.form.get("upload_id") or "").strip()
+    chunk_index  = int(request.form.get("chunk_index") or 0)
+    total_chunks = int(request.form.get("total_chunks") or 1)
+    filename     = (request.form.get("filename") or "upload").strip()
+    chunk_file   = request.files.get("chunk")
+    if not upload_id or not chunk_file:
+        return jsonify({"ok": False, "error": "Missing upload_id or chunk"}), 400
+    if not _rvc.match(r'^ve_[0-9]+_[a-z0-9]{4,12}$', upload_id):
+        return jsonify({"ok": False, "error": "Invalid upload_id"}), 400
+    chunk_dir = Path(_tvc.gettempdir()) / f"sa_vechunk_{upload_id}"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_file.save(str(chunk_dir / f"chunk_{chunk_index:06d}"))
+    (chunk_dir / "meta.json").write_text(_jvc.dumps({"total_chunks": total_chunks, "filename": filename}))
+    return jsonify({"ok": True, "chunk": chunk_index})
+
+
+@app.post("/api/video/upload")
+def api_video_upload():
+    import tempfile as _tvu, json as _jvu, shutil as _svu
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+
     threading.Thread(target=_ve_cleanup_old, daemon=True).start()
-    vid_id = uuid.uuid4().hex[:16]
-    vid_dir = _VE_TEMP / vid_id
-    vid_dir.mkdir(parents=True, exist_ok=True)
-    dest = vid_dir / f"original.{ext}"
-    f.save(str(dest))
+    content_type = (request.content_type or "").lower()
+
+    if "application/json" in content_type:
+        # ── Chunked upload: assemble saved chunks ─────────────────────────────
+        body      = request.get_json(silent=True) or {}
+        upload_id = (body.get("upload_id") or "").strip()
+        filename  = (body.get("filename") or "upload").strip()
+        if not upload_id:
+            return jsonify({"ok": False, "error": "Missing upload_id"}), 400
+        chunk_dir = Path(_tvu.gettempdir()) / f"sa_vechunk_{upload_id}"
+        if not chunk_dir.exists():
+            return jsonify({"ok": False, "error": "Upload session not found — please re-upload."}), 400
+        try:
+            meta = _jvu.loads((chunk_dir / "meta.json").read_text())
+            total_chunks = int(meta.get("total_chunks", 0))
+        except Exception:
+            total_chunks = 0
+        chunk_files = sorted(chunk_dir.glob("chunk_*"))
+        if len(chunk_files) != total_chunks or total_chunks == 0:
+            return jsonify({"ok": False, "error": f"Upload incomplete ({len(chunk_files)}/{total_chunks} chunks). Please try again."}), 400
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "mp4"
+        if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
+            ext = "mp4"
+        vid_id  = uuid.uuid4().hex[:16]
+        vid_dir = _VE_TEMP / vid_id
+        vid_dir.mkdir(parents=True, exist_ok=True)
+        dest = vid_dir / f"original.{ext}"
+        try:
+            with open(str(dest), "wb") as out_f:
+                for cf in chunk_files:
+                    out_f.write(cf.read_bytes())
+        except Exception as ae:
+            return jsonify({"ok": False, "error": f"Assembly failed: {ae}"}), 500
+        finally:
+            _svu.rmtree(str(chunk_dir), ignore_errors=True)
+    else:
+        # ── Direct upload (legacy path) ────────────────────────────────────────
+        if "file" not in request.files:
+            return jsonify({"ok": False, "error": "No file uploaded"}), 400
+        f   = request.files["file"]
+        ext = (f.filename or "upload").rsplit(".", 1)[-1].lower()
+        if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
+            return jsonify({"ok": False, "error": f"Unsupported format .{ext}. Use MP4, MOV, or WEBM."}), 400
+        vid_id  = uuid.uuid4().hex[:16]
+        vid_dir = _VE_TEMP / vid_id
+        vid_dir.mkdir(parents=True, exist_ok=True)
+        dest = vid_dir / f"original.{ext}"
+        f.save(str(dest))
+
     size = dest.stat().st_size if dest.exists() else 0
     if size > 500 * 1024 * 1024:
         try: dest.unlink()
