@@ -29050,7 +29050,10 @@ Challenge weak assumptions. Surface risks.`;
             try{ const p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
           }
         }
-        if(!data) throw new Error('Invalid server response: '+raw.slice(0,200));
+        if(!data){
+          if(raw.includes('<!DOCTYPE')||raw.includes('<html')) throw new Error('Server timed out — the lead search took too long. Try a smaller lead count or narrower niche/location.');
+          throw new Error('Invalid server response: '+raw.slice(0,200));
+        }
         if(!data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items||[]);
         const count=(data.items||[]).length;
@@ -48534,7 +48537,7 @@ def api_crm_lead_lab():
             def _worker():
                 try:
                     discovered = _crm_discover_public_leads(
-                        niche, location, lead_count * 3, search_mode,
+                        niche, location, min(lead_count * 2, 60), search_mode,
                         existing_domains=set(),
                         specific_areas=specific_areas,
                         require_contact=require_contact,
@@ -48571,10 +48574,15 @@ def api_crm_lead_lab():
 
             t = _thr.Thread(target=_worker, daemon=True)
             t.start()
+            _deadline = _ti.monotonic() + 110  # hard cap — never let the stream run > ~110s
             while not _done[0]:
-                yield " \n"
-                _ti.sleep(5)
-            t.join(timeout=2)
+                # Yield a padded heartbeat large enough to force Gunicorn/Nginx buffer flush
+                yield (": heartbeat\n\n" + " " * 512 + "\n")
+                _ti.sleep(4)
+                if _ti.monotonic() > _deadline:
+                    _done[0] = True  # signal worker to stop (best-effort)
+                    break
+            t.join(timeout=3)
 
             if _error[0]:
                 yield _json.dumps({"ok": False, "error": f"Lead Lab server error: {_error[0]}"}) + "\n"
@@ -51713,8 +51721,8 @@ Website content:
         t = _thr2.Thread(target=_worker, daemon=True)
         t.start()
         while not _done[0]:
-            yield " \n"
-            _ti2.sleep(5)
+            yield (": heartbeat\n\n" + " " * 512 + "\n")
+            _ti2.sleep(4)
         t.join(timeout=2)
 
         if _error[0]:
