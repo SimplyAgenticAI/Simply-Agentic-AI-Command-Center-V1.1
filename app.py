@@ -32637,7 +32637,7 @@ function showVideoTranscriptModal() {
     '</div>' +
     '<div id="vtResult" style="display:none;margin-top:16px;">' +
       '<div style="font-size:12px;color:#a78bfa;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">TRANSCRIPT</div>' +
-      '<textarea id="vtText" style="width:100%;min-height:200px;padding:12px 14px;background:#0f0e17;color:#e2e8f0;border:1px solid #312e81;border-radius:8px;font-size:13px;line-height:1.65;resize:vertical;font-family:inherit;box-sizing:border-box;" readonly></textarea>' +
+      '<textarea id="vtText" style="width:100%;min-height:420px;max-height:60vh;padding:12px 14px;background:#0f0e17;color:#e2e8f0;border:1px solid #312e81;border-radius:8px;font-size:13px;line-height:1.65;resize:vertical;font-family:inherit;box-sizing:border-box;" readonly></textarea>' +
       '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
         '<button class="btn" id="vtCopyBtn" style="font-size:12px;padding:6px 14px;">📋 Copy</button>' +
         '<button class="btn" id="vtVaultBtn" style="font-size:12px;padding:6px 14px;">🗄️ Save to Vault</button>' +
@@ -43990,7 +43990,10 @@ function saUseGlyph(){
     </div>
 
     <!-- Center: platform pills -->
-    <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:center;"></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
+      <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;"></div>
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;color:#f59e0b;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2px 10px;">🚧 COMING SOON — Platform connections in progress</div>
+    </div>
 
     <!-- Right: controls -->
     <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;">
