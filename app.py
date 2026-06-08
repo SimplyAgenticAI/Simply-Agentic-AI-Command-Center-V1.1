@@ -10199,6 +10199,8 @@ AUTH_BASE_CSS = r"""
   #modalScroll{ max-height:calc(100vh - 52px) !important; overflow-y:auto !important; padding-bottom:32px !important; }
   /* Email console textarea — shorter on mobile so send button is reachable */
   #emailBody{ height:200px !important; min-height:120px !important; }
+  /* Video transcript box — tall enough to read without constant scrolling */
+  #vtText{ min-height:calc(100vh - 320px) !important; }
   .seatTools{ flex-wrap: wrap; gap: 8px; }
   .seat{ min-width: 160px; }
   textarea, input, select{ font-size: 16px; } /* prevents iOS zoom */
@@ -32637,7 +32639,7 @@ function showVideoTranscriptModal() {
     '</div>' +
     '<div id="vtResult" style="display:none;margin-top:16px;">' +
       '<div style="font-size:12px;color:#a78bfa;font-weight:600;margin-bottom:6px;letter-spacing:.04em;">TRANSCRIPT</div>' +
-      '<textarea id="vtText" style="width:100%;min-height:420px;max-height:60vh;padding:12px 14px;background:#0f0e17;color:#e2e8f0;border:1px solid #312e81;border-radius:8px;font-size:13px;line-height:1.65;resize:vertical;font-family:inherit;box-sizing:border-box;" readonly></textarea>' +
+      '<textarea id="vtText" style="width:100%;min-height:480px;padding:12px 14px;background:#0f0e17;color:#e2e8f0;border:1px solid #312e81;border-radius:8px;font-size:13px;line-height:1.65;resize:vertical;font-family:inherit;box-sizing:border-box;" readonly></textarea>' +
       '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">' +
         '<button class="btn" id="vtCopyBtn" style="font-size:12px;padding:6px 14px;">📋 Copy</button>' +
         '<button class="btn" id="vtVaultBtn" style="font-size:12px;padding:6px 14px;">🗄️ Save to Vault</button>' +
@@ -32695,67 +32697,85 @@ function vtStartTranscribe(file) {
         }catch(e){b.textContent='🗄️ Save to Vault';}
       };
       document.getElementById('vtSendBtn').onclick=function(){
-        // Build teammate list from installed seats
-        var installed = (window.state && window.state.installed) ? window.state.installed : {};
-        var activeOrder = (window.state && window.state.active_order) ? window.state.active_order : [];
-        var seats = activeOrder.length ? activeOrder.filter(function(n){return installed[n];}) : Object.keys(installed);
-        if(!seats.length){ seats = ['Teammate']; }
+        var sendText = text;
 
-        // Show a picker overlay
-        var overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.82);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;';
-        var box = document.createElement('div');
-        box.style.cssText = 'background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:22px 20px;width:min(340px,90vw);box-shadow:0 24px 80px rgba(0,0,0,.7);';
-        var title = document.createElement('div');
-        title.style.cssText = 'font-size:15px;font-weight:700;color:#c4b5fd;margin-bottom:4px;';
-        title.textContent = '💬 Send to Teammate';
-        var sub = document.createElement('div');
-        sub.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:16px;';
-        sub.textContent = 'Choose who should receive this transcript:';
-        box.appendChild(title); box.appendChild(sub);
+        function vtShowPicker(installed, activeOrder){
+          var seats = activeOrder.length ? activeOrder.filter(function(n){return installed[n];}) : Object.keys(installed);
+          if(!seats.length){
+            if(typeof showToast==='function') showToast('No teammates installed yet.');
+            return;
+          }
 
-        seats.forEach(function(name){
-          var defn = installed[name] || {};
-          var btn = document.createElement('button');
-          btn.className = 'btn';
-          btn.style.cssText = 'width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;';
-          var avatar = document.createElement('span');
-          avatar.style.cssText = 'width:32px;height:32px;border-radius:50%;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;';
-          avatar.textContent = (defn.avatar || name.charAt(0));
-          var label = document.createElement('span');
-          label.textContent = name + (defn.role ? '  •  ' + defn.role : '');
-          btn.appendChild(avatar); btn.appendChild(label);
-          btn.onclick = function(){
-            overlay.remove();
-            // Switch to this teammate
-            if(typeof window.selectSeat === 'function') window.selectSeat(name);
-            // Paste transcript into message input and send
-            setTimeout(function(){
-              var fm = document.getElementById('followMsg');
-              if(fm){
-                fm.value = 'Here is a video transcript — please help me work with it:\n\n' + text.slice(0,3000);
-                fm.focus();
-              }
-              closeModal();
-              // Auto-send after a brief tick so the seat switch settles
+          var overlay = document.createElement('div');
+          overlay.style.cssText = 'position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.82);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+          var box = document.createElement('div');
+          box.style.cssText = 'background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:22px 20px;width:min(340px,92vw);max-height:80vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,.7);';
+          var titleEl = document.createElement('div');
+          titleEl.style.cssText = 'font-size:15px;font-weight:700;color:#c4b5fd;margin-bottom:4px;';
+          titleEl.textContent = '💬 Send to Teammate';
+          var sub = document.createElement('div');
+          sub.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:16px;';
+          sub.textContent = 'Choose who should receive this transcript:';
+          box.appendChild(titleEl); box.appendChild(sub);
+
+          seats.forEach(function(name){
+            var defn = installed[name] || {};
+            var btn = document.createElement('button');
+            btn.className = 'btn';
+            btn.style.cssText = 'width:100%;text-align:left;margin-bottom:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;';
+            var avatar = document.createElement('span');
+            avatar.style.cssText = 'width:32px;height:32px;border-radius:50%;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.4);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;';
+            avatar.textContent = defn.avatar || name.charAt(0).toUpperCase();
+            var label = document.createElement('span');
+            label.textContent = name + (defn.role ? '  •  ' + defn.role : '');
+            btn.appendChild(avatar); btn.appendChild(label);
+            btn.onclick = function(){
+              overlay.remove();
+              if(typeof window.selectSeat === 'function') window.selectSeat(name);
               setTimeout(function(){
-                var sf = document.getElementById('sendFollow');
-                if(sf) sf.click();
-              }, 200);
-            }, 150);
-          };
-          box.appendChild(btn);
-        });
+                var fm = document.getElementById('followMsg');
+                if(fm){
+                  fm.value = 'Here is a video transcript — please help me work with it:\n\n' + sendText.slice(0,3000);
+                  fm.focus();
+                }
+                closeModal();
+                setTimeout(function(){
+                  var sf = document.getElementById('sendFollow');
+                  if(sf) sf.click();
+                }, 200);
+              }, 150);
+            };
+            box.appendChild(btn);
+          });
 
-        var cancelBtn = document.createElement('button');
-        cancelBtn.className = 'btn';
-        cancelBtn.style.cssText = 'width:100%;margin-top:4px;opacity:.6;font-size:12px;';
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.onclick = function(){ overlay.remove(); };
-        box.appendChild(cancelBtn);
-        overlay.appendChild(box);
-        overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
-        document.body.appendChild(overlay);
+          var cancelBtn = document.createElement('button');
+          cancelBtn.className = 'btn';
+          cancelBtn.style.cssText = 'width:100%;margin-top:4px;opacity:.6;font-size:12px;';
+          cancelBtn.textContent = 'Cancel';
+          cancelBtn.onclick = function(){ overlay.remove(); };
+          box.appendChild(cancelBtn);
+          overlay.appendChild(box);
+          document.body.appendChild(overlay);
+          overlay.onclick = function(e){ if(e.target===overlay) overlay.remove(); };
+        }
+
+        // Build seat list: prefer window.state, fall back to DOM seat cards
+        var inst = (window.state && window.state.installed && Object.keys(window.state.installed).length)
+          ? window.state.installed : null;
+        var ord = (window.state && window.state.active_order) ? window.state.active_order : [];
+        if(!inst){
+          // Read from rendered seat cards in the sidebar
+          inst = {};
+          document.querySelectorAll('.seat[data-name]').forEach(function(s){
+            var n = s.dataset.name;
+            if(n && n !== 'Operator'){
+              var avatarEl = s.querySelector('.seatAvatar,.seat-avatar,[class*="avatar"]');
+              inst[n] = { avatar: avatarEl ? (avatarEl.textContent||'').trim() : n.charAt(0) };
+            }
+          });
+          ord = Object.keys(inst);
+        }
+        vtShowPicker(inst, ord);
       };
       document.getElementById('vtNewBtn').onclick=function(){
         result.style.display='none'; errEl.style.display='none';
