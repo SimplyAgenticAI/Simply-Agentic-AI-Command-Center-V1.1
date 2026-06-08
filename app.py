@@ -2750,7 +2750,7 @@ def _adjust_content_length_for_video():
     if request.method == 'POST':
         if request.path == '/api/video/upload':
             app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
-        elif request.path == '/api/video/convert_to_mp4':
+        elif request.path in ('/api/video/convert_to_mp4', '/api/transcribe'):
             app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
         else:
             app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_BYTES  # reset to normal
@@ -2759,7 +2759,7 @@ def _adjust_content_length_for_video():
 def _handle_413(e):
     try:
         if (request.path or "").startswith("/api/"):
-            return jsonify({"ok": False, "error": "File too large. Video Editor accepts up to 200 MB; other uploads up to 25 MB."}), 413
+            return jsonify({"ok": False, "error": "File too large. Transcription and Video Editor accept up to 500 MB; other uploads up to 25 MB."}), 413
     except Exception:
         pass
     raise e
@@ -32768,8 +32768,8 @@ async function vtStartTranscribe(file) {
     errEl.textContent='Unsupported file type. Please use MP4, MOV, WEBM, MP3, M4A, or WAV.';
     errEl.style.display='block'; return;
   }
-  if(file.size > 25*1024*1024){
-    errEl.textContent='File too large. Maximum size is 25 MB.';
+  if(file.size > 500*1024*1024){
+    errEl.textContent='File too large. Maximum size is 500 MB.';
     errEl.style.display='block'; return;
   }
 
