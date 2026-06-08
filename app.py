@@ -32767,7 +32767,7 @@ function vtStartTranscribe(file) {
 
   // Always use chunked upload — avoids Gunicorn 30s worker timeout on mobile
   // Each 3 MB chunk uploads in a few seconds, then backend assembles + transcribes
-  var CHUNK = 3*1024*1024; // 3 MB per chunk
+  var CHUNK = 1*1024*1024; // 1 MB per chunk — stays under Render/nginx proxy limits
   var totalChunks = Math.ceil(file.size/CHUNK);
   var uploadId = 'vt_'+Date.now()+'_'+(Math.random().toString(36).slice(2,8));
 
@@ -45161,7 +45161,7 @@ window.addEventListener('focus', function(){
     var pw=$('veProgressWrap'),pb=$('veProgressBar'),pl=$('veProgressLabel');
     if(pw) pw.style.display='block';
 
-    var VE_CHUNK = 3*1024*1024;
+    var VE_CHUNK = 1*1024*1024; // 1 MB — stays under Render/nginx proxy limits
     var veTotalChunks = Math.ceil(file.size / VE_CHUNK);
     var veUploadId = 've_'+Date.now()+'_'+(Math.random().toString(36).slice(2,8));
 
@@ -45199,7 +45199,7 @@ window.addEventListener('focus', function(){
       .then(function(r){return r.json();}).catch(function(){return{csrf_token:''};})
       .then(function(td){
         var csrfToken=td.csrf_token||'';
-        var chunkIdx=0;
+        var chunkIdx=0, chunkRetries=0, MAX_RETRIES=3;
         function uploadNextChunk(){
           if(chunkIdx>=veTotalChunks){ veFinalize(csrfToken); return; }
           var start=chunkIdx*VE_CHUNK, end=Math.min(start+VE_CHUNK,file.size);
@@ -45217,14 +45217,23 @@ window.addEventListener('focus', function(){
           xhr.open('POST','/api/video/upload_chunk');
           xhr.setRequestHeader('X-CSRF-Token',csrfToken);
           xhr.withCredentials=true;
-          xhr.timeout=60000;
+          xhr.timeout=30000;
           xhr.onload=function(){
             var d; try{d=JSON.parse(xhr.responseText);}catch(e){d=null;}
-            if(!d||!d.ok){veSt('Upload interrupted — please retry','err');if(pw)pw.style.display='none';return;}
-            chunkIdx++; uploadNextChunk();
+            if(!d||!d.ok){
+              if(chunkRetries<MAX_RETRIES){ chunkRetries++; setTimeout(uploadNextChunk,1000); return; }
+              veSt('Upload interrupted — please retry','err');if(pw)pw.style.display='none';return;
+            }
+            chunkRetries=0; chunkIdx++; uploadNextChunk();
           };
-          xhr.onerror=function(){if(pw)pw.style.display='none';veSt('Upload interrupted — please retry','err');};
-          xhr.ontimeout=function(){if(pw)pw.style.display='none';veSt('Upload timed out — check connection','err');};
+          xhr.onerror=function(){
+            if(chunkRetries<MAX_RETRIES){ chunkRetries++; setTimeout(uploadNextChunk,1500); return; }
+            if(pw)pw.style.display='none'; veSt('Upload interrupted — please retry','err');
+          };
+          xhr.ontimeout=function(){
+            if(chunkRetries<MAX_RETRIES){ chunkRetries++; setTimeout(uploadNextChunk,1500); return; }
+            if(pw)pw.style.display='none'; veSt('Upload timed out — check connection','err');
+          };
           xhr.send(fd);
         }
         uploadNextChunk();
