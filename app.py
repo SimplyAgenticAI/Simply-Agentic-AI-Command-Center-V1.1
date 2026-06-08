@@ -19403,17 +19403,76 @@ input[type="range"]::-moz-range-progress {
   /* Stack the whole calendar vertically */
   .wcal-wrap { flex-direction:column !important; min-height:unset !important; height:auto !important; border-radius:8px; }
 
-  /* Sidebar becomes a slim top toolbar — hide mini-month and bulky items */
+  /* Sidebar becomes a slim top toolbar */
   .wcal-sidebar {
     width:100% !important; border-right:none !important;
     border-bottom:1px solid rgba(42,58,106,.5) !important;
-    flex-direction:row !important; flex-wrap:wrap !important;
-    align-items:center !important;
+    flex-direction:column !important;
     max-height:none !important; overflow:visible !important;
-    gap:6px !important; padding:8px 10px !important;
+    gap:0 !important; padding:0 !important;
   }
+  /* Hide mini-month — too small to be useful on mobile */
   .wcal-mini-month { display:none !important; }
-  .wcal-upcoming   { display:none !important; }
+  /* Hide the add form by default — shown via bottom sheet when + Add is tapped */
+  .wcal-add-form { display:none !important; }
+  /* Dividers between sidebar sections also hidden */
+  .wcal-sidebar > div[style*="border-top"] { display:none !important; }
+
+  /* Upcoming section — always visible, compact horizontal scroll strip */
+  .wcal-upcoming {
+    display:flex !important; flex-direction:row !important;
+    overflow-x:auto !important; overflow-y:hidden !important;
+    gap:8px !important; padding:8px 10px !important;
+    scrollbar-width:none !important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .wcal-upcoming::-webkit-scrollbar { display:none; }
+  /* Each upcoming item becomes a compact pill card */
+  .wcal-upcoming .wcal-upcoming-item {
+    flex-shrink:0 !important; min-width:140px !important; max-width:180px !important;
+    padding:7px 10px !important; border-radius:10px !important;
+    background:rgba(14,22,48,.8) !important;
+    border:1px solid rgba(42,58,106,.5) !important;
+    font-size:11px !important;
+  }
+  /* Section title row — show "+ Add" button inline */
+  .wcal-section-title { display:none !important; }
+  /* Upcoming header row with label + add button */
+  #wcalMobileUpcomingBar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 10px 2px; flex-shrink:0;
+  }
+  #wcalMobileUpcomingBar .wcal-upcoming-label {
+    font-size:11px; font-weight:700; color:rgba(196,181,253,.7);
+    text-transform:uppercase; letter-spacing:.06em;
+  }
+  #wcalMobileAddBtn {
+    display:inline-flex; align-items:center; gap:4px;
+    background:rgba(124,58,237,.25); border:1px solid rgba(124,58,237,.5);
+    color:#c4b5fd; border-radius:8px; padding:4px 12px;
+    font-size:12px; font-weight:700; cursor:pointer;
+  }
+
+  /* Add-form bottom sheet — slides up over everything when + Add is tapped */
+  #wcalAddSheet {
+    display:none; position:fixed; bottom:0; left:0; right:0; z-index:999300;
+    background:#131e3a; border-top:1px solid rgba(124,58,237,.4);
+    border-radius:18px 18px 0 0;
+    box-shadow:0 -12px 50px rgba(0,0,0,.6);
+    padding:0 0 env(safe-area-inset-bottom,16px);
+    max-height:85vh; overflow-y:auto;
+  }
+  #wcalAddSheet.open { display:block; }
+  #wcalAddSheet .wcal-add-form { display:block !important; padding:16px !important; }
+  #wcalAddSheetOverlay {
+    display:none; position:fixed; inset:0; z-index:999299;
+    background:rgba(4,8,24,.55); backdrop-filter:blur(3px);
+  }
+  #wcalAddSheetOverlay.open { display:block; }
+  #wcalAddSheetHandle {
+    width:36px; height:4px; background:rgba(148,163,184,.3);
+    border-radius:2px; margin:10px auto 0; cursor:pointer;
+  }
 
   /* Main grid takes full width, fixed height with scroll */
   .wcal-main { width:100% !important; min-height:0 !important; }
@@ -19516,6 +19575,8 @@ input[type="range"]::-moz-range-progress {
 * { scrollbar-width:thin; scrollbar-color:rgba(80,110,200,.35) transparent; }
 
 .wcal-sidebar { width:460px; flex-shrink:0; background:#131e3a; border-right:1px solid rgba(42,58,106,.6); display:flex; flex-direction:column; padding:10px; gap:10px; overflow-y:auto; }
+#wcalMobileUpcomingBar { display:none; } /* shown only in @media ≤720px */
+#wcalAddSheet, #wcalAddSheetOverlay { display:none; } /* mobile-only bottom sheet */
 .wcal-main { flex:1; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
 .wcal-topbar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid rgba(42,58,106,.5); flex-shrink:0; flex-wrap:wrap; }
 .wcal-nav-btn { background:rgba(14,22,48,.8); border:1px solid rgba(42,58,106,.7); color:rgba(196,181,253,.85); border-radius:8px; padding:4px 11px; font-size:12px; cursor:pointer; }
@@ -19768,10 +19829,67 @@ input[type="range"]::-moz-range-progress {
   <div class="ctx-item danger" id="ctxRemove">🗑 Remove</div>
 </div>
 
+<!-- Mobile add-form bottom sheet (hidden on desktop) -->
+<div id="wcalAddSheetOverlay" onclick="wcalCloseAddSheet()"></div>
+<div id="wcalAddSheet">
+  <div id="wcalAddSheetHandle" onclick="wcalCloseAddSheet()"></div>
+  <div class="wcal-add-form" style="display:block;">
+    <div class="wcal-add-tabs">
+      <div class="wcal-add-tab active" id="wcalSheetTabEvent" onclick="wcalSwitchAddTab('event')">📅 Event</div>
+      <div class="wcal-add-tab" id="wcalSheetTabTask" onclick="wcalSwitchAddTab('task')">☑ Task</div>
+    </div>
+    <!-- Reuse the same field IDs — JS already targets them -->
+    <div id="wcalSheetEventFields">
+      <input class="wcal-field" id="wcalAddTitleM" placeholder="Event title" autocomplete="off" />
+      <input class="wcal-field" id="wcalAddDateM" type="date" />
+      <div style="display:flex;gap:5px;">
+        <input class="wcal-field" id="wcalAddStartM" type="time" value="09:00" style="flex:1;" />
+        <select class="wcal-field" id="wcalAddDurM" style="flex:1;">
+          <option value="30">30m</option><option value="60" selected>1h</option>
+          <option value="90">1.5h</option><option value="120">2h</option>
+        </select>
+      </div>
+      <input class="wcal-field" id="wcalAddAttendeesM" placeholder="Invite emails (comma sep)" autocomplete="off" />
+      <button class="wcal-submit" id="wcalAddBtnM" onclick="wcalAddEventFromSheet()">Create event</button>
+    </div>
+    <div id="wcalSheetTaskFields" style="display:none;">
+      <input class="wcal-field" id="wcalTaskTitleM" placeholder="Task title" autocomplete="off" />
+      <input class="wcal-field" id="wcalTaskDateM" type="date" />
+      <div style="display:flex;gap:5px;">
+        <input class="wcal-field" id="wcalTaskStartM" type="time" value="09:00" style="flex:1;" />
+        <select class="wcal-field" id="wcalTaskDurM" style="flex:1;">
+          <option value="15">15m</option><option value="30" selected>30m</option>
+          <option value="60">1h</option><option value="90">1.5h</option>
+        </select>
+      </div>
+      <select class="wcal-field" id="wcalTaskPriorityM">
+        <option value="high" selected>🟣 High</option>
+        <option value="medium">🟡 Medium</option>
+        <option value="low">🟢 Low</option>
+      </select>
+      <select class="wcal-field" id="wcalTaskRecurringM">
+        <option value="none" selected>Does not repeat</option>
+        <option value="daily">Every day</option>
+        <option value="weekdays">Weekdays (Mon–Fri)</option>
+        <option value="weekly">Weekly</option>
+        <option value="monthly">Monthly</option>
+      </select>
+      <button class="wcal-submit" id="wcalAddTaskBtnM" onclick="wcalAddTaskFromSheet()">Add task</button>
+    </div>
+    <div class="wcal-status" id="wcalAddStatusM"></div>
+  </div>
+</div>
+
 <div class="wcal-wrap" id="wcalWrap">
 
   <!-- LEFT SIDEBAR -->
   <div class="wcal-sidebar">
+
+    <!-- Mobile-only upcoming header + add button (hidden on desktop via CSS) -->
+    <div id="wcalMobileUpcomingBar">
+      <span class="wcal-upcoming-label">Upcoming</span>
+      <button id="wcalMobileAddBtn" onclick="wcalOpenAddSheet()">＋ Add</button>
+    </div>
 
     <!-- Mini month -->
     <div class="wcal-mini-month">
@@ -31666,6 +31784,81 @@ function wcalRenderUpcoming(){
     }
   }).join('');
 }
+
+// ── Mobile Add Sheet ───────────────────────────────────────────
+window.wcalOpenAddSheet = function(){
+  var sh=document.getElementById('wcalAddSheet');
+  var ov=document.getElementById('wcalAddSheetOverlay');
+  if(sh) sh.classList.add('open');
+  if(ov) ov.classList.add('open');
+  // Pre-fill date to today/selected
+  var today=ymd(new Date());
+  ['wcalAddDateM','wcalTaskDateM'].forEach(function(id){
+    var el=document.getElementById(id); if(el&&!el.value) el.value=cal.selected||today;
+  });
+};
+window.wcalCloseAddSheet = function(){
+  var sh=document.getElementById('wcalAddSheet');
+  var ov=document.getElementById('wcalAddSheetOverlay');
+  if(sh) sh.classList.remove('open');
+  if(ov) ov.classList.remove('open');
+};
+// Switch add-tab in sheet (reuse existing tab switcher but also toggle sheet fields)
+var _wcalOrigSwitchAddTab = null;
+(function(){
+  var _orig = window.wcalSwitchAddTab;
+  window.wcalSwitchAddTab = function(tab){
+    if(typeof _orig === 'function') _orig(tab);
+    // Also toggle sheet-specific fields
+    var ef=document.getElementById('wcalSheetEventFields');
+    var tf=document.getElementById('wcalSheetTaskFields');
+    var te=document.getElementById('wcalSheetTabEvent');
+    var tt=document.getElementById('wcalSheetTabTask');
+    if(ef) ef.style.display = tab==='event' ? '' : 'none';
+    if(tf) tf.style.display = tab==='task'  ? '' : 'none';
+    if(te) te.classList.toggle('active', tab==='event');
+    if(tt) tt.classList.toggle('active', tab==='task');
+  };
+})();
+
+window.wcalAddEventFromSheet = async function(){
+  var title=(document.getElementById('wcalAddTitleM')||{}).value||'';
+  var date =(document.getElementById('wcalAddDateM')||{}).value||ymd(new Date());
+  var start=(document.getElementById('wcalAddStartM')||{}).value||'09:00';
+  var dur  =parseInt((document.getElementById('wcalAddDurM')||{}).value||60);
+  var atts =(document.getElementById('wcalAddAttendeesM')||{}).value||'';
+  var st=document.getElementById('wcalAddStatusM');
+  if(!title.trim()){if(st){st.textContent='Enter a title';st.style.color='#fca5a5';}return;}
+  // Mirror into main sidebar fields and call existing submit
+  ['wcalAddTitle','wcalAddDate','wcalAddStart','wcalAddAttendees'].forEach(function(id,i){
+    var el=document.getElementById(id); if(!el) return;
+    el.value=[title,date,start,atts][i];
+  });
+  var durEl=document.getElementById('wcalAddDur'); if(durEl) durEl.value=dur;
+  var btn=document.getElementById('wcalAddBtn'); if(btn) btn.click();
+  wcalCloseAddSheet();
+  document.getElementById('wcalAddTitleM').value='';
+};
+
+window.wcalAddTaskFromSheet = async function(){
+  var title=(document.getElementById('wcalTaskTitleM')||{}).value||'';
+  var date =(document.getElementById('wcalTaskDateM')||{}).value||ymd(new Date());
+  var start=(document.getElementById('wcalTaskStartM')||{}).value||'09:00';
+  var dur  =parseInt((document.getElementById('wcalTaskDurM')||{}).value||30);
+  var prio =(document.getElementById('wcalTaskPriorityM')||{}).value||'high';
+  var recur=(document.getElementById('wcalTaskRecurringM')||{}).value||'none';
+  var st=document.getElementById('wcalAddStatusM');
+  if(!title.trim()){if(st){st.textContent='Enter a title';st.style.color='#fca5a5';}return;}
+  ['wcalTaskTitle','wcalTaskDate','wcalTaskStart'].forEach(function(id,i){
+    var el=document.getElementById(id); if(el) el.value=[title,date,start][i];
+  });
+  var durEl=document.getElementById('wcalTaskDur'); if(durEl) durEl.value=dur;
+  var prioEl=document.getElementById('wcalTaskPriority'); if(prioEl) prioEl.value=prio;
+  var recurEl=document.getElementById('wcalTaskRecurring'); if(recurEl) recurEl.value=recur;
+  var btn=document.getElementById('wcalAddTaskBtn'); if(btn) btn.click();
+  wcalCloseAddSheet();
+  document.getElementById('wcalTaskTitleM').value='';
+};
 
 // ── View & navigation ──────────────────────────────────────────
 window.wcalSetView=function wcalSetView(v){
