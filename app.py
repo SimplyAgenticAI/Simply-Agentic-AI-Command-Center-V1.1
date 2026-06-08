@@ -32746,12 +32746,13 @@ function showVideoTranscriptModal() {
   fileInput.onchange = function(){ var f=fileInput.files[0]; if(f) vtStartTranscribe(f); };
 }
 
-async function vtStartTranscribe(file) {
+function vtStartTranscribe(file) {
   var allowed = ['mp4','mov','webm','mp3','m4a','wav'];
   var ext = (file.name.split('.').pop()||'').toLowerCase();
   var errEl   = document.getElementById('vtError');
   var progress= document.getElementById('vtProgress');
   var pBar    = document.getElementById('vtProgressBar');
+  var pLabel  = document.getElementById('vtProgressLabel');
   var result  = document.getElementById('vtResult');
   var dropZone= document.getElementById('vtDropZone');
 
@@ -32770,101 +32771,110 @@ async function vtStartTranscribe(file) {
   dropZone.style.display='none';
   progress.style.display='block';
   pBar.style.width='0%';
+  if(pLabel) pLabel.textContent='Uploading…';
 
-  var pct=0;
-  var pInterval=setInterval(function(){ pct=Math.min(pct+(pct<70?3:.5),92); pBar.style.width=pct+'%'; },350);
+  // Use XHR — same pattern as video editor upload, bypasses fetch interceptor issues
+  window._nativeFetch('/api/csrf_token',{credentials:'same-origin'})
+    .then(function(r){return r.json();}).catch(function(){return{csrf_token:''};})
+    .then(function(td){
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST','/api/transcribe');
+      xhr.setRequestHeader('X-CSRF-Token', td.csrf_token||'');
+      xhr.withCredentials = true;
 
-  try{
-    var fd=new FormData();
-    fd.append('file', file);
-    var resp=await fetch('/api/transcribe',{method:'POST',body:fd});
+      // Real upload progress
+      xhr.upload.onprogress = function(ev){
+        if(!ev.lengthComputable) return;
+        var pct = Math.round(ev.loaded/ev.total*100);
+        pBar.style.width = Math.min(pct*0.6,60)+'%'; // upload = first 60%
+        if(pLabel) pLabel.textContent = 'Uploading… '+pct+'%';
+      };
 
-    // Stream the response — server sends heartbeat lines to survive proxy timeouts,
-    // then a final JSON line with the result.
-    var reader=resp.body.getReader();
-    var decoder=new TextDecoder();
-    var buf='';
-    var data=null;
-    while(true){
-      var chunk=await reader.read();
-      if(chunk.done) break;
-      buf+=decoder.decode(chunk.value,{stream:true});
-      var nl=buf.lastIndexOf('\n');
-      if(nl>=0){
-        var lines=buf.slice(0,nl).split('\n');
-        for(var _li=0;_li<lines.length;_li++){
-          var _ln=lines[_li].trim();
-          if(_ln && _ln.startsWith('{') && _ln.endsWith('}')){
-            try{ var _p=JSON.parse(_ln); if(_p.ok===true||_p.ok===false){ data=_p; } }catch(e){}
+      xhr.onload = function(){
+        // Parse streaming response — server sends heartbeat lines then final JSON
+        var raw = xhr.responseText || '';
+        var data = null;
+        var lines = raw.split('\n');
+        for(var i=0;i<lines.length;i++){
+          var ln = lines[i].trim();
+          if(ln.startsWith('{') && ln.endsWith('}')){
+            try{ var p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
           }
         }
-        buf=buf.slice(nl+1);
-      }
-      if(data) break;
-    }
-    // Check anything left in buffer
-    var _rem=(buf||'').trim();
-    if(!data && _rem.startsWith('{') && _rem.endsWith('}')){
-      try{ data=JSON.parse(_rem); }catch(e){}
-    }
+        pBar.style.width='100%';
+        if(pLabel) pLabel.textContent='Done';
+        setTimeout(function(){
+          progress.style.display='none';
+          if(!data){
+            dropZone.style.display='block';
+            errEl.textContent='No response from server — please try again.';
+            errEl.style.display='block'; return;
+          }
+          if(!data.ok){
+            dropZone.style.display='block';
+            errEl.textContent = data.error||'Transcription failed. Please try again.';
+            errEl.style.display='block'; return;
+          }
+          var text = data.transcript||'';
+          document.getElementById('vtText').value = text;
+          result.style.display='block';
 
-    clearInterval(pInterval);
-    pBar.style.width='100%';
-    await new Promise(function(r){setTimeout(r,350);});
-    progress.style.display='none';
+          document.getElementById('vtCopyBtn').onclick=function(){
+            navigator.clipboard.writeText(text).then(function(){
+              var b=document.getElementById('vtCopyBtn');
+              b.textContent='✅ Copied'; setTimeout(function(){ b.textContent='📋 Copy'; },2000);
+            });
+          };
+          document.getElementById('vtVaultBtn').onclick=async function(){
+            var b=document.getElementById('vtVaultBtn'); b.textContent='⏳ Saving…';
+            try{
+              var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
+              var d=await r.json();
+              if(d.ok){b.textContent='✅ Saved';if(typeof showToast==='function')showToast('🗄️ Saved to Response Vault');}
+              else b.textContent='🗄️ Save to Vault';
+            }catch(e){b.textContent='🗄️ Save to Vault';}
+          };
+          document.getElementById('vtSendBtn').onclick=function(){
+            var fm=document.getElementById('followMsg');
+            if(fm){fm.value='Here is a video transcript, please help me with it:\n\n'+text.slice(0,3000);fm.focus();}
+            closeModal();
+            if(typeof window.sendFollow==='function') window.sendFollow();
+          };
+          document.getElementById('vtNewBtn').onclick=function(){
+            result.style.display='none'; errEl.style.display='none';
+            dropZone.style.display='block';
+            var fi=document.getElementById('vtFileInput'); if(fi) fi.value='';
+          };
+        },300);
+      };
 
-    if(!data){
-      dropZone.style.display='block';
-      errEl.textContent='No response received — please try again or use a shorter clip.';
-      errEl.style.display='block'; return;
-    }
-    if(!data.ok){
-      dropZone.style.display='block';
-      errEl.textContent=data.error||'Transcription failed. Please try again.';
-      errEl.style.display='block'; return;
-    }
+      xhr.onprogress = function(){
+        // Server is processing (transcribing) — animate progress bar 60→95%
+        var cur = parseFloat(pBar.style.width)||60;
+        if(cur<95){ pBar.style.width=Math.min(cur+1,95)+'%'; }
+        if(pLabel) pLabel.textContent='Transcribing…';
+      };
 
-    var text=data.transcript||'';
-    document.getElementById('vtText').value=text;
-    result.style.display='block';
+      xhr.onerror = function(){
+        progress.style.display='none';
+        dropZone.style.display='block';
+        errEl.textContent='Upload failed — check your connection and try again.';
+        errEl.style.display='block';
+      };
 
-    document.getElementById('vtCopyBtn').onclick=function(){
-      navigator.clipboard.writeText(text).then(function(){
-        var b=document.getElementById('vtCopyBtn');
-        b.textContent='✅ Copied'; setTimeout(function(){ b.textContent='📋 Copy'; },2000);
-      });
-    };
-    document.getElementById('vtVaultBtn').onclick=async function(){
-      var b=document.getElementById('vtVaultBtn');
-      b.textContent='⏳ Saving…';
-      try{
-        var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
-        var d=await r.json();
-        if(d.ok){ b.textContent='✅ Saved'; if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault'); }
-        else b.textContent='🗄️ Save to Vault';
-      }catch(e){ b.textContent='🗄️ Save to Vault'; }
-    };
-    document.getElementById('vtSendBtn').onclick=function(){
-      var fm=document.getElementById('followMsg');
-      if(fm){ fm.value='Here is a video transcript, please help me with it:\n\n'+text.slice(0,3000); fm.focus(); }
-      closeModal();
-      if(typeof window.sendFollow==='function') window.sendFollow();
-    };
-    document.getElementById('vtNewBtn').onclick=function(){
-      result.style.display='none';
-      errEl.style.display='none';
-      dropZone.style.display='block';
-      var fi=document.getElementById('vtFileInput');
-      if(fi) fi.value='';
-    };
-  }catch(err){
-    clearInterval(pInterval);
-    progress.style.display='none';
-    dropZone.style.display='block';
-    errEl.textContent='Upload error: '+(err.message||'please try again.');
-    errEl.style.display='block';
-  }
+      xhr.ontimeout = function(){
+        progress.style.display='none';
+        dropZone.style.display='block';
+        errEl.textContent='Timed out — try a shorter or smaller file.';
+        errEl.style.display='block';
+      };
+
+      xhr.timeout = 300000; // 5 minutes
+      var fd = new FormData();
+      fd.append('file', file);
+      xhr.send(fd);
+    });
 }
 
 try{
