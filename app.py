@@ -32480,6 +32480,74 @@ function vtStartTranscribe(file) {
   var result  = document.getElementById('vtResult');
   var dropZone= document.getElementById('vtDropZone');
 
+  function vtShowErr(msg){ progress.style.display='none'; dropZone.style.display='block'; errEl.textContent=msg; errEl.style.display='block'; }
+
+  function vtShowResult(text){
+    pBar.style.width='100%';
+    if(pLabel) pLabel.textContent='Done!';
+    setTimeout(function(){
+      progress.style.display='none';
+      document.getElementById('vtText').value = text;
+      result.style.display='block';
+      document.getElementById('vtCopyBtn').onclick=function(){
+        navigator.clipboard.writeText(text).then(function(){ var b=document.getElementById('vtCopyBtn'); b.textContent='✅ Copied'; setTimeout(function(){ b.textContent='📋 Copy'; },2000); }).catch(function(){});
+      };
+      document.getElementById('vtVaultBtn').onclick=async function(){
+        var b=document.getElementById('vtVaultBtn'); b.textContent='⏳ Saving…';
+        try{
+          var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
+          var d=await r.json();
+          if(d.ok){b.textContent='✅ Saved';if(typeof showToast==='function')showToast('🗄️ Saved to Response Vault');}
+          else b.textContent='🗄️ Save to Vault';
+        }catch(e){b.textContent='🗄️ Save to Vault';}
+      };
+      document.getElementById('vtSendBtn').onclick=function(){
+        var fm=document.getElementById('followMsg');
+        if(fm){fm.value='Here is a video transcript, please help me with it:\n\n'+text.slice(0,3000);fm.focus();}
+        closeModal();
+        if(typeof window.sendFollow==='function') window.sendFollow();
+      };
+      document.getElementById('vtNewBtn').onclick=function(){
+        result.style.display='none'; errEl.style.display='none';
+        dropZone.style.display='block';
+        var fi=document.getElementById('vtFileInput'); if(fi) fi.value='';
+      };
+    },300);
+  }
+
+  function vtParseStreamingResponse(raw){
+    var data=null, lines=raw.split('\n');
+    for(var i=0;i<lines.length;i++){
+      var ln=lines[i].trim();
+      if(ln.startsWith('{')&&ln.endsWith('}')){
+        try{ var p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
+      }
+    }
+    return data;
+  }
+
+  // Finalize: send upload_id to backend to assemble chunks + transcribe (streaming)
+  function vtFinalize(uploadId, filename, csrfToken){
+    if(pLabel) pLabel.textContent='Transcribing…';
+    pBar.style.width='65%';
+    var xhr2=new XMLHttpRequest();
+    xhr2.open('POST','/api/transcribe');
+    xhr2.setRequestHeader('X-CSRF-Token',csrfToken);
+    xhr2.setRequestHeader('Content-Type','application/json');
+    xhr2.withCredentials=true;
+    xhr2.timeout=300000;
+    xhr2.onprogress=function(){ var cur=parseFloat(pBar.style.width)||65; if(cur<95) pBar.style.width=Math.min(cur+1,95)+'%'; };
+    xhr2.onload=function(){
+      var data=vtParseStreamingResponse(xhr2.responseText||'');
+      if(!data){ vtShowErr('No response from server — please try again.'); return; }
+      if(!data.ok){ vtShowErr(data.error||'Transcription failed. Please try again.'); return; }
+      vtShowResult(data.transcript||'');
+    };
+    xhr2.onerror=function(){ vtShowErr('Transcription request failed — please try again.'); };
+    xhr2.ontimeout=function(){ vtShowErr('Timed out — try a shorter or smaller clip.'); };
+    xhr2.send(JSON.stringify({upload_id:uploadId,filename:filename}));
+  }
+
   errEl.style.display='none';
   result.style.display='none';
 
@@ -32495,109 +32563,58 @@ function vtStartTranscribe(file) {
   dropZone.style.display='none';
   progress.style.display='block';
   pBar.style.width='0%';
-  if(pLabel) pLabel.textContent='Uploading…';
+  if(pLabel) pLabel.textContent='Preparing upload…';
 
-  // Use XHR — same pattern as video editor upload, bypasses fetch interceptor issues
+  // Always use chunked upload — avoids Gunicorn 30s worker timeout on mobile
+  // Each 3 MB chunk uploads in a few seconds, then backend assembles + transcribes
+  var CHUNK = 3*1024*1024; // 3 MB per chunk
+  var totalChunks = Math.ceil(file.size/CHUNK);
+  var uploadId = 'vt_'+Date.now()+'_'+(Math.random().toString(36).slice(2,8));
+
   window._nativeFetch('/api/csrf_token',{credentials:'same-origin'})
     .then(function(r){return r.json();}).catch(function(){return{csrf_token:''};})
     .then(function(td){
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST','/api/transcribe');
-      xhr.setRequestHeader('X-CSRF-Token', td.csrf_token||'');
-      xhr.withCredentials = true;
+      var csrfToken = td.csrf_token||'';
+      var chunkIdx = 0;
 
-      // Real upload progress
-      xhr.upload.onprogress = function(ev){
-        if(!ev.lengthComputable) return;
-        var pct = Math.round(ev.loaded/ev.total*100);
-        pBar.style.width = Math.min(pct*0.6,60)+'%'; // upload = first 60%
-        if(pLabel) pLabel.textContent = 'Uploading… '+pct+'%';
-      };
-
-      xhr.onload = function(){
-        // Parse streaming response — server sends heartbeat lines then final JSON
-        var raw = xhr.responseText || '';
-        var data = null;
-        var lines = raw.split('\n');
-        for(var i=0;i<lines.length;i++){
-          var ln = lines[i].trim();
-          if(ln.startsWith('{') && ln.endsWith('}')){
-            try{ var p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
-          }
+      function uploadNextChunk(){
+        if(chunkIdx >= totalChunks){
+          // All chunks uploaded — trigger assembly + transcription
+          vtFinalize(uploadId, file.name, csrfToken);
+          return;
         }
-        pBar.style.width='100%';
-        if(pLabel) pLabel.textContent='Done';
-        setTimeout(function(){
-          progress.style.display='none';
-          if(!data){
-            dropZone.style.display='block';
-            errEl.textContent='No response from server — please try again.';
-            errEl.style.display='block'; return;
-          }
-          if(!data.ok){
-            dropZone.style.display='block';
-            errEl.textContent = data.error||'Transcription failed. Please try again.';
-            errEl.style.display='block'; return;
-          }
-          var text = data.transcript||'';
-          document.getElementById('vtText').value = text;
-          result.style.display='block';
+        var start = chunkIdx*CHUNK;
+        var end   = Math.min(start+CHUNK, file.size);
+        var blob  = file.slice(start, end);
 
-          document.getElementById('vtCopyBtn').onclick=function(){
-            navigator.clipboard.writeText(text).then(function(){
-              var b=document.getElementById('vtCopyBtn');
-              b.textContent='✅ Copied'; setTimeout(function(){ b.textContent='📋 Copy'; },2000);
-            });
-          };
-          document.getElementById('vtVaultBtn').onclick=async function(){
-            var b=document.getElementById('vtVaultBtn'); b.textContent='⏳ Saving…';
-            try{
-              var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
-              var d=await r.json();
-              if(d.ok){b.textContent='✅ Saved';if(typeof showToast==='function')showToast('🗄️ Saved to Response Vault');}
-              else b.textContent='🗄️ Save to Vault';
-            }catch(e){b.textContent='🗄️ Save to Vault';}
-          };
-          document.getElementById('vtSendBtn').onclick=function(){
-            var fm=document.getElementById('followMsg');
-            if(fm){fm.value='Here is a video transcript, please help me with it:\n\n'+text.slice(0,3000);fm.focus();}
-            closeModal();
-            if(typeof window.sendFollow==='function') window.sendFollow();
-          };
-          document.getElementById('vtNewBtn').onclick=function(){
-            result.style.display='none'; errEl.style.display='none';
-            dropZone.style.display='block';
-            var fi=document.getElementById('vtFileInput'); if(fi) fi.value='';
-          };
-        },300);
-      };
+        var pct = Math.round((chunkIdx/totalChunks)*60); // 0–60% for upload phase
+        pBar.style.width=pct+'%';
+        if(pLabel) pLabel.textContent='Uploading… '+(chunkIdx+1)+' / '+totalChunks;
 
-      xhr.onprogress = function(){
-        // Server is processing (transcribing) — animate progress bar 60→95%
-        var cur = parseFloat(pBar.style.width)||60;
-        if(cur<95){ pBar.style.width=Math.min(cur+1,95)+'%'; }
-        if(pLabel) pLabel.textContent='Transcribing…';
-      };
+        var fd=new FormData();
+        fd.append('upload_id',uploadId);
+        fd.append('chunk_index',chunkIdx);
+        fd.append('total_chunks',totalChunks);
+        fd.append('filename',file.name);
+        fd.append('chunk',blob,'chunk_'+chunkIdx);
 
-      xhr.onerror = function(){
-        progress.style.display='none';
-        dropZone.style.display='block';
-        errEl.textContent='Upload failed — check your connection and try again.';
-        errEl.style.display='block';
-      };
+        var xhr=new XMLHttpRequest();
+        xhr.open('POST','/api/transcribe/chunk');
+        xhr.setRequestHeader('X-CSRF-Token',csrfToken);
+        xhr.withCredentials=true;
+        xhr.timeout=60000; // 1 min per chunk
+        xhr.onload=function(){
+          var d; try{d=JSON.parse(xhr.responseText);}catch(e){d=null;}
+          if(!d||!d.ok){ vtShowErr('Chunk '+(chunkIdx+1)+' failed — please try again.'); return; }
+          chunkIdx++;
+          uploadNextChunk();
+        };
+        xhr.onerror=function(){ vtShowErr('Upload interrupted — check connection and retry.'); };
+        xhr.ontimeout=function(){ vtShowErr('Upload timed out — try a shorter clip.'); };
+        xhr.send(fd);
+      }
 
-      xhr.ontimeout = function(){
-        progress.style.display='none';
-        dropZone.style.display='block';
-        errEl.textContent='Timed out — try a shorter or smaller file.';
-        errEl.style.display='block';
-      };
-
-      xhr.timeout = 300000; // 5 minutes
-      var fd = new FormData();
-      fd.append('file', file);
-      xhr.send(fd);
+      uploadNextChunk();
     });
 }
 
@@ -53375,10 +53392,40 @@ def api_tts():
         return jsonify({"ok": False, "error": msg}), code
 
 
+@app.post("/api/transcribe/chunk")
+def api_transcribe_chunk():
+    """Receive one chunk of a chunked video upload. Saves to temp dir keyed by upload_id."""
+    import tempfile as _tc, json as _jc
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    upload_id   = (request.form.get("upload_id") or "").strip()
+    chunk_index = int(request.form.get("chunk_index") or 0)
+    total_chunks= int(request.form.get("total_chunks") or 1)
+    filename    = (request.form.get("filename") or "upload").strip()
+    chunk_file  = request.files.get("chunk")
+    if not upload_id or not chunk_file:
+        return jsonify({"ok": False, "error": "Missing upload_id or chunk"}), 400
+    # Sanitize upload_id to safe chars only
+    import re as _re
+    if not _re.match(r'^vt_[0-9]+_[a-z0-9]{4,12}$', upload_id):
+        return jsonify({"ok": False, "error": "Invalid upload_id"}), 400
+    chunk_dir = Path(_tc.gettempdir()) / f"sa_vtchunk_{upload_id}"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_path = chunk_dir / f"chunk_{chunk_index:06d}"
+    chunk_file.save(str(chunk_path))
+    # Store metadata for assembly step
+    meta = {"total_chunks": total_chunks, "filename": filename}
+    (chunk_dir / "meta.json").write_text(_jc.dumps(meta))
+    return jsonify({"ok": True, "chunk": chunk_index})
+
+
 @app.post("/api/transcribe")
 def api_transcribe():
-    """Transcribe via OpenAI Whisper-1. Streams heartbeat lines to survive proxy timeouts,
-    then sends a final JSON line with the result."""
+    """Transcribe via OpenAI Whisper-1. Accepts either:
+    - FormData with 'file' field (direct upload, legacy / small files)
+    - JSON body with 'upload_id' + 'filename' (chunked upload — assembles chunks first)
+    Streams heartbeat lines to survive proxy timeouts, then sends final JSON line."""
     try:
         return _api_transcribe_inner()
     except Exception as exc:
@@ -53394,30 +53441,70 @@ def _api_transcribe_inner():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
 
-    if "file" not in request.files:
-        return jsonify({"ok": False, "error": "No file uploaded"}), 400
-
-    f        = request.files["file"]
-    filename = f.filename or "upload"
-    ext      = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    allowed  = {"mp4", "mov", "webm", "mp3", "m4a", "wav"}
-    if ext not in allowed:
-        return jsonify({"ok": False, "error": f"Unsupported file type '.{ext}'. Use MP4, MOV, WEBM, MP3, M4A, or WAV."}), 400
-
     username   = u.get("username", "unknown")
     user_key   = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     openai_key = user_key or (OPENAI_API_KEY or "").strip()
     if not openai_key:
         return jsonify({"ok": False, "error": "Transcription requires an OpenAI API key. Add yours in Settings → API Keys."}), 400
 
-    # ── Save to temp file (never load entire video into RAM) ──────────────────
-    tmp_dir = _tmpfile.mkdtemp(prefix="sa_transcribe_")
-    orig_path = _os.path.join(tmp_dir, f"upload.{ext}")
-    try:
-        f.save(orig_path)
-    except Exception as save_err:
-        _shutil.rmtree(tmp_dir, ignore_errors=True)
-        return jsonify({"ok": False, "error": f"Upload failed: {save_err}"}), 500
+    tmp_dir  = _tmpfile.mkdtemp(prefix="sa_transcribe_")
+    orig_path = None
+
+    content_type = (request.content_type or "").lower()
+    if "application/json" in content_type:
+        # ── Chunked upload path: assemble saved chunks ────────────────────────
+        body = request.get_json(silent=True) or {}
+        upload_id = (body.get("upload_id") or "").strip()
+        filename  = (body.get("filename") or "upload").strip()
+        if not upload_id:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": "Missing upload_id"}), 400
+        chunk_dir = Path(_tmpfile.gettempdir()) / f"sa_vtchunk_{upload_id}"
+        if not chunk_dir.exists():
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": "Upload session not found — please re-upload the file."}), 400
+        try:
+            meta = _tj.loads((chunk_dir / "meta.json").read_text())
+            total_chunks = int(meta.get("total_chunks", 0))
+        except Exception:
+            total_chunks = 0
+        # Gather chunk files in order
+        chunk_files = sorted(chunk_dir.glob("chunk_*"))
+        if len(chunk_files) != total_chunks or total_chunks == 0:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": f"Upload incomplete ({len(chunk_files)}/{total_chunks} chunks). Please try again."}), 400
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "mp4"
+        allowed = {"mp4", "mov", "webm", "mp3", "m4a", "wav"}
+        if ext not in allowed:
+            ext = "mp4"
+        orig_path = _os.path.join(tmp_dir, f"upload.{ext}")
+        try:
+            with open(orig_path, "wb") as out_f:
+                for cf in chunk_files:
+                    out_f.write(cf.read_bytes())
+        except Exception as ae:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": f"Assembly failed: {ae}"}), 500
+        finally:
+            _shutil.rmtree(str(chunk_dir), ignore_errors=True)
+    else:
+        # ── Direct upload path (legacy / small files) ─────────────────────────
+        if "file" not in request.files:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": "No file uploaded"}), 400
+        f        = request.files["file"]
+        filename = f.filename or "upload"
+        ext      = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        allowed  = {"mp4", "mov", "webm", "mp3", "m4a", "wav"}
+        if ext not in allowed:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": f"Unsupported file type '.{ext}'. Use MP4, MOV, WEBM, MP3, M4A, or WAV."}), 400
+        orig_path = _os.path.join(tmp_dir, f"upload.{ext}")
+        try:
+            f.save(orig_path)
+        except Exception as save_err:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
+            return jsonify({"ok": False, "error": f"Upload failed: {save_err}"}), 500
 
     file_size = _os.path.getsize(orig_path)
     print(f"[TRANSCRIBE] user={username} file={filename} size={file_size} ext={ext}", flush=True)
