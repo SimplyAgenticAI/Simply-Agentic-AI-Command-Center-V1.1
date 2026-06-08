@@ -48542,6 +48542,7 @@ def api_crm_lead_lab():
             _error = [None]
 
             def _worker():
+              with app.app_context():
                 try:
                     discovered = _crm_discover_public_leads(
                         niche, location, min(lead_count * 2, 60), search_mode,
@@ -51673,6 +51674,7 @@ def api_analyze_website():
         _error = [None]
 
         def _worker():
+          with app.app_context():
             try:
                 content, err = _fetch_url_content(url, max_chars=10000)
                 if err or not content:
