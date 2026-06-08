@@ -5921,12 +5921,7 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
             url = "https://" + url
         if not _is_ssrf_safe(url):
             return "", "That URL is not accessible from this server."
-        # SSL context — verify certs but allow slightly older configs
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = True
-        ctx.verify_mode = ssl.CERT_REQUIRED
-        # Browser-realistic headers so sites don't block the request
-        req = _urllib_req.Request(url, headers={
+        _headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -5937,11 +5932,23 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
             "Upgrade-Insecure-Requests": "1",
-        })
-        with _urllib_req.urlopen(req, timeout=20, context=ctx) as resp:
-            raw = resp.read(400_000)
-            content_type = resp.headers.get("Content-Type", "")
-            encoding_hdr = resp.headers.get("Content-Encoding", "")
+        }
+        req = _urllib_req.Request(url, headers=_headers)
+
+        def _do_fetch(ctx):
+            with _urllib_req.urlopen(req, timeout=20, context=ctx) as resp:
+                return resp.read(400_000), resp.headers.get("Content-Type", ""), resp.headers.get("Content-Encoding", "")
+
+        # First attempt: strict SSL (normal)
+        ctx = ssl.create_default_context()
+        try:
+            raw, content_type, encoding_hdr = _do_fetch(ctx)
+        except ssl.SSLError:
+            # Retry with a permissive context — handles misconfigured / TLSv1-only sites
+            ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            ctx2.check_hostname = False
+            ctx2.verify_mode = ssl.CERT_NONE
+            raw, content_type, encoding_hdr = _do_fetch(ctx2)
         # Decompress gzip if server sent it
         if encoding_hdr == "gzip" or raw[:2] == b'\x1f\x8b':
             try:
