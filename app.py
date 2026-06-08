@@ -17095,6 +17095,7 @@ label {
 .sa-tool-hdr {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   padding: 18px 22px 16px;
   margin: 0 0 22px;
@@ -17155,6 +17156,7 @@ label {
   text-transform: uppercase;
   color: var(--tool-accent,#a78bfa);
   margin-top: 3px;
+  white-space: nowrap;
 }
 
 /* AI-Powered badge */
