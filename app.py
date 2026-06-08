@@ -56406,10 +56406,26 @@ def sp_connect_facebook():
     if not u: return redirect("/login")
     if not META_APP_ID or not META_APP_SECRET:
         return make_response(
-            "<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
-            "<h2>Meta App not configured</h2>"
-            "<p>Set <code>META_APP_ID</code> and <code>META_APP_SECRET</code> as environment variables on Render.</p>"
-            "<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 400)
+            "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+            "<body style='font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px 20px;max-width:560px;margin:0 auto;line-height:1.6;'>"
+            "<div style='background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.35);border-radius:12px;padding:16px 18px;margin-bottom:24px;'>"
+            "<div style='font-size:18px;font-weight:700;color:#fbbf24;margin-bottom:6px;'>⚙️ Facebook connection needs setup</div>"
+            "<div style='font-size:13px;color:#94a3b8;'>This is a one-time setup — takes about 5 minutes.</div></div>"
+            "<h3 style='color:#c4b5fd;margin-top:0;'>Steps to connect Facebook:</h3>"
+            "<ol style='padding-left:20px;color:#cbd5e1;font-size:14px;'>"
+            "<li style='margin-bottom:14px;'>Go to <a href='https://developers.facebook.com/apps' target='_blank' style='color:#818cf8;'>developers.facebook.com/apps</a> and click <strong>Create App</strong>. Choose type <strong>Business</strong>.</li>"
+            "<li style='margin-bottom:14px;'>Once created, go to <strong>App Settings → Basic</strong>. Copy your <strong>App ID</strong> and <strong>App Secret</strong>.</li>"
+            "<li style='margin-bottom:14px;'>Add the <strong>Facebook Login</strong> product. Under its Settings, add this to Valid OAuth Redirect URIs:<br>"
+            f"<code style='background:#1e293b;padding:4px 8px;border-radius:5px;font-size:12px;display:inline-block;margin-top:4px;word-break:break-all;'>{PUBLIC_BASE_URL}/social/callback/facebook</code></li>"
+            "<li style='margin-bottom:14px;'>In your <strong>Render dashboard</strong> → your service → <strong>Environment</strong>, add two variables:<br>"
+            "<code style='background:#1e293b;padding:3px 8px;border-radius:5px;font-size:12px;'>META_APP_ID</code> = your App ID<br>"
+            "<code style='background:#1e293b;padding:3px 8px;border-radius:5px;font-size:12px;'>META_APP_SECRET</code> = your App Secret</li>"
+            "<li style='margin-bottom:14px;'>Click <strong>Save Changes</strong> on Render — the service will redeploy automatically.</li>"
+            "<li>Come back here and try connecting Facebook again.</li>"
+            "</ol>"
+            "<div style='margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,.08);'>"
+            "<a href='/' style='color:#818cf8;font-size:14px;'>← Back to Simply Agentic AI</a></div>"
+            "</body></html>", 400)
     state = secrets.token_urlsafe(24)
     session["sp_fb_state"] = state
     session.modified = True
