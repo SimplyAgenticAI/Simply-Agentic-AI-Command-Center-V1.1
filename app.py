@@ -53678,7 +53678,8 @@ def api_transcribe():
 
 def _api_transcribe_inner():
     from flask import Response
-    import io, threading, queue as _tq, json as _tj
+    import io, threading, queue as _tq, json as _tj, tempfile as _tmpfile, shutil as _shutil, subprocess as _sp, os as _os
+
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
@@ -53693,29 +53694,84 @@ def _api_transcribe_inner():
     if ext not in allowed:
         return jsonify({"ok": False, "error": f"Unsupported file type '.{ext}'. Use MP4, MOV, WEBM, MP3, M4A, or WAV."}), 400
 
-    data = f.read()
-    if len(data) > 25 * 1024 * 1024:
-        return jsonify({"ok": False, "error": "File exceeds the 25 MB limit."}), 400
-
     username   = u.get("username", "unknown")
     user_key   = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     openai_key = user_key or (OPENAI_API_KEY or "").strip()
     if not openai_key:
         return jsonify({"ok": False, "error": "Transcription requires an OpenAI API key. Add yours in Settings → API Keys."}), 400
 
-    print(f"[TRANSCRIBE] user={username} file={filename} size={len(data)} ext={ext}", flush=True)
+    # ── Save to temp file (never load entire video into RAM) ──────────────────
+    tmp_dir = _tmpfile.mkdtemp(prefix="sa_transcribe_")
+    orig_path = _os.path.join(tmp_dir, f"upload.{ext}")
+    try:
+        f.save(orig_path)
+    except Exception as save_err:
+        _shutil.rmtree(tmp_dir, ignore_errors=True)
+        return jsonify({"ok": False, "error": f"Upload failed: {save_err}"}), 500
+
+    file_size = _os.path.getsize(orig_path)
+    print(f"[TRANSCRIBE] user={username} file={filename} size={file_size} ext={ext}", flush=True)
+
+    WHISPER_MAX = 24 * 1024 * 1024   # Whisper API hard limit is 25 MB; stay under
 
     result_q: _tq.Queue = _tq.Queue()
 
     def _do_transcribe():
         try:
+            audio_path = orig_path
+
+            # ── Compress with ffmpeg if file exceeds Whisper's limit ──────────
+            if _os.path.getsize(audio_path) > WHISPER_MAX:
+                compressed = _os.path.join(tmp_dir, "audio.mp3")
+                try:
+                    proc = _sp.run(
+                        ["ffmpeg", "-y", "-i", audio_path,
+                         "-vn",          # drop video stream
+                         "-ac", "1",     # mono
+                         "-ar", "16000", # 16 kHz sample rate
+                         "-b:a", "32k",  # 32 kbps — good enough for speech
+                         compressed],
+                        capture_output=True, timeout=300
+                    )
+                    if proc.returncode == 0 and _os.path.getsize(compressed) > 0:
+                        audio_path = compressed
+                        print(f"[TRANSCRIBE] compressed to {_os.path.getsize(audio_path)} bytes", flush=True)
+                    else:
+                        print(f"[TRANSCRIBE] ffmpeg failed (rc={proc.returncode}): {proc.stderr.decode(errors='replace')[:300]}", flush=True)
+                except Exception as fe:
+                    print(f"[TRANSCRIBE] ffmpeg error: {fe}", flush=True)
+
             oai = OpenAI(api_key=openai_key.strip())
-            buf = io.BytesIO(data)
-            buf.name = filename
-            result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
-            transcript = (result.text or "").strip()
+            audio_size = _os.path.getsize(audio_path)
+
+            # ── If still over limit, chunk and stitch ─────────────────────────
+            if audio_size > WHISPER_MAX:
+                chunk_size  = WHISPER_MAX - 512 * 1024   # 512 KB safety margin
+                parts       = []
+                chunk_ext   = audio_path.rsplit(".", 1)[-1] if "." in audio_path else "mp3"
+                with open(audio_path, "rb") as af:
+                    idx = 0
+                    while True:
+                        chunk_bytes = af.read(chunk_size)
+                        if not chunk_bytes:
+                            break
+                        buf = io.BytesIO(chunk_bytes)
+                        buf.name = f"chunk_{idx}.{chunk_ext}"
+                        part = oai.audio.transcriptions.create(model="whisper-1", file=buf)
+                        parts.append((part.text or "").strip())
+                        idx += 1
+                transcript = " ".join(parts)
+            else:
+                # ── Normal single-shot transcription ─────────────────────────
+                with open(audio_path, "rb") as af:
+                    buf = io.BytesIO(af.read())
+                buf.name = _os.path.basename(audio_path)
+                result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
+                transcript = (result.text or "").strip()
+
             print(f"[TRANSCRIBE] done user={username} chars={len(transcript)}", flush=True)
             result_q.put({"ok": True, "transcript": transcript})
+
         except Exception as exc:
             print(f"[TRANSCRIBE] EXCEPTION: {exc}", flush=True)
             try:
@@ -53723,21 +53779,21 @@ def _api_transcribe_inner():
             except Exception:
                 msg = str(exc) or "Transcription failed — please try again."
             result_q.put({"ok": False, "error": msg})
+        finally:
+            _shutil.rmtree(tmp_dir, ignore_errors=True)
 
     threading.Thread(target=_do_transcribe, daemon=True).start()
 
     def _stream():
-        # Send heartbeat every 5 s to keep Render's proxy alive.
-        # Give up after 180 s so the connection doesn't hang forever.
         import time as _t
-        deadline = _t.time() + 180
+        deadline = _t.time() + 300   # 5-minute timeout for large files
         while _t.time() < deadline:
             try:
                 res = result_q.get(timeout=5)
                 yield _tj.dumps(res) + "\n"
                 return
             except _tq.Empty:
-                yield " \n"   # heartbeat — keeps the HTTP connection open
+                yield " \n"   # heartbeat — keeps Render proxy alive
         yield _tj.dumps({"ok": False, "error": "Transcription timed out — try a shorter clip."}) + "\n"
 
     return Response(
