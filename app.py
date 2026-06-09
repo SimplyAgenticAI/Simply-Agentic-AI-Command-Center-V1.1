@@ -18966,7 +18966,7 @@ label {
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
-    <button class="btn btnMini" id="crmTabDrip">💧 Drip Campaigns</button>
+    <button class="btn btnMini" id="crmTabDrip">Drip Campaigns</button>
   </div>
 
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
@@ -19109,7 +19109,7 @@ label {
       <!-- Header bar -->
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px 10px;">
         <div>
-          <div style="font-size:15px;font-weight:800;color:#f1f5f9;">💧 Drip Campaigns</div>
+          <div style="font-size:15px;font-weight:800;color:#f1f5f9;">Drip Campaigns</div>
           <div class="tiny" style="opacity:.65;margin-top:2px;">Automated email sequences sent on your schedule. Set it once, let it run.</div>
         </div>
         <button class="btn btnPrimary" id="dripNewBtn" style="font-size:12px;padding:7px 16px;">+ New Campaign</button>
@@ -28473,16 +28473,20 @@ Challenge weak assumptions. Surface risks.`;
     /* ───────────── DRIP CAMPAIGNS ───────────── */
     var _dripCampaigns = {};
     var _dripEditId = null;
+    var _dripInited = false;
 
     function dripInit(){
+      if(!_dripInited){
+        _dripInited = true;
+        b('dripNewBtn', dripOpenBuilder);
+        b('dripBuilderClose', dripCloseBuilder);
+        b('dripAddStepBtn', ()=> dripAddStep('',''));
+        b('dripSaveBtn', dripSave);
+        b('dripAiGenBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display=f.style.display==='none'?'block':'none'; });
+        b('dripAiCancelBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display='none'; });
+        b('dripAiRunBtn', dripAiGenerate);
+      }
       dripLoadList();
-      b('dripNewBtn', dripOpenBuilder);
-      b('dripBuilderClose', dripCloseBuilder);
-      b('dripAddStepBtn', ()=> dripAddStep('',''));
-      b('dripSaveBtn', dripSave);
-      b('dripAiGenBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display=f.style.display==='none'?'block':'none'; });
-      b('dripAiCancelBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display='none'; });
-      b('dripAiRunBtn', dripAiGenerate);
     }
 
     async function dripLoadList(){
@@ -55830,17 +55834,16 @@ def api_crm_broadcast_schedule_delete(sched_id: str):
 # DRIP CAMPAIGNS API
 ###############################################################################
 
-def _drip_path(uname):
-    import os
-    safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", uname)
-    return os.path.join(CRM_DIR, f"{safe}_drip.json")
+def _drip_path(uname: str) -> Path:
+    safe = _safe_name(uname or "anon")
+    return CRM_DIR / f"{safe}_drip.json"
 
 
-def _drip_load(uname):
+def _drip_load(uname: str) -> dict:
     return load_json(_drip_path(uname), {})
 
 
-def _drip_save(uname, data):
+def _drip_save(uname: str, data: dict) -> None:
     save_json(_drip_path(uname), data)
 
 
@@ -57548,13 +57551,11 @@ def _bg_schedule_tick():
         # Drip campaign tick — run for every active user
         try:
             with app.app_context():
-                import os as _bsos
-                if _bsos.path.isdir(CRM_DIR):
-                    for _fn in _bsos.listdir(CRM_DIR):
-                        if _fn.endswith("_drip.json"):
-                            _uname = _fn[:-len("_drip.json")]
-                            try: _drip_tick(_uname)
-                            except Exception: pass
+                if CRM_DIR.is_dir():
+                    for _dp in CRM_DIR.glob("*_drip.json"):
+                        _uname = _dp.stem[:-len("_drip")]
+                        try: _drip_tick(_uname)
+                        except Exception: pass
         except Exception:
             pass
         # Every 10 minutes: prune logs + evict old image jobs
