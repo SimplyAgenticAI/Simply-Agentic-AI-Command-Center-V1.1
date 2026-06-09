@@ -19198,7 +19198,7 @@ label {
         </div>
 
         <!-- Schedule -->
-        <div class="formGrid2" style="margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
           <div>
             <label>Send Interval</label>
             <select id="dripInterval">
@@ -19214,6 +19214,26 @@ label {
           <div>
             <label>Start Date</label>
             <input id="dripStartDate" type="date" />
+          </div>
+          <div>
+            <label>Send Time</label>
+            <select id="dripSendTime">
+              <option value="06:00">6:00 AM</option>
+              <option value="07:00">7:00 AM</option>
+              <option value="08:00">8:00 AM</option>
+              <option value="09:00" selected>9:00 AM</option>
+              <option value="10:00">10:00 AM</option>
+              <option value="11:00">11:00 AM</option>
+              <option value="12:00">12:00 PM (noon)</option>
+              <option value="13:00">1:00 PM</option>
+              <option value="14:00">2:00 PM</option>
+              <option value="15:00">3:00 PM</option>
+              <option value="16:00">4:00 PM</option>
+              <option value="17:00">5:00 PM</option>
+              <option value="18:00">6:00 PM</option>
+              <option value="19:00">7:00 PM</option>
+              <option value="20:00">8:00 PM</option>
+            </select>
           </div>
         </div>
 
@@ -28677,10 +28697,14 @@ Challenge weak assumptions. Surface risks.`;
         const sc = statusColor[c.status]||'#94a3b8';
         const steps = (c.steps||[]).length;
         const interval = c.interval_days||7;
+        const sendTime = c.send_time||'09:00';
+        const [sh,sm] = sendTime.split(':');
+        const h=parseInt(sh); const ampm=h>=12?'PM':'AM'; const h12=h%12||12;
+        const timeLabel = h12+':'+(sm||'00')+' '+ampm;
         return `<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 15px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <div style="flex:1;min-width:180px;">
             <div style="font-weight:700;font-size:14px;color:#f1f5f9;">${_esc(c.name)}</div>
-            <div class="tiny" style="margin-top:3px;opacity:.6;">${steps} email${steps!==1?'s':''} · every ${interval} day${interval!==1?'s':''} · ${c.audience==='all'?'All contacts':_esc(c.audience_val||c.audience)}</div>
+            <div class="tiny" style="margin-top:3px;opacity:.6;">${steps} email${steps!==1?'s':''} · every ${interval} day${interval!==1?'s':''} · sends at ${timeLabel} · ${c.audience==='all'?'All contacts':_esc(c.audience_val||c.audience)}</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid ${sc}33;color:${sc};background:${sc}15;">${c.status.toUpperCase()}</span>
@@ -28707,6 +28731,7 @@ Challenge weak assumptions. Surface risks.`;
       _dripSelectedContacts={};
       _gi('dripInterval').value='7';
       _gi('dripStartDate').value = new Date().toISOString().slice(0,10);
+      _gi('dripSendTime').value='09:00';
       _gi('dripStepsList').innerHTML='';
       _gi('dripBuilderStatus').innerText='';
       _gi('dripAiGenForm').style.display='none';
@@ -28744,6 +28769,7 @@ Challenge weak assumptions. Surface risks.`;
       }
       _gi('dripInterval').value = String(c.interval_days||7);
       _gi('dripStartDate').value = (c.start_date||new Date().toISOString().slice(0,10));
+      _gi('dripSendTime').value = c.send_time||'09:00';
       _gi('dripStepsList').innerHTML='';
       (c.steps||[]).forEach(function(s){ dripAddStep(s.subject||'',s.body||''); });
       _gi('dripBuilderStatus').innerText='';
@@ -28799,6 +28825,7 @@ Challenge weak assumptions. Surface risks.`;
         selected_contacts: audience==='selected' ? _dripSelectedContacts : {},
         interval_days:parseInt(_gi('dripInterval').value)||7,
         start_date:_gi('dripStartDate').value||new Date().toISOString().slice(0,10),
+        send_time:(_gi('dripSendTime')||{}).value||'09:00',
         steps:steps
       };
       if(st) st.innerText='Saving...';
@@ -56068,6 +56095,7 @@ def api_crm_drip_create():
         "audience_val": body.get("audience_val", ""),
         "selected_contacts": body.get("selected_contacts", {}),
         "interval_days": int(body.get("interval_days") or 7),
+        "send_time": body.get("send_time", "09:00"),
         "start_date": body.get("start_date", ""),
         "steps": body.get("steps", []),
         "enrollments": {},   # contact_id -> {step_idx, next_send_at, done}
@@ -56089,6 +56117,7 @@ def api_crm_drip_update(cid):
     for field in ("name", "status", "audience", "audience_val", "selected_contacts", "start_date"):
         if field in body: c[field] = body[field]
     if "interval_days" in body: c["interval_days"] = int(body["interval_days"] or 7)
+    if "send_time" in body: c["send_time"] = body["send_time"]
     if "steps" in body: c["steps"] = body["steps"]
     campaigns[cid] = c
     _drip_save(uname, campaigns)
@@ -56196,8 +56225,10 @@ def _drip_enroll_contacts(uname, cid, campaigns):
             return True
 
         start = c.get("start_date") or datetime.utcnow().strftime("%Y-%m-%d")
+        send_time = c.get("send_time") or "09:00"
         try:
-            next_send = datetime.strptime(start, "%Y-%m-%d")
+            h, m = (send_time.split(":") + ["0"])[:2]
+            next_send = datetime.strptime(start, "%Y-%m-%d").replace(hour=int(h), minute=int(m))
         except Exception:
             next_send = datetime.utcnow()
 
@@ -56236,6 +56267,12 @@ def _drip_tick(uname):
             if not steps: continue
             enrollments = c.get("enrollments") or {}
             interval_days = int(c.get("interval_days") or 7)
+            send_time = c.get("send_time") or "09:00"
+            try:
+                _sh, _sm = (send_time.split(":") + ["0"])[:2]
+                _send_hour, _send_min = int(_sh), int(_sm)
+            except Exception:
+                _send_hour, _send_min = 9, 0
 
             for contact_key, enr in list(enrollments.items()):
                 if enr.get("done"): continue
@@ -56265,7 +56302,8 @@ def _drip_tick(uname):
                 if enr["step_idx"] >= len(steps):
                     enr["done"] = True
                 else:
-                    enr["next_send_at"] = (now + timedelta(days=interval_days)).isoformat()
+                    next_dt = (now + timedelta(days=interval_days)).replace(hour=_send_hour, minute=_send_min, second=0, microsecond=0)
+                    enr["next_send_at"] = next_dt.isoformat()
                 changed = True
             campaigns[cid]["enrollments"] = enrollments
 
