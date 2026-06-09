@@ -19143,20 +19143,29 @@ label {
         </div>
 
         <!-- Audience -->
-        <div class="formGrid2" style="margin-bottom:12px;">
-          <div>
-            <label>Audience</label>
-            <select id="dripAudience">
-              <option value="all">All contacts</option>
-              <option value="tag">By tag</option>
-              <option value="stage">By pipeline stage</option>
-              <option value="status">By status</option>
-              <option value="selected">Selected contacts</option>
-            </select>
+        <div style="margin-bottom:12px;">
+          <div class="formGrid2" style="margin-bottom:8px;">
+            <div>
+              <label>Audience</label>
+              <select id="dripAudience" onchange="dripAudienceChanged()">
+                <option value="all">All contacts</option>
+                <option value="tag">By tag</option>
+                <option value="stage">By pipeline stage</option>
+                <option value="status">By status</option>
+                <option value="selected">Selected contacts</option>
+              </select>
+            </div>
+            <div id="dripAudienceFilterWrap">
+              <label id="dripAudienceFilterLabel">Filter Value</label>
+              <input id="dripAudienceVal" placeholder="Type to filter..." />
+            </div>
           </div>
-          <div>
-            <label>Audience Filter Value</label>
-            <input id="dripAudienceVal" placeholder="e.g. realtor, Lead, VIP..." />
+          <!-- Selected contacts picker — shown only when audience=selected -->
+          <div id="dripContactPickerWrap" style="display:none;">
+            <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:6px;">Select contacts to include</label>
+            <input id="dripContactSearch" placeholder="Search contacts..." oninput="dripFilterContactPicker()" style="margin-bottom:8px;font-size:12px;" />
+            <div id="dripContactPickerList" style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;background:rgba(0,0,0,.2);border-radius:8px;padding:8px;"></div>
+            <div class="tiny" style="margin-top:6px;opacity:.55;" id="dripContactPickerCount"></div>
           </div>
         </div>
 
@@ -28483,6 +28492,155 @@ Challenge weak assumptions. Surface risks.`;
       else f.style.display = 'block';
     }
 
+    var _dripSelectedContacts = {}; // id -> {name,email}
+
+    function dripAudienceChanged(){
+      var val = (_gi('dripAudience')||{}).value || 'all';
+      var filterWrap = _gi('dripAudienceFilterWrap');
+      var filterLabel = _gi('dripAudienceFilterLabel');
+      var filterInput = _gi('dripAudienceVal');
+      var pickerWrap = _gi('dripContactPickerWrap');
+
+      // Reset
+      if(filterInput) filterInput.value='';
+      _dripSelectedContacts={};
+
+      if(val==='all'){
+        if(filterWrap) filterWrap.style.display='none';
+        if(pickerWrap) pickerWrap.style.display='none';
+      } else if(val==='tag'){
+        if(filterWrap) filterWrap.style.display='';
+        if(filterLabel) filterLabel.innerText='Tag name';
+        if(filterInput){ filterInput.placeholder='e.g. VIP, realtor, warm-lead'; filterInput.readOnly=false; }
+        if(pickerWrap) pickerWrap.style.display='none';
+        // Show tag suggestions from existing contacts
+        dripBuildTagSuggestions();
+      } else if(val==='stage'){
+        if(filterWrap) filterWrap.style.display='';
+        if(filterLabel) filterLabel.innerText='Pipeline stage';
+        if(pickerWrap) pickerWrap.style.display='none';
+        // Replace input with a stage dropdown
+        dripBuildStageDropdown();
+      } else if(val==='status'){
+        if(filterWrap) filterWrap.style.display='';
+        if(filterLabel) filterLabel.innerText='Contact status';
+        if(pickerWrap) pickerWrap.style.display='none';
+        // Replace input with a status dropdown
+        dripBuildStatusDropdown();
+      } else if(val==='selected'){
+        if(filterWrap) filterWrap.style.display='none';
+        if(pickerWrap) pickerWrap.style.display='';
+        dripBuildContactPicker('');
+      }
+    }
+
+    function dripBuildStageDropdown(){
+      var wrap = _gi('dripAudienceFilterWrap'); if(!wrap) return;
+      var old = _gi('dripAudienceVal');
+      var stages = (typeof crmCache !== 'undefined' && crmCache.pipeline) ? crmCache.pipeline : ['Lead','Conversation','Interested','Call booked','Client','VIP','Past client','Cold'];
+      var sel = document.createElement('select');
+      sel.id='dripAudienceVal';
+      stages.forEach(function(s){
+        var o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o);
+      });
+      sel.style.cssText = old ? old.style.cssText : '';
+      if(old) old.parentNode.replaceChild(sel, old);
+    }
+
+    function dripBuildStatusDropdown(){
+      var wrap = _gi('dripAudienceFilterWrap'); if(!wrap) return;
+      var old = _gi('dripAudienceVal');
+      // Collect unique statuses from contacts, fall back to defaults
+      var statuses = ['lead','prospect','client','vip','cold','inactive'];
+      if(typeof crmCache !== 'undefined' && (crmCache.clients||[]).length){
+        var seen={};
+        crmCache.clients.forEach(function(c){ if(c.status) seen[c.status.toLowerCase()]=c.status; });
+        var fromCache = Object.values(seen);
+        if(fromCache.length) statuses = fromCache;
+      }
+      var sel = document.createElement('select');
+      sel.id='dripAudienceVal';
+      statuses.forEach(function(s){
+        var o=document.createElement('option'); o.value=s; o.textContent=s.charAt(0).toUpperCase()+s.slice(1); sel.appendChild(o);
+      });
+      sel.style.cssText = old ? old.style.cssText : '';
+      if(old) old.parentNode.replaceChild(sel, old);
+    }
+
+    function dripBuildTagSuggestions(){
+      // Restore to plain input if it was replaced with a select
+      var wrap = _gi('dripAudienceFilterWrap'); if(!wrap) return;
+      var old = _gi('dripAudienceVal');
+      if(old && old.tagName === 'SELECT'){
+        var inp = document.createElement('input');
+        inp.id='dripAudienceVal';
+        inp.placeholder='e.g. VIP, realtor, warm-lead';
+        if(old) old.parentNode.replaceChild(inp, old);
+        old = inp;
+      }
+      // Build datalist of known tags
+      var tags={};
+      if(typeof crmCache !== 'undefined' && (crmCache.clients||[]).length){
+        crmCache.clients.forEach(function(c){ (c.tags||[]).forEach(function(t){ if(t) tags[t]=1; }); });
+      }
+      var dl = document.getElementById('dripTagDatalist') || document.createElement('datalist');
+      dl.id='dripTagDatalist'; dl.innerHTML='';
+      Object.keys(tags).forEach(function(t){ var o=document.createElement('option'); o.value=t; dl.appendChild(o); });
+      document.body.appendChild(dl);
+      if(old && old.tagName==='INPUT') old.setAttribute('list','dripTagDatalist');
+    }
+
+    function dripBuildContactPicker(filter){
+      var list = _gi('dripContactPickerList'); if(!list) return;
+      var contacts = (typeof crmCache !== 'undefined' && crmCache.clients) ? crmCache.clients : [];
+      var q = (filter||'').toLowerCase();
+      var filtered = q ? contacts.filter(function(c){ return ((c.name||'')+(c.email||'')).toLowerCase().indexOf(q)>=0; }) : contacts;
+      if(!filtered.length){
+        list.innerHTML='<div style="opacity:.5;font-size:12px;padding:4px;">No contacts found</div>';
+        dripUpdatePickerCount();
+        return;
+      }
+      list.innerHTML='';
+      filtered.forEach(function(c){
+        var id=c.id||c.email; if(!id) return;
+        var checked=!!_dripSelectedContacts[id];
+        var row=document.createElement('label');
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:12px;color:#e2e8f0;background:'+(checked?'rgba(244,114,182,.12)':'transparent');
+        row.innerHTML='<input type="checkbox" '+(checked?'checked':'')+' style="accent-color:#f472b6;width:14px;height:14px;" />'
+          +'<span style="flex:1;">'+_esc(c.name||'Unknown')+'</span>'
+          +'<span style="opacity:.5;font-size:11px;">'+_esc(c.email||'')+'</span>';
+        row.querySelector('input').onchange=function(){
+          if(this.checked){ _dripSelectedContacts[id]={name:c.name||'',email:c.email||''}; row.style.background='rgba(244,114,182,.12)'; }
+          else{ delete _dripSelectedContacts[id]; row.style.background='transparent'; }
+          dripUpdatePickerCount();
+        };
+        list.appendChild(row);
+      });
+      dripUpdatePickerCount();
+    }
+
+    function dripFilterContactPicker(){
+      var q=(_gi('dripContactSearch')||{}).value||'';
+      dripBuildContactPicker(q);
+    }
+
+    function dripUpdatePickerCount(){
+      var el=_gi('dripContactPickerCount'); if(!el) return;
+      var n=Object.keys(_dripSelectedContacts).length;
+      el.innerText = n ? n+' contact'+(n!==1?'s':'')+' selected' : 'No contacts selected';
+    }
+
+    // Ensure audience filter input is restored to <input> when opening builder
+    function dripRestoreAudienceInput(){
+      var wrap = _gi('dripAudienceFilterWrap'); if(!wrap) return;
+      var old = _gi('dripAudienceVal');
+      if(old && old.tagName==='SELECT'){
+        var inp=document.createElement('input');
+        inp.id='dripAudienceVal'; inp.placeholder='Type to filter...';
+        old.parentNode.replaceChild(inp,old);
+      }
+    }
+
     async function dripLoadList(){
       var el = document.getElementById('dripList'); if(!el) return;
       el.innerHTML='<div style="opacity:.5;padding:12px 0;font-size:13px;">Loading campaigns...</div>';
@@ -28531,9 +28689,14 @@ Challenge weak assumptions. Surface risks.`;
 
     function dripOpenBuilder(){
       _dripEditId = null;
+      _dripSelectedContacts = {};
       _gi('dripBuilderTitle').innerText = 'New Campaign';
       _gi('dripName').value=''; _gi('dripStatus').value='draft';
-      _gi('dripAudience').value='all'; _gi('dripAudienceVal').value='';
+      dripRestoreAudienceInput();
+      _gi('dripAudience').value='all';
+      _gi('dripAudienceVal').value='';
+      _gi('dripAudienceFilterWrap').style.display='none';
+      _gi('dripContactPickerWrap').style.display='none';
       _gi('dripInterval').value='7';
       _gi('dripStartDate').value = new Date().toISOString().slice(0,10);
       _gi('dripStepsList').innerHTML='';
@@ -28549,15 +28712,30 @@ Challenge weak assumptions. Surface risks.`;
     function dripEdit(id){
       var c = _dripCampaigns[id]; if(!c) return;
       _dripEditId = id;
+      _dripSelectedContacts = {};
       _gi('dripBuilderTitle').innerText = 'Edit Campaign';
       _gi('dripName').value = c.name||'';
       _gi('dripStatus').value = c.status||'draft';
+      // Reset audience controls to plain input first, then set value
+      dripRestoreAudienceInput();
       _gi('dripAudience').value = c.audience||'all';
-      _gi('dripAudienceVal').value = c.audience_val||'';
+      // Now trigger the audience changed logic to show correct controls
+      dripAudienceChanged();
+      // Restore saved value/selected contacts
+      var audience = c.audience||'all';
+      if(audience==='selected'){
+        var saved = c.selected_contacts||{};
+        _dripSelectedContacts = saved;
+        dripBuildContactPicker('');
+      } else if(audience!=='all'){
+        // For stage/status dropdowns the value is set after dripAudienceChanged builds the dropdown
+        var valEl=_gi('dripAudienceVal');
+        if(valEl) valEl.value = c.audience_val||'';
+      }
       _gi('dripInterval').value = String(c.interval_days||7);
       _gi('dripStartDate').value = (c.start_date||new Date().toISOString().slice(0,10));
       _gi('dripStepsList').innerHTML='';
-      (c.steps||[]).forEach(s=> dripAddStep(s.subject||'',s.body||''));
+      (c.steps||[]).forEach(function(s){ dripAddStep(s.subject||'',s.body||''); });
       _gi('dripBuilderStatus').innerText='';
       _gi('dripAiGenForm').style.display='none';
       _gi('dripBuilder').style.display='block';
@@ -28604,9 +28782,12 @@ Challenge weak assumptions. Surface risks.`;
       if(!name){ if(st) st.innerText='Campaign name required'; return; }
       var steps=dripCollectSteps();
       if(!steps.length){ if(st) st.innerText='Add at least one email step'; return; }
+      var audience=_gi('dripAudience').value||'all';
+      var audVal = audience==='selected' ? '' : ((_gi('dripAudienceVal')||{}).value||'').trim();
       var payload={
-        name:name, status:_gi('dripStatus').value, audience:_gi('dripAudience').value,
-        audience_val:(_gi('dripAudienceVal').value||'').trim(),
+        name:name, status:_gi('dripStatus').value, audience:audience,
+        audience_val: audVal,
+        selected_contacts: audience==='selected' ? _dripSelectedContacts : {},
         interval_days:parseInt(_gi('dripInterval').value)||7,
         start_date:_gi('dripStartDate').value||new Date().toISOString().slice(0,10),
         steps:steps
@@ -55876,6 +56057,7 @@ def api_crm_drip_create():
         "status": body.get("status", "draft"),
         "audience": body.get("audience", "all"),
         "audience_val": body.get("audience_val", ""),
+        "selected_contacts": body.get("selected_contacts", {}),
         "interval_days": int(body.get("interval_days") or 7),
         "start_date": body.get("start_date", ""),
         "steps": body.get("steps", []),
@@ -55895,7 +56077,7 @@ def api_crm_drip_update(cid):
     campaigns = _drip_load(uname)
     if cid not in campaigns: return jsonify({"ok": False, "error": "Not found"}), 404
     c = campaigns[cid]
-    for field in ("name", "status", "audience", "audience_val", "start_date"):
+    for field in ("name", "status", "audience", "audience_val", "selected_contacts", "start_date"):
         if field in body: c[field] = body[field]
     if "interval_days" in body: c["interval_days"] = int(body["interval_days"] or 7)
     if "steps" in body: c["steps"] = body["steps"]
@@ -55988,15 +56170,20 @@ def _drip_enroll_contacts(uname, cid, campaigns):
         audience = c.get("audience", "all")
         aud_val = (c.get("audience_val") or "").lower().strip()
 
+        selected_ids = set((c.get("selected_contacts") or {}).keys())
+
         def matches(contact):
             if audience == "all": return True
             if audience == "tag":
                 tags = [t.lower() for t in (contact.get("tags") or [])]
                 return aud_val in tags
             if audience == "stage":
-                return (contact.get("stage") or "").lower() == aud_val
+                return (contact.get("stage") or contact.get("pipeline_stage") or "").lower() == aud_val.lower()
             if audience == "status":
-                return (contact.get("status") or "").lower() == aud_val
+                return (contact.get("status") or "").lower() == aud_val.lower()
+            if audience == "selected":
+                ckey = contact.get("id") or contact.get("email")
+                return ckey in selected_ids
             return True
 
         start = c.get("start_date") or datetime.utcnow().strftime("%Y-%m-%d")
