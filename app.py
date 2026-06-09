@@ -28000,8 +28000,8 @@ Challenge weak assumptions. Surface risks.`;
       return crmCache.clients;
     }
 
-    // Auto-refresh CRM every 12s when the CRM section is visible
-    // so extension imports show up without manual refresh
+    // Silent background sync — only updates the cache, never re-renders mid-session
+    // Fires every 90s; only actually fetches if the CRM is currently open
     (function startCrmAutoRefresh(){
       let _lastCount = 0;
       setInterval(async function(){
@@ -28012,15 +28012,13 @@ Challenge weak assumptions. Surface risks.`;
           const data = await (await fetch('/api/crm/clients')).json();
           if(!data.ok) return;
           const newCount = (data.clients||[]).length;
-          if(newCount !== _lastCount){
-            _lastCount = newCount;
-            crmCache.clients = data.clients || [];
-            crmCache.pipeline = (data.pipeline && data.pipeline.stages) ? data.pipeline.stages : (crmCache.pipeline||[]);
-            crmRenderClients();
-            crmRenderPipelineBoard();
-          }
+          // Only update cache silently — never re-render automatically
+          // User triggers refresh manually with the ↻ Refresh button
+          crmCache.clients = data.clients || [];
+          crmCache.pipeline = (data.pipeline && data.pipeline.stages) ? data.pipeline.stages : (crmCache.pipeline||[]);
+          _lastCount = newCount;
         }catch(e){}
-      }, 12000);
+      }, 90000);
     })();
 
     async function crmImportCsv(){
@@ -30035,15 +30033,7 @@ window.crmPipelineOpenClient = function(clientId){
         }
 
         if(d.email_draft){
-          if(typeof applyEmailDraft === 'function'){
-            applyEmailDraft(d.email_draft, d.teammate || 'Sunshine');
-          } else {
-            if($("emailTo"))      $("emailTo").value      = d.email_draft.to      || '';
-            if($("emailSubject")) $("emailSubject").value = d.email_draft.subject  || '';
-            if($("emailBody"))    $("emailBody").value    = d.email_draft.body     || '';
-            if(typeof showEmailConsoleModal === 'function') showEmailConsoleModal('Email Console');
-          }
-          showToast('📝 Email draft ready for ' + (c.name||'client') + ' — review and send!');
+          crmShowDraftResult(d.email_draft, c, clientId);
         }
       } catch(e){
         showToast('Draft error: ' + String(e));
@@ -30052,6 +30042,82 @@ window.crmPipelineOpenClient = function(clientId){
       }
     }; // end draftGo.onclick
     }; // end crmPipelineDraft
+
+    function crmShowDraftResult(draft, client, clientId){
+      const name = (client&&client.name)||'Contact';
+      const subj = draft.subject||'';
+      const body = draft.body||'';
+      const to   = draft.to||'';
+
+      const ov = document.createElement('div');
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      ov.innerHTML=`<div style="background:#0f172a;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px;width:min(560px,96vw);max-height:90vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.8);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#f1f5f9;">✦ Draft Ready — ${escapeHtml(name)}</div>
+            <div style="font-size:12px;opacity:.55;margin-top:2px;">Review and edit before sending</div>
+          </div>
+          <button id="draftResultClose" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;padding:4px 8px;">✕</button>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">To</label>
+          <input id="draftResultTo" value="${escapeHtml(to)}" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;" />
+        </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Subject</label>
+          <input id="draftResultSubject" value="${escapeHtml(subj)}" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:13px;" />
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px;">Message</label>
+          <textarea id="draftResultBody" style="width:100%;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.8);border-radius:8px;padding:10px;color:#e2e8f0;font-size:13px;resize:vertical;height:200px;">${escapeHtml(body)}</textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+          <button id="draftResultCopy" class="btn" style="font-size:13px;">📋 Copy</button>
+          <button id="draftResultSend" class="btn btnPrimary" style="font-size:13px;">Send Email →</button>
+        </div>
+        <div id="draftResultStatus" style="font-size:12px;color:#94a3b8;text-align:center;margin-top:8px;"></div>
+      </div>`;
+      document.body.appendChild(ov);
+
+      document.getElementById('draftResultClose').onclick = ()=> ov.remove();
+      ov.addEventListener('click', e=>{ if(e.target===ov) ov.remove(); });
+
+      document.getElementById('draftResultCopy').onclick = function(){
+        const subjectVal = document.getElementById('draftResultSubject').value;
+        const bodyVal    = document.getElementById('draftResultBody').value;
+        navigator.clipboard.writeText('Subject: '+subjectVal+'\n\n'+bodyVal).then(()=>{
+          document.getElementById('draftResultStatus').innerText='Copied to clipboard!';
+          setTimeout(()=>{ const s=document.getElementById('draftResultStatus'); if(s) s.innerText=''; },2000);
+        }).catch(()=>{});
+      };
+
+      document.getElementById('draftResultSend').onclick = async function(){
+        const toVal   = document.getElementById('draftResultTo').value.trim();
+        const subjVal = document.getElementById('draftResultSubject').value.trim();
+        const bodyVal = document.getElementById('draftResultBody').value.trim();
+        const st      = document.getElementById('draftResultStatus');
+        if(!toVal||!subjVal||!bodyVal){ if(st) st.innerText='Fill in all fields first'; return; }
+        if(st) st.innerText='Sending…';
+        this.disabled=true;
+        try{
+          const r = await fetch('/api/crm/broadcast/email',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+              subject:subjVal, body:bodyVal,
+              filter:{ids:[clientId]}, dry_run:false
+            })
+          });
+          const d = await r.json();
+          if(!d.ok) throw new Error(d.error||'Send failed');
+          if(st) st.innerText='✅ Sent to '+toVal+'!';
+          setTimeout(()=> ov.remove(), 2000);
+        }catch(e){
+          if(st) st.innerText='Error: '+(e&&e.message||e);
+          this.disabled=false;
+        }
+      };
+    }
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
@@ -30063,7 +30129,7 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
       b('crmTabPlaybooks', ()=>{ crmShowView('crmViewPlaybooks'); if($("playbookStatus")) $("playbookStatus").innerText=''; });
 
-      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderClients(); crmPopulateEnrollDropdowns(); crmSetStatus('Ready'); });
+      b('crmRefreshClients', async()=>{ crmSetStatus('Refreshing...'); await crmFetchClients(); crmRenderPipelineBoard(); if(typeof crmPopulateEnrollDropdowns==='function') crmPopulateEnrollDropdowns(); crmSetStatus(''); });
       b('crmNewClientBtn', ()=> crmOpenClientEditor(null));
       b('crmPickCsvBtn', ()=>{ const f=$("crmCsvFile"); if(f) f.click(); });
       if($("crmCsvFile")) $("crmCsvFile").addEventListener('change', crmImportCsv);
