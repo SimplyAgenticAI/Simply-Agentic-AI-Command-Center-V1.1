@@ -18966,6 +18966,7 @@ label {
     <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
+    <button class="btn btnMini" id="crmTabDrip">💧 Drip Campaigns</button>
   </div>
 
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
@@ -19100,6 +19101,139 @@ label {
   </div>
 
 
+
+  <!-- Drip Campaigns -->
+  <div id="crmViewDrip" style="display:none;">
+    <div class="modalInner" style="padding:0;">
+
+      <!-- Header bar -->
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px 10px;">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:#f1f5f9;">💧 Drip Campaigns</div>
+          <div class="tiny" style="opacity:.65;margin-top:2px;">Automated email sequences sent on your schedule. Set it once, let it run.</div>
+        </div>
+        <button class="btn btnPrimary" id="dripNewBtn" style="font-size:12px;padding:7px 16px;">+ New Campaign</button>
+      </div>
+
+      <!-- Campaign list -->
+      <div id="dripList" style="padding:0 18px 18px;"></div>
+
+      <!-- Campaign builder (hidden until new/edit) -->
+      <div id="dripBuilder" style="display:none;border-top:1px solid rgba(255,255,255,.08);padding:18px;">
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="font-size:14px;font-weight:700;color:#c4b5fd;" id="dripBuilderTitle">New Campaign</div>
+          <button class="btn" id="dripBuilderClose" style="font-size:11px;padding:4px 10px;">✕ Cancel</button>
+        </div>
+
+        <!-- Name + Status row -->
+        <div class="formGrid2" style="margin-bottom:12px;">
+          <div>
+            <label>Campaign Name</label>
+            <input id="dripName" placeholder="Weekly Tips & Tricks" />
+          </div>
+          <div>
+            <label>Status</label>
+            <select id="dripStatus">
+              <option value="draft">Draft</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Audience -->
+        <div class="formGrid2" style="margin-bottom:12px;">
+          <div>
+            <label>Audience</label>
+            <select id="dripAudience">
+              <option value="all">All contacts</option>
+              <option value="tag">By tag</option>
+              <option value="stage">By pipeline stage</option>
+              <option value="status">By status</option>
+              <option value="selected">Selected contacts</option>
+            </select>
+          </div>
+          <div>
+            <label>Audience Filter Value</label>
+            <input id="dripAudienceVal" placeholder="e.g. realtor, Lead, VIP..." />
+          </div>
+        </div>
+
+        <!-- Schedule -->
+        <div class="formGrid2" style="margin-bottom:12px;">
+          <div>
+            <label>Send Interval</label>
+            <select id="dripInterval">
+              <option value="1">Every day</option>
+              <option value="2">Every 2 days</option>
+              <option value="3">Every 3 days</option>
+              <option value="5">Every 5 days</option>
+              <option value="7" selected>Every week</option>
+              <option value="14">Every 2 weeks</option>
+              <option value="30">Every month</option>
+            </select>
+          </div>
+          <div>
+            <label>Start Date</label>
+            <input id="dripStartDate" type="date" />
+          </div>
+        </div>
+
+        <!-- Email steps -->
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <label style="margin:0;font-size:12px;font-weight:700;color:#94a3b8;">EMAIL SEQUENCE</label>
+            <div style="display:flex;gap:8px;">
+              <button class="btn" id="dripAiGenBtn" style="font-size:11px;padding:4px 10px;">✨ AI Generate Steps</button>
+              <button class="btn" id="dripAddStepBtn" style="font-size:11px;padding:4px 10px;">+ Add Step</button>
+            </div>
+          </div>
+
+          <!-- AI generate form -->
+          <div id="dripAiGenForm" style="display:none;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:12px;margin-bottom:10px;">
+            <label style="font-size:11px;color:#94a3b8;">What is this campaign about? (topic, offer, audience)</label>
+            <textarea id="dripAiTopic" rows="2" placeholder="Weekly tips for real estate agents on getting more listings..." style="font-size:12px;margin-top:4px;"></textarea>
+            <div class="formGrid2" style="margin-top:8px;">
+              <div>
+                <label style="font-size:11px;color:#94a3b8;">Number of emails</label>
+                <select id="dripAiCount">
+                  <option value="3">3 emails</option>
+                  <option value="5" selected>5 emails</option>
+                  <option value="7">7 emails</option>
+                  <option value="10">10 emails</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size:11px;color:#94a3b8;">Email type</label>
+                <select id="dripAiType">
+                  <option value="tips">Tips &amp; Tricks</option>
+                  <option value="nurture">Value Nurture</option>
+                  <option value="offers">Offers &amp; Promotions</option>
+                  <option value="news">News &amp; Updates</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="reengagement">Re-engagement</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px;">
+              <button class="btn btnPrimary" id="dripAiRunBtn" style="font-size:12px;">✨ Generate</button>
+              <button class="btn" id="dripAiCancelBtn" style="font-size:12px;">Cancel</button>
+            </div>
+            <div id="dripAiStatus" class="tiny" style="margin-top:6px;"></div>
+          </div>
+
+          <div id="dripStepsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+
+        <div id="dripBuilderStatus" class="tiny" style="margin:8px 0;text-align:center;"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+          <button class="btn btnPrimary" id="dripSaveBtn">💾 Save Campaign</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
 
   <!-- Tasks -->
   <div id="crmViewTasks" style="display:none;">
@@ -27776,7 +27910,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"];
+      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewDrip","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"];
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -28335,6 +28469,195 @@ Challenge weak assumptions. Surface risks.`;
         showToast('Broadcast scheduled');
       }catch(e){ if(st) st.innerText='Failed: '+(e&&e.message?e.message:'error'); }
     }
+
+    /* ───────────── DRIP CAMPAIGNS ───────────── */
+    var _dripCampaigns = {};
+    var _dripEditId = null;
+
+    function dripInit(){
+      dripLoadList();
+      b('dripNewBtn', dripOpenBuilder);
+      b('dripBuilderClose', dripCloseBuilder);
+      b('dripAddStepBtn', ()=> dripAddStep('',''));
+      b('dripSaveBtn', dripSave);
+      b('dripAiGenBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display=f.style.display==='none'?'block':'none'; });
+      b('dripAiCancelBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display='none'; });
+      b('dripAiRunBtn', dripAiGenerate);
+    }
+
+    async function dripLoadList(){
+      const el=$("dripList"); if(!el) return;
+      el.innerHTML='<div class="tiny" style="opacity:.5;padding:8px 0;">Loading...</div>';
+      try{
+        const r = await fetch('/api/crm/drip');
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'load failed');
+        _dripCampaigns = d.campaigns || {};
+        dripRenderList();
+      }catch(e){ el.innerHTML='<div class="tiny" style="color:#f87171;padding:8px 0;">Failed to load: '+(e&&e.message||e)+'</div>'; }
+    }
+
+    function dripRenderList(){
+      const el=$("dripList"); if(!el) return;
+      const keys = Object.keys(_dripCampaigns);
+      if(!keys.length){
+        el.innerHTML='<div style="text-align:center;padding:32px 0;opacity:.45;font-size:13px;">No campaigns yet — click <strong>+ New Campaign</strong> to start.</div>';
+        return;
+      }
+      const statusColor = {active:'#4ade80',paused:'#fbbf24',draft:'#94a3b8'};
+      el.innerHTML = keys.map(id=>{
+        const c = _dripCampaigns[id];
+        const sc = statusColor[c.status]||'#94a3b8';
+        const steps = (c.steps||[]).length;
+        const interval = c.interval_days||7;
+        return `<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:13px 15px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div style="flex:1;min-width:180px;">
+            <div style="font-weight:700;font-size:14px;color:#f1f5f9;">${_esc(c.name)}</div>
+            <div class="tiny" style="margin-top:3px;opacity:.6;">${steps} email${steps!==1?'s':''} · every ${interval} day${interval!==1?'s':''} · ${c.audience==='all'?'All contacts':_esc(c.audience_val||c.audience)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid ${sc}33;color:${sc};background:${sc}15;">${c.status.toUpperCase()}</span>
+            <button class="btn" style="font-size:11px;padding:4px 9px;" onclick="dripEdit('${id}')">✏️ Edit</button>
+            <button class="btn" style="font-size:11px;padding:4px 9px;" onclick="dripToggle('${id}')">${c.status==='active'?'⏸ Pause':'▶ Activate'}</button>
+            <button class="btn" style="font-size:11px;padding:4px 9px;color:#f87171;" onclick="dripDelete('${id}')">🗑</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function dripOpenBuilder(){
+      _dripEditId = null;
+      $("dripBuilderTitle").innerText = 'New Campaign';
+      $("dripName").value=''; $("dripStatus").value='draft';
+      $("dripAudience").value='all'; $("dripAudienceVal").value='';
+      $("dripInterval").value='7';
+      $("dripStartDate").value = new Date().toISOString().slice(0,10);
+      $("dripStepsList").innerHTML='';
+      $("dripBuilderStatus").innerText='';
+      dripAddStep('Hello from [Your Name]!','Hi [First Name],\n\nJust wanted to reach out and say hello. Reply any time!\n\n– [Your Name]');
+      $("dripBuilder").style.display='block';
+      $("dripBuilder").scrollIntoView({behavior:'smooth',block:'start'});
+    }
+
+    function dripCloseBuilder(){ $("dripBuilder").style.display='none'; _dripEditId=null; }
+
+    function dripEdit(id){
+      const c = _dripCampaigns[id]; if(!c) return;
+      _dripEditId = id;
+      $("dripBuilderTitle").innerText = 'Edit Campaign';
+      $("dripName").value = c.name||'';
+      $("dripStatus").value = c.status||'draft';
+      $("dripAudience").value = c.audience||'all';
+      $("dripAudienceVal").value = c.audience_val||'';
+      $("dripInterval").value = String(c.interval_days||7);
+      $("dripStartDate").value = (c.start_date||new Date().toISOString().slice(0,10));
+      $("dripStepsList").innerHTML='';
+      (c.steps||[]).forEach(s=> dripAddStep(s.subject||'',s.body||''));
+      $("dripBuilderStatus").innerText='';
+      $("dripBuilder").style.display='block';
+      $("dripBuilder").scrollIntoView({behavior:'smooth',block:'start'});
+    }
+
+    function dripAddStep(subject, body){
+      const list = $("dripStepsList"); if(!list) return;
+      const idx = list.children.length + 1;
+      const div = document.createElement('div');
+      div.style.cssText='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;';
+      div.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span style="font-size:11px;font-weight:700;color:#c4b5fd;">Email #${idx}</span>
+        <button class="btn" style="font-size:10px;padding:2px 8px;color:#f87171;" onclick="this.closest('div[data-step]').remove(); dripRenumberSteps();">✕</button>
+      </div>
+      <div style="margin-bottom:6px;"><label style="font-size:11px;color:#94a3b8;">Subject</label><input class="dripStepSubject" value="${_esc(subject)}" placeholder="Subject line..." /></div>
+      <div><label style="font-size:11px;color:#94a3b8;">Email Body</label><textarea class="dripStepBody" rows="4" placeholder="Write your email here. Use [First Name], [Your Name] as placeholders.">${_esc(body)}</textarea></div>`;
+      div.setAttribute('data-step','1');
+      list.appendChild(div);
+    }
+
+    function dripRenumberSteps(){
+      const steps = $("dripStepsList").querySelectorAll('[data-step]');
+      steps.forEach((s,i)=>{ const lbl=s.querySelector('span'); if(lbl) lbl.textContent='Email #'+(i+1); });
+    }
+
+    function _esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function dripCollectSteps(){
+      const steps=[];
+      $("dripStepsList").querySelectorAll('[data-step]').forEach(div=>{
+        const subj = (div.querySelector('.dripStepSubject')||{}).value||'';
+        const body = (div.querySelector('.dripStepBody')||{}).value||'';
+        steps.push({subject:subj, body:body});
+      });
+      return steps;
+    }
+
+    async function dripSave(){
+      const st=$("dripBuilderStatus");
+      const name=($("dripName").value||'').trim();
+      if(!name){ if(st) st.innerText='Campaign name required'; return; }
+      const steps=dripCollectSteps();
+      if(!steps.length){ if(st) st.innerText='Add at least one email step'; return; }
+      const payload={
+        name, status:$("dripStatus").value, audience:$("dripAudience").value,
+        audience_val:($("dripAudienceVal").value||'').trim(),
+        interval_days:parseInt($("dripInterval").value)||7,
+        start_date:$("dripStartDate").value||new Date().toISOString().slice(0,10),
+        steps
+      };
+      if(st) st.innerText='Saving...';
+      try{
+        let url='/api/crm/drip', method='POST';
+        if(_dripEditId){ url='/api/crm/drip/'+_dripEditId+'/update'; method='POST'; }
+        const r = await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'save failed');
+        showToast(_dripEditId?'Campaign updated':'Campaign created');
+        dripCloseBuilder();
+        await dripLoadList();
+      }catch(e){ if(st) st.innerText='Error: '+(e&&e.message||e); }
+    }
+
+    async function dripToggle(id){
+      try{
+        const r = await fetch('/api/crm/drip/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'toggle failed');
+        showToast('Campaign '+d.new_status);
+        await dripLoadList();
+      }catch(e){ showToast('Failed: '+(e&&e.message||e)); }
+    }
+
+    async function dripDelete(id){
+      if(!confirm('Delete this campaign?')) return;
+      try{
+        const r = await fetch('/api/crm/drip/'+id,{method:'DELETE'});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error||'delete failed');
+        showToast('Campaign deleted');
+        await dripLoadList();
+      }catch(e){ showToast('Failed: '+(e&&e.message||e)); }
+    }
+
+    async function dripAiGenerate(){
+      const topic=($("dripAiTopic").value||'').trim();
+      const count=parseInt($("dripAiCount").value)||5;
+      const type=$("dripAiType").value||'tips';
+      const st=$("dripAiStatus");
+      if(!topic){ if(st) st.innerText='Describe the campaign first'; return; }
+      if(st) st.innerText='✨ Generating email sequence...';
+      $("dripAiRunBtn").disabled=true;
+      try{
+        const r=await fetch('/api/crm/drip/ai_generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,count,type})});
+        const d=await r.json();
+        if(!d.ok) throw new Error(d.error||'generation failed');
+        $("dripStepsList").innerHTML='';
+        (d.steps||[]).forEach(s=> dripAddStep(s.subject||'',s.body||''));
+        if(st) st.innerText='✅ '+d.steps.length+' emails generated!';
+        $("dripAiGenForm").style.display='none';
+        if(!($("dripName").value||'').trim() && d.suggested_name) $("dripName").value=d.suggested_name;
+      }catch(e){ if(st) st.innerText='Error: '+(e&&e.message||e); }
+      finally{ $("dripAiRunBtn").disabled=false; }
+    }
+    /* ─────────────────────────────────────────── */
 
     async function crmFetchTasks(){
       const res = await fetch('/api/crm/tasks');
@@ -29513,6 +29836,7 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
+      b('crmTabDrip', ()=>{ crmShowView('crmViewDrip'); dripInit(); });
       b('crmTabLeadLab', ()=>{ crmShowView('crmViewLeadLab'); if($("leadLabStatus")) $("leadLabStatus").innerText=''; });
       b('crmTabSocialStudio', ()=>{ crmShowView('crmViewSocialStudio'); if($("socialStudioStatus")) $("socialStudioStatus").innerText=''; });
       b('crmTabOfferBuilder', ()=>{ crmShowView('crmViewOfferBuilder'); if($("offerBuilderStatus")) $("offerBuilderStatus").innerText=''; });
@@ -55502,6 +55826,255 @@ def api_crm_broadcast_schedule_delete(sched_id: str):
     return jsonify({"ok": True})
 
 
+###############################################################################
+# DRIP CAMPAIGNS API
+###############################################################################
+
+def _drip_path(uname):
+    import os
+    safe = re.sub(r"[^a-zA-Z0-9_\-]", "_", uname)
+    return os.path.join(CRM_DIR, f"{safe}_drip.json")
+
+
+def _drip_load(uname):
+    return load_json(_drip_path(uname), {})
+
+
+def _drip_save(uname, data):
+    save_json(_drip_path(uname), data)
+
+
+@app.get("/api/crm/drip")
+def api_crm_drip_list():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    return jsonify({"ok": True, "campaigns": _drip_load(uname)})
+
+
+@app.post("/api/crm/drip")
+def api_crm_drip_create():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name: return jsonify({"ok": False, "error": "Name required"}), 400
+    import uuid as _uuid
+    cid = "drip_" + _uuid.uuid4().hex[:10]
+    campaigns = _drip_load(uname)
+    campaigns[cid] = {
+        "id": cid,
+        "name": name,
+        "status": body.get("status", "draft"),
+        "audience": body.get("audience", "all"),
+        "audience_val": body.get("audience_val", ""),
+        "interval_days": int(body.get("interval_days") or 7),
+        "start_date": body.get("start_date", ""),
+        "steps": body.get("steps", []),
+        "enrollments": {},   # contact_id -> {step_idx, next_send_at, done}
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    _drip_save(uname, campaigns)
+    return jsonify({"ok": True, "id": cid})
+
+
+@app.post("/api/crm/drip/<cid>/update")
+def api_crm_drip_update(cid):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    body = request.get_json(silent=True) or {}
+    campaigns = _drip_load(uname)
+    if cid not in campaigns: return jsonify({"ok": False, "error": "Not found"}), 404
+    c = campaigns[cid]
+    for field in ("name", "status", "audience", "audience_val", "start_date"):
+        if field in body: c[field] = body[field]
+    if "interval_days" in body: c["interval_days"] = int(body["interval_days"] or 7)
+    if "steps" in body: c["steps"] = body["steps"]
+    campaigns[cid] = c
+    _drip_save(uname, campaigns)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/crm/drip/<cid>/toggle")
+def api_crm_drip_toggle(cid):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    campaigns = _drip_load(uname)
+    if cid not in campaigns: return jsonify({"ok": False, "error": "Not found"}), 404
+    c = campaigns[cid]
+    new_status = "paused" if c.get("status") == "active" else "active"
+    c["status"] = new_status
+    # If just activated, enroll any un-enrolled matching contacts
+    if new_status == "active":
+        _drip_enroll_contacts(uname, cid, campaigns)
+    _drip_save(uname, campaigns)
+    return jsonify({"ok": True, "new_status": new_status})
+
+
+@app.delete("/api/crm/drip/<cid>")
+def api_crm_drip_delete(cid):
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    campaigns = _drip_load(uname)
+    if cid not in campaigns: return jsonify({"ok": False, "error": "Not found"}), 404
+    del campaigns[cid]
+    _drip_save(uname, campaigns)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/crm/drip/ai_generate")
+def api_crm_drip_ai_generate():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    body = request.get_json(silent=True) or {}
+    topic = (body.get("topic") or "").strip()
+    count = max(1, min(int(body.get("count") or 5), 15))
+    email_type = body.get("type", "tips")
+    if not topic: return jsonify({"ok": False, "error": "Topic required"}), 400
+    type_desc = {
+        "tips": "tips and tricks / educational value",
+        "nurture": "relationship-building value nurture",
+        "offers": "promotional offers and special deals",
+        "news": "news and updates",
+        "onboarding": "onboarding / getting started walkthrough",
+        "reengagement": "re-engagement / win-back",
+    }.get(email_type, email_type)
+    system = (
+        "You are an expert email copywriter. Generate a drip email sequence as valid JSON only. "
+        "No markdown fences, no explanation — output only the raw JSON object."
+    )
+    prompt = (
+        f"Create a {count}-email drip sequence for this campaign:\n"
+        f"Topic/Audience: {topic}\n"
+        f"Email type: {type_desc}\n\n"
+        f"Return exactly this JSON structure:\n"
+        f'{{"suggested_name":"Campaign Name Here","steps":['
+        f'{{"subject":"Subject line","body":"Full email body with [First Name] and [Your Name] placeholders"}},'
+        f'...]}}\n'
+        f"Make each email distinct, valuable, and non-spammy. Use a friendly, professional tone."
+    )
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.7, max_tokens=3000)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        data = json.loads(raw)
+        steps = data.get("steps", [])
+        if not steps: return jsonify({"ok": False, "error": "AI returned no steps"}), 500
+        return jsonify({"ok": True, "steps": steps, "suggested_name": data.get("suggested_name", "")})
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)}), 500
+
+
+def _drip_enroll_contacts(uname, cid, campaigns):
+    """Enroll matching contacts into a drip campaign (sets up next_send_at)."""
+    try:
+        c = campaigns.get(cid)
+        if not c or not c.get("steps"): return
+        crm = _crm_load(uname)
+        contacts = list((crm.get("clients") or {}).values())
+        audience = c.get("audience", "all")
+        aud_val = (c.get("audience_val") or "").lower().strip()
+
+        def matches(contact):
+            if audience == "all": return True
+            if audience == "tag":
+                tags = [t.lower() for t in (contact.get("tags") or [])]
+                return aud_val in tags
+            if audience == "stage":
+                return (contact.get("stage") or "").lower() == aud_val
+            if audience == "status":
+                return (contact.get("status") or "").lower() == aud_val
+            return True
+
+        start = c.get("start_date") or datetime.utcnow().strftime("%Y-%m-%d")
+        try:
+            next_send = datetime.strptime(start, "%Y-%m-%d")
+        except Exception:
+            next_send = datetime.utcnow()
+
+        enrollments = c.get("enrollments") or {}
+        for contact in contacts:
+            cid_c = contact.get("id") or contact.get("email")
+            if not cid_c: continue
+            if cid_c in enrollments: continue  # already enrolled
+            if matches(contact):
+                enrollments[cid_c] = {
+                    "step_idx": 0,
+                    "next_send_at": next_send.isoformat(),
+                    "done": False,
+                    "contact_email": contact.get("email", ""),
+                    "contact_name": contact.get("name", ""),
+                }
+        c["enrollments"] = enrollments
+        campaigns[cid] = c
+    except Exception:
+        pass
+
+
+def _drip_tick(uname):
+    """Send any due drip emails for this user. Called by the background scheduler."""
+    try:
+        campaigns = _drip_load(uname)
+        changed = False
+        now = datetime.utcnow()
+        crm_data = _crm_load(uname)
+        gmail_token = ((crm_data.get("settings") or {}).get("gmail_access_token") or "")
+        from_name = (crm_data.get("settings") or {}).get("from_name") or uname
+
+        for cid, c in campaigns.items():
+            if c.get("status") != "active": continue
+            steps = c.get("steps") or []
+            if not steps: continue
+            enrollments = c.get("enrollments") or {}
+            interval_days = int(c.get("interval_days") or 7)
+
+            for contact_key, enr in list(enrollments.items()):
+                if enr.get("done"): continue
+                step_idx = enr.get("step_idx", 0)
+                if step_idx >= len(steps):
+                    enr["done"] = True
+                    changed = True
+                    continue
+                next_send_str = enr.get("next_send_at", "")
+                try:
+                    next_send = datetime.fromisoformat(next_send_str)
+                except Exception:
+                    next_send = now
+                if now < next_send: continue
+                # Send the email
+                step = steps[step_idx]
+                subject = (step.get("subject") or "").replace("[First Name]", enr.get("contact_name", "").split()[0] if enr.get("contact_name") else "there")
+                body_text = (step.get("body") or "").replace("[First Name]", enr.get("contact_name", "").split()[0] if enr.get("contact_name") else "there").replace("[Your Name]", from_name)
+                to_addr = enr.get("contact_email", "")
+                if to_addr and gmail_token:
+                    try:
+                        _gmail_send_message(gmail_token, to_addr, subject, body_text, from_name)
+                    except Exception:
+                        pass  # log silently; don't abort the loop
+                # Advance
+                enr["step_idx"] = step_idx + 1
+                if enr["step_idx"] >= len(steps):
+                    enr["done"] = True
+                else:
+                    enr["next_send_at"] = (now + timedelta(days=interval_days)).isoformat()
+                changed = True
+            campaigns[cid]["enrollments"] = enrollments
+
+        if changed:
+            _drip_save(uname, campaigns)
+    except Exception:
+        pass
+
+
+###############################################################################
+
+
 @app.get("/api/admin/analytics")
 def api_admin_analytics():
     """Basic platform analytics for admin — feature adoption + conversion signals."""
@@ -56972,6 +57545,18 @@ def _bg_schedule_tick():
                 _run_due_schedules_once()
         except Exception as _bse:
             _log("WARNING", "Background schedule tick error", error=str(_bse)[:200])
+        # Drip campaign tick — run for every active user
+        try:
+            with app.app_context():
+                import os as _bsos
+                if _bsos.path.isdir(CRM_DIR):
+                    for _fn in _bsos.listdir(CRM_DIR):
+                        if _fn.endswith("_drip.json"):
+                            _uname = _fn[:-len("_drip.json")]
+                            try: _drip_tick(_uname)
+                            except Exception: pass
+        except Exception:
+            pass
         # Every 10 minutes: prune logs + evict old image jobs
         _bg_evict_counter += 1
         if _bg_evict_counter % 10 == 0:
