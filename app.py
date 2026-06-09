@@ -10359,6 +10359,17 @@ AUTH_BASE_CSS = r"""
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
   }
+
+  /* ── Seat card mobile fixes: more room so name/role/status never overlap tools ── */
+  .seat{
+    width: 130px !important;
+    min-width: 130px !important;
+    padding-bottom: 58px !important; /* extra space above the tools bar */
+  }
+  /* Always show tools bar on touch — no hover required */
+  .seatTools{ opacity: 1 !important; }
+  /* Slightly smaller status text so everything fits */
+  .seatStatus{ font-size: 9px !important; margin-top: 5px !important; }
 }
 </style>
 """
