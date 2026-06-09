@@ -18963,7 +18963,6 @@ label {
   <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
-    <button class="btn btnMini" id="crmTabClients">Clients</button>
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
     <button class="btn btnMini" id="crmTabBroadcast">Email Broadcast</button>
     <button class="btn btnMini" id="crmTabDrip">Drip Campaigns</button>
@@ -18972,44 +18971,49 @@ label {
   <div id="crmStatus" class="tiny" style="margin:6px 0 10px;"></div>
 
   <!-- Clients -->
-  <div id="crmViewClients" style="display:none;">
-    <div class="grid">
-      <div>
-        <label>Search</label>
-        <input id="crmSearch" placeholder="Name, email, tag..." />
-      </div>
-      <div>
-        <label>Filter</label>
-        <select id="crmFilter">
-          <option value="">All</option>
-          <option value="status:lead">Status: Lead</option>
-          <option value="status:active">Status: Active</option>
-          <option value="status:vip">Status: VIP</option>
-          <option value="status:past">Status: Past</option>
-          <option value="stage:Lead">Stage: Lead</option>
-          <option value="stage:Conversation">Stage: Conversation</option>
-          <option value="stage:Interested">Stage: Interested</option>
-          <option value="stage:Call booked">Stage: Call booked</option>
-          <option value="stage:Client">Stage: Client</option>
-          <option value="stage:VIP">Stage: VIP</option>
-          <option value="stage:Past client">Stage: Past client</option>
-          <option value="stage:Cold">Stage: Cold</option>
-        </select>
-      </div>
-    </div>
+  <!-- Pipeline (consolidated — was Clients + Pipeline) -->
+  <div id="crmViewPipeline" style="display:none;">
 
-    <div class="actions" style="justify-content:flex-start; margin-top:10px;">
-      <button class="btn" id="crmRefreshClients">Refresh</button>
-      <button class="btn btnPrimary" id="crmNewClientBtn">Add client</button>
+    <!-- Top bar: search, filter, actions -->
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <input id="crmSearch" placeholder="Search name, email, tag…" style="flex:1;min-width:160px;" />
+      <select id="crmFilter" style="flex:1;min-width:140px;">
+        <option value="">All contacts</option>
+        <option value="status:lead">Status: Lead</option>
+        <option value="status:active">Status: Active</option>
+        <option value="status:vip">Status: VIP</option>
+        <option value="status:past">Status: Past</option>
+        <option value="stage:Lead">Stage: Lead</option>
+        <option value="stage:Conversation">Stage: Conversation</option>
+        <option value="stage:Interested">Stage: Interested</option>
+        <option value="stage:Call booked">Stage: Call booked</option>
+        <option value="stage:Client">Stage: Client</option>
+        <option value="stage:VIP">Stage: VIP</option>
+        <option value="stage:Past client">Stage: Past client</option>
+        <option value="stage:Cold">Stage: Cold</option>
+      </select>
+      <button class="btn" id="crmRefreshClients" title="Refresh">↻ Refresh</button>
+      <button class="btn btnPrimary" id="crmNewClientBtn">+ Add Contact</button>
       <input type="file" id="crmCsvFile" accept=".csv,text/csv" style="display:none" />
       <button class="btn" id="crmPickCsvBtn">Import CSV</button>
+      <button class="btn" id="crmEditStagesBtn" onclick="crmToggleStagesPanel()" title="Edit pipeline stages">⚙ Stages</button>
     </div>
-    <div class="tiny" id="crmCsvStatus" style="margin-top:8px;">Upload a CSV to add prospects into the pipeline.</div>
+    <div class="tiny" id="crmCsvStatus" style="margin-bottom:8px;">Upload a CSV to add contacts into your pipeline.</div>
 
-    <div id="crmClientsList" style="margin-top:10px;"></div>
+    <!-- Collapsible stages editor -->
+    <div id="crmStagesPanelWrap" style="display:none;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px;margin-bottom:12px;">
+      <div style="font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:8px;">PIPELINE STAGES — one per line</div>
+      <textarea id="crmStagesText" style="height:160px;" placeholder="Lead&#10;Conversation&#10;Interested&#10;Call booked&#10;Client&#10;VIP&#10;Past client&#10;Cold"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+        <button class="btn" id="crmReloadPipeline">Reset</button>
+        <button class="btn btnPrimary" id="crmSavePipeline">Save Stages</button>
+      </div>
+      <div class="tiny" id="crmPipelineStatus" style="margin-top:6px;"></div>
+    </div>
 
-    <div id="crmClientEditor" style="display:none; margin-top:12px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:14px; background: rgba(0,0,0,.18);">
-      <div class="tiny" id="crmEditTitle" style="margin-bottom:10px;font-weight:700;">Client</div>
+    <!-- Contact editor (shown when adding/editing) -->
+    <div id="crmClientEditor" style="display:none; margin-bottom:14px; border:1px solid rgba(255,255,255,.10); border-radius:14px; padding:14px; background: rgba(0,0,0,.18);">
+      <div class="tiny" id="crmEditTitle" style="margin-bottom:10px;font-weight:700;">Contact</div>
       <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px;">
         <div><label>Name</label><input id="crmName" /></div>
         <div><label>Email</label><input id="crmEmail" /></div>
@@ -19039,8 +19043,7 @@ label {
         <button class="btn btnPrimary" id="crmSaveClientExit">Save &amp; Exit</button>
       </div>
       <div class="tiny" id="crmEditStatus" style="margin-top:8px;"></div>
-
-      <!-- Activity Timeline (shown when editing existing contact) -->
+      <!-- Activity Timeline -->
       <div id="crmActivityPanel" style="display:none;margin-top:14px;border-top:1px solid rgba(42,58,106,.4);padding-top:12px;">
         <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Activity Timeline</div>
         <div id="crmActivityList" style="max-height:180px;overflow-y:auto;margin-bottom:10px;"></div>
@@ -19050,20 +19053,8 @@ label {
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Pipeline -->
-  <div id="crmViewPipeline" style="display:none;">
-    <div class="tiny" style="margin-bottom:8px;">Edit your pipeline stages and manage a visual deal board. Drag cards between stages to keep your pipeline current.</div>
-    <label>Stages</label>
-    <textarea id="crmStagesText" style="height:300px" placeholder="Lead\nConversation\nInterested\nCall booked\nClient\nVIP\nPast client\nCold"></textarea>
-    <div class="actions" style="justify-content:flex-end; margin-top:10px;">
-      <button class="btn" id="crmReloadPipeline">Reload</button>
-      <button class="btn btnPrimary" id="crmSavePipeline">Save</button>
-      <button class="btn btnPrimary" id="crmSavePipelineExit">Save &amp; Exit</button>
-    </div>
-    <div class="tiny" id="crmPipelineStatus" style="margin-top:8px;"></div>
-    <div class="tiny" style="margin:12px 0 8px;">Live pipeline board</div>
+    <!-- Pipeline board -->
     <div id="crmPipelineBoard" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;"></div>
   </div>
 
@@ -23320,7 +23311,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               crmBtn.style.cssText = "margin-top:7px;display:block;font-size:11px;";
               crmBtn.innerText = "📋 Open " + (hit.name||"contact") + " in CRM";
               crmBtn.onclick = ()=>{
-                const crmTab = document.getElementById("crmTabClients");
+                const crmTab = document.getElementById("crmTabPipeline");
                 if(crmTab) crmTab.click();
                 setTimeout(()=>{ try{ crmOpenClientEditor(hit.id); }catch(_){} }, 250);
               };
@@ -27967,7 +27958,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmSetStatus(t){ const el=$("crmStatus"); if(el) el.innerText = t||""; }
 
     function crmHideViews(){
-      const ids = ["crmViewClients","crmViewPipeline","crmViewBroadcast","crmViewDrip","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"];
+      const ids = ["crmViewPipeline","crmViewBroadcast","crmViewDrip","crmViewTasks","crmViewSequences","crmViewCalendar","crmViewLeadLab","crmViewSocialStudio","crmViewOfferBuilder","crmViewPlaybooks"];
       ids.forEach(id=>{ const el=$(id); if(el) el.style.display = "none"; });
     }
 
@@ -27979,12 +27970,11 @@ Challenge weak assumptions. Surface risks.`;
       crmHideViews();
       var el=$(id); if(el) el.style.display = "block";
       try{ var sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
-      if(id==='crmViewClients'){
+      if(id==='crmViewPipeline'){
         setTimeout(function(){
           var s2=$("crmSearch"); var f2=$("crmFilter");
           if(s2 && _crmLastSearch) s2.value=_crmLastSearch;
           if(f2 && _crmLastFilter) f2.value=_crmLastFilter;
-          if(_crmLastSearch||_crmLastFilter) crmRenderClients();
         },30);
       }
     }
@@ -28399,15 +28389,20 @@ Challenge weak assumptions. Surface risks.`;
       }
     }
 
+    window.crmToggleStagesPanel = function(){
+      var w=$("crmStagesPanelWrap"); if(!w) return;
+      w.style.display = w.style.display==='none' ? 'block' : 'none';
+    };
+
     async function crmLoadPipelineIntoBox(){
       const st = $("crmPipelineStatus");
       if(st) st.innerText = 'Loading...';
       const data = await crmFetchState();
       const stages = (data && (((data.pipeline||{}).stages)||data.pipeline_stages)) ? (((data.pipeline||{}).stages)||data.pipeline_stages) : (crmCache.pipeline||[]);
-      $("crmStagesText").value = (stages||[]).join('\n');
+      const stagesEl = $("crmStagesText"); if(stagesEl) stagesEl.value = (stages||[]).join('\n');
       try{ await crmFetchClients(); }catch(e){}
       crmRenderPipelineBoard();
-      if(st) st.innerText = 'Ready';
+      if(st) st.innerText = '';
     }
 
     async function crmSavePipeline(){
@@ -28420,7 +28415,9 @@ Challenge weak assumptions. Surface risks.`;
         if(!data.ok) throw new Error(data.error||'save failed');
         if(st) st.innerText = 'Saved';
         crmCache.pipeline = stages;
-        showToast('Pipeline saved');
+        showToast('Pipeline stages saved');
+        setTimeout(()=>{ const w=$("crmStagesPanelWrap"); if(w) w.style.display='none'; },600);
+        crmRenderPipelineBoard();
       }catch(e){
         if(st) st.innerText = 'Save failed';
       }
@@ -29129,7 +29126,7 @@ Challenge weak assumptions. Surface risks.`;
       }
     }
 
-    window.showCRMModal = function showCRMModal(defaultViewId='crmViewClients', titleText='CRM', opts={}){
+    window.showCRMModal = function showCRMModal(defaultViewId='crmViewPipeline', titleText='CRM', opts={}){
       const standalone = !!(opts && opts.standalone);
       if(!standalone && window.saSetModalPin) window.saSetModalPin('crm');
       showModal();
@@ -29152,7 +29149,7 @@ Challenge weak assumptions. Surface risks.`;
       crmSetStatus('Loading...');
 
       // default view
-      crmShowView(defaultViewId || 'crmViewClients');
+      crmShowView(defaultViewId || 'crmViewPipeline');
 
       // load
       (async()=>{
@@ -29964,7 +29961,7 @@ window.crmPipelineOpenClient = function(clientId){
       if(!c) return;
       crmEditingClientId = clientId;
       // Pre-fill editor fields and show clients view
-      crmShowView('crmViewClients');
+      crmShowView('crmViewPipeline');
       setTimeout(()=>{
         if($("crmName")) $("crmName").value = c.name||'';
         if($("crmEmail")) $("crmEmail").value = c.email||'';
@@ -30058,7 +30055,6 @@ window.crmPipelineOpenClient = function(clientId){
 
     function bindCRM(){
       const b=(id,fn)=>{ const el=$(id); if(el) el.onclick=fn; };
-      b('crmTabClients', async()=>{ crmShowView('crmViewClients'); try{ await crmFetchClients(); crmRenderClients(); }catch(e){} });
       b('crmTabPipeline', async()=>{ crmShowView('crmViewPipeline'); await crmLoadPipelineIntoBox(); });
       b('crmTabBroadcast', ()=>{ crmShowView('crmViewBroadcast'); $("crmBroadcastStatus").innerText=''; });
       b('crmTabDrip', ()=>{ crmShowView('crmViewDrip'); dripInit(); });
@@ -30173,7 +30169,7 @@ window.crmPipelineOpenClient = function(clientId){
       b('crmSaveSeq', crmSaveSequence);
       b('crmSaveSeqExit', async()=>{ await crmSaveSequence(); hideModal(); });
       b('crmSaveClientExit', async()=>{ await crmSaveClient(); hideModal(); });
-      b('crmSavePipelineExit', async()=>{ await crmSavePipeline(); hideModal(); });
+      // crmSavePipelineExit removed — stages panel is now inline in Pipeline view
       b('crmEnrollBtn', crmEnroll);
 
       b('crmCreateEventBtn', crmCreateCalendarEvent);
