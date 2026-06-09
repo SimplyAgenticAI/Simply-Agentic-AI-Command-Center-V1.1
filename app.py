@@ -19110,9 +19110,9 @@ label {
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px 10px;">
         <div>
           <div style="font-size:15px;font-weight:800;color:#f1f5f9;">Drip Campaigns</div>
-          <div class="tiny" style="opacity:.65;margin-top:2px;">Automated email sequences sent on your schedule. Set it once, let it run.</div>
+          <div style="font-size:13px;color:#cbd5e1;margin-top:4px;">Automated email sequences sent on your schedule. Set it once, let it run.</div>
         </div>
-        <button class="btn btnPrimary" id="dripNewBtn" style="font-size:12px;padding:7px 16px;">+ New Campaign</button>
+        <button class="btn btnPrimary" id="dripNewBtn" onclick="dripOpenBuilder()" style="font-size:12px;padding:7px 16px;">+ New Campaign</button>
       </div>
 
       <!-- Campaign list -->
@@ -19123,7 +19123,7 @@ label {
 
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <div style="font-size:14px;font-weight:700;color:#c4b5fd;" id="dripBuilderTitle">New Campaign</div>
-          <button class="btn" id="dripBuilderClose" style="font-size:11px;padding:4px 10px;">✕ Cancel</button>
+          <button class="btn" id="dripBuilderClose" onclick="dripCloseBuilder()" style="font-size:11px;padding:4px 10px;">✕ Cancel</button>
         </div>
 
         <!-- Name + Status row -->
@@ -19185,8 +19185,8 @@ label {
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <label style="margin:0;font-size:12px;font-weight:700;color:#94a3b8;">EMAIL SEQUENCE</label>
             <div style="display:flex;gap:8px;">
-              <button class="btn" id="dripAiGenBtn" style="font-size:11px;padding:4px 10px;">✨ AI Generate Steps</button>
-              <button class="btn" id="dripAddStepBtn" style="font-size:11px;padding:4px 10px;">+ Add Step</button>
+              <button class="btn" id="dripAiGenBtn" onclick="dripToggleAiForm()" style="font-size:11px;padding:4px 10px;">✨ AI Generate Steps</button>
+              <button class="btn" id="dripAddStepBtn" onclick="dripAddStep('','')" style="font-size:11px;padding:4px 10px;">+ Add Step</button>
             </div>
           </div>
 
@@ -19217,8 +19217,8 @@ label {
               </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px;">
-              <button class="btn btnPrimary" id="dripAiRunBtn" style="font-size:12px;">✨ Generate</button>
-              <button class="btn" id="dripAiCancelBtn" style="font-size:12px;">Cancel</button>
+              <button class="btn btnPrimary" id="dripAiRunBtn" onclick="dripAiGenerate()" style="font-size:12px;">✨ Generate</button>
+              <button class="btn" id="dripAiCancelBtn" onclick="dripToggleAiForm(false)" style="font-size:12px;">Cancel</button>
             </div>
             <div id="dripAiStatus" class="tiny" style="margin-top:6px;"></div>
           </div>
@@ -19228,7 +19228,7 @@ label {
 
         <div id="dripBuilderStatus" class="tiny" style="margin:8px 0;text-align:center;"></div>
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
-          <button class="btn btnPrimary" id="dripSaveBtn">💾 Save Campaign</button>
+          <button class="btn btnPrimary" id="dripSaveBtn" onclick="dripSave()">💾 Save Campaign</button>
         </div>
       </div>
 
@@ -28473,32 +28473,30 @@ Challenge weak assumptions. Surface risks.`;
     /* ───────────── DRIP CAMPAIGNS ───────────── */
     var _dripCampaigns = {};
     var _dripEditId = null;
-    var _dripInited = false;
 
-    function dripInit(){
-      if(!_dripInited){
-        _dripInited = true;
-        b('dripNewBtn', dripOpenBuilder);
-        b('dripBuilderClose', dripCloseBuilder);
-        b('dripAddStepBtn', ()=> dripAddStep('',''));
-        b('dripSaveBtn', dripSave);
-        b('dripAiGenBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display=f.style.display==='none'?'block':'none'; });
-        b('dripAiCancelBtn', ()=>{ const f=$("dripAiGenForm"); if(f) f.style.display='none'; });
-        b('dripAiRunBtn', dripAiGenerate);
-      }
-      dripLoadList();
+    function dripInit(){ dripLoadList(); }
+
+    function dripToggleAiForm(forceHide){
+      var f = document.getElementById('dripAiGenForm');
+      if(!f) return;
+      if(forceHide === false || f.style.display !== 'none') f.style.display = 'none';
+      else f.style.display = 'block';
     }
 
     async function dripLoadList(){
-      const el=$("dripList"); if(!el) return;
-      el.innerHTML='<div class="tiny" style="opacity:.5;padding:8px 0;">Loading...</div>';
+      var el = document.getElementById('dripList'); if(!el) return;
+      el.innerHTML='<div style="opacity:.5;padding:12px 0;font-size:13px;">Loading campaigns...</div>';
       try{
-        const r = await fetch('/api/crm/drip');
-        const d = await r.json();
-        if(!d.ok) throw new Error(d.error||'load failed');
+        var r = await fetch('/api/crm/drip');
+        var text = await r.text();
+        var d;
+        try{ d = JSON.parse(text); }catch(pe){ throw new Error('Server returned non-JSON: '+text.slice(0,120)); }
+        if(!d.ok) throw new Error(d.error||'Server error (ok=false)');
         _dripCampaigns = d.campaigns || {};
         dripRenderList();
-      }catch(e){ el.innerHTML='<div class="tiny" style="color:#f87171;padding:8px 0;">Failed to load: '+(e&&e.message||e)+'</div>'; }
+      }catch(e){
+        el.innerHTML='<div style="color:#f87171;padding:12px 0;font-size:13px;">Error loading campaigns: '+(e&&e.message||String(e))+'</div>';
+      }
     }
 
     function dripRenderList(){
@@ -28529,41 +28527,45 @@ Challenge weak assumptions. Surface risks.`;
       }).join('');
     }
 
+    function _gi(id){ return document.getElementById(id); }
+
     function dripOpenBuilder(){
       _dripEditId = null;
-      $("dripBuilderTitle").innerText = 'New Campaign';
-      $("dripName").value=''; $("dripStatus").value='draft';
-      $("dripAudience").value='all'; $("dripAudienceVal").value='';
-      $("dripInterval").value='7';
-      $("dripStartDate").value = new Date().toISOString().slice(0,10);
-      $("dripStepsList").innerHTML='';
-      $("dripBuilderStatus").innerText='';
+      _gi('dripBuilderTitle').innerText = 'New Campaign';
+      _gi('dripName').value=''; _gi('dripStatus').value='draft';
+      _gi('dripAudience').value='all'; _gi('dripAudienceVal').value='';
+      _gi('dripInterval').value='7';
+      _gi('dripStartDate').value = new Date().toISOString().slice(0,10);
+      _gi('dripStepsList').innerHTML='';
+      _gi('dripBuilderStatus').innerText='';
+      _gi('dripAiGenForm').style.display='none';
       dripAddStep('Hello from [Your Name]!','Hi [First Name],\n\nJust wanted to reach out and say hello. Reply any time!\n\n– [Your Name]');
-      $("dripBuilder").style.display='block';
-      $("dripBuilder").scrollIntoView({behavior:'smooth',block:'start'});
+      _gi('dripBuilder').style.display='block';
+      _gi('dripBuilder').scrollIntoView({behavior:'smooth',block:'start'});
     }
 
-    function dripCloseBuilder(){ $("dripBuilder").style.display='none'; _dripEditId=null; }
+    function dripCloseBuilder(){ _gi('dripBuilder').style.display='none'; _dripEditId=null; }
 
     function dripEdit(id){
-      const c = _dripCampaigns[id]; if(!c) return;
+      var c = _dripCampaigns[id]; if(!c) return;
       _dripEditId = id;
-      $("dripBuilderTitle").innerText = 'Edit Campaign';
-      $("dripName").value = c.name||'';
-      $("dripStatus").value = c.status||'draft';
-      $("dripAudience").value = c.audience||'all';
-      $("dripAudienceVal").value = c.audience_val||'';
-      $("dripInterval").value = String(c.interval_days||7);
-      $("dripStartDate").value = (c.start_date||new Date().toISOString().slice(0,10));
-      $("dripStepsList").innerHTML='';
+      _gi('dripBuilderTitle').innerText = 'Edit Campaign';
+      _gi('dripName').value = c.name||'';
+      _gi('dripStatus').value = c.status||'draft';
+      _gi('dripAudience').value = c.audience||'all';
+      _gi('dripAudienceVal').value = c.audience_val||'';
+      _gi('dripInterval').value = String(c.interval_days||7);
+      _gi('dripStartDate').value = (c.start_date||new Date().toISOString().slice(0,10));
+      _gi('dripStepsList').innerHTML='';
       (c.steps||[]).forEach(s=> dripAddStep(s.subject||'',s.body||''));
-      $("dripBuilderStatus").innerText='';
-      $("dripBuilder").style.display='block';
-      $("dripBuilder").scrollIntoView({behavior:'smooth',block:'start'});
+      _gi('dripBuilderStatus').innerText='';
+      _gi('dripAiGenForm').style.display='none';
+      _gi('dripBuilder').style.display='block';
+      _gi('dripBuilder').scrollIntoView({behavior:'smooth',block:'start'});
     }
 
     function dripAddStep(subject, body){
-      const list = $("dripStepsList"); if(!list) return;
+      var list = _gi('dripStepsList'); if(!list) return;
       const idx = list.children.length + 1;
       const div = document.createElement('div');
       div.style.cssText='background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:12px;';
@@ -28578,43 +28580,45 @@ Challenge weak assumptions. Surface risks.`;
     }
 
     function dripRenumberSteps(){
-      const steps = $("dripStepsList").querySelectorAll('[data-step]');
-      steps.forEach((s,i)=>{ const lbl=s.querySelector('span'); if(lbl) lbl.textContent='Email #'+(i+1); });
+      var list = _gi('dripStepsList'); if(!list) return;
+      var steps = list.querySelectorAll('[data-step]');
+      steps.forEach(function(s,i){ var lbl=s.querySelector('span'); if(lbl) lbl.textContent='Email #'+(i+1); });
     }
 
     function _esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
     function dripCollectSteps(){
-      const steps=[];
-      $("dripStepsList").querySelectorAll('[data-step]').forEach(div=>{
-        const subj = (div.querySelector('.dripStepSubject')||{}).value||'';
-        const body = (div.querySelector('.dripStepBody')||{}).value||'';
+      var steps=[];
+      var list = _gi('dripStepsList'); if(!list) return steps;
+      list.querySelectorAll('[data-step]').forEach(function(div){
+        var subj = (div.querySelector('.dripStepSubject')||{}).value||'';
+        var body = (div.querySelector('.dripStepBody')||{}).value||'';
         steps.push({subject:subj, body:body});
       });
       return steps;
     }
 
     async function dripSave(){
-      const st=$("dripBuilderStatus");
-      const name=($("dripName").value||'').trim();
+      var st=_gi('dripBuilderStatus');
+      var name=(_gi('dripName').value||'').trim();
       if(!name){ if(st) st.innerText='Campaign name required'; return; }
-      const steps=dripCollectSteps();
+      var steps=dripCollectSteps();
       if(!steps.length){ if(st) st.innerText='Add at least one email step'; return; }
-      const payload={
-        name, status:$("dripStatus").value, audience:$("dripAudience").value,
-        audience_val:($("dripAudienceVal").value||'').trim(),
-        interval_days:parseInt($("dripInterval").value)||7,
-        start_date:$("dripStartDate").value||new Date().toISOString().slice(0,10),
-        steps
+      var payload={
+        name:name, status:_gi('dripStatus').value, audience:_gi('dripAudience').value,
+        audience_val:(_gi('dripAudienceVal').value||'').trim(),
+        interval_days:parseInt(_gi('dripInterval').value)||7,
+        start_date:_gi('dripStartDate').value||new Date().toISOString().slice(0,10),
+        steps:steps
       };
       if(st) st.innerText='Saving...';
       try{
-        let url='/api/crm/drip', method='POST';
+        var url='/api/crm/drip', method='POST';
         if(_dripEditId){ url='/api/crm/drip/'+_dripEditId+'/update'; method='POST'; }
-        const r = await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        const d = await r.json();
+        var r = await fetch(url,{method:method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        var d = await r.json();
         if(!d.ok) throw new Error(d.error||'save failed');
-        showToast(_dripEditId?'Campaign updated':'Campaign created');
+        if(typeof showToast==='function') showToast(_dripEditId?'Campaign updated':'Campaign created');
         dripCloseBuilder();
         await dripLoadList();
       }catch(e){ if(st) st.innerText='Error: '+(e&&e.message||e); }
@@ -28622,44 +28626,44 @@ Challenge weak assumptions. Surface risks.`;
 
     async function dripToggle(id){
       try{
-        const r = await fetch('/api/crm/drip/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
-        const d = await r.json();
+        var r = await fetch('/api/crm/drip/'+id+'/toggle',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+        var d = await r.json();
         if(!d.ok) throw new Error(d.error||'toggle failed');
-        showToast('Campaign '+d.new_status);
+        if(typeof showToast==='function') showToast('Campaign '+d.new_status);
         await dripLoadList();
-      }catch(e){ showToast('Failed: '+(e&&e.message||e)); }
+      }catch(e){ if(typeof showToast==='function') showToast('Failed: '+(e&&e.message||e)); }
     }
 
     async function dripDelete(id){
       if(!confirm('Delete this campaign?')) return;
       try{
-        const r = await fetch('/api/crm/drip/'+id,{method:'DELETE'});
-        const d = await r.json();
+        var r = await fetch('/api/crm/drip/'+id,{method:'DELETE'});
+        var d = await r.json();
         if(!d.ok) throw new Error(d.error||'delete failed');
-        showToast('Campaign deleted');
+        if(typeof showToast==='function') showToast('Campaign deleted');
         await dripLoadList();
-      }catch(e){ showToast('Failed: '+(e&&e.message||e)); }
+      }catch(e){ if(typeof showToast==='function') showToast('Failed: '+(e&&e.message||e)); }
     }
 
     async function dripAiGenerate(){
-      const topic=($("dripAiTopic").value||'').trim();
-      const count=parseInt($("dripAiCount").value)||5;
-      const type=$("dripAiType").value||'tips';
-      const st=$("dripAiStatus");
+      var topic=(_gi('dripAiTopic').value||'').trim();
+      var count=parseInt(_gi('dripAiCount').value)||5;
+      var type=_gi('dripAiType').value||'tips';
+      var st=_gi('dripAiStatus');
       if(!topic){ if(st) st.innerText='Describe the campaign first'; return; }
       if(st) st.innerText='✨ Generating email sequence...';
-      $("dripAiRunBtn").disabled=true;
+      var runBtn=_gi('dripAiRunBtn'); if(runBtn) runBtn.disabled=true;
       try{
-        const r=await fetch('/api/crm/drip/ai_generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,count,type})});
-        const d=await r.json();
+        var r=await fetch('/api/crm/drip/ai_generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:topic,count:count,type:type})});
+        var d=await r.json();
         if(!d.ok) throw new Error(d.error||'generation failed');
-        $("dripStepsList").innerHTML='';
-        (d.steps||[]).forEach(s=> dripAddStep(s.subject||'',s.body||''));
+        _gi('dripStepsList').innerHTML='';
+        (d.steps||[]).forEach(function(s){ dripAddStep(s.subject||'',s.body||''); });
         if(st) st.innerText='✅ '+d.steps.length+' emails generated!';
-        $("dripAiGenForm").style.display='none';
-        if(!($("dripName").value||'').trim() && d.suggested_name) $("dripName").value=d.suggested_name;
+        _gi('dripAiGenForm').style.display='none';
+        var nameEl=_gi('dripName'); if(nameEl && !nameEl.value.trim() && d.suggested_name) nameEl.value=d.suggested_name;
       }catch(e){ if(st) st.innerText='Error: '+(e&&e.message||e); }
-      finally{ $("dripAiRunBtn").disabled=false; }
+      finally{ if(runBtn) runBtn.disabled=false; }
     }
     /* ─────────────────────────────────────────── */
 
