@@ -5964,12 +5964,18 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
         ctx = ssl.create_default_context()
         try:
             raw, content_type, encoding_hdr = _do_fetch(ctx)
-        except ssl.SSLError:
-            # Retry with a permissive context — handles misconfigured / TLSv1-only sites
-            ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            ctx2.check_hostname = False
-            ctx2.verify_mode = ssl.CERT_NONE
-            raw, content_type, encoding_hdr = _do_fetch(ctx2)
+        except (ssl.SSLError, _urllib_req.URLError) as _e:
+            # urllib often wraps SSL handshake failures in a URLError whose
+            # .reason is the underlying ssl.SSLError — check both.
+            _reason = getattr(_e, "reason", _e)
+            if isinstance(_e, ssl.SSLError) or isinstance(_reason, ssl.SSLError):
+                # Retry with a permissive context — handles misconfigured / TLSv1-only sites
+                ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                ctx2.check_hostname = False
+                ctx2.verify_mode = ssl.CERT_NONE
+                raw, content_type, encoding_hdr = _do_fetch(ctx2)
+            else:
+                raise
         # Decompress gzip if server sent it
         if encoding_hdr == "gzip" or raw[:2] == b'\x1f\x8b':
             try:
