@@ -5969,11 +5969,33 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
             # .reason is the underlying ssl.SSLError — check both.
             _reason = getattr(_e, "reason", _e)
             if isinstance(_e, ssl.SSLError) or isinstance(_reason, ssl.SSLError):
-                # Retry with a permissive context — handles misconfigured / TLSv1-only sites
-                ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                ctx2.check_hostname = False
-                ctx2.verify_mode = ssl.CERT_NONE
-                raw, content_type, encoding_hdr = _do_fetch(ctx2)
+                # Retry 1: permissive context (no cert verification) — handles
+                # self-signed / hostname-mismatch certs.
+                try:
+                    ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ctx2.check_hostname = False
+                    ctx2.verify_mode = ssl.CERT_NONE
+                    raw, content_type, encoding_hdr = _do_fetch(ctx2)
+                except (ssl.SSLError, _urllib_req.URLError) as _e2:
+                    _reason2 = getattr(_e2, "reason", _e2)
+                    if not (isinstance(_e2, ssl.SSLError) or isinstance(_reason2, ssl.SSLError)):
+                        raise
+                    # Retry 2: TLSV1_ALERT_INTERNAL_ERROR often comes from old
+                    # servers that choke on modern OpenSSL's default security
+                    # level / cipher set. Lower the security level and allow
+                    # older TLS versions to work around it.
+                    ctx3 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+                    ctx3.check_hostname = False
+                    ctx3.verify_mode = ssl.CERT_NONE
+                    try:
+                        ctx3.set_ciphers("DEFAULT@SECLEVEL=1")
+                    except ssl.SSLError:
+                        pass
+                    try:
+                        ctx3.minimum_version = ssl.TLSVersion.TLSv1
+                    except (ValueError, AttributeError, OSError):
+                        pass
+                    raw, content_type, encoding_hdr = _do_fetch(ctx3)
             else:
                 raise
         # Decompress gzip if server sent it
