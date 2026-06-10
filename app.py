@@ -6009,8 +6009,29 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
                 _last_err = _e
                 if _i < len(_attempts) - 1 and _is_ssl_error(_e):
                     continue
-                raise
+                break
         if _last_err is not None:
+            # All direct TLS configurations failed. Some hosts (often behind a
+            # CDN/WAF) reject our server's TLS handshake outright with an
+            # "internal_error" alert based on IP/fingerprint — no amount of
+            # local TLS tuning fixes that. Fall back to a third-party reader
+            # proxy that fetches the page from a different network/TLS stack
+            # and returns plain text.
+            if _is_ssl_error(_last_err):
+                try:
+                    _proxy_req = _urllib_req.Request(
+                        "https://r.jina.ai/" + url,
+                        headers={"User-Agent": _headers["User-Agent"], "Accept": "text/plain"},
+                    )
+                    with _urllib_req.urlopen(_proxy_req, timeout=25) as _presp:
+                        _proxy_text = _presp.read(400_000).decode("utf-8", errors="replace")
+                except Exception:
+                    _proxy_text = ""
+                if _proxy_text and _proxy_text.strip():
+                    _text = _proxy_text.strip()
+                    if len(_text) > max_chars:
+                        _text = _text[:max_chars] + f"\n\n[Content truncated at {max_chars:,} chars]"
+                    return _text, ""
             raise _last_err
         # Decompress gzip if server sent it
         if encoding_hdr == "gzip" or raw[:2] == b'\x1f\x8b':
