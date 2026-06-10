@@ -5960,44 +5960,58 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
             with _urllib_req.urlopen(req, timeout=20, context=ctx) as resp:
                 return resp.read(400_000), resp.headers.get("Content-Type", ""), resp.headers.get("Content-Encoding", "")
 
-        # First attempt: strict SSL (normal)
-        ctx = ssl.create_default_context()
-        try:
-            raw, content_type, encoding_hdr = _do_fetch(ctx)
-        except (ssl.SSLError, _urllib_req.URLError) as _e:
-            # urllib often wraps SSL handshake failures in a URLError whose
-            # .reason is the underlying ssl.SSLError — check both.
+        def _is_ssl_error(_e):
             _reason = getattr(_e, "reason", _e)
-            if isinstance(_e, ssl.SSLError) or isinstance(_reason, ssl.SSLError):
-                # Retry 1: permissive context (no cert verification) — handles
-                # self-signed / hostname-mismatch certs.
+            return isinstance(_e, ssl.SSLError) or isinstance(_reason, ssl.SSLError)
+
+        def _permissive_ctx():
+            c = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            c.check_hostname = False
+            c.verify_mode = ssl.CERT_NONE
+            return c
+
+        def _legacy_ctx(max_tls12=False):
+            c = _permissive_ctx()
+            try:
+                c.set_ciphers("DEFAULT@SECLEVEL=1")
+            except ssl.SSLError:
+                pass
+            try:
+                c.minimum_version = ssl.TLSVersion.TLSv1
+            except (ValueError, AttributeError, OSError):
+                pass
+            if max_tls12:
                 try:
-                    ctx2 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                    ctx2.check_hostname = False
-                    ctx2.verify_mode = ssl.CERT_NONE
-                    raw, content_type, encoding_hdr = _do_fetch(ctx2)
-                except (ssl.SSLError, _urllib_req.URLError) as _e2:
-                    _reason2 = getattr(_e2, "reason", _e2)
-                    if not (isinstance(_e2, ssl.SSLError) or isinstance(_reason2, ssl.SSLError)):
-                        raise
-                    # Retry 2: TLSV1_ALERT_INTERNAL_ERROR often comes from old
-                    # servers that choke on modern OpenSSL's default security
-                    # level / cipher set. Lower the security level and allow
-                    # older TLS versions to work around it.
-                    ctx3 = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                    ctx3.check_hostname = False
-                    ctx3.verify_mode = ssl.CERT_NONE
-                    try:
-                        ctx3.set_ciphers("DEFAULT@SECLEVEL=1")
-                    except ssl.SSLError:
-                        pass
-                    try:
-                        ctx3.minimum_version = ssl.TLSVersion.TLSv1
-                    except (ValueError, AttributeError, OSError):
-                        pass
-                    raw, content_type, encoding_hdr = _do_fetch(ctx3)
-            else:
+                    c.maximum_version = ssl.TLSVersion.TLSv1_2
+                except (ValueError, AttributeError, OSError):
+                    pass
+            return c
+
+        # Try a sequence of progressively more permissive/compatible TLS
+        # configurations. TLSV1_ALERT_INTERNAL_ERROR commonly comes from
+        # older servers whose TLS stack chokes on TLS 1.3 or modern OpenSSL's
+        # default security level / cipher list — neither of which is fixed
+        # by simply skipping certificate verification.
+        _attempts = [
+            ssl.create_default_context(),       # 1: strict, normal sites
+            _permissive_ctx(),                   # 2: skip cert verification
+            _legacy_ctx(max_tls12=False),        # 3: lower security level + allow old TLS
+            _legacy_ctx(max_tls12=True),         # 4: same, but cap at TLS 1.2
+        ]
+        raw = content_type = encoding_hdr = None
+        _last_err = None
+        for _i, _ctx in enumerate(_attempts):
+            try:
+                raw, content_type, encoding_hdr = _do_fetch(_ctx)
+                _last_err = None
+                break
+            except (ssl.SSLError, _urllib_req.URLError) as _e:
+                _last_err = _e
+                if _i < len(_attempts) - 1 and _is_ssl_error(_e):
+                    continue
                 raise
+        if _last_err is not None:
+            raise _last_err
         # Decompress gzip if server sent it
         if encoding_hdr == "gzip" or raw[:2] == b'\x1f\x8b':
             try:
