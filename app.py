@@ -268,6 +268,10 @@ def _decrypt_field(value: str) -> str:
         return ""
 
 
+# Stamped once at process startup so the service worker only changes (and
+# triggers a tab reload) on an actual deploy/restart — not on a timer.
+_SW_BUILD = str(int(time.time()))
+
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI V3.0")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -2621,8 +2625,9 @@ def pwa_icon_svg():
 @app.get("/sw.js")
 def service_worker():
     """Service worker — handles PWA install, auto-update, and offline fallback."""
-    # Build stamp changes on every deploy so the SW file is always fresh
-    build = str(int(time.time() // 300))  # rotates every 5 min max
+    # Build stamp is fixed for this process's lifetime — only changes on deploy/restart,
+    # so it doesn't trigger a tab reload every few minutes while the app is running.
+    build = _SW_BUILD
     js = f"""
 /* Simply Agentic AI — Service Worker | build:{build} */
 const CACHE = 'sa-v7-{build}';
