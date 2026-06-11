@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 import re
 import smtplib
 import uuid
@@ -2882,6 +2883,36 @@ def save_json(path: Path, payload: Any) -> None:
                 pass
 
 
+def update_json(path: Path, default: Any, mutate_fn) -> Any:
+    """Atomic read-modify-write for a JSON file.
+
+    Holds the per-path lock across the *entire* read + mutate + write cycle so
+    two concurrent requests can't both load stale data and have one overwrite
+    the other's change (lost-update race). `mutate_fn(data)` may mutate `data`
+    in place and/or return a replacement value; the (possibly replaced) data
+    is what gets written back and returned.
+    """
+    lock = _json_file_lock(path)
+    with lock:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else copy.deepcopy(default)
+        except Exception:
+            data = copy.deepcopy(default)
+        result = mutate_fn(data)
+        if result is not None:
+            data = result
+        try:
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            tmp.replace(path)
+        except Exception:
+            try:
+                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+        return data
+
+
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -3090,12 +3121,24 @@ def _load_clients(username: str) -> Dict[str, Any]:
     except Exception:
         return {"active_client_id": "", "clients": {}}
 
-def _save_clients(username: str, data: Dict[str, Any]) -> None:
-    path = _clients_path_for_user(username)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+def _update_clients(username: str, mutate_fn) -> Dict[str, Any]:
+    """Atomic read-modify-write for a user's clients.json.
+
+    Prevents lost updates when two requests (e.g. two browser tabs) edit a
+    user's client list concurrently — see update_json()."""
+    path = Path(_clients_path_for_user(username))
+    default = {"active_client_id": "", "clients": {}}
+
+    def _normalized_mutate(data):
+        if not isinstance(data, dict):
+            data = copy.deepcopy(default)
+        data.setdefault("active_client_id", "")
+        data.setdefault("clients", {})
+        if not isinstance(data["clients"], dict):
+            data["clients"] = {}
+        return mutate_fn(data)
+
+    return update_json(path, default, _normalized_mutate)
 
 def _get_active_client(username: str) -> Dict[str, Any]:
     data = _load_clients(username)
@@ -46474,11 +46517,16 @@ def api_clients_set_active():
     username = _get_session_username()
     payload = request.get_json(silent=True) or {}
     cid = (payload.get("client_id") or "").strip()
-    data = _load_clients(username)
-    if cid and cid not in (data.get("clients") or {}):
-        return jsonify({"ok": False, "error": "Client not found"}), 404
-    data["active_client_id"] = cid
-    _save_clients(username, data)
+    _err = [None]
+    def _mutate(data):
+        if cid and cid not in (data.get("clients") or {}):
+            _err[0] = "Client not found"
+            return None
+        data["active_client_id"] = cid
+        return data
+    _update_clients(username, _mutate)
+    if _err[0]:
+        return jsonify({"ok": False, "error": _err[0]}), 404
     # Invalidate sys-ctx cache so next LLM call picks up the new active client
     try:
         _invalidate_sys_ctx_cache(username)
@@ -46493,7 +46541,6 @@ def api_clients_create():
     name = (payload.get("name") or "").strip()
     if not name:
         return jsonify({"ok": False, "error": "Name is required"}), 400
-    data = _load_clients(username)
     cid = _new_client_id()
     now = datetime.utcnow().isoformat() + "Z"
     client = {
@@ -46506,43 +46553,53 @@ def api_clients_create():
         "last_summary": (payload.get("last_summary") or "").strip(),
         "updated_at": now,
     }
-    data["clients"][cid] = client
-    # auto-activate if none
-    if not (data.get("active_client_id") or "").strip():
-        data["active_client_id"] = cid
-    _save_clients(username, data)
+    def _mutate(data):
+        data["clients"][cid] = client
+        # auto-activate if none
+        if not (data.get("active_client_id") or "").strip():
+            data["active_client_id"] = cid
+        return data
+    data = _update_clients(username, _mutate)
     return jsonify({"ok": True, "client": client, "active_client_id": data.get("active_client_id","")})
 
 @app.route("/api/clients/<client_id>", methods=["POST"])
 def api_clients_update(client_id):
     username = _get_session_username()
     payload = request.get_json(silent=True) or {}
-    data = _load_clients(username)
-    clients = data.get("clients") or {}
-    if client_id not in clients or not isinstance(clients[client_id], dict):
-        return jsonify({"ok": False, "error": "Client not found"}), 404
-    c = clients[client_id]
-    for k in ["name","company","email","tags","notes","last_summary"]:
-        if k in payload:
-            c[k] = (payload.get(k) or "").strip()
-    c["updated_at"] = datetime.utcnow().isoformat() + "Z"
-    clients[client_id] = c
-    data["clients"] = clients
-    _save_clients(username, data)
-    c2 = dict(c); c2.setdefault("id", client_id)
+    _err = [None]
+    _result = [None]
+    def _mutate(data):
+        clients = data.get("clients") or {}
+        if client_id not in clients or not isinstance(clients[client_id], dict):
+            _err[0] = "Client not found"
+            return None
+        c = clients[client_id]
+        for k in ["name","company","email","tags","notes","last_summary"]:
+            if k in payload:
+                c[k] = (payload.get(k) or "").strip()
+        c["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        clients[client_id] = c
+        data["clients"] = clients
+        _result[0] = dict(c)
+        return data
+    _update_clients(username, _mutate)
+    if _err[0]:
+        return jsonify({"ok": False, "error": _err[0]}), 404
+    c2 = _result[0]; c2.setdefault("id", client_id)
     return jsonify({"ok": True, "client": c2})
 
 @app.route("/api/clients/<client_id>", methods=["DELETE"])
 def api_clients_delete(client_id):
     username = _get_session_username()
-    data = _load_clients(username)
-    clients = data.get("clients") or {}
-    if client_id in clients:
-        clients.pop(client_id, None)
-    if data.get("active_client_id") == client_id:
-        data["active_client_id"] = ""
-    data["clients"] = clients
-    _save_clients(username, data)
+    def _mutate(data):
+        clients = data.get("clients") or {}
+        if client_id in clients:
+            clients.pop(client_id, None)
+        if data.get("active_client_id") == client_id:
+            data["active_client_id"] = ""
+        data["clients"] = clients
+        return data
+    _update_clients(username, _mutate)
     return jsonify({"ok": True})
 
 
