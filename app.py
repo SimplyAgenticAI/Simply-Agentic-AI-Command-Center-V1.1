@@ -46429,11 +46429,17 @@ def api_account_delete():
     return jsonify({"ok": True, "message": "Account and data deleted successfully.", "errors": errors})
 
 
+# Precompiled once at startup — render_template_string() would otherwise
+# re-lex/parse this multi-thousand-line template on every single request
+# (including health checks), which can blow past Render's 5s health check
+# timeout under cold-start CPU throttling with a single gunicorn worker.
+_INDEX_TEMPLATE = app.jinja_env.from_string(HTML)
+
 @app.get("/")
 def index():
     _uname = _get_session_username()
     _trial_banner = _trial_banner_html(_uname) if FREE_TRIAL_DAYS > 0 else ""
-    return render_template_string(HTML, app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL)
+    return _INDEX_TEMPLATE.render(app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL)
 
 
 
