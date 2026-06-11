@@ -14212,7 +14212,7 @@ HTML = r"""
         0 4px 24px rgba(0,0,0,.5) !important;
     }
     .seatOperator::before{
-      background: rgba(247,211,106,.85) !important;
+      background: rgba(59,130,246,.85) !important;
       opacity: 1 !important;
     }
     .seatOperator:hover{
