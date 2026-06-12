@@ -17121,6 +17121,184 @@ label         { font-size: 14px !important; }
 }
 .wcSecondary:hover{border-color:rgba(124,58,237,.6);color:#c4b5fd;}
 
+/* ═══════════════════════════════════════════════════
+   VISUAL POLISH PACK 3 — 25 improvements
+═══════════════════════════════════════════════════ */
+
+/* ── #1 Press feedback — tactile click states ── */
+.btn:active, .saNavBtn:active, .btnMini:active, .btnTiny:active, .seat:active{
+  transform: scale(.97) !important;
+  transition: transform .08s ease !important;
+}
+
+/* ── #2 Focus-visible rings for accessibility + polish ── */
+.btn:focus-visible, .saNavBtn:focus-visible, .btnMini:focus-visible, .btnTiny:focus-visible,
+input:focus-visible, textarea:focus-visible, select:focus-visible, .seat:focus-visible{
+  outline: 2px solid rgba(124,58,237,.65) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(124,58,237,.18) !important;
+}
+
+/* ── #3 Skeleton loading shimmer (apply class="sa-skeleton" to placeholder blocks) ── */
+.sa-skeleton{
+  position:relative; overflow:hidden;
+  background: rgba(255,255,255,.06);
+  border-radius: 10px;
+  isolation: isolate;
+}
+.sa-skeleton::after{
+  content:''; position:absolute; inset:0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.10) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: saSkeletonShimmer 1.6s ease-in-out infinite;
+}
+@keyframes saSkeletonShimmer{ to{ transform: translateX(100%); } }
+
+/* ── #4 Toast pop — slight bounce on the icon/leading glyph ── */
+._saToast{ animation-fill-mode: both !important; }
+._saToast > *:first-child{ animation: saToastPop .4s cubic-bezier(.34,1.56,.64,1) .05s both; }
+@keyframes saToastPop{ 0%{ transform: scale(.4) rotate(-12deg); opacity:.2; } 100%{ transform: scale(1) rotate(0); opacity:1; } }
+
+/* ── #5 Primary CTA — soft ambient glow pulse on hover ── */
+.btnPrimary:hover{ animation: saGlowPulse 1.8s ease-in-out infinite; }
+@keyframes saGlowPulse{
+  0%,100%{ box-shadow: 0 0 36px rgba(148,88,255,.45), inset 0 1px 0 rgba(255,255,255,.30); }
+  50%{ box-shadow: 0 0 50px rgba(148,88,255,.65), inset 0 1px 0 rgba(255,255,255,.30); }
+}
+
+/* ── #6 Firefox scrollbar parity (webkit scrollbars already styled) ── */
+*{ scrollbar-width: thin; scrollbar-color: rgba(124,58,237,.45) transparent; }
+
+/* ── #7 Shared radius scale tokens (used by new components in this pack) ── */
+:root{ --sa-r-sm: 8px; --sa-r-md: 12px; --sa-r-lg: 16px; --sa-r-xl: 24px; }
+
+/* ── #8/#9 Unified interactive glow token + hover utility ── */
+:root{ --sa-glow: rgba(124,58,237,.35); }
+.sa-glow-hover{ transition: box-shadow .18s ease, border-color .18s ease; }
+.sa-glow-hover:hover{ box-shadow: 0 0 22px var(--sa-glow); border-color: rgba(255,255,255,.30); }
+
+/* ── #10 Empty-state icon — gentle float animation ── */
+.sa-empty-state .sa-empty-icon{ animation: saEmptyFloat 3.2s ease-in-out infinite; display:inline-block; }
+@keyframes saEmptyFloat{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-6px); } }
+
+/* ── #11 "No results" variant of empty state ── */
+.sa-empty-state.sa-no-results{ color:#64748a; }
+.sa-empty-state.sa-no-results .sa-empty-icon{ animation: none; opacity:.25; }
+.sa-empty-state.sa-no-results p{ font-size:12.5px; }
+
+/* ── #12 Onboarding highlight pulse — apply class="sa-pulse-highlight" to spotlight an element ── */
+.sa-pulse-highlight{ position:relative; }
+.sa-pulse-highlight::after{
+  content:''; position:absolute; inset:-4px; border-radius: inherit;
+  border:2px solid rgba(124,58,237,.55);
+  animation: saPulseRing 1.6s ease-out infinite;
+  pointer-events:none;
+}
+@keyframes saPulseRing{
+  0%{ transform: scale(1); opacity:.9; }
+  100%{ transform: scale(1.18); opacity:0; }
+}
+
+/* ── #13/#15 Glyph hover personality — gentle scale + rotate ── */
+.avatar svg, .av svg{ transition: transform .25s ease; }
+.avatar:hover svg, .av:hover svg{ transform: scale(1.12) rotate(6deg); }
+
+/* ── #14 Avatar halo — soft ambient ring matching seat accent ── */
+.av, .avatar{ position:relative; }
+.seat.sel .av::before, .seat.sel .avatar::before{
+  content:''; position:absolute; inset:-6px; border-radius: inherit;
+  background: radial-gradient(circle, color-mix(in srgb, var(--sc,#7c3aed) 35%, transparent) 0%, transparent 72%);
+  z-index:-1; pointer-events:none;
+  animation: saHaloBreathe 3s ease-in-out infinite;
+}
+@keyframes saHaloBreathe{ 0%,100%{ opacity:.5; transform: scale(.92); } 50%{ opacity:1; transform: scale(1.08); } }
+
+/* ── #16 Chat bubble readability — roomier line-height ── */
+.msg .msg-body{ line-height: 1.65; }
+
+/* ── #17 Nav label letter-spacing — premium feel ── */
+.saNavBtn, .saDropItem{ letter-spacing: .015em; }
+
+/* ── #18 Vertical rhythm — consistent stacked-card spacing ── */
+.seat + .seat{ margin-top: 2px; }
+.groupReplies .groupCard + .groupCard{ margin-top: 10px; }
+
+/* ── #19 Subtle grain overlay — reduces flat-gradient banding ── */
+body::before{
+  content:'';
+  position: fixed; inset:0; z-index:1; pointer-events:none;
+  opacity:.025; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── #20 Ambient background drift — slow gradient breathing ── */
+body{ animation: saBgDrift 40s ease-in-out infinite alternate; background-size: 140% 140%, 100% 100%; }
+@keyframes saBgDrift{
+  0%{ background-position: 50% 30%, 0 0; }
+  100%{ background-position: 56% 36%, 0 0; }
+}
+
+/* ── #21 Edge vignette — focuses attention toward center ── */
+body::after{
+  content:'';
+  position: fixed; inset:0; z-index:1; pointer-events:none;
+  background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 60%, rgba(5,7,18,.55) 100%);
+}
+
+/* ── #22 Modal entrance animation ── */
+.overlay.show .modal{ animation: saModalIn .26s cubic-bezier(.34,1.1,.64,1) both; }
+@keyframes saModalIn{
+  0%{ opacity:0; transform: scale(.97) translateY(8px); }
+  100%{ opacity:1; transform: scale(1) translateY(0); }
+}
+
+/* ── #23 Modal type accent — top border colored by data-sa-type ── */
+.modal[data-sa-type]{ border-top: 3px solid var(--sa-accent, rgba(124,58,237,.7)); }
+.modal[data-sa-type="success"]{ --sa-accent: rgba(52,211,153,.85); }
+.modal[data-sa-type="danger"]{ --sa-accent: rgba(248,113,113,.85); }
+.modal[data-sa-type="info"]{ --sa-accent: rgba(96,165,250,.85); }
+
+/* ── #24 Status pills — glass badges with color-coded states ── */
+.sa-status-pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding: 3px 11px; border-radius: 999px;
+  font-size: 11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border:1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.07);
+}
+.sa-status-pill.active{ color:#34d399; border-color:rgba(52,211,153,.4); background:rgba(52,211,153,.12); }
+.sa-status-pill.paused{ color:#fbbf24; border-color:rgba(251,191,36,.4); background:rgba(251,191,36,.12); }
+.sa-status-pill.error{ color:#f87171; border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.12); }
+.sa-status-pill.idle{ color:#94a3b8; border-color:rgba(148,163,184,.35); background:rgba(148,163,184,.10); }
+
+/* ── #25 Animated progress bars — cosmic shimmer ── */
+.sa-progress{
+  position:relative; width:100%; height:8px; border-radius:999px; overflow:hidden;
+  background: rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.10);
+}
+.sa-progress > .sa-progress-fill{
+  height:100%; border-radius:999px;
+  background: linear-gradient(90deg, rgba(124,58,237,.85), rgba(96,165,250,.85));
+  box-shadow: 0 0 12px rgba(124,58,237,.45);
+  transition: width .3s ease;
+  position:relative; overflow:hidden;
+}
+.sa-progress > .sa-progress-fill::after{
+  content:''; position:absolute; inset:0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.35) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: saSkeletonShimmer 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .btnPrimary:hover, .sa-empty-state .sa-empty-icon, .sa-pulse-highlight::after,
+  .seat.sel .av::before, .seat.sel .avatar::before, body, ._saToast > *:first-child,
+  .sa-skeleton::after, .sa-progress > .sa-progress-fill::after{
+    animation: none !important;
+  }
+}
+
 </style>
 
 <!-- ① TYPOGRAPHY — Inter font (CSP already allows fonts.googleapis.com) -->
