@@ -17324,6 +17324,24 @@ body::after{
   }
 }
 
+/* ── Seat status: reserve fixed space so cycling phrases never resize the card ── */
+.seatStatus{
+  min-height: 2.6em !important;
+  height: 2.6em !important;
+  overflow: hidden !important;
+  align-items: flex-start !important;
+  line-height: 1.3em !important;
+}
+.seatStatus .saPhraseTxt{
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3em;
+  max-height: 2.6em;
+}
+
 </style>
 
 <!-- ① TYPOGRAPHY — Inter font (CSP already allows fonts.googleapis.com) -->
@@ -22593,6 +22611,27 @@ window.showModal = function showModal(title, body, imgUrl){
       "_default": ["Thinking…","Working…","Processing…","Flowing…","On it…","Almost there…"],
     };
 
+    // Phrases shown while a teammate is generating an image/graphic —
+    // overrides the personality phrase set so the card reflects the
+    // actual task instead of an unrelated mood/voice phrase.
+    const _SA_PHRASES_IMAGE = [
+      "Sketching the concept…","Composing the scene…","Choosing colors and lighting…",
+      "Rendering the visual…","Framing the composition…","Adding final details…",
+    ];
+
+    // Lightweight client-side heuristic mirroring the server's image-intent
+    // detection — used only to pick a status phrase set, not to route requests.
+    function _saLooksLikeImageRequest(prompt){
+      const p = (prompt || "").toLowerCase();
+      const triggers = [
+        "image","graphic","picture","photo","illustration","poster","logo","artwork",
+        "painting","sketch","drawing","thumbnail","banner","avatar","icon","mockup","mock up",
+        "draw ","paint ","render","visualize","visualise","design a","design an","design me",
+        "infographic",
+      ];
+      return triggers.some(t => p.includes(t));
+    }
+
     function _seatStatusHtml(dotClass, text){
       // #9 — richer status labels with icons
       const icons = {idle:'●', thinking:'◌', done:'✓', waiting:'!'};
@@ -22603,7 +22642,7 @@ window.showModal = function showModal(title, body, imgUrl){
            + '<span style="font-size:9px;letter-spacing:.03em;">' + label + '</span>';
     }
 
-    function setSeatLive(name, mode){
+    function setSeatLive(name, mode, imageMode){
       seatStatus[name] = mode;
       const dot   = document.getElementById("live_" + name);
       const label = document.getElementById("status_" + name);
@@ -22618,7 +22657,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
       if(label){
         if(mode === "thinking"){
-          const phrases = _SA_PHRASES[name] || _SA_PHRASES["_default"];
+          const phrases = imageMode ? _SA_PHRASES_IMAGE : (_SA_PHRASES[name] || _SA_PHRASES["_default"]);
           let pi = Math.floor(Math.random() * phrases.length);
           const tick = () => {
             label.innerHTML =
@@ -25673,7 +25712,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const reg=state?.registry||null;
         const order=(reg?.active_order&&reg.active_order.length)?reg.active_order:(reg?.installed_order||[]);
         if(!order||!order.length){ showToast("⚠️ No teammates at the table"); return; }
-        order.forEach(n=>{try{setSeatLive(n,"thinking");}catch(_){}});
+        const _imgMode = _saLooksLikeImageRequest(msg);
+        order.forEach(n=>{try{setSeatLive(n,"thinking",_imgMode);}catch(_){}});
         const outputs={},drafts={},images={};
         order.forEach(n=>{outputs[n]="…";});
         try{renderGroupReplies(outputs,drafts,images);}catch(_){}
@@ -26090,7 +26130,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const images = {};
 
       // Initialize all seats to thinking immediately
-      order.forEach(n => { outputs[n] = "…"; setSeatLive(n, "thinking"); });
+      const _imgMode = _saLooksLikeImageRequest(prompt);
+      order.forEach(n => { outputs[n] = "…"; setSeatLive(n, "thinking", _imgMode); });
       renderGroupReplies(outputs, drafts, images);
 
       await Promise.all(order.map(async (n) => {
@@ -26526,7 +26567,7 @@ function _saJobNotify(seatName, status){
         window._saUserRequestedEmailDraft = true;
       }
 
-      setSeatLive(selectedSeat, "thinking");
+      setSeatLive(selectedSeat, "thinking", _saLooksLikeImageRequest(msg));
       setOpStatus("Sending to selected");
       $("followMsg").value = "";
 
