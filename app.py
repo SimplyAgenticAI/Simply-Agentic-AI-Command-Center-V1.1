@@ -6590,13 +6590,124 @@ def _clean_visual_html(html: str) -> str:
     # No HTML markers found — this is a refusal/commentary, not a usable file.
     return ""
 
-def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
-    """Generate a self-contained HTML animation/visual.
+_VISUAL_UI_KEYWORDS = (
+    "countdown", "dashboard", "infographic", "carousel", "slideshow", "stat ",
+    "stats ", "statistic", "chart", "graph", "pricing", "landing page", " ui ",
+    "interface", "form", "button", "menu", "progress bar", "kpi", "metric",
+    "leaderboard", "calculator", "timer", "table", "spreadsheet", "report",
+)
 
-    Tries the user's Claude key first (best quality for this task), then
-    falls back to OpenAI (the provider already configured for chat/images)
-    so the feature still works for users without an Anthropic key — or if
-    the platform's Anthropic key is missing/invalid.
+
+def _visual_prompt_is_scene(prompt: str) -> bool:
+    """Is this an illustrative scene (characters/creatures/nature/skies — best
+    produced as a real image + animated overlay) vs a UI/data visual (countdown,
+    dashboard, infographic — best produced as hand-coded SVG/CSS)?"""
+    p = f" {(prompt or '').lower()} "
+    return not any(kw in p for kw in _VISUAL_UI_KEYWORDS)
+
+
+def _call_visual_llm(system: str, user_msg: str, username: str) -> str:
+    """Run a visual-generation prompt through Claude (user's own key) first, then
+    fall back to OpenAI gpt-4o. Returns cleaned HTML, "" if neither produced usable
+    HTML, or "__ERROR__<msg>" if both raised exceptions."""
+    claude_key = ""
+    try:
+        users_data = load_users()
+        u2 = (users_data.get("users", {}) or {}).get(username, {})
+        claude_key = _decrypt_field(((u2.get("settings") or {}).get("claude_key") or "").strip())
+    except Exception:
+        claude_key = ""
+    last_err = ""
+    if claude_key and _anthropic_sdk is not None:
+        try:
+            cl = _anthropic_sdk.Anthropic(api_key=claude_key)
+            resp = cl.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=16000,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                temperature=1.0,
+            )
+            html = _clean_visual_html(resp.content[0].text or "")
+            if html:
+                return html
+        except Exception as e:
+            last_err = str(e)
+
+    try:
+        oai = _get_openai_client_for_username(username)
+        resp = oai.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=16000,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=1.0,
+        )
+        html = _clean_visual_html((resp.choices[0].message.content or ""))
+        if html:
+            return html
+        return f"__ERROR__{last_err}" if last_err else ""
+    except Exception as e:
+        return f"__ERROR__{last_err or str(e)}"
+
+
+def _generate_scene_visual_html(prompt: str, teammate_name: str, username: str) -> str:
+    """Generate a real illustration via the existing gpt-image-1 pipeline, then wrap
+    it in a self-contained HTML page with animated CSS/SVG overlay effects (twinkling
+    particles, glow pulses, gentle zoom/pan, parallax) so scenes look like genuine
+    artwork instead of hand-coded vector shapes. Returns "" on any failure so the
+    caller can fall back to the codegen path."""
+    try:
+        rec, url, err = generate_image_for_teammate(prompt, teammate_name or "Visual Studio", username, mode="new")
+    except Exception:
+        return ""
+    if err or not rec or not url:
+        return ""
+    img_src = (PUBLIC_BASE_URL + url) if PUBLIC_BASE_URL else url
+
+    system = (
+        "You are an elite motion-design developer. You're given a finished illustration "
+        "(it will be inserted as an <img> with src=\"__IMAGE_SRC__\") and a description of "
+        "the scene it depicts. Build ONE self-contained HTML file that displays this image "
+        "as the centerpiece and brings it to life with subtle animated CSS/SVG overlay "
+        "effects. Do NOT redraw, replace, or hide the illustration.\n\n"
+        "Output ONLY a complete HTML file. No explanation, no markdown fences. Start with "
+        "<!DOCTYPE html> and end with </html>.\n\n"
+        "Use the EXACT placeholder string __IMAGE_SRC__ as the image's src (or "
+        "background-image url) — do not invent a different path.\n\n"
+        "TECHNIQUES — pick whichever fit the scene described:\n"
+        "- Show the image full-bleed (object-fit: cover, 100vw/100vh) with a slow Ken-Burns "
+        "style zoom/pan: CSS @keyframes scaling between 1 and ~1.08 and panning a few "
+        "percent, over 25-45s, ease-in-out, alternate, infinite.\n"
+        "- Layer a transparent <svg> or <div> overlay ON TOP of the image with small "
+        "animated particles matching the scene's theme (twinkling stars, drifting spores, "
+        "floating leaves/embers/bubbles), using CSS @keyframes for gentle drift and fade.\n"
+        "- Add a soft animated glow/light pulse (radial-gradient overlay, opacity "
+        "@keyframes) positioned over any light source described in the scene (sun, moon, "
+        "lantern, magic glow).\n"
+        "- Keep every effect SUBTLE — enhance the illustration, never obscure or distract "
+        "from it.\n"
+        "- No placeholders, no lorem ipsum. Production quality.\n\n"
+        "Never refuse, apologize, or add disclaimers — only output the HTML file."
+    )
+    user_msg = (
+        f"Scene description: {prompt}. "
+        "The illustration is ready and will be inserted at __IMAGE_SRC__. "
+        "Build the animated HTML wrapper around it now."
+    )
+    html = _call_visual_llm(system, user_msg, username)
+    if not html or html.startswith("__ERROR__") or "__IMAGE_SRC__" not in html:
+        return ""
+    return html.replace("__IMAGE_SRC__", img_src)
+
+
+def _generate_codegen_visual_html(prompt: str, teammate_name: str, username: str) -> str:
+    """Generate a self-contained HTML animation/visual via hand-coded SVG/CSS/JS.
+
+    Used for UI/data-visualization prompts (countdowns, dashboards, infographics)
+    and as the fallback when the image+overlay scene pipeline fails.
     """
     system = (
         "You are an elite creative coder and illustrator who builds self-contained HTML/CSS/JS "
@@ -6674,49 +6785,22 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         "Output only the complete HTML file starting with <!DOCTYPE html>."
     )
 
-    # ── Try Claude first, using the user's own saved key only ──────────────
-    claude_key = ""
-    try:
-        users_data = load_users()
-        u2 = (users_data.get("users", {}) or {}).get(username, {})
-        claude_key = _decrypt_field(((u2.get("settings") or {}).get("claude_key") or "").strip())
-    except Exception:
-        claude_key = ""
-    last_err = ""
-    if claude_key and _anthropic_sdk is not None:
-        try:
-            cl = _anthropic_sdk.Anthropic(api_key=claude_key)
-            resp = cl.messages.create(
-                model="claude-opus-4-5",
-                max_tokens=16000,
-                system=system,
-                messages=[{"role": "user", "content": user_msg}],
-                temperature=1.0,
-            )
-            html = _clean_visual_html(resp.content[0].text or "")
-            if html:
-                return html
-        except Exception as e:
-            last_err = str(e)
+    return _call_visual_llm(system, user_msg, username)
 
-    # ── Fall back to OpenAI (the always-configured provider) ────────────────
-    try:
-        oai = _get_openai_client_for_username(username)
-        resp = oai.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=16000,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=1.0,
-        )
-        html = _clean_visual_html((resp.choices[0].message.content or ""))
+
+def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
+    """Generate a self-contained HTML animation/visual.
+
+    Illustrative scene prompts (characters, creatures, nature, skies) are routed to
+    the image+overlay pipeline for real artwork quality; UI/data-visualization
+    prompts (countdowns, dashboards, infographics) use the hand-coded SVG/CSS path,
+    which is also the fallback if the scene pipeline fails.
+    """
+    if _visual_prompt_is_scene(prompt):
+        html = _generate_scene_visual_html(prompt, teammate_name, username)
         if html:
             return html
-        return f"__ERROR__{last_err}" if last_err else ""
-    except Exception as e:
-        return f"__ERROR__{last_err or str(e)}"
+    return _generate_codegen_visual_html(prompt, teammate_name, username)
 
 
 def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
