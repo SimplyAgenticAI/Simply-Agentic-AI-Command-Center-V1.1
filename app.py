@@ -23698,34 +23698,46 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
-      // Fallback: detect inline "Subject: X\nBody: Y" pairs when LLM skips machine-readable blocks
+      // Fallback: detect inline "Subject: X\nBody: Y" pairs when LLM skips machine-readable blocks.
+      // Anchored to line starts and only strips the exact consumed lines — otherwise normal
+      // replies that merely mention "Subject:"/"Body:" (e.g. discussing email copy) would have
+      // those lines (and everything after, via the old blanket regex) erased from view.
       if(emails.length === 0){
-        var _fbParts = text.split(/\n?\s*Subject:\s*/i);
+        var _fbParts = text.split(/^[ \t]*Subject:[ \t]*/im);
         if(_fbParts.length > 1){
+          var _fbKeep = [_fbParts[0]];
           for(var _fbi = 1; _fbi < _fbParts.length; _fbi++){
             var _fbChunk = _fbParts[_fbi];
             var _fbLines = _fbChunk.split('\n');
             var _fbSubj = (_fbLines[0]||'').trim();
-            if(!_fbSubj) continue;
             var _fbBodyIdx = -1;
-            for(var _fbl = 1; _fbl < _fbLines.length; _fbl++){
-              if(/^\s*Body:\s*/i.test(_fbLines[_fbl])){ _fbBodyIdx = _fbl; break; }
+            if(_fbSubj){
+              for(var _fbl = 1; _fbl < _fbLines.length; _fbl++){
+                if(/^[ \t]*Body:[ \t]*/i.test(_fbLines[_fbl])){ _fbBodyIdx = _fbl; break; }
+              }
             }
-            if(_fbBodyIdx === -1) continue;
-            var _fbBodyTxt = _fbLines[_fbBodyIdx].replace(/^\s*Body:\s*/i,'');
-            for(var _fbl2 = _fbBodyIdx+1; _fbl2 < _fbLines.length; _fbl2++){
+            if(!_fbSubj || _fbBodyIdx === -1){
+              // Not a recognizable email — restore the "Subject:" text untouched
+              _fbKeep.push('Subject: ' + _fbChunk);
+              continue;
+            }
+            var _fbBodyTxt = _fbLines[_fbBodyIdx].replace(/^[ \t]*Body:[ \t]*/i,'');
+            var _fbl2 = _fbBodyIdx + 1;
+            for(; _fbl2 < _fbLines.length; _fbl2++){
               if(/^\s*(?:Let me know|Feel free|I hope|Reach out|Please let|Do you|Hope this|If you)/i.test(_fbLines[_fbl2])) break;
               _fbBodyTxt += '\n' + _fbLines[_fbl2];
             }
             _fbBodyTxt = _fbBodyTxt.trim();
-            if(_fbSubj && _fbBodyTxt) emails.push({num:emails.length+1, subject:_fbSubj, body:_fbBodyTxt});
+            if(_fbBodyTxt){
+              emails.push({num:emails.length+1, subject:_fbSubj, body:_fbBodyTxt});
+              var _fbRemainder = _fbLines.slice(_fbl2).join('\n');
+              if(_fbRemainder.trim()) _fbKeep.push(_fbRemainder);
+            } else {
+              _fbKeep.push('Subject: ' + _fbChunk);
+            }
           }
           if(emails.length > 0){
-            cleanText = text
-              .replace(/\s*Subject:\s*[^\n]+/gi, '')
-              .replace(/\s*Body:\s*[^\n]+(\n(?!\s*Subject:)[^\n]+)*/gi, '')
-              .replace(/\n{3,}/g, '\n\n')
-              .trim();
+            cleanText = _fbKeep.join('\n').replace(/\n{3,}/g, '\n\n').trim();
           }
         }
       }
