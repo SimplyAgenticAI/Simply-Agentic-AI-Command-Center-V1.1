@@ -4624,10 +4624,14 @@ def build_image_request_prompt(raw_prompt: str, teammate_name: str, mode: str, s
         extras.append("Keep the same subject and core visual identity while changing only the requested elements.")
     else:
         extras.append("Create a fresh image that directly follows the user's request.")
-    if current_url:
-        extras.append(f"Current thread image reference: {current_url}")
-    if approved_url:
-        extras.append(f"Approved reference image: {approved_url}")
+    # Only anchor to prior images when editing/varying — a "new" request should
+    # never be biased toward the previous image (e.g. asking for a self-portrait
+    # right after generating an unrelated graphic).
+    if mode in ("edit", "variation"):
+        if current_url:
+            extras.append(f"Current thread image reference: {current_url}")
+        if approved_url:
+            extras.append(f"Approved reference image: {approved_url}")
     if source_rec and _is_image_record(source_rec):
         extras.append(f"Uploaded image reference: {_image_url_for_record(source_rec)}")
         extras.append("Use the uploaded image as the primary visual reference.")
