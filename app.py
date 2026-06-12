@@ -24,6 +24,13 @@ from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
+from prompts import (
+    VISUAL_CODEGEN_SYSTEM_PROMPT,
+    visual_codegen_user_prompt,
+    VISUAL_SCENE_OVERLAY_SYSTEM_PROMPT,
+    visual_scene_overlay_user_prompt,
+)
+
 from flask import Flask, request, render_template_string, jsonify, session, redirect, url_for, make_response, g, send_from_directory, abort
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -511,6 +518,35 @@ def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, An
             return d
         except Exception:
             return {"month": month, "count": 0, "image_count": 0}
+
+# ── AI cost estimation tables ───────────────────────────────────────────────
+# Rough USD-per-1M-token pricing, used only to *estimate* spend in the usage
+# dashboard — not billing-accurate, but enough to spot heavy users or runaway
+# costs at a glance.
+_MODEL_PRICING_PER_1M = {
+    "gpt-4o":            {"in": 2.50,  "out": 10.00},
+    "gpt-4o-mini":       {"in": 0.15,  "out": 0.60},
+    "claude-opus-4-5":   {"in": 15.00, "out": 75.00},
+    "claude-sonnet-4-6": {"in": 3.00,  "out": 15.00},
+}
+_DEFAULT_TOKEN_PRICING = {"in": 2.50, "out": 10.00}
+
+# Flat per-image cost estimates (USD) for gpt-image-1 / dall-e-3 by quality.
+_IMAGE_COST_USD = {
+    "gpt-image-1": {"low": 0.02, "medium": 0.07, "high": 0.19, "default": 0.07},
+    "dall-e-3":    {"standard": 0.04, "hd": 0.08, "default": 0.04},
+}
+
+
+def _estimate_token_cost_usd(model: str, tokens_in: int, tokens_out: int) -> float:
+    pricing = _MODEL_PRICING_PER_1M.get(model, _DEFAULT_TOKEN_PRICING)
+    return (tokens_in / 1_000_000.0) * pricing["in"] + (tokens_out / 1_000_000.0) * pricing["out"]
+
+
+def estimate_image_cost_usd(model: str, quality: str = "") -> float:
+    table = _IMAGE_COST_USD.get(model, _IMAGE_COST_USD["gpt-image-1"])
+    return table.get((quality or "").lower(), table["default"])
+
 
 def _user_has_own_key(username: str) -> bool:
     """Return True if the user has saved their own OpenAI or Claude API key (bypasses msg limits)."""
@@ -6058,10 +6094,18 @@ def _usage_log_path(username: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
     return LOGS_DIR / f"usage_{safe}.json"
 
-def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens: int, teammate: str = "") -> None:
-    """Append a token usage record for the user. Best-effort, never raises."""
+def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens: int,
+                      teammate: str = "", kind: str = "chat", cost_usd: Optional[float] = None) -> None:
+    """Append a token usage record for the user. Best-effort, never raises.
+
+    kind: short label ("chat", "visual", "image", "tts") for breaking down spend
+    by feature. cost_usd: pass an explicit estimate (e.g. flat per-image pricing);
+    otherwise estimated from the token pricing table for `model`.
+    """
     try:
         path = _usage_log_path(username or "anon")
+        if cost_usd is None:
+            cost_usd = _estimate_token_cost_usd(model, int(input_tokens or 0), int(output_tokens or 0))
         entry = {
             "ts": now_iso(),
             "model": model,
@@ -6069,6 +6113,8 @@ def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens
             "output_tokens": int(output_tokens or 0),
             "total_tokens": int(input_tokens or 0) + int(output_tokens or 0),
             "teammate": teammate or "",
+            "kind": kind,
+            "cost_usd": round(float(cost_usd or 0.0), 6),
         }
         with _USAGE_LOCK:
             try:
@@ -6590,6 +6636,97 @@ def _clean_visual_html(html: str) -> str:
     # No HTML markers found — this is a refusal/commentary, not a usable file.
     return ""
 
+def _parse_svg_transform(transform: str) -> Tuple[float, float, float]:
+    """Best-effort parse of an SVG transform attribute into (tx, ty, scale).
+
+    Handles combinations of translate(x[,y]) and scale(s[,sy]); other transform
+    functions (rotate, skew, matrix) are ignored (treated as identity), so the
+    result is approximate but good enough for an off-canvas sanity check.
+    """
+    tx = ty = 0.0
+    scale = 1.0
+    if not transform:
+        return tx, ty, scale
+    for m in re.finditer(r"(translate|scale)\(([^)]*)\)", transform):
+        kind, args = m.group(1), m.group(2)
+        parts = [float(a) for a in re.split(r"[,\s]+", args.strip()) if a.strip()]
+        if not parts:
+            continue
+        if kind == "translate":
+            tx += scale * parts[0]
+            ty += scale * (parts[1] if len(parts) > 1 else 0.0)
+        elif kind == "scale":
+            scale *= parts[0]
+    return tx, ty, scale
+
+
+def _svg_bounds_violations(html: str) -> List[str]:
+    """Best-effort check: do any primary circle/ellipse subjects in the generated
+    SVG fall mostly outside the declared viewBox? Returns human-readable violation
+    descriptions for the LLM to fix (empty if the SVG looks fine, has no analyzable
+    shapes, or can't be parsed)."""
+    if not BeautifulSoup:
+        return []
+    try:
+        m = re.search(r'viewBox=["\']?\s*([\d.\-]+)[\s,]+([\d.\-]+)[\s,]+([\d.\-]+)[\s,]+([\d.\-]+)', html)
+        if not m:
+            return []
+        vb_x, vb_y, vb_w, vb_h = (float(g) for g in m.groups())
+        if vb_w <= 0 or vb_h <= 0:
+            return []
+        soup = BeautifulSoup(html, "html.parser")
+        svg = soup.find("svg")
+        if not svg:
+            return []
+        violations: List[str] = []
+
+        def walk(node, tx: float, ty: float, scale: float) -> None:
+            for child in getattr(node, "children", []):
+                name = getattr(child, "name", None)
+                if not name:
+                    continue
+                ctx, cty, cscale = tx, ty, scale
+                if child.has_attr("transform"):
+                    ntx, nty, nscale = _parse_svg_transform(child["transform"])
+                    ctx = tx + scale * ntx
+                    cty = ty + scale * nty
+                    cscale = scale * nscale
+                if name in ("circle", "ellipse"):
+                    try:
+                        cx = float(child.get("cx", 0))
+                        cy = float(child.get("cy", 0))
+                        if name == "circle":
+                            rx = ry = float(child.get("r", 0))
+                        else:
+                            rx = float(child.get("rx", 0))
+                            ry = float(child.get("ry", 0))
+                        gx, gy = ctx + cscale * cx, cty + cscale * cy
+                        grx, gry = cscale * rx, cscale * ry
+                        # Only flag shapes large enough to be a primary subject —
+                        # skip tiny stars/particles/spots.
+                        if grx >= 0.08 * vb_w or gry >= 0.08 * vb_h:
+                            min_x, max_x = gx - grx, gx + grx
+                            min_y, max_y = gy - gry, gy + gry
+                            area = (max_x - min_x) * (max_y - min_y)
+                            visible_w = max(0.0, min(max_x, vb_x + vb_w) - max(min_x, vb_x))
+                            visible_h = max(0.0, min(max_y, vb_y + vb_h) - max(min_y, vb_y))
+                            if area > 0 and (visible_w * visible_h) / area < 0.6:
+                                violations.append(
+                                    f"<{name}> centered at ({gx:.0f},{gy:.0f}) with radius "
+                                    f"~{max(grx, gry):.0f} is mostly outside the viewBox "
+                                    f"(0 0 {vb_w:.0f} {vb_h:.0f}) — move and/or resize it so the "
+                                    f"whole shape stays within bounds with comfortable margin."
+                                )
+                    except Exception:
+                        pass
+                walk(child, ctx, cty, cscale)
+
+        walk(svg, 0.0, 0.0, 1.0)
+        return violations[:5]
+    except Exception:
+        return []
+
+
 _VISUAL_UI_KEYWORDS = (
     "countdown", "dashboard", "infographic", "carousel", "slideshow", "stat ",
     "stats ", "statistic", "chart", "graph", "pricing", "landing page", " ui ",
@@ -6628,6 +6765,12 @@ def _call_visual_llm(system: str, user_msg: str, username: str) -> str:
                 messages=[{"role": "user", "content": user_msg}],
                 temperature=1.0,
             )
+            usage = getattr(resp, "usage", None)
+            if usage:
+                _log_token_usage(username, "claude-opus-4-5",
+                                  getattr(usage, "input_tokens", 0) or 0,
+                                  getattr(usage, "output_tokens", 0) or 0,
+                                  kind="visual")
             html = _clean_visual_html(resp.content[0].text or "")
             if html:
                 return html
@@ -6645,6 +6788,12 @@ def _call_visual_llm(system: str, user_msg: str, username: str) -> str:
             ],
             temperature=1.0,
         )
+        usage = getattr(resp, "usage", None)
+        if usage:
+            _log_token_usage(username, "gpt-4o",
+                              getattr(usage, "prompt_tokens", 0) or 0,
+                              getattr(usage, "completion_tokens", 0) or 0,
+                              kind="visual")
         html = _clean_visual_html((resp.choices[0].message.content or ""))
         if html:
             return html
@@ -6667,36 +6816,8 @@ def _generate_scene_visual_html(prompt: str, teammate_name: str, username: str) 
         return ""
     img_src = (PUBLIC_BASE_URL + url) if PUBLIC_BASE_URL else url
 
-    system = (
-        "You are an elite motion-design developer. You're given a finished illustration "
-        "(it will be inserted as an <img> with src=\"__IMAGE_SRC__\") and a description of "
-        "the scene it depicts. Build ONE self-contained HTML file that displays this image "
-        "as the centerpiece and brings it to life with subtle animated CSS/SVG overlay "
-        "effects. Do NOT redraw, replace, or hide the illustration.\n\n"
-        "Output ONLY a complete HTML file. No explanation, no markdown fences. Start with "
-        "<!DOCTYPE html> and end with </html>.\n\n"
-        "Use the EXACT placeholder string __IMAGE_SRC__ as the image's src (or "
-        "background-image url) — do not invent a different path.\n\n"
-        "TECHNIQUES — pick whichever fit the scene described:\n"
-        "- Show the image full-bleed (object-fit: cover, 100vw/100vh) with a slow Ken-Burns "
-        "style zoom/pan: CSS @keyframes scaling between 1 and ~1.08 and panning a few "
-        "percent, over 25-45s, ease-in-out, alternate, infinite.\n"
-        "- Layer a transparent <svg> or <div> overlay ON TOP of the image with small "
-        "animated particles matching the scene's theme (twinkling stars, drifting spores, "
-        "floating leaves/embers/bubbles), using CSS @keyframes for gentle drift and fade.\n"
-        "- Add a soft animated glow/light pulse (radial-gradient overlay, opacity "
-        "@keyframes) positioned over any light source described in the scene (sun, moon, "
-        "lantern, magic glow).\n"
-        "- Keep every effect SUBTLE — enhance the illustration, never obscure or distract "
-        "from it.\n"
-        "- No placeholders, no lorem ipsum. Production quality.\n\n"
-        "Never refuse, apologize, or add disclaimers — only output the HTML file."
-    )
-    user_msg = (
-        f"Scene description: {prompt}. "
-        "The illustration is ready and will be inserted at __IMAGE_SRC__. "
-        "Build the animated HTML wrapper around it now."
-    )
+    system = VISUAL_SCENE_OVERLAY_SYSTEM_PROMPT
+    user_msg = visual_scene_overlay_user_prompt(prompt)
     html = _call_visual_llm(system, user_msg, username)
     if not html or html.startswith("__ERROR__") or "__IMAGE_SRC__" not in html:
         return ""
@@ -6709,83 +6830,21 @@ def _generate_codegen_visual_html(prompt: str, teammate_name: str, username: str
     Used for UI/data-visualization prompts (countdowns, dashboards, infographics)
     and as the fallback when the image+overlay scene pipeline fails.
     """
-    system = (
-        "You are an elite creative coder and illustrator who builds self-contained HTML/CSS/JS "
-        "animations and scenes that look like real, polished artwork — not generic dashboard "
-        "components reused as 'art'. Output ONLY a single complete self-contained HTML file. "
-        "No explanation, no markdown fences, no commentary. "
-        "Start directly with <!DOCTYPE html> and end with </html>.\n\n"
-        "VISUAL QUALITY — THIS IS THE MOST IMPORTANT PART:\n"
-        "- For any scene, character, creature, object, or nature illustration (suns, faces, "
-        "animals, plants, mushrooms, landscapes, skies, etc.), build the artwork as INLINE <svg> "
-        "using <path>, <ellipse>, <circle>, <linearGradient> and <radialGradient> — NOT plain CSS "
-        "divs with border-radius. Flat CSS-circle '"+'"'+"clipart"+'"'+"' looks cheap and is forbidden for "
-        "illustrative subjects.\n"
-        "- Draw real anatomy/structure: a smiling face needs eyes (circles/ellipses with highlight "
-        "dots), rosy cheeks (soft blush ellipses), and a genuine curved smile (a <path> with a "
-        "quadratic/cubic Bezier curve, not a straight line or CSS border-radius arc). A mushroom "
-        "needs a domed cap with a flared underside silhouette, visible spots/texture on the cap, "
-        "gills or rim detail under the cap, and a tapered stem — not a circle on a rectangle. "
-        "Apply the same care to ANY subject the user describes: think about what makes that "
-        "object recognizable and draw its real silhouette and details.\n"
-        "- Skies/backgrounds: use layered gradients (linearGradient for sky gradient, "
-        "radialGradient for glows/suns/moons), scattered stars or particles with staggered "
-        "twinkle animations, and distant elements (planets, clouds, hills) for depth. Build "
-        "depth with multiple layers (far background, midground, foreground), not one flat color.\n"
-        "- Color and mood should match the user's prompt — if they describe a cosmic/night scene, "
-        "use deep purples/indigos/blues with glowing accents; if they describe daytime, use bright "
-        "skies. Don't force a generic dark-purple dashboard palette onto illustrative scenes.\n"
-        "- Animate with real CSS @keyframes (smooth cubic-bezier easing): gentle floating, "
-        "swaying (with correct transform-origin at the base of the object), twinkling, glowing "
-        "pulses, slow rotation for rays/halos, parallax drift. Animations should feel alive and "
-        "subtle, not jarring.\n\n"
-        "SCENE COMPOSITION — CRITICAL, FOLLOW EXACTLY:\n"
-        "- Build the ENTIRE illustration as ONE <svg> element with a single fixed viewBox, e.g. "
-        "viewBox=\"0 0 800 600\". Do NOT scatter separate <svg> elements or absolutely-positioned "
-        "CSS shapes around the page for one scene — that is how subjects end up cut off or "
-        "off-canvas. Every shape (sun, characters, mushrooms, ground, stars, etc.) is drawn inside "
-        "this one coordinate space.\n"
-        "- Before writing the final SVG, plan simple coordinates for each element in your head: "
-        "the main subject(s) described by the user should be centered in the composition (roughly "
-        "x: 30%-70% of the viewBox width) and fully visible with comfortable margin — never place "
-        "a primary subject so its center is near x=0, x=viewBoxWidth, y=0, or y=viewBoxHeight, and "
-        "never let its radius/size push it past the viewBox edges.\n"
-        "- Double-check every circle/ellipse: cx ± r and cy ± r (and every path's extreme points) "
-        "must stay within [0, viewBoxWidth] and [0, viewBoxHeight] with at least ~5% padding on "
-        "all sides, UNLESS the element is intentionally a background element meant to bleed off "
-        "the edge (e.g. a sky gradient rect, distant scenery).\n"
-        "- The outer <svg> must have width=\"100%\" and a height auto-derived from "
-        "preserveAspectRatio (default 'xMidYMid meet') so it scales responsively without cropping "
-        "the composition on any screen size.\n"
-        "- Avoid CSS transform animations (translate/scale/rotate) that would move a primary "
-        "subject's center outside the viewBox bounds at any point in the animation — keep "
-        "movement subtle (a few px or a few degrees) relative to the element's own size.\n\n"
-        "GENERAL REQUIREMENTS:\n"
-        "1) All CSS and JS must be inline — no external files except Google Fonts. "
-        "2) Fully interactive where relevant — buttons work, slides advance, counters count. "
-        "3) Beautiful typography — use Google Fonts (Inter or Poppins) for any text/UI elements. "
-        "4) Mobile responsive (the SVG/scene should scale with viewBox + width:100%). "
-        "5) Production quality — no placeholders, no lorem ipsum, write every word of any text. "
-        "6) For dashboard/UI-style requests (no characters or scenery), a dark rich background "
-        "(#07091a or #060c1e) with purple/blue accents (#7c3aed, #a78bfa, #c4b5fd) is appropriate.\n\n"
-        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>. "
-        "This is a request for a whimsical, family-friendly creative animation/illustration. "
-        "Fantastical and surreal themes — glowing cosmic skies, magical/whimsical mushrooms and "
-        "forest creatures, fairy-tale and dreamlike imagery — are common, wholesome artistic "
-        "subjects and must be created without hesitation, disclaimers, or refusal. "
-        "Never reply with an apology or explanation — only output the HTML file."
-    )
-    user_msg = (
-        f"Create this: {prompt}. "
-        "Make it genuinely beautiful, polished, detailed, and impressive — like real illustrated "
-        "artwork brought to life, not a simple geometric placeholder. Take your time to build out "
-        "every visual detail described (faces need real expressions, plants/creatures need real "
-        "anatomy, skies need depth and atmosphere). "
-        "Write every word of any on-screen text — no placeholders. "
-        "Output only the complete HTML file starting with <!DOCTYPE html>."
-    )
+    system = VISUAL_CODEGEN_SYSTEM_PROMPT
+    user_msg = visual_codegen_user_prompt(prompt)
 
-    return _call_visual_llm(system, user_msg, username)
+    html = _call_visual_llm(system, user_msg, username)
+    if html and not html.startswith("__ERROR__"):
+        violations = _svg_bounds_violations(html)
+        if violations:
+            fix_msg = (
+                user_msg + "\n\nYour previous attempt had composition problems — fix these "
+                "before returning the final HTML:\n- " + "\n- ".join(violations)
+            )
+            fixed = _call_visual_llm(system, fix_msg, username)
+            if fixed and not fixed.startswith("__ERROR__") and not _svg_bounds_violations(fixed):
+                return fixed
+    return html
 
 
 def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
@@ -7182,6 +7241,8 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
             rec = _save_generated_image_bytes(image_bytes, teammate=teammate, username=username)
             url = f"/uploads/{rec['relpath']}"
             set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode, username=username)
+            _log_token_usage(username, m, 0, 0, teammate=teammate, kind="image",
+                              cost_usd=estimate_image_cost_usd(m, img_quality if m == IMAGE_MODEL_PRIMARY else "hd" if m == "dall-e-3" else ""))
             return rec, url, None
 
         except Exception as e:
@@ -7217,6 +7278,8 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
                     rec = _save_generated_image_bytes(image_bytes, teammate=teammate, username=username)
                     url = f"/uploads/{rec['relpath']}"
                     set_current_image_for_teammate(teammate, rec, source="generated", prompt=prompt, mode=mode, username=username)
+                    _log_token_usage(username, m, 0, 0, teammate=teammate, kind="image",
+                              cost_usd=estimate_image_cost_usd(m, img_quality if m == IMAGE_MODEL_PRIMARY else "hd" if m == "dall-e-3" else ""))
                     return rec, url, None
                 except Exception as e2:
                     last_err = str(e2) or "Image generation failed (retry)"
@@ -50553,6 +50616,47 @@ def api_admin_daemons():
         return jsonify({"ok": False, "error": "Forbidden"}), 403
     return jsonify({"ok": True, "daemons": _daemon_status(), "ts": now_iso()})
 
+@app.get("/api/admin/backups")
+def api_admin_backups():
+    """Admin-only: list local data backups (timestamp, size) and the
+    automated backup schedule/config."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    backups = []
+    try:
+        for p in sorted(BACKUP_DIR.glob("data_*.tar.gz"), key=lambda p: p.name, reverse=True):
+            st = p.stat()
+            backups.append({
+                "name": p.name,
+                "size_bytes": st.st_size,
+                "created_at": datetime.utcfromtimestamp(st.st_mtime).isoformat() + "Z",
+            })
+    except Exception:
+        pass
+    return jsonify({
+        "ok": True,
+        "backups": backups,
+        "interval_hours": BACKUP_INTERVAL_HOURS,
+        "keep": BACKUP_KEEP,
+        "backup_dir": str(BACKUP_DIR),
+        "s3_bucket": BACKUP_S3_BUCKET or None,
+    })
+
+
+@app.post("/api/admin/backups/run")
+def api_admin_backups_run():
+    """Admin-only: trigger an on-demand data backup right now."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    try:
+        _run_backup()
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
 @app.get("/api/admin/errors")
 def api_admin_errors():
     """JSON version of the error log. Tracebacks are stripped for security — use the
@@ -53486,24 +53590,30 @@ def api_usage_summary():
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     entries = _read_token_usage(uname, limit=5000)
     if not entries:
-        return jsonify({"ok": True, "summary": {"total_input": 0, "total_output": 0, "total_calls": 0, "by_model": {}, "by_teammate": {}, "recent": []}})
+        return jsonify({"ok": True, "summary": {"total_input": 0, "total_output": 0, "total_calls": 0, "total_cost_usd": 0.0, "by_model": {}, "by_teammate": {}, "by_kind": {}, "recent": []}})
     total_in  = sum(int(e.get("input_tokens", 0))  for e in entries)
     total_out = sum(int(e.get("output_tokens", 0)) for e in entries)
+    total_cost = sum(float(e.get("cost_usd", 0) or 0) for e in entries)
     by_model: dict = {}
     by_tm: dict = {}
+    by_kind: dict = {}
     for e in entries:
         m = e.get("model") or "unknown"
         by_model[m] = by_model.get(m, 0) + int(e.get("total_tokens", 0))
         tm = e.get("teammate") or "unknown"
         by_tm[tm] = by_tm.get(tm, 0) + int(e.get("total_tokens", 0))
+        k = e.get("kind") or "chat"
+        by_kind[k] = by_kind.get(k, 0.0) + float(e.get("cost_usd", 0) or 0)
     recent = entries[-20:][::-1]
     return jsonify({"ok": True, "summary": {
         "total_input":   total_in,
         "total_output":  total_out,
         "total_tokens":  total_in + total_out,
         "total_calls":   len(entries),
+        "total_cost_usd": round(total_cost, 4),
         "by_model":      dict(sorted(by_model.items(), key=lambda x: x[1], reverse=True)),
         "by_teammate":   dict(sorted(by_tm.items(), key=lambda x: x[1], reverse=True)[:10]),
+        "by_kind":       {k: round(v, 4) for k, v in sorted(by_kind.items(), key=lambda x: x[1], reverse=True)},
         "recent":        recent,
     }})
 
