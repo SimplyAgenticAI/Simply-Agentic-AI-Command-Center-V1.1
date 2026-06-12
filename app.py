@@ -17325,21 +17325,35 @@ body::after{
 }
 
 /* ── Seat status: reserve fixed space so cycling phrases never resize the card ── */
-.seatStatus{
+.seatStatus,
+.seat .seatStatus,
+#tableWrap .seat .seatMeta .seatStatus,
+html[data-phone] #tableWrap .seat .seatStatus{
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  box-sizing: border-box !important;
   min-height: 2.6em !important;
+  max-height: 2.6em !important;
   height: 2.6em !important;
   overflow: hidden !important;
   align-items: flex-start !important;
   line-height: 1.3em !important;
+  flex: 0 0 2.6em !important;
 }
-.seatStatus .saPhraseTxt{
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3em;
-  max-height: 2.6em;
+.seatStatus .saPhraseTxt,
+.seat .seatStatus .saPhraseTxt,
+#tableWrap .seat .seatMeta .seatStatus .saPhraseTxt{
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.3em !important;
+  max-height: 2.6em !important;
+  min-width: 0 !important;
+}
+.seatMeta{
+  flex: 0 0 auto !important;
 }
 
 </style>
