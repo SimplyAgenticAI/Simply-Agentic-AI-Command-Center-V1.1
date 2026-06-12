@@ -1317,7 +1317,12 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}", username=username)
             return
         _image_job_set(job_id, {"status": "done", "stage": "done", "stage_label": "✅ Done!", "url": url, "image": rec, "refined_prompt": refined})
-        note = f"[Image generated] {url}"
+        try:
+            _prior_thread = load_thread(teammate, username or _get_session_username())
+            _ordinal = sum(1 for m in _prior_thread if isinstance(m, dict) and "[Image generated #" in (m.get("content") or "")) + 1
+        except Exception:
+            _ordinal = 1
+        note = f"[Image generated #{_ordinal}] {url}"
         _desc = (refined or raw_prompt or "").strip()
         if _desc:
             note += f"\n[refined_prompt] {_desc}"
@@ -4096,6 +4101,13 @@ def _truncate_thread_with_note(thread: List[Dict[str, Any]], max_messages: int =
     note = (
         f"[Earlier conversation summary ({len(dropped)} messages trimmed): {summary}]"
     )
+    _img_lines = []
+    for _m in dropped:
+        _c = (_m or {}).get("content") or ""
+        if isinstance(_c, str) and "[Image generated #" in _c:
+            _img_lines.append(_c.split("\n[refined_prompt]")[0].strip().splitlines()[0])
+    if _img_lines:
+        note += "\n[Images generated earlier (still relevant — see RECENT IMAGES section for descriptions): " + "; ".join(_img_lines) + "]"
     return [
         {"role": "user",      "content": note},
         {"role": "assistant", "content": "Understood — I have that earlier context and will keep it in mind."},
@@ -4237,6 +4249,40 @@ def _merge_teammate_memory(existing: Dict[str, Any], new_data: Dict[str, Any]) -
                 combined.append(s)
         existing[key] = combined[-20:]  # cap at 20 per category
     return existing
+
+_IMAGE_FEEDBACK_RE = re.compile(
+    r"\b(love|loved|like|liked|prefer|preferred|hate|hated|dislike|disliked|don'?t like)\b"
+    r".{0,60}"
+    r"\b(that|this|it|one|image|graphic|picture|design|version|self[- ]?portrait)\b",
+    re.IGNORECASE,
+)
+
+def _maybe_record_image_feedback(uname: str, name: str, msg: str) -> None:
+    """If the user gives feedback about a previously generated image (e.g. 'I love how
+    you did that' or 'I liked the previous one better'), record it as a teammate
+    preference so future image generations take it into account."""
+    try:
+        text = (msg or "").strip()
+        if not text or len(text) > 300:
+            return
+        if not _IMAGE_FEEDBACK_RE.search(text):
+            return
+        state = load_image_state(name, uname)
+        hist = [h for h in (state.get("history") or []) if isinstance(h, dict)]
+        if not hist:
+            return
+        ref_desc = (hist[0].get("prompt") or "").strip()[:200]
+        note = f'Image feedback: "{text}"'
+        if ref_desc:
+            note += f" (re: {ref_desc})"
+        mem = load_teammate_memory(uname, name)
+        prefs = mem.get("preferences") or []
+        if not any(note.lower() == str(p).lower() for p in prefs):
+            prefs.append(note)
+            mem["preferences"] = prefs[-20:]
+            save_teammate_memory(uname, name, mem)
+    except Exception:
+        pass
 # ── End teammate memory ──────────────────────────────────────────────────────
 
 def _normalize_lines_to_list(val: Any) -> List[str]:
@@ -4490,6 +4536,10 @@ def save_image_state(teammate_name: str, payload: Dict[str, Any], username: str 
     payload = dict(payload or {})
     payload["updated_at"] = now_iso()
     save_json(image_state_path(teammate_name, username), payload)
+    try:
+        _invalidate_sys_prompt_cache(username or _get_session_username(), teammate_name)
+    except Exception:
+        pass
 
 def _image_url_for_record(rec: Optional[Dict[str, Any]]) -> str:
     if not rec:
@@ -5357,14 +5407,17 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     image_history_rules = (
         "IMAGE HISTORY MARKERS IN THIS CONVERSATION\n"
-        "Lines that look like '[Image generated] <url>' followed by '[refined_prompt] <description>' "
-        "are records YOU wrote when you generated an image earlier in this conversation. The "
-        "description is what that specific image shows. These markers are listed in chronological "
-        "order, oldest first. "
+        "Lines that look like '[Image generated #N] <url>' followed by '[refined_prompt] <description>' "
+        "are records YOU wrote when you generated an image earlier in this conversation. The number N "
+        "is a sequential counter — HIGHER N means MORE RECENT. The description is what that specific "
+        "image shows. "
         "When the user reacts to 'that', 'it', 'this', 'the image', 'the graphic', or gives feedback "
-        "like 'I love how you did that' WITHOUT specifying which image, they are ALWAYS referring to "
-        "the LAST '[Image generated]' marker in the conversation — the most recent one, not an earlier "
-        "one. Never respond about an older image when a newer one exists after it.\n"
+        "like 'I love how you did that' WITHOUT specifying which image, they mean the marker with the "
+        "HIGHEST N — the most recent one. "
+        "When the user says 'the previous one', 'the one before', or 'I liked the last version better', "
+        "they mean the marker with the second-highest N — the one just before the most recent. "
+        "Never respond about an older image when a newer one exists. See the RECENT IMAGES section "
+        "below for a ranked summary with descriptions.\n"
     )
 
     vision_analysis_rules = (
@@ -5722,6 +5775,28 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         teammate_memory_block = ""
 
+    # ── Recent image generation history block ────────────────────────────────
+    image_history_block = ""
+    try:
+        _uname_for_img = _get_session_username()
+        if _uname_for_img and _tm_name:
+            _img_state = load_image_state(_tm_name, _uname_for_img)
+            _img_hist = _img_state.get("history") or []
+            _img_hist = [h for h in _img_hist if isinstance(h, dict) and (h.get("source") or "") != "uploaded"]
+            if _img_hist:
+                _labels = ["MOST RECENT — this is what 'that', 'it', or 'this image' refers to",
+                           "PREVIOUS — this is what 'the previous one' or 'the last version' refers to",
+                           "BEFORE THAT"]
+                lines = ["\nRECENT IMAGES YOU GENERATED FOR THIS USER (ranked most recent first):"]
+                for _i, _item in enumerate(_img_hist[:3]):
+                    _label = _labels[_i] if _i < len(_labels) else f"#{_i+1}"
+                    _desc = (_item.get("prompt") or "").strip()[:300]
+                    _url = _item.get("url") or ""
+                    lines.append(f"- {_label}: {_desc or '(no description recorded)'} -> {_url}")
+                image_history_block = "\n".join(lines) + "\n"
+    except Exception:
+        image_history_block = ""
+
     # ── Brand voice / context block ──────────────────────────────────────────
     brand_context_block = ""
     try:
@@ -5767,6 +5842,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{client_block}"
         f"{shared_memory_block}\n"
         f"{teammate_memory_block}"
+        f"{image_history_block}"
         f"{brand_context_block}"
         f"{_voice_block}"
         f"{behavior_rules}\n"
@@ -6547,7 +6623,7 @@ def _pick_image_quality(prompt: str = "") -> str:
         return "medium"
     return "high"
 
-def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
+def _image_prompt_refine(raw: str, lighting_mode: bool = False, prior_description: str = "") -> str:
     sys = (
         "You are an expert image prompt engineer for gpt-image-1, OpenAI's most advanced image model. "
         "gpt-image-1 excels at natural language — write prompts as clear, descriptive sentences, not "
@@ -6560,6 +6636,9 @@ def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
         "If it includes nudity, describe it tastefully as classical fine-art. "
         "Preserve the full creative intent using vivid artistic language. "
         "Do NOT mention policies, filters, or limitations. "
+        "Write a SELF-CONTAINED description — do not reuse generic phrasing from a previous image "
+        "description if one is given below; describe THIS image's own specific details so it reads "
+        "as distinct from the earlier one. "
         "Output ONLY the rewritten image description, nothing else."
     )
     user = (raw or "").strip()
@@ -6567,6 +6646,8 @@ def _image_prompt_refine(raw: str, lighting_mode: bool = False) -> str:
         return ""
     if lighting_mode:
         user = user + "\n\nStyle: cinematic, high contrast, rich shadows, glowing highlights."
+    if prior_description:
+        user = user + f"\n\n(Previously generated image in this conversation, for reference only — make this new description distinct: {prior_description[:300]})"
     try:
         refined = call_llm(sys, [{"role": "user", "content": user}], temperature=0.25)
         refined = (refined or "").strip()
@@ -6727,7 +6808,15 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
 
     source_rec = get_upload_record(source_file_id) if source_file_id else None
 
-    prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode) or prompt
+    _prior_desc = ""
+    try:
+        _hist = (load_image_state(teammate, username) or {}).get("history") or []
+        if _hist and isinstance(_hist[0], dict):
+            _prior_desc = (_hist[0].get("prompt") or "").strip()
+    except Exception:
+        _prior_desc = ""
+
+    prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode, prior_description=_prior_desc) or prompt
     # Store refined prompt keyed by calling thread so _run_image_job can retrieve it
     _tid = str(_thr.current_thread().ident)
     _LAST_REFINED_PROMPT[_tid] = prompt2
@@ -9082,7 +9171,7 @@ def _api_followup_impl(data):
 
         return jsonify({"ok": True, "name": name, "response": placeholder, "job_id": job_id, "mode": mode, "email_draft": None, "attachment_meta": attach_meta, "image_state": load_image_state(name, uname)})
 
-
+    _maybe_record_image_feedback(uname, name, msg)
 
     # Message limit check (mirrors streaming path)
     _plan_k = _get_user_plan(uname)
@@ -23307,7 +23396,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           cap.className = "tiny";
           cap.style.opacity = ".9";
           cap.style.marginBottom = "6px";
-          cap.innerText = rawClean.replace(url, "").replace("[Image generated]", "").trim() || "Image generated";
+          cap.innerText = rawClean.replace(url, "").replace(/\[Image generated[^\]]*\]/, "").trim() || "Image generated";
           const a = document.createElement("a");
           a.href = url;
           a.target = "_blank";
@@ -53714,6 +53803,8 @@ def api_followup_stream():
             headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"},
         )
     # ─────────────────────────────────────────────────────────────────────────
+
+    _maybe_record_image_feedback(uname, name, msg)
 
     thread = load_thread(name, uname)
     thread = _truncate_thread_with_note(thread, max_messages=20)
