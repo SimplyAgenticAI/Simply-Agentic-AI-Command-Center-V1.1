@@ -1359,6 +1359,64 @@ def create_image_job(raw_prompt: str, teammate: str, username: str, lighting_mod
     return job_id
 
 # =========================
+# VISUAL CREATOR JOBS (non-blocking, disk-persistent)
+# =========================
+VISUAL_JOBS: Dict[str, Dict[str, Any]] = {}
+VISUAL_JOBS_LOCK = threading.Lock()
+
+def _visual_job_path(job_id: str) -> "Path":
+    return _jobs_dir() / f"vis_{job_id}.json"
+
+def _visual_job_set(job_id: str, patch: Dict[str, Any]) -> None:
+    with VISUAL_JOBS_LOCK:
+        cur = VISUAL_JOBS.get(job_id) or {}
+        cur.update(patch or {})
+        VISUAL_JOBS[job_id] = cur
+    try:
+        p = _visual_job_path(job_id)
+        p.write_text(json.dumps(VISUAL_JOBS.get(job_id) or {}), encoding="utf-8")
+    except Exception:
+        pass
+
+def _visual_job_get(job_id: str) -> Dict[str, Any]:
+    with VISUAL_JOBS_LOCK:
+        if job_id in VISUAL_JOBS:
+            return dict(VISUAL_JOBS[job_id])
+    try:
+        p = _visual_job_path(job_id)
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            with VISUAL_JOBS_LOCK:
+                VISUAL_JOBS[job_id] = data
+            return dict(data)
+    except Exception:
+        pass
+    return {}
+
+def _run_visual_job(job_id: str, prompt: str, teammate: str, username: str) -> None:
+    _visual_job_set(job_id, {"status": "running"})
+    try:
+        with app.app_context():
+            html = _generate_visual_html(prompt, teammate, username)
+        if html == "__NO_KEY__":
+            _visual_job_set(job_id, {"status": "error", "error": "Add your Anthropic API key in Settings → API Keys to generate visuals."})
+        elif html.startswith("__ERROR__"):
+            _visual_job_set(job_id, {"status": "error", "error": html[len("__ERROR__"):] or "Visual generation failed"})
+        elif not html:
+            _visual_job_set(job_id, {"status": "error", "error": "Visual generation failed — please try again."})
+        else:
+            _visual_job_set(job_id, {"status": "done", "html": html})
+    except Exception as e:
+        _visual_job_set(job_id, {"status": "error", "error": str(e) or "Visual generation failed"})
+
+def create_visual_job(prompt: str, teammate: str, username: str) -> str:
+    job_id = uuid.uuid4().hex
+    _visual_job_set(job_id, {"status": "queued", "created_at": now_iso(), "teammate": teammate, "username": username or ""})
+    t = threading.Thread(target=_run_visual_job, args=(job_id, prompt, teammate, username), daemon=True)
+    t.start()
+    return job_id
+
+# =========================
 # AUTH + PER-USER SETTINGS
 # =========================
 
@@ -8875,6 +8933,41 @@ def api_image_job_status(job_id: str):
     if st.get("username") and st["username"] != uname:
         return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": st})
+
+
+@app.post("/api/visual_creator")
+def api_visual_creator():
+    """Kick off background generation of a self-contained HTML visual/animation."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    rl = _check_rate_limit("visual_creator", 10)  # 10 visual generations/min per user
+    if rl:
+        return rl
+    data = request.get_json(silent=True) or {}
+    prompt = (data.get("prompt") or "").strip()
+    if not prompt:
+        return jsonify({"ok": False, "error": "No prompt provided"}), 400
+    if len(prompt) > MAX_PROMPT_CHARS:
+        return jsonify({"ok": False, "error": f"Prompt exceeds {MAX_PROMPT_CHARS:,} character limit."}), 400
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    teammate = (data.get("teammate") or "").strip()
+    job_id = create_visual_job(prompt, teammate, uname)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.get("/api/visual_creator/status/<job_id>")
+def api_visual_creator_status(job_id: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    st = _visual_job_get(job_id)
+    if not st:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    if st.get("username") and st["username"] != uname:
+        return jsonify({"ok": False, "error": "Job not found"}), 404
+    return jsonify({"ok": True, "status": st.get("status", ""), "html": st.get("html", ""), "error": st.get("error", "")})
 
 
 @app.post("/api/convene")
