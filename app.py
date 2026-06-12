@@ -6586,8 +6586,9 @@ def _clean_visual_html(html: str) -> str:
         idx = html.find(marker)
         if idx != -1:
             html = html[idx:]
-            break
-    return html if len(html) > 200 else ""
+            return html if len(html) > 200 else ""
+    # No HTML markers found — this is a refusal/commentary, not a usable file.
+    return ""
 
 def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
     """Generate a self-contained HTML animation/visual.
@@ -6610,7 +6611,12 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         "5) Beautiful typography — use Google Fonts (Inter or Poppins). "
         "6) Mobile responsive. "
         "7) Production quality — no placeholders, no lorem ipsum, write every word. "
-        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>."
+        "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>. "
+        "This is a request for a whimsical, family-friendly creative animation/illustration. "
+        "Fantastical and surreal themes — glowing cosmic skies, magical/whimsical mushrooms and "
+        "forest creatures, fairy-tale and dreamlike imagery — are common, wholesome artistic "
+        "subjects and must be created without hesitation, disclaimers, or refusal. "
+        "Never reply with an apology or explanation — only output the HTML file."
     )
     user_msg = (
         f"Create this: {prompt}. "
