@@ -6874,11 +6874,36 @@ def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
     if not p:
         return False
 
+    def _word_in(words, text):
+        return any(re.search(r"\b" + re.escape(w) + r"\b", text) for w in words)
+
     # ── EDIT PATH: image already in context ───────────────────────────────
     # When the user has an existing image, ANY edit/modification phrase counts.
     # We NEVER apply the exclusion list here — 'change', 'fix', 'update', 'color'
     # etc. are all legitimate image-edit verbs when an image is active.
+    #
+    # Guard: a lingering current_image_id should not hijack an unrelated
+    # question just because a short edit-verb (add/fix/move/keep/...) happens
+    # to appear as a word in the sentence (e.g. "marketing moves"). If the
+    # message reads as a question and doesn't reference the image/graphic
+    # itself, treat it as if no image were in context.
+    _visual_ref_terms = (
+        "image", "graphic", "picture", "photo", "design", "logo",
+        "artwork", "illustration", "this one", "that one",
+        "the image", "the graphic", "the picture", "the design", "the logo",
+    )
+    edit_context_active = has_image_context
     if has_image_context:
+        _first_word = p.split(" ", 1)[0].strip("?,.! ")
+        _is_question = p.endswith("?") or _first_word in (
+            "what", "why", "how", "who", "when", "which", "should",
+            "could", "would", "can", "do", "does", "is", "are",
+        )
+        if (_is_question and not _word_in(_visual_ref_terms, p)
+                and not any(t in p for t in _IMAGE_TRIGGERS)):
+            edit_context_active = False
+
+    if edit_context_active:
         _edit_in_context = [
             "edit", "change", "revise", "adjust", "tweak", "make it", "make the",
             "move", "replace", "add", "remove", "fix", "clean up", "enhance",
@@ -6891,10 +6916,10 @@ def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
             "enhance the depth", "make it pop", "add contrast", "add shadow",
             "add glow", "add texture", "change style", "make it look",
         ]
-        if any(x in p for x in _edit_in_context):
+        if _word_in(_edit_in_context, p):
             return True
         # Also catch all _EDIT_HINTS
-        if any(x in p for x in _EDIT_HINTS):
+        if _word_in(_EDIT_HINTS, p):
             return True
 
     # ── EXCLUSION LIST: only when no image in context ─────────────────────
@@ -6906,7 +6931,7 @@ def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
         "review", "check", "update", "change", "edit", "refactor",
         "remove", "delete", "why ", "font", "color", "style",
     ]
-    if not has_image_context and any(ex in p for ex in _img_excl):
+    if not edit_context_active and any(ex in p for ex in _img_excl):
         return False
 
     # ── STRONG TRIGGERS ───────────────────────────────────────────────────
