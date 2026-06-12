@@ -1318,8 +1318,9 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
             return
         _image_job_set(job_id, {"status": "done", "stage": "done", "stage_label": "✅ Done!", "url": url, "image": rec, "refined_prompt": refined})
         note = f"[Image generated] {url}"
-        if refined and refined.strip() != raw_prompt.strip():
-            note += f"\n[refined_prompt] {refined.strip()}"
+        _desc = (refined or raw_prompt or "").strip()
+        if _desc:
+            note += f"\n[refined_prompt] {_desc}"
         _thread_replace_or_append_image_note(teammate, job_id, note, username=username)
         try: _increment_msg_usage(username, images=True)
         except Exception: pass
@@ -5354,6 +5355,18 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "top reading \\'THEY ARE REAL\\', yellow and black color scheme, slight film grain texture.]'\n"
     )
 
+    image_history_rules = (
+        "IMAGE HISTORY MARKERS IN THIS CONVERSATION\n"
+        "Lines that look like '[Image generated] <url>' followed by '[refined_prompt] <description>' "
+        "are records YOU wrote when you generated an image earlier in this conversation. The "
+        "description is what that specific image shows. These markers are listed in chronological "
+        "order, oldest first. "
+        "When the user reacts to 'that', 'it', 'this', 'the image', 'the graphic', or gives feedback "
+        "like 'I love how you did that' WITHOUT specifying which image, they are ALWAYS referring to "
+        "the LAST '[Image generated]' marker in the conversation — the most recent one, not an earlier "
+        "one. Never respond about an older image when a newer one exists after it.\n"
+    )
+
     vision_analysis_rules = (
         "IMAGE ANALYSIS CAPABILITY\n"
         "You CAN see and analyze images when a user attaches one. "
@@ -5743,6 +5756,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"CORE FRAMEWORK:\n{framework}\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
+        f"{image_history_rules}\n"
         f"{vision_analysis_rules}\n"
         f"{visual_rules}\n"
         f"{web_search_rules}\n"
