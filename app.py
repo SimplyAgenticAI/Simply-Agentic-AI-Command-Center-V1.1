@@ -6575,45 +6575,28 @@ def is_visual_request(prompt: str) -> bool:
     return False
 
 
+def _clean_visual_html(html: str) -> str:
+    """Strip markdown fences/preamble so the response starts at <!DOCTYPE html>."""
+    html = (html or "").strip()
+    if "```" in html:
+        lines = html.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        html = "\n".join(lines).strip()
+    for marker in ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]:
+        idx = html.find(marker)
+        if idx != -1:
+            html = html[idx:]
+            break
+    return html if len(html) > 200 else ""
+
 def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str:
-    """Generate a self-contained HTML animation/visual using Claude via the user's own API key."""
-    cl = None
-    # Try current_user() first (works in request context)
-    try:
-        u = current_user()
-        cl = _get_claude_client_for_user(u)
-    except Exception:
-        cl = None
+    """Generate a self-contained HTML animation/visual.
 
-    # Fallback: load user record directly by username
-    if cl is None and username:
-        try:
-            users_data = load_users()
-            u2 = users_data.get("users", {}).get(username, {})
-            cl = _get_claude_client_for_user(u2)
-        except Exception:
-            cl = None
-
-    # Log what we found for debugging
-    try:
-        _u_debug = current_user()
-        _u2_debug = (load_users().get("users", {}) or {}).get(username, {})
-        _k1 = bool(_decrypt_field(((_u_debug or {}).get("settings") or {}).get("claude_key","").strip())) if _u_debug else False
-        _k2 = bool(_decrypt_field(((_u2_debug or {}).get("settings") or {}).get("claude_key","").strip()))
-        append_log("visual_gen_debug", {
-            "uname": username,
-            "current_user_found": bool(_u_debug),
-            "key_via_current_user": _k1,
-            "key_via_load_users": _k2,
-            "cl_is_none": cl is None,
-            "anthropic_sdk": _anthropic_sdk is not None,
-        })
-    except Exception as _log_err:
-        pass
-
-    if cl is None:
-        return "__NO_KEY__"
-
+    Tries the user's Claude key first (best quality for this task), then
+    falls back to OpenAI (the provider already configured for chat/images)
+    so the feature still works for users without an Anthropic key — or if
+    the platform's Anthropic key is missing/invalid.
+    """
     system = (
         "You are an elite creative HTML/CSS/JS developer. "
         "Output ONLY a single complete self-contained HTML file. "
@@ -6635,29 +6618,50 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         "Write every word of content — no placeholders. "
         "Output only the complete HTML file starting with <!DOCTYPE html>."
     )
+
+    # ── Try Claude first, using the user's own saved key only ──────────────
+    claude_key = ""
     try:
-        resp = cl.messages.create(
-            model="claude-opus-4-5",
+        users_data = load_users()
+        u2 = (users_data.get("users", {}) or {}).get(username, {})
+        claude_key = _decrypt_field(((u2.get("settings") or {}).get("claude_key") or "").strip())
+    except Exception:
+        claude_key = ""
+    last_err = ""
+    if claude_key and _anthropic_sdk is not None:
+        try:
+            cl = _anthropic_sdk.Anthropic(api_key=claude_key)
+            resp = cl.messages.create(
+                model="claude-opus-4-5",
+                max_tokens=8000,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                temperature=1.0,
+            )
+            html = _clean_visual_html(resp.content[0].text or "")
+            if html:
+                return html
+        except Exception as e:
+            last_err = str(e)
+
+    # ── Fall back to OpenAI (the always-configured provider) ────────────────
+    try:
+        oai = _get_openai_client_for_username(username)
+        resp = oai.chat.completions.create(
+            model="gpt-4o",
             max_tokens=8000,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_msg},
+            ],
             temperature=1.0,
         )
-        html = (resp.content[0].text or "").strip()
-        # Strip accidental markdown fences
-        if "```" in html:
-            lines = html.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            html = "\n".join(lines).strip()
-        # Find the real start
-        for marker in ["<!DOCTYPE", "<!doctype", "<html", "<HTML"]:
-            idx = html.find(marker)
-            if idx != -1:
-                html = html[idx:]
-                break
-        return html if len(html) > 200 else ""
+        html = _clean_visual_html((resp.choices[0].message.content or ""))
+        if html:
+            return html
+        return f"__ERROR__{last_err}" if last_err else ""
     except Exception as e:
-        return f"__ERROR__{str(e)}"
+        return f"__ERROR__{last_err or str(e)}"
 
 
 def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
