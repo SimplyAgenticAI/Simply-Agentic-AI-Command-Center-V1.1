@@ -6599,18 +6599,43 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
     the platform's Anthropic key is missing/invalid.
     """
     system = (
-        "You are an elite creative HTML/CSS/JS developer. "
-        "Output ONLY a single complete self-contained HTML file. "
+        "You are an elite creative coder and illustrator who builds self-contained HTML/CSS/JS "
+        "animations and scenes that look like real, polished artwork — not generic dashboard "
+        "components reused as 'art'. Output ONLY a single complete self-contained HTML file. "
         "No explanation, no markdown fences, no commentary. "
-        "Start directly with <!DOCTYPE html> and end with </html>. "
-        "Requirements: "
+        "Start directly with <!DOCTYPE html> and end with </html>.\n\n"
+        "VISUAL QUALITY — THIS IS THE MOST IMPORTANT PART:\n"
+        "- For any scene, character, creature, object, or nature illustration (suns, faces, "
+        "animals, plants, mushrooms, landscapes, skies, etc.), build the artwork as INLINE <svg> "
+        "using <path>, <ellipse>, <circle>, <linearGradient> and <radialGradient> — NOT plain CSS "
+        "divs with border-radius. Flat CSS-circle '"+'"'+"clipart"+'"'+"' looks cheap and is forbidden for "
+        "illustrative subjects.\n"
+        "- Draw real anatomy/structure: a smiling face needs eyes (circles/ellipses with highlight "
+        "dots), rosy cheeks (soft blush ellipses), and a genuine curved smile (a <path> with a "
+        "quadratic/cubic Bezier curve, not a straight line or CSS border-radius arc). A mushroom "
+        "needs a domed cap with a flared underside silhouette, visible spots/texture on the cap, "
+        "gills or rim detail under the cap, and a tapered stem — not a circle on a rectangle. "
+        "Apply the same care to ANY subject the user describes: think about what makes that "
+        "object recognizable and draw its real silhouette and details.\n"
+        "- Skies/backgrounds: use layered gradients (linearGradient for sky gradient, "
+        "radialGradient for glows/suns/moons), scattered stars or particles with staggered "
+        "twinkle animations, and distant elements (planets, clouds, hills) for depth. Build "
+        "depth with multiple layers (far background, midground, foreground), not one flat color.\n"
+        "- Color and mood should match the user's prompt — if they describe a cosmic/night scene, "
+        "use deep purples/indigos/blues with glowing accents; if they describe daytime, use bright "
+        "skies. Don't force a generic dark-purple dashboard palette onto illustrative scenes.\n"
+        "- Animate with real CSS @keyframes (smooth cubic-bezier easing): gentle floating, "
+        "swaying (with correct transform-origin at the base of the object), twinkling, glowing "
+        "pulses, slow rotation for rays/halos, parallax drift. Animations should feel alive and "
+        "subtle, not jarring.\n\n"
+        "GENERAL REQUIREMENTS:\n"
         "1) All CSS and JS must be inline — no external files except Google Fonts. "
-        "2) Real CSS @keyframes animations — smooth, professional, cubic-bezier easing. "
-        "3) Fully interactive — buttons work, slides advance, counters count. "
-        "4) Dark rich background (#07091a or #060c1e) with purple/blue accents (#7c3aed, #a78bfa, #c4b5fd). "
-        "5) Beautiful typography — use Google Fonts (Inter or Poppins). "
-        "6) Mobile responsive. "
-        "7) Production quality — no placeholders, no lorem ipsum, write every word. "
+        "2) Fully interactive where relevant — buttons work, slides advance, counters count. "
+        "3) Beautiful typography — use Google Fonts (Inter or Poppins) for any text/UI elements. "
+        "4) Mobile responsive (the SVG/scene should scale with viewBox + width:100%). "
+        "5) Production quality — no placeholders, no lorem ipsum, write every word of any text. "
+        "6) For dashboard/UI-style requests (no characters or scenery), a dark rich background "
+        "(#07091a or #060c1e) with purple/blue accents (#7c3aed, #a78bfa, #c4b5fd) is appropriate.\n\n"
         "Output ONLY the HTML. Nothing before <!DOCTYPE html>, nothing after </html>. "
         "This is a request for a whimsical, family-friendly creative animation/illustration. "
         "Fantastical and surreal themes — glowing cosmic skies, magical/whimsical mushrooms and "
@@ -6620,8 +6645,11 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
     )
     user_msg = (
         f"Create this: {prompt}. "
-        "Make it genuinely beautiful, polished, and impressive. "
-        "Write every word of content — no placeholders. "
+        "Make it genuinely beautiful, polished, detailed, and impressive — like real illustrated "
+        "artwork brought to life, not a simple geometric placeholder. Take your time to build out "
+        "every visual detail described (faces need real expressions, plants/creatures need real "
+        "anatomy, skies need depth and atmosphere). "
+        "Write every word of any on-screen text — no placeholders. "
         "Output only the complete HTML file starting with <!DOCTYPE html>."
     )
 
@@ -6639,7 +6667,7 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
             cl = _anthropic_sdk.Anthropic(api_key=claude_key)
             resp = cl.messages.create(
                 model="claude-opus-4-5",
-                max_tokens=8000,
+                max_tokens=16000,
                 system=system,
                 messages=[{"role": "user", "content": user_msg}],
                 temperature=1.0,
@@ -6655,7 +6683,7 @@ def _generate_visual_html(prompt: str, teammate_name: str, username: str) -> str
         oai = _get_openai_client_for_username(username)
         resp = oai.chat.completions.create(
             model="gpt-4o",
-            max_tokens=8000,
+            max_tokens=16000,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_msg},
@@ -38836,7 +38864,7 @@ document.addEventListener("click", function(e) {
               var sr=await fetch('/api/visual_creator/status/'+d1.job_id);
               var sd=await sr.json();
               if(sd.status==='done'||sd.status==='error'||!sd.ok){clearInterval(iv);resolve(sd);}
-              else if(polls>=45){clearInterval(iv);reject(new Error('Timed out'));}
+              else if(polls>=90){clearInterval(iv);reject(new Error('Timed out'));}
             },2000);
           });
           if(result.ok&&result.html&&result.html.length>100){
@@ -39055,8 +39083,8 @@ document.addEventListener("click", function(e) {
               var sr=await fetch('/api/visual_creator/status/'+d1.job_id);
               var sd=await sr.json();
               if(sd.status==='done'||sd.status==='error'||!sd.ok){clearInterval(iv);resolve(sd);}
-              else if(polls>=45){clearInterval(iv);reject(new Error('Timed out'));}
-            }catch(pe){if(polls>=45){clearInterval(iv);reject(pe);}}
+              else if(polls>=90){clearInterval(iv);reject(new Error('Timed out'));}
+            }catch(pe){if(polls>=90){clearInterval(iv);reject(pe);}}
           },2000);
         });
         if(result.ok&&result.html&&result.html.length>100){
@@ -39217,8 +39245,8 @@ document.addEventListener("click", function(e) {
               const sd=await sr.json();
               if(sd.status==="done"||sd.status==="error"||!sd.ok){
                 clearInterval(iv); resolve(sd);
-              } else if(polls>=45){ clearInterval(iv); reject(new Error("Generation timed out — please try again.")); }
-            }catch(pe){ if(polls>=45){ clearInterval(iv); reject(pe); } }
+              } else if(polls>=90){ clearInterval(iv); reject(new Error("Generation timed out — please try again.")); }
+            }catch(pe){ if(polls>=90){ clearInterval(iv); reject(pe); } }
           },2000);
         });
 
