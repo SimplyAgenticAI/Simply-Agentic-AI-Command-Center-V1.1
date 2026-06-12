@@ -16,6 +16,7 @@ import tempfile
 import gzip
 import zlib
 import io
+import mimetypes
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -28,6 +29,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+from email.mime.application import MIMEApplication
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -5160,16 +5163,79 @@ def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], s
             _capture_error(e, context="gmail_token_refresh_save")
     return access_token, ""
 
-def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "") -> None:
+# Email console attachments — kept well under Gmail API's 25MB raw-message
+# cap (base64 adds ~33% overhead) and SMTP servers' typical limits.
+MAX_EMAIL_ATTACHMENT_BYTES = 18 * 1024 * 1024
+MAX_EMAIL_ATTACHMENTS = 10
+
+
+def _mime_part_for_attachment(fp: Path, filename: str, mimetype: str):
+    """Build a MIME attachment part for an email message."""
+    data = fp.read_bytes()
+    maintype, _, subtype = (mimetype or "application/octet-stream").partition("/")
+    if maintype == "image":
+        part = MIMEImage(data, _subtype=subtype or "octet-stream")
+    elif maintype == "text":
+        part = MIMEText(data.decode("utf-8", errors="replace"), _subtype=subtype or "plain")
+    else:
+        part = MIMEApplication(data, _subtype=subtype or "octet-stream")
+    part.add_header("Content-Disposition", "attachment", filename=filename)
+    return part
+
+
+def _resolve_email_attachments(u: Optional[Dict[str, Any]], items: List[Dict[str, Any]]) -> List[Tuple[Path, str, str]]:
+    """Validate a list of {relpath, filename} attachment refs (paths under
+    UPLOADS_DIR) and resolve them to (Path, filename, mimetype) tuples.
+    Raises ValueError with a user-facing message on any problem."""
+    items = items or []
+    if not items:
+        return []
+    if len(items) > MAX_EMAIL_ATTACHMENTS:
+        raise ValueError(f"Too many attachments (max {MAX_EMAIL_ATTACHMENTS}).")
+
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    is_admin = _is_admin_user(u)
+    base = UPLOADS_DIR.resolve()
+    resolved: List[Tuple[Path, str, str]] = []
+    total = 0
+    for item in items:
+        relpath = str((item or {}).get("relpath") or "").replace("\\", "/").lstrip("/")
+        if relpath.startswith("uploads/"):
+            relpath = relpath[len("uploads/"):]
+        if not relpath:
+            continue
+        fp = (UPLOADS_DIR / relpath).resolve()
+        if not str(fp).startswith(str(base)) or not fp.exists() or not fp.is_file():
+            raise ValueError(f"Attachment not found: {relpath}")
+        file_id = fp.stem.split("_")[0] if "_" in fp.stem else ""
+        rec = get_upload_record(file_id) if file_id else None
+        owner = (rec or {}).get("owner") or ""
+        if owner and owner != uname and not is_admin:
+            raise ValueError("You don't have permission to attach that file.")
+        size = fp.stat().st_size
+        total += size
+        if total > MAX_EMAIL_ATTACHMENT_BYTES:
+            raise ValueError("Attachments are too large (18MB limit total).")
+        filename = (item or {}).get("filename") or (rec or {}).get("filename") or fp.name
+        mimetype = (rec or {}).get("mimetype") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        resolved.append((fp, filename, mimetype))
+    return resolved
+
+
+def _gmail_send_message(access_token: str, to_addr: str, subject: str, body: str, from_name: str = "", cc_addr: str = "", attachments: Optional[List[Tuple[Path, str, str]]] = None) -> None:
     # Build RFC 2822 message
     from_header = "me"
     if from_name:
         from_header = f"{from_name} <me>"
     msg = MIMEMultipart()
     msg["To"] = to_addr
+    if cc_addr:
+        msg["Cc"] = cc_addr
     msg["Subject"] = subject
     msg["From"] = from_header
     msg.attach(MIMEText(body, "plain", "utf-8"))
+    for fp, filename, mimetype in (attachments or []):
+        msg.attach(_mime_part_for_attachment(fp, filename, mimetype))
 
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
     url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
@@ -5185,12 +5251,16 @@ def _email_capability_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     smtp_ok, _ = smtp_ready_for_user(u)
     return {"gmail_connected": gmail_connected, "smtp_ready": smtp_ok}
 
-def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str, port: int, user: str, password: str, from_name: str) -> None:
+def send_email_smtp_with_creds(to_addr: str, subject: str, body: str, host: str, port: int, user: str, password: str, from_name: str, cc_addr: str = "", attachments: Optional[List[Tuple[Path, str, str]]] = None) -> None:
     msg = MIMEMultipart()
     msg["From"] = f"{from_name} <{user}>"
     msg["To"] = to_addr
+    if cc_addr:
+        msg["Cc"] = cc_addr
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
+    for fp, filename, mimetype in (attachments or []):
+        msg.attach(_mime_part_for_attachment(fp, filename, mimetype))
 
     with smtplib.SMTP(host, port, timeout=15) as server:
         server.starttls()
@@ -9499,6 +9569,7 @@ def api_send_email():
 
     data = request.get_json(force=True) or {}
     to_addr = (data.get("to") or "").strip()
+    cc_addr = (data.get("cc") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
     from_teammate = (data.get("from_teammate") or "").strip()
@@ -9507,6 +9578,15 @@ def api_send_email():
         return jsonify({"ok": False, "error": "Missing to, subject, or body"}), 400
     if not EMAIL_RE.match(to_addr):
         return jsonify({"ok": False, "error": "Invalid recipient email"}), 400
+    if cc_addr:
+        for addr in [a.strip() for a in cc_addr.split(",") if a.strip()]:
+            if not EMAIL_RE.match(addr):
+                return jsonify({"ok": False, "error": f"Invalid Cc email: {addr}"}), 400
+
+    try:
+        attachments = _resolve_email_attachments(u, data.get("attachments") or [])
+    except ValueError as ve:
+        return jsonify({"ok": False, "error": str(ve)}), 400
 
     # Prefer Gmail OAuth (Option C). If not connected, fall back to SMTP if configured.
     cap = _email_capability_for_user(u)
@@ -9516,7 +9596,7 @@ def api_send_email():
             access_token, reason = _gmail_creds_for_user(u)
             if not access_token:
                 return jsonify({"ok": False, "error": reason}), 400
-            _gmail_send_message(access_token, to_addr=to_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""))
+            _gmail_send_message(access_token, to_addr=to_addr, cc_addr=cc_addr, subject=subject, body=body, from_name=_user_smtp_settings(u).get("from_name", ""), attachments=attachments)
             provider = "gmail_oauth"
         else:
             ready, reason = smtp_ready_for_user(u)
@@ -9537,13 +9617,15 @@ def api_send_email():
                 return jsonify({"ok": False, "error": "Missing SMTP credentials"}), 400
             send_email_smtp_with_creds(
                 to_addr=to_addr,
+                cc_addr=cc_addr,
                 subject=subject,
                 body=body,
                 host=host,
                 port=port,
                 user=user,
                 password=password,
-                from_name=from_name
+                from_name=from_name,
+                attachments=attachments
             )
             provider = "smtp"
     except Exception as e:
@@ -17364,9 +17446,35 @@ label {
 /* Email Console — textarea uses full available vertical space */
 #emailConsoleForm .modalInner { padding: 0 40px 24px !important; }
 #emailConsoleForm #emailBody {
-  height: calc(100dvh - 390px) !important;
-  min-height: 180px !important;
+  height: calc(100dvh - 440px) !important;
+  min-height: 140px !important;
 }
+.emailAttachList {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  min-height: 0;
+  margin: 4px 0 0;
+}
+.emailAttachList:empty::after {
+  content: "No attachments — click \"Attach files\" or generate a graphic and ask a teammate to email it.";
+  font-size: 12px; color: #475569;
+}
+.emailAttachChip {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(124,58,237,.12); border: 1px solid rgba(124,58,237,.3);
+  border-radius: 10px; padding: 6px 10px; font-size: 12px; color: #e2e8f0;
+  max-width: 260px;
+}
+.emailAttachChip img {
+  width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex-shrink: 0;
+}
+.emailAttachChip .eaName {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.emailAttachChip .eaRemove {
+  cursor: pointer; color: #f87171; font-weight: 800; flex-shrink: 0;
+  padding: 0 2px;
+}
+.emailAttachChip .eaRemove:hover { color: #fca5a5; }
 
 /* Session Objective — give context textarea maximum room */
 #sessionObjectiveForm #sessionObjectiveContext {
@@ -18965,11 +19073,17 @@ label {
       <div><label>From</label><input class="field" id="emailFrom" placeholder="From" readonly/></div>
       <div><label>To</label><input class="field" id="emailTo" placeholder="name@email.com"/></div>
     </div>
-    <label style="margin-top:12px;">Subject</label>
-    <input class="field" id="emailSubject" placeholder="Subject"/>
+    <div class="formGrid2">
+      <div><label>Cc <span class="tiny" style="opacity:.6;">(optional)</span></label><input class="field" id="emailCc" placeholder="cc@email.com"/></div>
+      <div><label>Subject</label><input class="field" id="emailSubject" placeholder="Subject"/></div>
+    </div>
     <label style="margin-top:12px;">Body</label>
     <textarea class="field" id="emailBody" class="primaryArea" style="height:400px;" placeholder="Email body"></textarea>
+    <label style="margin-top:12px;">Attachments</label>
+    <div id="emailAttachList" class="emailAttachList"></div>
+    <input type="file" id="emailAttachInput" multiple style="display:none;" accept="image/*,video/*,application/pdf,.doc,.docx,.csv,.zip,.json,.txt"/>
     <div class="toolRunBar">
+      <button class="btn" id="emailAttachBtn">📎 Attach files</button>
       <button class="btn" id="draftWithSelected">Draft with selected teammate</button>
       <button class="btn btnPrimary" id="sendEmailBtn">✅ Approve and send</button>
     </div>
@@ -22030,6 +22144,76 @@ window.showModal = function showModal(title, body, imgUrl){
       }
     }
 
+    // ── Email Console attachments ───────────────────────────────────────────
+    let emailAttachments = [];
+
+    function _eaIsImage(mimetype, filename){
+      if(mimetype && mimetype.indexOf("image/") === 0) return true;
+      return /\.(png|jpe?g|gif|webp|svg)$/i.test(filename || "");
+    }
+
+    function renderEmailAttachments(){
+      const list = $("emailAttachList");
+      if(!list) return;
+      list.innerHTML = "";
+      emailAttachments.forEach((att, idx) => {
+        const chip = document.createElement("div");
+        chip.className = "emailAttachChip";
+        const preview = _eaIsImage(att.mimetype, att.filename)
+          ? `<img src="${att.url}" alt=""/>`
+          : `<span style="flex-shrink:0;">📎</span>`;
+        chip.innerHTML = `${preview}<span class="eaName" title="${escapeHtml(att.filename)}">${escapeHtml(att.filename)}</span><span class="eaRemove" data-idx="${idx}" title="Remove">✕</span>`;
+        chip.querySelector(".eaRemove").onclick = () => {
+          emailAttachments.splice(idx, 1);
+          renderEmailAttachments();
+        };
+        list.appendChild(chip);
+      });
+    }
+
+    function addEmailAttachment(att){
+      if(!att || !att.relpath) return;
+      if(emailAttachments.some(a => a.relpath === att.relpath)) return;
+      emailAttachments.push(att);
+      renderEmailAttachments();
+    }
+
+    // Attach a file already stored under /uploads/<relpath> (e.g. an AI-generated graphic)
+    function addEmailAttachmentFromUrl(url, filename){
+      if(!url) return;
+      const relpath = url.replace(/^\/uploads\//, "");
+      if(!relpath || relpath === url) return; // not an /uploads/ url
+      const name = filename || relpath.split("/").pop().replace(/^[a-f0-9]{32}_/i, "");
+      addEmailAttachment({relpath, filename: name, url, mimetype: ""});
+    }
+    window.addEmailAttachmentFromUrl = addEmailAttachmentFromUrl;
+
+    if($("emailAttachBtn")) $("emailAttachBtn").onclick = () => $("emailAttachInput").click();
+    if($("emailAttachInput")) $("emailAttachInput").onchange = async (e) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = "";
+      for(const file of files){
+        const fd = new FormData();
+        fd.append("file", file);
+        try{
+          const res = await fetch("/api/upload", {method:"POST", body: fd});
+          const data = await res.json();
+          if(data.ok && data.file){
+            addEmailAttachment({
+              relpath: data.file.relpath,
+              filename: data.file.filename,
+              mimetype: data.file.mimetype,
+              url: "/uploads/" + data.file.relpath
+            });
+          }else{
+            showToast(data.error || `Failed to attach ${file.name}`, "error");
+          }
+        }catch(err){
+          showToast(`Failed to attach ${file.name}`, "error");
+        }
+      }
+    };
+
     function applyEmailDraft(draft, teammateName){
       if(!draft) return;
 
@@ -22062,12 +22246,11 @@ window.showModal = function showModal(title, body, imgUrl){
           .replace(/\[Name\]/gi, opName);
       }
 
-      // If triggered by an "email the graphic to X" request, append last-generated image link
+      // If triggered by an "email the graphic to X" request, attach the
+      // last-generated image as a real file attachment.
       const _lastImgUrl = (lastImageState && (lastImageState.current_image_url || lastImageState.approved_image_url)) || "";
       if(_lastImgUrl && window._saUserRequestedEmailDraft){
-        if(cleanBody.indexOf(_lastImgUrl) === -1){
-          cleanBody = cleanBody.trimEnd() + "\n\n[Graphic attached: " + _lastImgUrl + "]";
-        }
+        addEmailAttachmentFromUrl(_lastImgUrl, (teammateName || selectedSeat || "graphic") + "_image.png");
       }
 
       if($("emailTo") && draft.to) $("emailTo").value = draft.to;
@@ -26151,12 +26334,16 @@ $("draftWithSelected").onclick = async () => {
         return;
       }
 
+      const ccAddr = ($("emailCc") ? $("emailCc").value.trim() : "");
+
       const fromLabel = $("emailFrom").value || "";
       const ok = confirm(
         "Approve and send this email now?\n\n" +
         "From: " + fromLabel + "\n" +
         "To: " + toAddr + "\n" +
-        "Subject: " + subj
+        (ccAddr ? "Cc: " + ccAddr + "\n" : "") +
+        "Subject: " + subj +
+        (emailAttachments.length ? "\nAttachments: " + emailAttachments.map(a=>a.filename).join(", ") : "")
       );
       if(!ok) return;
 
@@ -26165,9 +26352,11 @@ $("draftWithSelected").onclick = async () => {
         headers: {"Content-Type":"application/json"},
         body: JSON.stringify({
           to: toAddr,
+          cc: ccAddr,
           subject: subj,
           body: body,
-          from_teammate: lastEmailDraftBy || selectedSeat || ""
+          from_teammate: lastEmailDraftBy || selectedSeat || "",
+          attachments: emailAttachments.map(a => ({relpath: a.relpath, filename: a.filename}))
         })
       });
 
@@ -26177,6 +26366,9 @@ $("draftWithSelected").onclick = async () => {
         return;
       }
 
+      emailAttachments = [];
+      renderEmailAttachments();
+      if($("emailCc")) $("emailCc").value = "";
       showModal("Email sent", "Email sent successfully.");
     };
 
