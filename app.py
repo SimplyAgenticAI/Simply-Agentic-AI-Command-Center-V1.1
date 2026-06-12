@@ -9318,6 +9318,49 @@ def api_thread_clear(name: str) -> Any:
     append_log("thread_cleared", {"teammate": name, "by": uname})
     return jsonify({"ok": True, "teammate": name})
 
+@app.post("/api/thread/<name>/new_chat")
+def api_thread_new_chat(name: str) -> Any:
+    """Start a fresh conversation with a teammate. The current thread is
+    archived as a restorable snapshot (not deleted), and this teammate's
+    image-context pointers/history are reset so the new chat doesn't anchor
+    to images from the old conversation. Long-term teammate memory
+    (facts/preferences/open loops) is left untouched."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    reg = load_registry(uname)
+    if name not in reg.get("installed", {}):
+        return jsonify({"ok": False, "error": "Teammate not installed"}), 400
+
+    thread = load_thread(name, uname)
+    archived = False
+    if thread:
+        branch_id = uuid.uuid4().hex[:12]
+        label = "Auto-saved before new chat — " + now_iso()[:16].replace("T", " ")
+        data = _load_branches(name)
+        data.setdefault("branches", {})[branch_id] = {
+            "id": branch_id, "label": label, "created_at": now_iso(),
+            "msg_count": len(thread), "thread": thread,
+        }
+        brs = data["branches"]
+        if len(brs) > 20:
+            for old in sorted(brs, key=lambda k: brs[k].get("created_at", ""))[:-20]:
+                del brs[old]
+        _save_branches(name, data)
+        archived = True
+
+    save_thread(name, [], uname)
+    save_image_state(name, {
+        "current_image_id": "", "current_image_url": "",
+        "approved_image_id": "", "approved_image_url": "",
+        "last_uploaded_image_id": "", "last_uploaded_image_url": "",
+        "last_prompt": "", "last_mode": "", "history": [],
+    }, uname)
+
+    append_log("thread_new_chat", {"teammate": name, "by": uname, "archived": archived})
+    return jsonify({"ok": True, "teammate": name, "archived": archived})
+
 @app.post("/api/thread/<name>/truncate")
 def api_thread_truncate(name: str):
     """Truncate a thread to the first keep_count messages (used by edit/regenerate)."""
@@ -20714,7 +20757,8 @@ input[type="range"]::-moz-range-progress {
               <button class="btn btnMini" id="saMemoryBtn" onclick="window._saToggleMemoryPanel();window._saCloseChatMore();" title="View &amp; edit teammate memory" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">🧠&nbsp; Memory</button>
               <div style="height:1px;background:rgba(42,58,106,.4);margin:4px 2px;"></div>
               <button class="btn btnMini" id="threadExportBtn" onclick="window._saExportThread();window._saCloseChatMore();" title="Export conversation" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">⬇&nbsp; Export</button>
-              <button class="btn btnMini" id="threadCompressBtn" onclick="window._saCompressThread();window._saCloseChatMore();" title="Summarize &amp; compress" style="width:100%;text-align:left;font-size:12px;padding:6px 10px;display:none;">⚡&nbsp; Compress</button>
+              <button class="btn btnMini" id="threadCompressBtn" onclick="window._saCompressThread();window._saCloseChatMore();" title="Summarize &amp; compress" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">⚡&nbsp; Compress</button>
+              <button class="btn btnMini" id="threadNewChatBtn" onclick="window._saStartNewChat();window._saCloseChatMore();" title="Archive this conversation and start fresh" style="width:100%;text-align:left;font-size:12px;padding:6px 10px;display:none;">✨&nbsp; Start new chat</button>
             </div>
           </div>
         </div>
@@ -22828,6 +22872,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_cb) _cb.style.display = _isReal ? "" : "none";
       const _eb = document.getElementById("threadExportBtn");
       if(_eb) _eb.style.display = _isReal ? "" : "none";
+      const _ncb = document.getElementById("threadNewChatBtn");
+      if(_ncb) _ncb.style.display = _isReal ? "" : "none";
       await refreshThread();
       // Update pins button badge for this teammate
       try{ _updatePinsPanel(); }catch(_){}
@@ -23147,6 +23193,37 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             showToast("Could not compress — try again","error");
           }
         }catch(e){ showToast("Compress failed","error"); }
+      };
+    };
+
+    // ── Start New Chat ──────────────────────────────────────────────
+    window._saStartNewChat = async function(){
+      const seat = window.selectedSeat || selectedSeat;
+      if(!seat) return;
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.innerHTML = `<div style="background:rgba(7,11,28,.97);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:24px;max-width:380px;width:90%;backdrop-filter:blur(20px);text-align:center;">
+        <div style="font-size:28px;margin-bottom:10px;">✨</div>
+        <div style="font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Start New Chat?</div>
+        <div style="font-size:12px;color:#cbd5e1;line-height:1.6;margin-bottom:18px;">This conversation with ${escapeHtml(seat)} will be archived (you can restore it later) and a fresh chat will start. ${escapeHtml(seat)}'s long-term memory is kept — only this conversation and its image context are reset.</div>
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button id="_ncCancel" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(42,58,106,.5);background:transparent;color:#cbd5e1;cursor:pointer;">Cancel</button>
+          <button id="_ncConfirm" style="padding:8px 18px;border-radius:9px;border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.18);color:#c4b5fd;font-weight:700;cursor:pointer;">Start New Chat</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      ov.querySelector("#_ncCancel").onclick = ()=>ov.remove();
+      ov.querySelector("#_ncConfirm").onclick = async()=>{
+        ov.remove();
+        try{
+          const res = await fetch("/api/thread/"+encodeURIComponent(seat)+"/new_chat", {method:"POST"});
+          const d = await res.json();
+          if(d.ok){
+            await refreshThread();
+            showToast("✨ New chat started with " + seat);
+          } else {
+            showToast(d.error || "Could not start new chat", "error");
+          }
+        }catch(e){ showToast("Start new chat failed","error"); }
       };
     };
 

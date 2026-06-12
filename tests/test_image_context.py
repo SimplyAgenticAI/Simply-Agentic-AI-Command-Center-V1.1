@@ -75,6 +75,56 @@ def test_image_feedback_ignores_unrelated_messages():
     assert mem.get("preferences") == []
 
 
+def test_start_new_chat_archives_and_resets_image_state(flask_app):
+    teammate = "Luna"
+    uname = "smoketest_newchat"
+
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+
+    with flask_app.test_client() as c:
+        csrf_token = c.get("/api/csrf_token").get_json()["csrf_token"]
+        with c.session_transaction() as sess:
+            sess["user"] = uname
+
+        save_thread = app_module.save_thread
+        save_thread(teammate, [
+            {"role": "user", "content": "Make a self-portrait of yourself"},
+            {"role": "assistant", "content": "[Image generated #1] /uploads/ai_images/img1.png\n[refined_prompt] A glowing AI figure"},
+        ], uname)
+
+        state = app_module.load_image_state(teammate, uname)
+        state["current_image_id"] = "img1"
+        state["current_image_url"] = "/uploads/ai_images/img1.png"
+        state = app_module._append_image_history(
+            state, {"id": "img1", "relpath": "ai_images/img1.png"},
+            mode="new", prompt="A glowing AI figure",
+        )
+        app_module.save_image_state(teammate, state, uname)
+
+        resp = c.post(f"/api/thread/{teammate}/new_chat", headers={"X-CSRF-Token": csrf_token})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["ok"] is True
+        assert body["archived"] is True
+
+    # Thread is cleared.
+    assert app_module.load_thread(teammate, uname) == []
+
+    # Image context pointers/history reset.
+    new_state = app_module.load_image_state(teammate, uname)
+    assert new_state["current_image_id"] == ""
+    assert new_state["current_image_url"] == ""
+    assert new_state["history"] == []
+
+    # The old conversation was archived as a restorable branch.
+    branches = app_module._load_branches(teammate)
+    archived = list((branches.get("branches") or {}).values())
+    assert len(archived) == 1
+    assert archived[0]["msg_count"] == 2
+
+
 def test_truncate_preserves_image_markers():
     thread = []
     for i in range(10):
