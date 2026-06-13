@@ -4607,10 +4607,12 @@ def load_image_state(teammate_name: str, username: str = "") -> Dict[str, Any]:
     data = load_json(image_state_path(teammate_name, username), {
         "current_image_id": "",
         "current_image_url": "",
+        "current_image_turn": 0,
         "approved_image_id": "",
         "approved_image_url": "",
         "last_uploaded_image_id": "",
         "last_uploaded_image_url": "",
+        "last_uploaded_turn": 0,
         "last_prompt": "",
         "last_mode": "",
         "history": [],
@@ -4620,10 +4622,12 @@ def load_image_state(teammate_name: str, username: str = "") -> Dict[str, Any]:
         data = {}
     data.setdefault("current_image_id", "")
     data.setdefault("current_image_url", "")
+    data.setdefault("current_image_turn", 0)
     data.setdefault("approved_image_id", "")
     data.setdefault("approved_image_url", "")
     data.setdefault("last_uploaded_image_id", "")
     data.setdefault("last_uploaded_image_url", "")
+    data.setdefault("last_uploaded_turn", 0)
     data.setdefault("last_prompt", "")
     data.setdefault("last_mode", "")
     data.setdefault("history", [])
@@ -4677,9 +4681,15 @@ def set_current_image_for_teammate(teammate_name: str, rec: Dict[str, Any], sour
     url = _image_url_for_record(rec)
     state["current_image_id"] = rec.get("id", "")
     state["current_image_url"] = url
+    try:
+        _turn = len(load_thread(teammate_name, uname))
+    except Exception:
+        _turn = 0
+    state["current_image_turn"] = _turn
     if source == "uploaded":
         state["last_uploaded_image_id"] = rec.get("id", "")
         state["last_uploaded_image_url"] = url
+        state["last_uploaded_turn"] = _turn
     if prompt:
         state["last_prompt"] = (prompt or "")[:4000]
     if mode:
@@ -5511,7 +5521,8 @@ def _invalidate_sys_prompt_cache(username: str = "", teammate: str = "") -> None
             _SYS_PROMPT_CACHE.clear()
 
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
-                           rag_context: str = "", memory_context: str = "") -> str:
+                           rag_context: str = "", memory_context: str = "",
+                           image_request_active: bool = False) -> str:
     role_block = {
         "name": defn.get("name", ""),
         "job_title": defn.get("job_title", ""),
@@ -5564,9 +5575,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "4. When the user says 'go ahead', 'give me the graphic', 'make it', 'proceed', or similar "
         "short confirmations, RESTATE your full visual plan in that response so the generation prompt "
         "contains all the visual detail needed.\n"
-        "Example of CORRECT behavior: 'Here it is! Generating: [UFO shaped like a silver disc hovering "
-        "over a city skyline at night, blue glow underneath, retro 1950s poster style, bold text at "
-        "top reading \\'THEY ARE REAL\\', yellow and black color scheme, slight film grain texture.]'\n"
+        "See the IMAGE REQUEST STATUS note below for whether THIS specific message will trigger "
+        "automatic generation — only use the 'Here it is! Generating: [...]' pattern when it says so.\n"
     )
 
     image_history_rules = (
@@ -6020,6 +6030,25 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         suffix += f"\n{rag_context}"
     if memory_context:
         suffix += f"\n{memory_context}"
+    if image_request_active:
+        suffix += (
+            "\nIMAGE REQUEST STATUS: The system HAS classified this message as an image "
+            "generation/edit request and will automatically send your visual description to "
+            "gpt-image-1 right after your reply. Respond with a brief confirmation followed by "
+            "a rich, detailed visual description, e.g. 'Here it is! Generating: [UFO shaped like "
+            "a silver disc hovering over a city skyline at night, blue glow underneath, retro "
+            "1950s poster style, bold text at top reading \\'THEY ARE REAL\\', yellow and black "
+            "color scheme, slight film grain texture.]'\n"
+        )
+    else:
+        suffix += (
+            "\nIMAGE REQUEST STATUS: The system did NOT classify this message as an image "
+            "generation/edit request — no image will be generated automatically after this reply. "
+            "Do NOT say 'here it is', 'generating', 'creating the image', or describe a visual as "
+            "if it is being produced. If the user wants an image, graphic, logo, or poster, respond "
+            "normally and invite them to ask using words like image/graphic/poster/logo (or just "
+            "ask if they'd like you to generate one) — do not claim generation is underway.\n"
+        )
     return _base_prompt + suffix
 
 
@@ -9461,12 +9490,17 @@ def _api_followup_impl(data):
     except Exception:
         uname = "anon"
 
-    # Auto re-attach last uploaded image when no new files but image was previously sent
+    full_thread = load_thread(name, uname)
+
+    # Auto re-attach last uploaded image when no new files but image was previously sent —
+    # only if that upload happened recently, otherwise an old photo would be silently
+    # re-sent as vision context to every future message forever.
     if not vision_images and not file_ids:
         try:
             _img_state = load_image_state(name, uname)
             _last_upload_id = (_img_state.get("last_uploaded_image_id") or "").strip()
-            if _last_upload_id:
+            _last_upload_turn = _img_state.get("last_uploaded_turn") or 0
+            if _last_upload_id and (len(full_thread) - _last_upload_turn) <= 6:
                 _last_rec = get_upload_record(_last_upload_id)
                 if _last_rec and _is_image_record(_last_rec):
                     _raw = safe_read_binary_file(
@@ -9482,8 +9516,7 @@ def _api_followup_impl(data):
 
     user_content = _build_user_content(msg2, vision_images)
 
-    thread = load_thread(name, uname)
-    thread = _truncate_thread_with_note(thread, max_messages=20)
+    thread = _truncate_thread_with_note(full_thread, max_messages=20)
 
     latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids, uname)
 
@@ -9501,13 +9534,21 @@ def _api_followup_impl(data):
     if _tm_mem.get("preferences"): _mem_lines.append("User preferences: " + " | ".join(_tm_mem["preferences"][:5]))
     if _tm_mem.get("open_loops"):  _mem_lines.append("Open items to follow up: " + " | ".join(_tm_mem["open_loops"][:4]))
     _mem_ctx = ("LONG-TERM MEMORY (from previous sessions):\n" + "\n".join(_mem_lines)) if _mem_lines else ""
-    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx)
 
-    # Determine image context before routing — needed for is_image_request
+    # Determine image context BEFORE building the system prompt, so the prompt can
+    # accurately tell the model whether this message will actually trigger image
+    # generation — otherwise the model can promise "Here it is, generating..." for
+    # a message the server never routes to the image pipeline.
     _img_state_check = load_image_state(name, uname)
-    _has_img_ctx = bool((_img_state_check.get("current_image_id") or "").strip()) or bool(latest_uploaded_image)
+    _cur_img_id = (_img_state_check.get("current_image_id") or "").strip()
+    _cur_img_turn = _img_state_check.get("current_image_turn") or 0
+    _img_context_recent = bool(_cur_img_id) and (len(full_thread) - _cur_img_turn) <= 6
+    _has_img_ctx = _img_context_recent or bool(latest_uploaded_image)
+    _is_img_req = is_image_request(msg2, has_image_context=_has_img_ctx)
 
-    if is_image_request(msg2, has_image_context=_has_img_ctx):
+    sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx, image_request_active=_is_img_req)
+
+    if _is_img_req:
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
@@ -9550,9 +9591,7 @@ def _api_followup_impl(data):
 
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
         placeholder = f"[{mode_label}] job:{job_id}"
-        thread2 = load_thread(name, uname)
-        thread2 = _truncate_thread_with_note(thread2, max_messages=20)
-        new_thread = thread2 + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
+        new_thread = full_thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}]
         save_thread(name, new_thread, uname)
 
         st0 = load_image_state(name, uname)
@@ -9603,7 +9642,7 @@ def _api_followup_impl(data):
 
     _increment_msg_usage(uname)
 
-    new_thread = thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
+    new_thread = full_thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": text}]
     save_thread(name, new_thread, uname)
 
     draft = extract_email_draft(text)
@@ -23630,7 +23669,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             olCounter = _parsedN > olCounter ? _parsedN - 1 : olCounter;
           }
           olCounter++;
-          const _olSafe=_olText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          // Strip markdown emphasis/code markers so clicking this item sends
+          // plain text into the chat input, not literal **/`/_ characters.
+          const _olPick=_olText.replace(/[*_`]/g,'');
+          const _olSafe=_olPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
             '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
             '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
@@ -23642,7 +23684,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(ulM){
           const _ulText=ulM[1].trim();
           if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; }
-          const _ulSafe=_ulText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          // Strip markdown emphasis/code markers so clicking this item sends
+          // plain text into the chat input, not literal **/`/_ characters.
+          const _ulPick=_ulText.replace(/[*_`]/g,'');
+          const _ulSafe=_ulPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           out.push('<div class="sa-li" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
             '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">•</span>'+
             '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
@@ -24305,7 +24350,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             const _ep2 = (typeof window.saParseEmailBlocks==='function')
               ? window.saParseEmailBlocks(raw)
               : {cleanText: raw, emails: []};
-            content.innerHTML = saMarkdown(_ep2.cleanText || raw);
+            content.innerHTML = saMarkdown(_ep2.cleanText || (_ep2.emails.length ? '' : raw));
             // Render each email as a styled preview card
             if(_ep2.emails.length > 0 && typeof window._saEmailCard==='function'){
               _ep2.emails.forEach(function(em2){ content.appendChild(window._saEmailCard(em2, window.selectedSeat||'')); });
@@ -25629,7 +25674,17 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             if(!line.startsWith("data:"))continue;
             try{
               const ev=JSON.parse(line.slice(5).trim());
-              if(ev.error){ throw new Error(ev.error); }
+              if(ev.error){
+                // Handle inline — a thrown error here is swallowed by the
+                // catch(_){} below and would leave the seat stuck "thinking".
+                if(aCursor){try{aCursor.remove();}catch(_){}}
+                if(aBody){try{aBody.innerText=ev.error;}catch(_){}}
+                try{setSeatLive(seat,"waiting");}catch(_){}
+                try{setOpStatus("Error");}catch(_){}
+                try{if(typeof refreshThread==="function") await refreshThread();}catch(_){}
+                if(alwaysOn&&hud){hud.classList.add("listening"); _whisperSetStatus("Listening...");}
+                return;
+              }
               if(ev.token){
                 fullText+=ev.token;
                 if(aBody){
@@ -25639,7 +25694,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                     aBody._rafPending=true;
                     requestAnimationFrame(function(){
                       aBody._rafPending=false;
-                      var _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
+                      var _st=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\*/g,'').replace(/\n{3,}/g,'\n\n').trim();
                       // textContent avoids full DOM reconstruction on every token
                       aBody.textContent=_st||fullText;
                       if(aCursor) aBody.appendChild(aCursor);
@@ -25654,10 +25709,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                   const _ep=(typeof window.saParseEmailBlocks==="function")
                     ?window.saParseEmailBlocks(ev.response||fullText)
                     :{cleanText:ev.response||fullText,emails:[]};
+                  const _epText=_ep.cleanText||(_ep.emails.length?'':(ev.response||fullText));
                   if(typeof window.saMarkdown==="function"){
-                    aBody.innerHTML=window.saMarkdown(_ep.cleanText||(ev.response||fullText));
+                    aBody.innerHTML=window.saMarkdown(_epText);
                   } else {
-                    aBody.innerText=_ep.cleanText||(ev.response||fullText);
+                    aBody.innerText=_epText;
                   }
                   if(_ep.emails&&_ep.emails.length>0&&typeof window._saEmailCard==="function"){
                     _ep.emails.forEach(function(em){aBody.appendChild(window._saEmailCard(em,seat));});
@@ -26150,6 +26206,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const reader = res.body.getReader();
           const dec = new TextDecoder();
           let buf = "", full = "";
+          let gotJobId = false;
           while(true){
             const {done, value} = await reader.read();
             if(done) break;
@@ -26161,13 +26218,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 const ev = JSON.parse(line.slice(5).trim());
                 if(ev.token){ full += ev.token; outputs[n] = full; renderGroupReplies(outputs, drafts, images); }
                 if(ev.done && ev.email_draft) drafts[n] = ev.email_draft;
-                if(ev.done && ev.job_id){ try{ pollImageJob(ev.job_id, n); }catch(_){} }
+                if(ev.done && ev.job_id){ gotJobId = true; try{ pollImageJob(ev.job_id, n); }catch(_){} }
               }catch(_){}
             }
           }
 
           if(full) outputs[n] = full;
-          setSeatLive(n, "done");
+          // If an image job was kicked off, pollImageJob owns this seat's status
+          // from here — don't mark it "done" out from under it.
+          if(!gotJobId) setSeatLive(n, "done");
           renderGroupReplies(outputs, drafts, images);
         }catch(e){
           setSeatLive(n, "waiting");
@@ -26312,12 +26371,16 @@ function _saJobNotify(seatName, status){
           if(fm){fm.value=text;fm.focus();}
           // Signal that the user intentionally clicked an item — allow email console to auto-open
           window._saUserRequestedEmailDraft = true;
+          // Signal that this text came from a suggested list item, not free-typed input —
+          // the server should not treat it as a fresh image-generation request even if
+          // the suggestion's text happens to contain words like "logo" or "design a".
+          window._saPickedSuggestion = true;
           if(typeof window.sendFollow==='function')window.sendFollow();
         });
       });
     }
     document.addEventListener('keydown',function(e){ if(e.key==='Escape')saCloseMsgModal(); });
-    (function(){ const orig=window.renderThread; if(typeof orig==='function'){ window.renderThread=function(){ orig.apply(this,arguments); setTimeout(saWireThreadClicks,50); }; } const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
+    (function(){ const thread=document.getElementById('thread'); if(thread&&window.MutationObserver) new MutationObserver(saWireThreadClicks).observe(thread,{childList:true,subtree:true}); })();
     setTimeout(saWireThreadClicks,500);
 
     // ===== CONVERSATION HISTORY SEARCH =====
@@ -26585,11 +26648,14 @@ function _saJobNotify(seatName, status){
       aDiv.appendChild(aWho); aDiv.appendChild(aBody);
       if(threadBox){ threadBox.appendChild(aDiv); threadBox.scrollTop = threadBox.scrollHeight; }
 
+      const _fromSuggestion = !!window._saPickedSuggestion;
+      window._saPickedSuggestion = false;
+
       try{
         const res = await fetch("/api/followup/stream", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn})
+          body: JSON.stringify({name: selectedSeat, message: msg, file_ids: dmFileIds, lighting_mode: !!lightingModeOn, from_suggestion: _fromSuggestion})
         });
 
         if(!res.ok || !res.body){
@@ -39812,7 +39878,7 @@ document.addEventListener("click", function(e) {
                 aBody._rafPending = true;
                 requestAnimationFrame(function(){
                   aBody._rafPending = false;
-                  var _stText = fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();
+                  var _stText = fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\*/g,'').replace(/\n{3,}/g,'\n\n').trim();
                   // textContent avoids full DOM reconstruction on every token
                   aBody.textContent = _stText || fullText;
                   if(aCursor) aBody.appendChild(aCursor);
@@ -39853,16 +39919,20 @@ document.addEventListener("click", function(e) {
             const _ep = (typeof window.saParseEmailBlocks==="function")
               ? window.saParseEmailBlocks(_finalText||'')
               : {cleanText:_finalText||'', emails:[]};
+            // Only fall back to the raw text (which still contains the ```email
+            // block) when no email cards were extracted — otherwise the block
+            // would render both as raw text AND as a styled card.
+            const _epText = _ep.cleanText || (_ep.emails.length ? '' : _finalText);
             if(_visIdx !== -1){
               const _html = _finalText.slice(_visIdx + "__VISUAL__".length);
               _buildVisualOutput(aBody, _html);
             } else {
-              window.lastSeatAssistantText = _ep.cleanText || _finalText;
-              if(_finalText){
+              window.lastSeatAssistantText = _epText;
+              if(_epText || _finalText){
                 if(typeof window.saMarkdown==="function"){
-                  aBody.innerHTML = window.saMarkdown(_ep.cleanText || _finalText);
+                  aBody.innerHTML = window.saMarkdown(_epText);
                 } else {
-                  aBody.innerText = _ep.cleanText || _finalText;
+                  aBody.innerText = _epText;
                 }
               }
               // Render each email as a styled preview card (no clickable list items inside email)
@@ -39880,7 +39950,7 @@ document.addEventListener("click", function(e) {
             if(window.dmFileIds){ window.dmFileIds=[]; }
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
-            if(_visIdx === -1) addTtsButton(aDiv, _ep.cleanText||_finalText, tm.tts_voice||"alloy");
+            if(_visIdx === -1) addTtsButton(aDiv, _epText, tm.tts_voice||"alloy");
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
           }
@@ -54539,6 +54609,7 @@ def api_followup_stream():
     msg           = (data.get("message") or "").strip()
     file_ids      = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
+    from_suggestion = bool(data.get("from_suggestion"))
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
@@ -54556,12 +54627,17 @@ def api_followup_stream():
 
     uname = _get_session_username()
 
-    # Auto re-attach last uploaded image when no new files but image was previously sent
+    full_thread = load_thread(name, uname)
+
+    # Auto re-attach last uploaded image when no new files but image was previously sent —
+    # only if that upload happened recently, otherwise an old photo would be silently
+    # re-sent as vision context to every future message forever.
     if not vision_images and not file_ids:
         try:
             _img_state = load_image_state(name, uname)
             _last_upload_id = (_img_state.get("last_uploaded_image_id") or "").strip()
-            if _last_upload_id:
+            _last_upload_turn = _img_state.get("last_uploaded_turn") or 0
+            if _last_upload_id and (len(full_thread) - _last_upload_turn) <= 6:
                 _last_rec = get_upload_record(_last_upload_id)
                 if _last_rec and _is_image_record(_last_rec):
                     _raw = safe_read_binary_file(
@@ -54597,7 +54673,7 @@ def api_followup_stream():
         pass
 
     # Set image context for this teammate (mirrors non-streaming followup)
-    bind_uploaded_images_to_teammate(name, file_ids, uname)
+    latest_uploaded_image = bind_uploaded_images_to_teammate(name, file_ids, uname)
 
     # RAG: retrieve relevant chunks from knowledge base
     rag_context = ""
@@ -54613,19 +54689,26 @@ def api_followup_stream():
     if _tm_mem_s.get("preferences"): _mem_lines_s.append("User preferences: " + " | ".join(_tm_mem_s["preferences"][:5]))
     if _tm_mem_s.get("open_loops"):  _mem_lines_s.append("Open items to follow up: " + " | ".join(_tm_mem_s["open_loops"][:4]))
     _mem_ctx_s = ("LONG-TERM MEMORY (from previous sessions):\n" + "\n".join(_mem_lines_s)) if _mem_lines_s else ""
-    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s)
+
+    # Determine image context BEFORE building the system prompt — same reasoning as
+    # the non-streaming followup handler: the prompt must know whether this message
+    # will actually trigger image generation so it doesn't promise "generating..."
+    # for a message the server never routes to the image pipeline. A lingering
+    # current_image_id only counts as "context" if it was set recently.
+    _img_state_s = load_image_state(name, uname)
+    _cur_img_id_s = (_img_state_s.get("current_image_id") or "").strip()
+    _cur_img_turn_s = _img_state_s.get("current_image_turn") or 0
+    _img_context_recent_s = bool(_cur_img_id_s) and (len(full_thread) - _cur_img_turn_s) <= 6
+    _has_img_ctx_s = _img_context_recent_s or bool(latest_uploaded_image)
+    # Text picked from a suggested list item in a teammate's own response should
+    # continue the conversation, not be re-classified as a fresh image request —
+    # even if the suggestion's wording happens to contain "logo"/"design a"/etc.
+    _is_img_req_s = (not from_suggestion) and is_image_request(msg2, has_image_context=_has_img_ctx_s)
+
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s)
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
-    _img_state_s = load_image_state(name, uname)
-    _has_img_ctx_s = bool((_img_state_s.get("current_image_id") or "").strip())
-    if is_image_request(msg2, has_image_context=_has_img_ctx_s):
-        latest_uploaded_image = None
-        try:
-            _bound = [get_upload_record(fid) for fid in (file_ids or []) if fid]
-            _img_recs = [r for r in _bound if r and _is_image_record(r)]
-            latest_uploaded_image = _img_recs[-1] if _img_recs else None
-        except Exception:
-            pass
+    if _is_img_req_s:
         source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
@@ -54636,9 +54719,7 @@ def api_followup_stream():
         job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
         placeholder = f"[{mode_label}] job:{job_id}"
-        thread_now = load_thread(name, uname)
-        thread_now = thread_now[-14:] if len(thread_now) > 14 else thread_now
-        save_thread(name, thread_now + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}], uname)
+        save_thread(name, full_thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": placeholder}], uname)
         st0 = load_image_state(name, uname)
         st0["last_prompt"] = msg
         st0["last_mode"] = mode
@@ -54659,8 +54740,7 @@ def api_followup_stream():
 
     _maybe_record_image_feedback(uname, name, msg)
 
-    thread = load_thread(name, uname)
-    thread = _truncate_thread_with_note(thread, max_messages=20)
+    thread = _truncate_thread_with_note(full_thread, max_messages=20)
 
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
     # Smart routing: downgrade to cheap model for simple messages when user enables the setting
@@ -54684,8 +54764,10 @@ def api_followup_stream():
         preferred_model = "gpt-4o-mini"
         _use_claude = False
 
-    # Snapshot thread before streaming so we save the right context
-    pre_thread = list(thread)
+    # Snapshot the FULL (untruncated) thread before streaming — this is what gets
+    # persisted, so the on-disk history is never destructively shrunk by the
+    # LLM-context truncation applied to `thread` above.
+    pre_thread = list(full_thread)
 
     def _persist_stream_result(parts: list) -> tuple:
         """Save thread, extract draft, log. Returns (complete_text, draft)."""
