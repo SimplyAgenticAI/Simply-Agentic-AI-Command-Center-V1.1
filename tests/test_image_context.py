@@ -118,8 +118,8 @@ def test_start_new_chat_archives_and_resets_image_state(flask_app):
     assert new_state["current_image_url"] == ""
     assert new_state["history"] == []
 
-    # The old conversation was archived as a restorable branch.
-    branches = app_module._load_branches(teammate)
+    # The old conversation was archived as a restorable branch (per-user scope).
+    branches = app_module._load_branches(uname, teammate)
     archived = list((branches.get("branches") or {}).values())
     assert len(archived) == 1
     assert archived[0]["msg_count"] == 2

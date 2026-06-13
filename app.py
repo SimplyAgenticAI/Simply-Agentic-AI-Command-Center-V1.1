@@ -2107,10 +2107,10 @@ def save_users(data: Dict[str, Any]) -> None:
                     "INSERT OR REPLACE INTO users (username, data, updated_at) VALUES (?,?,?)",
                     (uname, json.dumps(udata), udata.get("updated_at") or now_iso())
                 )
-        # Delete users that were removed from the dict
-        if users:
-            placeholders = ",".join("?" for _ in users)
-            conn.execute(f"DELETE FROM users WHERE username NOT IN ({placeholders})", list(users.keys()))
+        # UPSERT-ONLY: never derive deletions from the passed dict. The dict
+        # comes from a (cached, possibly stale) load_users() snapshot; a user
+        # created in the gap would be absent here and would be silently wiped.
+        # Real deletions go through delete_user() instead.
         conn.commit()
         conn.close()
     except Exception:
@@ -2120,6 +2120,27 @@ def save_users(data: Dict[str, Any]) -> None:
     if users:
         with _HAS_ANY_USER_LOCK:
             _HAS_ANY_USER_CACHE = True
+
+
+def delete_user(username: str) -> None:
+    """Explicit, single-row account deletion — the ONLY path that removes a
+    user row. Kept separate from save_users so a stale/partial users dict can
+    never erase accounts by omission."""
+    if not username:
+        return
+    try:
+        conn = _users_db_conn()
+        conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        # JSON fallback: rewrite file without this user.
+        data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
+        if isinstance(data, dict) and isinstance(data.get("users"), dict):
+            data["users"].pop(username, None)
+            data["updated_at"] = now_iso()
+            save_json(USERS_PATH, data)
+    _invalidate_users_cache()
 
 _HAS_ANY_USER_CACHE: Optional[bool] = None  # None = unchecked, True/False = known
 _HAS_ANY_USER_LOCK = threading.Lock()
@@ -9256,6 +9277,30 @@ def _api_convene_impl(data):
         append_log("assembly", {"prompt": prompt, "roll": roll})
         return jsonify({"ok": True, "mode": "assembly", "roll": roll})
 
+    try:
+        uname = _get_session_username()
+    except Exception:
+        uname = "anon"
+
+    # ── Usage-limit gate (mirrors api_followup_stream) ────────────────────────
+    # Convene fans out to every active teammate — without this, a credit-
+    # exhausted or keyless user could drive unbounded platform-key AI spend.
+    try:
+        _plan_k = _get_user_plan(uname)
+        _allowed, _used, _limit, _iused, _ilimit, _own_key = _check_msg_limit(uname, _plan_k)
+        if not _allowed:
+            _plan_nm = (PLANS.get(_plan_k) or {}).get("name", "your plan")
+            return jsonify({"ok": False, "error": (
+                f"You've used all {_limit} AI Credits included in {_plan_nm} this month. "
+                f"Upgrade to get more, or add your own API key in Settings for unlimited credits."
+            ), "limit_hit": True}), 429
+    except Exception:
+        _own_key = _user_has_own_key(uname)
+
+    # Protect the platform key: keyless users are clamped to gpt-4o-mini for
+    # every call in this request (preflight + each teammate).
+    _convene_force_model = None if _own_key else "gpt-4o-mini"
+
     prompt2, attach_meta, vision_images = build_prompt_with_attachments(prompt, file_ids)
     user_content = _build_user_content(prompt2, vision_images)
 
@@ -9273,8 +9318,10 @@ def _api_convene_impl(data):
             ],
             "user_prompt": prompt2
         }, indent=2)}],
-        temperature=0.2
+        temperature=0.2,
+        model=_convene_force_model
         )
+        _increment_msg_usage(uname)
     except Exception as e:
         status, msg = _classify_openai_error(e)
         append_log("convene_error", {"where":"atlis_preflight","error": str(e)})
@@ -9297,11 +9344,6 @@ def _api_convene_impl(data):
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
 
-    try:
-        uname = _get_session_username()
-    except Exception:
-        uname = "anon"
-
     for name in order:
         defn = installed.get(name)
         if not defn:
@@ -9321,13 +9363,17 @@ def _api_convene_impl(data):
         msgs.extend(thread)
         msgs.append({"role": "user", "content": user_content})
 
-        _convene_model = _resolve_model_for_user(defn, current_user())
+        # Keyless users are clamped to gpt-4o-mini to protect the platform key.
+        _convene_model = _convene_force_model or _resolve_model_for_user(defn, current_user())
         try:
             text = call_llm(sys, msgs, temperature=0.65, model=_convene_model)
         except Exception as e:
             status, msg = _classify_openai_error(e)
             append_log("convene_error", {"where": name, "error": str(e)})
             return jsonify({"ok": False, "error": msg}), status
+
+        # Meter every teammate response against the user's monthly credits.
+        _increment_msg_usage(uname)
 
         new_thread = thread + [{"role": "user", "content": prompt2}, {"role": "assistant", "content": text}]
         save_thread(name, new_thread, uname)
@@ -9685,7 +9731,7 @@ def api_thread(name: str):
     thread = load_thread(name, uname)
     # Include branch count so the UI can show a "checkpoints" indicator
     try:
-        branches = _load_branches(name)
+        branches = _load_branches(uname, name)
         branch_count = len((branches.get("branches") or {}))
     except Exception:
         branch_count = 0
@@ -9746,7 +9792,7 @@ def api_thread_new_chat(name: str) -> Any:
     if thread:
         branch_id = uuid.uuid4().hex[:12]
         label = "Auto-saved before new chat — " + now_iso()[:16].replace("T", " ")
-        data = _load_branches(name)
+        data = _load_branches(uname, name)
         data.setdefault("branches", {})[branch_id] = {
             "id": branch_id, "label": label, "created_at": now_iso(),
             "msg_count": len(thread), "thread": thread,
@@ -9755,7 +9801,7 @@ def api_thread_new_chat(name: str) -> Any:
         if len(brs) > 20:
             for old in sorted(brs, key=lambda k: brs[k].get("created_at", ""))[:-20]:
                 del brs[old]
-        _save_branches(name, data)
+        _save_branches(uname, name, data)
         archived = True
 
     save_thread(name, [], uname)
@@ -47334,13 +47380,9 @@ def api_account_delete():
     safe = _safe_name(uname)
     errors = []
 
-    # 1. Remove user from users.json
+    # 1. Remove user from the users store (explicit single-row delete).
     try:
-        data = load_users()
-        users = data.get("users") or {}
-        users.pop(uname, None)
-        data["users"] = users
-        save_users(data)
+        delete_user(uname)
     except Exception as e:
         errors.append(f"users: {e}")
 
@@ -53221,18 +53263,22 @@ def _rag_retrieve(username: str, query: str, top_k: int = 0) -> str:
 
 # ── CONVERSATION BRANCHING ────────────────────────────────────────────────────
 
-def _branches_path(teammate_name: str) -> Path:
+def _branches_path(username: str, teammate_name: str) -> Path:
+    # Per-user, mirroring how threads are scoped (_user_threads_dir). Branch
+    # snapshots contain full thread bodies, so they MUST NOT live in a shared
+    # file keyed only by teammate name — that leaks one tenant's private
+    # conversation to every other tenant sharing a built-in teammate name.
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", teammate_name)
-    return THREADS_DIR / f"{safe}_branches.json"
+    return _user_threads_dir(username) / f"{safe}_branches.json"
 
 
-def _load_branches(teammate_name: str) -> Dict[str, Any]:
-    return load_json(_branches_path(teammate_name), {"branches": {}, "updated_at": None})
+def _load_branches(username: str, teammate_name: str) -> Dict[str, Any]:
+    return load_json(_branches_path(username, teammate_name), {"branches": {}, "updated_at": None})
 
 
-def _save_branches(teammate_name: str, data: Dict[str, Any]) -> None:
+def _save_branches(username: str, teammate_name: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
-    save_json(_branches_path(teammate_name), data)
+    save_json(_branches_path(username, teammate_name), data)
 
 
 @app.post("/api/thread/<n>/snapshot")
@@ -53247,7 +53293,7 @@ def api_thread_snapshot(n: str):
     if not thread:
         return jsonify({"ok": False, "error": "No messages to snapshot"}), 400
     branch_id = uuid.uuid4().hex[:12]
-    data      = _load_branches(n)
+    data      = _load_branches(uname, n)
     data.setdefault("branches", {})[branch_id] = {
         "id": branch_id, "label": label, "created_at": now_iso(),
         "msg_count": len(thread), "thread": thread,
@@ -53256,7 +53302,7 @@ def api_thread_snapshot(n: str):
     if len(brs) > 20:
         for old in sorted(brs, key=lambda k: brs[k].get("created_at", ""))[:-20]:
             del brs[old]
-    _save_branches(n, data)
+    _save_branches(uname, n, data)
     return jsonify({"ok": True, "branch_id": branch_id, "label": label})
 
 
@@ -53265,7 +53311,7 @@ def api_thread_branches(n: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    data    = _load_branches(n)
+    data    = _load_branches(_get_session_username(), n)
     branches = sorted((data.get("branches") or {}).values(),
                       key=lambda b: str(b.get("created_at") or ""), reverse=True)
     slim = [{"id": b["id"], "label": b["label"],
@@ -53279,11 +53325,12 @@ def api_thread_restore(n: str, branch_id: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    data   = _load_branches(n)
+    uname  = _get_session_username()
+    data   = _load_branches(uname, n)
     branch = (data.get("branches") or {}).get(branch_id)
     if not branch:
         return jsonify({"ok": False, "error": "Branch not found"}), 404
-    save_thread(n, branch["thread"], _get_session_username())
+    save_thread(n, branch["thread"], uname)
     return jsonify({"ok": True, "msg_count": len(branch["thread"]), "label": branch["label"]})
 
 
