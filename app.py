@@ -6227,28 +6227,6 @@ def _is_provider_error(e: Exception) -> bool:
     return any(x in s for x in ["500", "503", "502", "overloaded", "service unavailable", "connection", "timeout", "network", "internal server"])
 
 
-_SMART_ROUTING_CHEAP_OPENAI = "gpt-4o-mini"
-_SMART_ROUTING_CHEAP_CLAUDE = "claude-haiku-4-5"
-_SMART_ROUTING_COMPLEX_KEYWORDS = [
-    "write", "draft", "create", "generate", "analyze", "analyse", "summarize", "summarise",
-    "explain", "plan", "strategy", "research", "review", "compare", "evaluate",
-    "code", "build", "design", "refactor", "report", "proposal", "email",
-]
-
-def _pick_model_smart(message: str, preferred_model: str) -> str:
-    """If message is simple (short + no complex keywords), return cheaper variant of preferred model.
-    Used when user has smart_routing enabled in settings."""
-    msg = (message or "").strip()
-    if len(msg) > 200:
-        return preferred_model
-    msg_lower = msg.lower()
-    if any(kw in msg_lower for kw in _SMART_ROUTING_COMPLEX_KEYWORDS):
-        return preferred_model
-    if _is_claude_model(preferred_model):
-        return _SMART_ROUTING_CHEAP_CLAUDE
-    return _SMART_ROUTING_CHEAP_OPENAI
-
-
 # =========================
 # URL CONTENT FETCHER (for teammates)
 # =========================
@@ -8272,7 +8250,6 @@ def api_get_user_settings():
             "has_claude_key":       bool(claude_key),
             "claude_key_hint":      claude_hint,
             "global_default_model": (settings.get("global_default_model") or "").strip(),
-            "smart_routing": bool(settings.get("smart_routing")),
             "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {}).get("refresh_token") or (settings.get("gmail_oauth") or {}).get("access_token")),
             "smtp": safe_smtp,
             "tooltip_level": (settings.get("tooltip_level") or "medium"),  # off | low | medium | high
@@ -8387,8 +8364,6 @@ def api_set_user_settings():
         rec["settings"]["claude_key"] = _encrypt_field(claude_key)
     if global_default_model:
         rec["settings"]["global_default_model"] = global_default_model
-    if "smart_routing" in (data or {}):
-        rec["settings"]["smart_routing"] = bool(data.get("smart_routing"))
 
     # Tooltip level — always save when present (including "off")
     tooltip_level = (data.get("tooltip_level") or "").strip().lower()
@@ -15002,7 +14977,8 @@ HTML = r"""
     .seatMeta{ display:flex; flex-direction:column; align-items:center; gap:2px; width:100%; pointer-events:none; }
     .seatName{ font-weight:800; font-size:12px; text-align:center; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .seatRole{ font-size:9.5px; color:var(--muted); text-align:center; width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:.75; }
-    .seatStatus{ font-size:9.5px; color:var(--muted); opacity:.85; margin-top:8px; display:flex; align-items:center; gap:4px; }
+    .seatStatus{ font-size:9.5px; color:var(--muted); opacity:.85; margin-top:8px; display:flex; align-items:center; gap:4px; width:100%; max-width:100%; height:1.6em; line-height:1.6em; overflow:hidden; flex-shrink:0; }
+    .seatStatus .saPhraseTxt{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1 1 auto; }
 
     .seatTools{
       position:absolute;
@@ -19118,18 +19094,6 @@ label {
                         </optgroup>
                       </select>
                       <div class="tiny" style="opacity:.7;margin-top:4px;">Images and voice always use GPT regardless of this setting.</div>
-                    </div>
-
-                    <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 14px;">
-                      <div>
-                        <div style="font-size:13px;font-weight:600;color:#c4b5fd;">⚡ Smart Model Routing</div>
-                        <div class="tiny" style="opacity:.7;margin-top:2px;">Automatically use a faster, cheaper model for short or simple messages. Quality model is still used for complex tasks.</div>
-                      </div>
-                      <label style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;margin-left:14px;">
-                        <input type="checkbox" id="smartRoutingToggle" style="opacity:0;width:0;height:0;position:absolute;" />
-                        <span id="smartRoutingTrack" style="position:absolute;inset:0;background:rgba(42,58,106,.5);border-radius:12px;cursor:pointer;transition:background .2s;"></span>
-                        <span id="smartRoutingThumb" style="position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:left .2s;"></span>
-                      </label>
                     </div>
 
                     <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:10px;padding:10px 14px;">
@@ -23463,7 +23427,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const cx = w / 2;
           const cy = h / 2;
           const rx = w * 0.43;
-          const ry = h * 0.35;
+          // The Operator seat sits at 12 o'clock, directly above the round
+          // Group Console panel — give it a touch more vertical radius than
+          // the side seats so it clears the console by the same visual gap
+          // Orion (and the other side seats) have from the table.
+          const ry = h * 0.39;
           const pos = computeEllipsePos(0, 8, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
@@ -26700,7 +26668,7 @@ function _saJobNotify(seatName, status){
             try{
               const ev = JSON.parse(line.slice(5).trim());
               if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
-              if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} if(!aBody._rafPending){aBody._rafPending=true;requestAnimationFrame(function(){aBody._rafPending=false;var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\n{3,}/g,'\n\n').trim();aBody.textContent=_st3||fullText;cursor.remove();aBody.appendChild(cursor);if(threadBox)threadBox.scrollTop=threadBox.scrollHeight;});} }
+              if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} if(!aBody._rafPending){aBody._rafPending=true;requestAnimationFrame(function(){aBody._rafPending=false;var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\*/g,'').replace(/\n{3,}/g,'\n\n').trim();aBody.textContent=_st3||fullText;cursor.remove();aBody.appendChild(cursor);if(threadBox)threadBox.scrollTop=threadBox.scrollHeight;});} }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; _serverDone = true; }
             }catch(e){}
           }
@@ -28027,19 +27995,6 @@ Challenge weak assumptions. Surface risks.`;
         if($("globalDefaultModel") && s.global_default_model){
           $("globalDefaultModel").value = s.global_default_model;
         }
-        // Smart routing toggle
-        (function(){
-          var tog=$("smartRoutingToggle"), track=$("smartRoutingTrack"), thumb=$("smartRoutingThumb");
-          if(!tog) return;
-          function _applyToggle(on){
-            track.style.background=on?'rgba(124,58,237,.7)':'rgba(42,58,106,.5)';
-            thumb.style.left=on?'21px':'3px';
-          }
-          tog.checked=!!s.smart_routing;
-          _applyToggle(!!s.smart_routing);
-          track.onclick=function(){ tog.checked=!tog.checked; _applyToggle(tog.checked); };
-          thumb.onclick=function(){ tog.checked=!tog.checked; _applyToggle(tog.checked); };
-        })();
         const smtp = s.smtp || {};
         // SMTP fields hidden from UI — values preserved in backend
         $("settingsStatus").innerText = "Ready";
@@ -34711,12 +34666,10 @@ $("settingsBtn").onclick = () => showSettingsModal();
       const keyVal = ($("openaiKey").value || "").trim();
       const claudeKeyVal = ($("claudeKey") ? $("claudeKey").value : "").trim();
       const globalModel = ($("globalDefaultModel") ? $("globalDefaultModel").value : "").trim();
-      const smartRouting = !!($("smartRoutingToggle") && $("smartRoutingToggle").checked);
       const payload = {
         openai_key: keyVal,
         claude_key: claudeKeyVal,
         global_default_model: globalModel,
-        smart_routing: smartRouting,
         tooltip_level: ($("tooltipLevel") ? $("tooltipLevel").value : "medium"),
         theme: (window._saThemePrefs || {}),
         smtp: {
@@ -39971,6 +39924,14 @@ document.addEventListener("click", function(e) {
   function patchSendFollow(){
     const origBtn = document.getElementById("sendFollow");
     if(!origBtn){ setTimeout(patchSendFollow,200); return; }
+    // patchSendFollow() is called multiple times (DOMContentLoaded, delayed
+    // retry, readyState fallback) — without this guard each call adds another
+    // click/keydown listener, so a single Send/Enter fires sendFollowStream()
+    // 2-3x concurrently, causing duplicate messages, races where the latest
+    // reply gets clobbered by an earlier in-flight save, and seats stuck on
+    // "waiting" from a redundant request's error.
+    if(origBtn._saStreamPatched) return;
+    origBtn._saStreamPatched = true;
 
     origBtn.addEventListener("click", async function(e){
       if(!streamMode) return; // let original handler fire normally
@@ -54715,6 +54676,11 @@ def api_followup_stream():
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
         _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
         if _img_rl:
+            # Persist the exchange even on rate-limit — otherwise the client's
+            # post-error refreshThread() re-fetches a thread that never got
+            # this message, and the user's prompt appears to vanish instantly.
+            _rl_msg = (_img_rl[0].get_json() or {}).get("error") or "Image generation rate limit reached. Try again in a moment."
+            save_thread(name, full_thread + [{"role": "user", "content": msg2}, {"role": "assistant", "content": _rl_msg}], uname)
             return _img_rl
         job_id = create_image_job(job_prompt, teammate=name, username=uname, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
         mode_label = {"edit": "Editing image", "variation": "Generating variation", "new": "Generating image"}.get(mode, "Generating image")
@@ -54742,14 +54708,9 @@ def api_followup_stream():
 
     thread = _truncate_thread_with_note(full_thread, max_messages=20)
 
+    # Teammates always use the model the user selected — no automatic
+    # per-message downgrading. Keeps each teammate's voice/quality consistent.
     preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
-    # Smart routing: downgrade to cheap model for simple messages when user enables the setting
-    try:
-        _u_sett = (load_users().get("users", {}).get(uname, {}).get("settings") or {})
-        if _u_sett.get("smart_routing"):
-            preferred_model = _pick_model_smart(msg, preferred_model)
-    except Exception:
-        pass
     _use_claude     = _is_claude_model(preferred_model)
 
     # Read the user's OpenAI key directly — never rely on g.openai_client
@@ -54798,6 +54759,19 @@ def api_followup_stream():
             pass
         return complete_text, draft
 
+    def _persist_error(err_text: str) -> None:
+        """Persist the user's message with an error reply — otherwise the
+        client's post-error refreshThread() re-fetches a thread that never
+        got this exchange, and the user's prompt appears to vanish instantly."""
+        try:
+            new_thread = pre_thread + [
+                {"role": "user",      "content": msg2},
+                {"role": "assistant", "content": err_text},
+            ]
+            save_thread(name, new_thread, uname)
+        except Exception:
+            pass
+
     # Guard: no OpenAI key available at all
     if not _use_claude and not oai_client:
         return jsonify({"ok": False, "error": "No OpenAI API key configured. Go to ⚙️ Settings and add your key."}), 400
@@ -54813,7 +54787,10 @@ def api_followup_stream():
             if _use_claude:
                 claude_client = _get_claude_client_for_user(current_user())
                 if claude_client is None:
-                    yield "data: " + json.dumps({"error": "No Anthropic API key saved. Go to Settings and add your Anthropic key (sk-ant-...)."}) + "\n\n"
+                    _err_text = "No Anthropic API key saved. Go to Settings and add your Anthropic key (sk-ant-...)."
+                    _persist_error(_err_text)
+                    _persisted = True
+                    yield "data: " + json.dumps({"error": _err_text}) + "\n\n"
                     return
                 # Claude needs text-only thread (no image_url blocks)
                 def _text_only_msgs(msgs):
@@ -54871,21 +54848,28 @@ def api_followup_stream():
             }) + "\n\n"
 
         except Exception as exc:
-            if not _persisted and parts:
-                try: _persist_stream_result(parts)
-                except Exception: pass
-                _persisted = True
             err_msg = str(exc) or "Stream error"
             try:
                 _, err_msg = _classify_openai_error(exc)
             except Exception:
                 pass
+            if not _persisted:
+                if parts:
+                    try: _persist_stream_result(parts)
+                    except Exception: pass
+                else:
+                    _persist_error(err_msg)
+                _persisted = True
             yield "data: " + json.dumps({"error": err_msg}) + "\n\n"
         finally:
             # Last-resort save: handles GeneratorExit (client disconnect) and any uncaught path
-            if not _persisted and parts:
-                try: _persist_stream_result(parts)
-                except Exception: pass
+            if not _persisted:
+                if parts:
+                    try: _persist_stream_result(parts)
+                    except Exception: pass
+                else:
+                    _persist_error("Stream error")
+                _persisted = True
 
     return Response(
         stream_with_context(generate()),
