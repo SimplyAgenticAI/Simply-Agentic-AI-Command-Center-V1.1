@@ -56830,6 +56830,25 @@ def _orchestra_run(uname: str, prompt: str, teammate_order: List[str]) -> Dict[s
 
     return {"final": current_doc, "passes": passes}
 
+def _premium_mode_limit_gate(uname: str):
+    """Shared usage-limit gate for the high-cost premium modes (Orchestra,
+    Deep Dive, Fusion). Each runs multiple LLM passes on the platform key, so
+    they must respect monthly AI Credits exactly like the chat path. Returns a
+    Flask (response, status) tuple to return early if over limit, else None.
+    Users with their own API key are exempt (they pay their own provider cost)."""
+    try:
+        plan_k = _get_user_plan(uname)
+        allowed, used, limit, _iused, _ilimit, _own = _check_msg_limit(uname, plan_k)
+        if not allowed:
+            plan_nm = (PLANS.get(plan_k) or {}).get("name", "your plan")
+            return jsonify({"ok": False, "error": (
+                f"You've used all {limit} AI Credits included in {plan_nm} this month. "
+                f"Upgrade to get more, or add your own API key in Settings for unlimited credits."
+            ), "limit_hit": True}), 429
+    except Exception:
+        pass
+    return None
+
 @app.post("/api/orchestra/run")
 def api_orchestra_run():
     u = current_user()
@@ -56838,6 +56857,8 @@ def api_orchestra_run():
     uname = u.get("username", "")
     if not _user_has_unlock(uname, "orchestra"):
         return jsonify({"ok": False, "error": "Orchestra Mode unlocks at Tier 3 — Command Ready."}), 403
+    gate = _premium_mode_limit_gate(uname)
+    if gate: return gate
     rl = _check_rate_limit("orchestra", 20)
     if rl: return rl
     p = request.get_json(silent=True) or {}
@@ -56850,6 +56871,9 @@ def api_orchestra_run():
     teammate_order = [str(t).strip() for t in teammate_order[:8]]
     try:
         result = _orchestra_run(uname, prompt, teammate_order)
+        # Meter one credit per teammate pass actually run.
+        for _ in range(len(result.get("passes") or [])):
+            _increment_msg_usage(uname)
         _award_points(uname, "Ran Orchestra Mode", 50)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -56906,6 +56930,8 @@ def api_deepdive_run():
     uname = u.get("username", "")
     if not _user_has_unlock(uname, "deep_dive"):
         return jsonify({"ok": False, "error": "Deep Dive Mode unlocks at Tier 4 — Senior Operator."}), 403
+    gate = _premium_mode_limit_gate(uname)
+    if gate: return gate
     rl = _check_rate_limit("deepdive", 15)
     if rl: return rl
     p = request.get_json(silent=True) or {}
@@ -56915,6 +56941,10 @@ def api_deepdive_run():
         return jsonify({"ok": False, "error": "teammate and prompt required"}), 400
     try:
         result = _deep_dive_run(uname, teammate, prompt)
+        # Meter the rounds actually run (draft + critique + deeper = 3).
+        if not result.get("error"):
+            for _ in range(int(result.get("rounds") or 3)):
+                _increment_msg_usage(uname)
         _award_points(uname, "Ran Deep Dive Mode", 45)
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -57015,6 +57045,8 @@ def api_fusion_run():
     uname = u.get("username", "")
     if not _user_has_unlock(uname, "fusion"):
         return jsonify({"ok": False, "error": "Fusion Mode unlocks at Tier 5 — Elite Operator."}), 403
+    gate = _premium_mode_limit_gate(uname)
+    if gate: return gate
     rl = _check_rate_limit("fusion", 10)
     if rl: return rl
     p = request.get_json(silent=True) or {}
@@ -57026,6 +57058,12 @@ def api_fusion_run():
         result = _fusion_run(uname, prompt, system)
         if "error" in result:
             return jsonify({"ok": False, "error": result["error"]}), 500
+        # Meter the model passes that ran: GPT + Claude + (synthesis if both).
+        _passes = (1 if result.get("gpt_response") else 0) \
+                + (1 if result.get("claude_response") else 0) \
+                + (1 if (result.get("gpt_response") and result.get("claude_response")) else 0)
+        for _ in range(_passes or 1):
+            _increment_msg_usage(uname)
         _award_points(uname, "Ran Fusion Mode", 80)
         return jsonify({"ok": True, **result})
     except Exception as e:
