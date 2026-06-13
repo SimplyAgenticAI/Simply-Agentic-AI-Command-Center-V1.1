@@ -6089,6 +6089,32 @@ def _build_user_content(text: str, vision_images: List[Dict[str, Any]]) -> Conte
     return parts
 
 
+def _to_anthropic_content(content: ContentType) -> ContentType:
+    """Convert OpenAI-style user content (text + image_url data-URL blocks, as
+    built by _build_user_content) into Anthropic message content so Claude
+    teammates actually receive uploaded images instead of silently dropping
+    them. Plain strings pass through unchanged."""
+    if not isinstance(content, list):
+        return str(content)
+    out: List[Dict[str, Any]] = []
+    for p in content:
+        if not isinstance(p, dict):
+            continue
+        if p.get("type") == "text":
+            out.append({"type": "text", "text": p.get("text", "")})
+        elif p.get("type") == "image_url":
+            url = (p.get("image_url") or {}).get("url", "") or ""
+            if url.startswith("data:") and "," in url:
+                try:
+                    header, b64 = url.split(",", 1)
+                    media_type = header[5:].split(";")[0] or "image/jpeg"
+                    out.append({"type": "image", "source": {
+                        "type": "base64", "media_type": media_type, "data": b64,
+                    }})
+                except Exception:
+                    pass
+    return out or ""
+
 
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """Returns (http_status, friendly_user_message). Uses exception type first,
@@ -54890,7 +54916,10 @@ def api_followup_stream():
                         out.append({"role": m.get("role", "user"), "content": str(c)})
                     return out
                 clean_thread = _text_only_msgs(list(thread))
-                clean_content = msg2 if isinstance(user_content, list) else str(user_content)
+                # Preserve uploaded images for Claude (vision) instead of
+                # dropping them — convert OpenAI image_url blocks to Anthropic
+                # image blocks. Falls back to plain text when there are none.
+                clean_content = _to_anthropic_content(user_content)
                 with claude_client.messages.stream(
                     model=preferred_model,
                     max_tokens=4096,
