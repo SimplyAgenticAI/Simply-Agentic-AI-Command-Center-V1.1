@@ -6255,7 +6255,11 @@ import urllib.request as _urllib_req
 import ipaddress as _ipaddress
 
 def _is_ssrf_safe(url: str) -> bool:
-    """Block requests to private/loopback/link-local IP ranges (SSRF protection)."""
+    """Block requests to private/loopback/link-local IP ranges (SSRF protection).
+
+    Resolves ALL addresses the host maps to (IPv4 AND IPv6) and rejects if ANY
+    of them is internal — a single gethostbyname() A-record check could miss an
+    internal AAAA record or a multi-record host that mixes public and private."""
     try:
         from urllib.parse import urlparse
         import socket
@@ -6263,19 +6267,53 @@ def _is_ssrf_safe(url: str) -> bool:
         host = parsed.hostname or ""
         if not host:
             return False
-        # Resolve hostname to IP
+        # Resolve to every address (v4 + v6); block the host if we can't.
         try:
-            ip_str = socket.gethostbyname(host)
+            infos = socket.getaddrinfo(host, None)
         except Exception:
-            return False  # Can't resolve — block it
-        ip = _ipaddress.ip_address(ip_str)
-        # Block private, loopback, link-local, and reserved ranges
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or
-                ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             return False
+        addrs = {info[4][0] for info in infos}
+        if not addrs:
+            return False
+        for ip_str in addrs:
+            try:
+                ip = _ipaddress.ip_address(ip_str)
+            except ValueError:
+                return False
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or
+                    ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+                return False
         return True
     except Exception:
         return False
+
+def _safe_requests_get(url: str, headers: Dict[str, str], timeout: int, max_redirects: int = 4):
+    """requests.get that validates EVERY hop against _is_ssrf_safe instead of
+    blindly following redirects. A public URL that 302-redirects to an internal
+    address (cloud metadata, localhost) would otherwise defeat the guard.
+    Returns the final Response, or None if any hop is unsafe / it fails."""
+    cur = url
+    for _ in range(max_redirects + 1):
+        if not _is_ssrf_safe(cur):
+            return None
+        r = requests.get(cur, headers=headers, timeout=timeout, allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307, 308):
+            loc = r.headers.get("Location") or ""
+            if not loc:
+                return r
+            from urllib.parse import urljoin
+            cur = urljoin(cur, loc)
+            continue
+        return r
+    return None
+
+class _SSRFSafeRedirectHandler(_urllib_req.HTTPRedirectHandler):
+    """urllib redirect handler that re-validates each redirect target against
+    _is_ssrf_safe before following — blocks public→internal redirect pivots."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _is_ssrf_safe(newurl):
+            raise _urllib_req.HTTPError(newurl, code, "Redirect to disallowed address blocked", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
     """Fetch and extract text content from a URL. Returns (text, error)."""
@@ -6301,7 +6339,11 @@ def _fetch_url_content(url: str, max_chars: int = 8000) -> tuple:
         req = _urllib_req.Request(url, headers=_headers)
 
         def _do_fetch(ctx):
-            with _urllib_req.urlopen(req, timeout=20, context=ctx) as resp:
+            opener = _urllib_req.build_opener(
+                _SSRFSafeRedirectHandler(),
+                _urllib_req.HTTPSHandler(context=ctx),
+            )
+            with opener.open(req, timeout=20) as resp:
                 return resp.read(400_000), resp.headers.get("Content-Type", ""), resp.headers.get("Content-Encoding", "")
 
         def _is_ssl_error(_e):
@@ -49425,10 +49467,10 @@ def _crm_guess_company(title: str, domain: str) -> str:
 
 def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
     try:
-        if not _is_ssrf_safe(url):
-            return "", url
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-        r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        r = _safe_requests_get(url, headers, timeout)
+        if r is None:
+            return "", url
         ctype = (r.headers.get("Content-Type") or "").lower()
         if r.status_code >= 400:
             return "", r.url or url
@@ -49457,13 +49499,12 @@ def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, 
     results: List[Tuple[str, str]] = []
     def fetch_one(u: str) -> Tuple[str, str]:
         try:
-            if not _is_ssrf_safe(u):
-                return "", u
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-            r = requests.get(u, headers=headers, timeout=timeout, allow_redirects=True)
-            ctype = (r.headers.get("Content-Type") or "").lower()
-            if r.status_code < 400 and ("text/html" in ctype or not ctype):
-                return r.text or "", r.url or u
+            r = _safe_requests_get(u, headers, timeout)
+            if r is not None:
+                ctype = (r.headers.get("Content-Type") or "").lower()
+                if r.status_code < 400 and ("text/html" in ctype or not ctype):
+                    return r.text or "", r.url or u
         except Exception:
             pass
         return "", u
@@ -57166,12 +57207,18 @@ def _fire_outbound_webhooks(username: str, event: str, payload: Dict[str, Any]) 
                 if not hook.get("url") or not hook.get("active", True): continue
                 events = hook.get("events") or []
                 if events and event not in events: continue
+                # Re-validate destination at fire time (defends against DNS
+                # rebinding since the save-time check) and never follow
+                # redirects (a public URL could 302 to an internal address).
+                if not _is_ssrf_safe(hook["url"]):
+                    continue
                 try:
                     requests.post(hook["url"], json={
                         "event": event, "username": username,
                         "at": now_iso(), "data": payload
-                    }, timeout=8, headers={"Content-Type": "application/json",
-                                            "X-Simply-Agentic-Event": event})
+                    }, timeout=8, allow_redirects=False,
+                    headers={"Content-Type": "application/json",
+                             "X-Simply-Agentic-Event": event})
                 except Exception:
                     pass
         except Exception:
@@ -57193,6 +57240,8 @@ def api_save_webhook():
     p = request.get_json(force=True, silent=True) or {}
     url = (p.get("url") or "").strip()
     if not url.startswith("http"): return jsonify({"ok": False, "error": "Invalid URL"}), 400
+    if not _is_ssrf_safe(url):
+        return jsonify({"ok": False, "error": "That URL is not allowed (must be a public https endpoint)."}), 400
     hooks = _load_user_webhooks(uname)
     hook = {
         "id": secrets.token_hex(8),
