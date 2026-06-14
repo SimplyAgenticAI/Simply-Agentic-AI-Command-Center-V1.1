@@ -9549,6 +9549,14 @@ def _api_convene_impl(data):
     outputs: Dict[str, str] = {}
     email_drafts: Dict[str, Dict[str, str]] = {}
 
+    # Round-table roster so each teammate knows who covers what — prevents the
+    # repetitive, overlapping "everyone gives the same generic plan" responses.
+    _convene_roster = []
+    for _rn in order:
+        _rd = installed.get(_rn)
+        if _rd:
+            _convene_roster.append((_rd.get("name") or _rn, (_rd.get("job_title") or "").strip()))
+
     for name in order:
         defn = installed.get(name)
         if not defn:
@@ -9560,7 +9568,19 @@ def _api_convene_impl(data):
         if is_image_request(prompt2):
             continue
 
-        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode)
+        _role = (defn.get("job_title") or "specialist").strip() or "specialist"
+        _others = "; ".join(f"{nm} ({jt})" for nm, jt in _convene_roster if nm != name) or "no other teammates"
+        _convene_directive = (
+            f"\n\nROUND-TABLE MODE: You are {name}, the {_role}, giving a group-console response "
+            f"alongside other specialists, each covering their own domain: {_others}. "
+            "Contribute ONLY your specialist's slice from your area of expertise — do NOT write a "
+            "full general business plan or a broad overview that could have come from anyone. Do "
+            "not cover ground that clearly belongs to another teammate's role; trust them to handle "
+            "theirs. Be specific, distinct, and tightly focused on what only YOU bring. If the "
+            "request falls largely outside your lane, give just the narrow part that genuinely fits "
+            "your specialty rather than padding with generic advice."
+        )
+        sys = teammate_system_prompt(defn, lighting_mode=lighting_mode) + _convene_directive
 
         thread = _truncate_thread_with_note(load_thread(name, uname), max_messages=20)
 
@@ -14930,6 +14950,7 @@ HTML = r"""
       min-height: calc(100vh - 24px);
       display:grid;
       grid-template-columns: minmax(0, 1fr) 680px;
+      column-gap: 22px;
       align-items:start;
       position:relative;
       z-index:2;
