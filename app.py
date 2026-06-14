@@ -19115,8 +19115,10 @@ label {
                     <div class="etSpacer"></div>
 
                     <div id="etActions">
-                      <button class="btn btnPrimary" id="saveEditExit">Save &amp; Exit</button>
-                      <button class="btn btnPrimary" id="saveEdit" style="background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.42);">Save Changes</button>
+                      <div id="etSaveRow" style="display:flex;gap:8px;">
+                        <button class="btn btnPrimary" id="saveEdit" style="flex:1;background:rgba(124,58,237,.22);border-color:rgba(124,58,237,.42);">Save Changes</button>
+                        <button class="btn btnPrimary" id="saveEditExit" style="flex:1;">Save &amp; Exit</button>
+                      </div>
                       <button class="btn" id="cancelEdit">Cancel</button>
                     </div>
                     <div class="tiny" id="editStatus" style="margin-top:8px;text-align:center;min-height:16px;"></div>
