@@ -4335,15 +4335,27 @@ def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = 
         _invalidate_search_index(uname)
     except Exception:
         pass
-    # [UPGRADE 4] Track last_used_at on the teammate's registry entry — additive, never breaks reads
+    # [UPGRADE 4] Track last_used_at on the teammate's registry entry — additive, never breaks reads.
+    # Throttle to at most once per ~5 min per teammate: last_used_at is only
+    # used for sort/display, so we don't need to rewrite the whole registry
+    # (a file write + lock) on every single chat message.
     try:
         uname = username or _get_session_username()
         reg   = load_registry(uname)
         installed = reg.get("installed") or {}
         if teammate_name in installed and isinstance(installed[teammate_name], dict):
-            installed[teammate_name]["last_used_at"] = now_iso()
-            reg["installed"] = installed
-            save_registry(reg, uname)
+            _prev = installed[teammate_name].get("last_used_at") or ""
+            _stale = True
+            if _prev:
+                try:
+                    if (datetime.utcnow() - datetime.fromisoformat(_prev.replace("Z", ""))).total_seconds() < 300:
+                        _stale = False
+                except Exception:
+                    _stale = True
+            if _stale:
+                installed[teammate_name]["last_used_at"] = now_iso()
+                reg["installed"] = installed
+                save_registry(reg, uname)
     except Exception:
         pass  # tracking must never break saves
 
