@@ -3754,7 +3754,10 @@ def _run_due_schedules_once() -> None:
                 _persist_run(run)
                 _run_action_stack_engine(run)
 
-                s["last_run"] = now_iso()
+                # Store last_run in the user's LOCAL frame so the daily dedupe
+                # (lr.date() vs now_local.date()) doesn't double-run or skip
+                # near midnight for non-UTC timezones.
+                s["last_run"] = now_local.isoformat()
                 changed = True
             except Exception:
                 continue
@@ -14179,6 +14182,30 @@ def stripe_webhook():
     ok, event = _stripe_verify_webhook(payload, sig_header)
     if not ok:
         return jsonify({"error": "Invalid signature"}), 400
+
+    # Idempotency: Stripe can deliver the same event more than once (and a
+    # replay within the signature window is valid). Short-circuit if we've
+    # already processed this event id so handlers run exactly once.
+    _evt_id = (event.get("id") or "").strip()
+    if _evt_id:
+        _now_ts = datetime.utcnow().timestamp()
+        _already = {"hit": False}
+        def _mark(seen):
+            if not isinstance(seen, dict):
+                seen = {}
+            # prune entries older than 24h
+            seen = {k: v for k, v in seen.items() if (_now_ts - float(v or 0)) < 86400}
+            if _evt_id in seen:
+                _already["hit"] = True
+            else:
+                seen[_evt_id] = _now_ts
+            return seen
+        try:
+            update_json(DATA / "stripe_events.json", {}, _mark)
+        except Exception:
+            pass
+        if _already["hit"]:
+            return jsonify({"ok": True, "duplicate": True})
 
     if event.get("type") == "checkout.session.completed":
         obj         = (event.get("data") or {}).get("object") or {}
