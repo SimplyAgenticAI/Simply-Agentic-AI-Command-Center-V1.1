@@ -54,3 +54,12 @@ def test_global_handler_returns_json_for_api_routes(client):
     assert resp.status_code in (401, 404)
     assert resp.is_json
     assert resp.get_json().get("ok") is False
+
+
+def test_error_page_renders_cosmic_theme(auth_client):
+    # The admin error page should render with the dark cosmic background.
+    resp = auth_client.get("/admin/errors")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "cosmicBg" in body          # animated background canvas present
+    assert "🩺 Error Log" in body       # branded header

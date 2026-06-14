@@ -51295,46 +51295,88 @@ def admin_error_log():
         tb = (entry.get("traceback") or "").replace("<", "&lt;").replace(">", "&gt;")
         _user = entry.get("user") or "—"
         _ctx  = entry.get("context") or ""
+        _card_bg = "rgba(220,38,38,.10)" if entry.get("type") else "rgba(255,255,255,.04)"
+        _card_bd = "rgba(248,113,113,.30)" if entry.get("type") else "rgba(124,58,237,.25)"
         _meta_bits = ""
         if entry.get("body") is not None:
             try:
-                _meta_bits += f'<div style="margin-top:8px;"><b>Input (redacted):</b><pre style="margin:4px 0 0;font-size:11px;white-space:pre-wrap;color:#475569;background:rgba(0,0,0,.03);padding:6px 8px;border-radius:6px;">{_esc(json.dumps(entry.get("body"), indent=2))[:2000]}</pre></div>'
+                _meta_bits += f'<div style="margin-top:8px;"><b style="color:#c4b5fd;">Input (redacted):</b><pre style="margin:4px 0 0;font-size:11px;white-space:pre-wrap;color:#cbd5e1;background:rgba(0,0,0,.30);padding:6px 8px;border-radius:6px;">{_esc(json.dumps(entry.get("body"), indent=2))[:2000]}</pre></div>'
             except Exception:
                 pass
         if entry.get("args"):
-            _meta_bits += f'<div style="margin-top:6px;font-size:12px;color:#475569;"><b>Query:</b> {_esc(entry.get("args"))}</div>'
+            _meta_bits += f'<div style="margin-top:6px;font-size:12px;color:#94a3b8;"><b style="color:#c4b5fd;">Query:</b> {_esc(entry.get("args"))}</div>'
         rows += f"""
-        <details style="background:{color};border:1px solid rgba(0,0,0,.08);border-radius:8px;margin-bottom:10px;padding:12px 16px;">
-          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">
+        <details style="background:{_card_bg};border:1px solid {_card_bd};border-radius:12px;margin-bottom:10px;padding:12px 16px;backdrop-filter:blur(10px);box-shadow:0 4px 20px rgba(0,0,0,.35);">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#e2e8f0;">
             [{entry.get('at','')[:19].replace('T',' ')}]&nbsp;
-            <span style="color:#dc2626;">{_esc(entry.get('type','?'))}</span>&nbsp;—&nbsp;
-            {_esc(entry.get('method','?'))} {_esc(entry.get('path',''))} &nbsp;
-            <span style="color:#0369a1;font-weight:600;">👤 {_esc(_user)}</span> &nbsp;
-            <span style="color:#64748b;font-weight:400;">{_esc(str(entry.get('message',''))[:120])}</span>
+            <span style="color:#f87171;">{_esc(entry.get('type','?'))}</span>&nbsp;—&nbsp;
+            <span style="color:#94a3b8;">{_esc(entry.get('method','?'))} {_esc(entry.get('path',''))}</span> &nbsp;
+            <span style="color:#38bdf8;font-weight:600;">👤 {_esc(_user)}</span> &nbsp;
+            <span style="color:#cbd5e1;font-weight:400;">{_esc(str(entry.get('message',''))[:120])}</span>
           </summary>
-          {f'<div style="margin-top:8px;font-size:12px;color:#7c3aed;"><b>Where:</b> {_esc(_ctx)}</div>' if _ctx else ''}
+          {f'<div style="margin-top:8px;font-size:12px;color:#a78bfa;"><b>Where:</b> {_esc(_ctx)}</div>' if _ctx else ''}
           {_meta_bits}
-          <pre style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;color:#334155;overflow-x:auto;">{tb}</pre>
+          <pre style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;color:#94a3b8;overflow-x:auto;">{tb}</pre>
         </details>"""
 
     clear_btn = """<form method="post" action="/admin/errors/clear" style="display:inline;">
-        <button style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;">
-        Clear all errors</button></form>"""
+        <button style="background:rgba(220,38,38,.25);color:#fecaca;border:1px solid rgba(248,113,113,.5);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;">
+        Clear all</button></form>"""
 
     html = f"""<!doctype html><html lang="en"><head>
     <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
     <title>Error Log — {APP_TITLE}</title>
-    <style>body{{font-family:system-ui,sans-serif;background:#f1f5f9;margin:0;padding:24px;}}
-    h1{{font-size:20px;font-weight:700;color:#0f172a;margin:0 0 4px;}}
-    .meta{{font-size:13px;color:#64748b;margin:0 0 20px;}}
-    a{{color:#6d28d9;font-size:13px;}}</style></head><body>
-    <h1>Error Log</h1>
-    <p class="meta">
-      <b style="color:{'#dc2626' if _cnt_1h else '#0f172a'};">{_cnt_1h}</b> in the last hour &nbsp;·&nbsp;
-      <b style="color:{'#dc2626' if _cnt_24h else '#0f172a'};">{_cnt_24h}</b> in the last 24h &nbsp;·&nbsp;
-      {len(log)} stored (last 200 kept) &nbsp;·&nbsp; {clear_btn} &nbsp;·&nbsp; <a href="/">← Back</a>
-    </p>
-    {'<p style="color:#64748b;font-size:14px;">No errors recorded yet. 🎉</p>' if not log else rows}
+    <style>
+    *{{box-sizing:border-box;}}
+    body{{font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;color:#e2e8f0;
+      background:
+        radial-gradient(ellipse at 88% 10%,rgba(14,165,233,.22) 0%,rgba(56,189,248,.08) 32%,transparent 56%),
+        radial-gradient(ellipse at 12% 90%,rgba(124,58,237,.28) 0%,rgba(99,58,200,.10) 30%,transparent 56%),
+        radial-gradient(ellipse at 50% 50%,rgba(12,18,50,.85),rgba(3,5,17,1));
+      background-attachment:fixed;}}
+    #cosmicBg{{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;}}
+    .wrap{{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:30px 24px 60px;}}
+    .panel{{background:rgba(10,14,30,.62);border:1px solid rgba(124,58,237,.30);border-radius:18px;
+      padding:22px 24px;backdrop-filter:blur(18px) saturate(160%);box-shadow:0 16px 48px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06);}}
+    h1{{font-size:22px;font-weight:800;color:#f0f4ff;margin:0 0 6px;letter-spacing:-.01em;}}
+    .meta{{font-size:13px;color:#94a3b8;margin:0 0 20px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;}}
+    .meta .sep{{opacity:.4;}}
+    a{{color:#a78bfa;font-size:13px;text-decoration:none;}}
+    a:hover{{text-decoration:underline;}}
+    details summary::-webkit-details-marker{{color:#7c3aed;}}
+    </style></head><body>
+    <canvas id="cosmicBg"></canvas>
+    <div class="wrap">
+      <div class="panel">
+        <h1>🩺 Error Log</h1>
+        <p class="meta">
+          <span><b style="color:{'#f87171' if _cnt_1h else '#e2e8f0'};font-size:15px;">{_cnt_1h}</b> in the last hour</span><span class="sep">·</span>
+          <span><b style="color:{'#f87171' if _cnt_24h else '#e2e8f0'};font-size:15px;">{_cnt_24h}</b> in the last 24h</span><span class="sep">·</span>
+          <span>{len(log)} stored (last 200)</span><span class="sep">·</span>
+          {clear_btn}<span class="sep">·</span>
+          <a href="/">← Back to Command Center</a>
+        </p>
+        {'<p style="color:#94a3b8;font-size:15px;padding:20px 0;text-align:center;">No errors recorded yet. 🎉</p>' if not log else rows}
+      </div>
+    </div>
+    <script>
+    (function(){{
+      var cv=document.getElementById('cosmicBg');if(!cv)return;var cx=cv.getContext('2d');
+      var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
+      var N=70,MAXD=170,W,H,pts=[];
+      function resize(){{W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}}
+      function mkPt(){{var a=Math.random()*Math.PI*2,sp=Math.random()*0.22+0.06,c=COLS[Math.floor(Math.random()*COLS.length)];
+        return{{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003}};}}
+      function frame(){{cx.clearRect(0,0,W,H);var i,j,p,dx,dy,d,la,ci,tw;
+        for(i=0;i<N;i++){{p=pts[i];p.x+=p.vx;p.y+=p.vy;if(p.x<0){{p.x=0;p.vx*=-1;}}if(p.x>W){{p.x=W;p.vx*=-1;}}if(p.y<0){{p.y=0;p.vy*=-1;}}if(p.y>H){{p.y=H;p.vy*=-1;}}p.tp+=p.ts;}}
+        for(i=0;i<N;i++)for(j=i+1;j<N;j++){{dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;d=Math.sqrt(dx*dx+dy*dy);
+          if(d<MAXD){{la=0.22*(1-d/MAXD);ci=pts[i].c;cx.beginPath();cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';cx.lineWidth=0.7;cx.moveTo(pts[i].x,pts[i].y);cx.lineTo(pts[j].x,pts[j].y);cx.stroke();}}}}
+        for(i=0;i<N;i++){{p=pts[i];tw=p.al*(0.70+0.30*Math.sin(p.tp));cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';cx.fill();}}
+        requestAnimationFrame(frame);}}
+      resize();for(var k=0;k<N;k++)pts.push(mkPt());requestAnimationFrame(frame);
+      window.addEventListener('resize',function(){{resize();}});
+    }})();
+    </script>
     </body></html>"""
     return html
 
