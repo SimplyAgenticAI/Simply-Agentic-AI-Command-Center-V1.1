@@ -58893,12 +58893,14 @@ def api_sp_connect_token():
 
     # Quick validation: hit Graph API to confirm token is valid
     import urllib.request as _urlreq, urllib.error as _urlerr
+    _verified = False
     try:
         _url = f"https://graph.facebook.com/v19.0/me?fields=id,name&access_token={access_token}"
         with _urlreq.urlopen(_url, timeout=8) as _resp:
             _data = json.loads(_resp.read())
         if "error" in _data:
             return jsonify({"ok": False, "error": "Invalid token: " + _data["error"].get("message", "unknown error")})
+        _verified = True
     except _urlerr.HTTPError as _e:
         try:
             _body = json.loads(_e.read())
@@ -58907,8 +58909,9 @@ def api_sp_connect_token():
             _msg = str(_e)
         return jsonify({"ok": False, "error": "Token validation failed: " + _msg})
     except Exception as _e:
-        # Network error — save anyway; token may still work for posting
-        pass
+        # Network error — save anyway (token may still work) but mark it
+        # unverified and tell the user rather than implying it's confirmed.
+        _verified = False
 
     conns = _load_sp_conns(uname)
     conns[platform] = {
@@ -58916,9 +58919,11 @@ def api_sp_connect_token():
         "page_id": page_id,
         "page_name": page_name,
         "token_type": "page",
+        "verified": _verified,
     }
     _save_sp_conns(uname, conns)
-    return jsonify({"ok": True, "page_name": page_name})
+    return jsonify({"ok": True, "page_name": page_name, "verified": _verified,
+                    "warning": None if _verified else "Saved, but we couldn't verify the token (network issue). If posting fails, re-paste it."})
 
 
 @app.post("/api/social/draft_ai")
