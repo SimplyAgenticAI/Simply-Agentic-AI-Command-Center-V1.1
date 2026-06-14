@@ -54550,11 +54550,13 @@ def api_webhooks_create():
     if stack_name not in (stacks_data.get("stacks") or {}):
         return jsonify({"ok": False, "error": "Stack not found"}), 404
 
-    token = secrets.token_urlsafe(24)
-    wh_id = uuid.uuid4().hex[:16]
+    token  = secrets.token_urlsafe(24)
+    secret = secrets.token_urlsafe(32)
+    wh_id  = uuid.uuid4().hex[:16]
     wh    = {
         "id":            wh_id,
         "token":         token,
+        "secret":        secret,
         "teammate":      teammate,
         "stack_name":    stack_name,
         "label":         label or f"{teammate} / {stack_name}",
@@ -54573,7 +54575,10 @@ def api_webhooks_create():
         _mark_onboarding_step(uname, "webhook_created", True)
     except Exception:
         pass
-    return jsonify({"ok": True, "webhook": wh, "url": url})
+    # Return the secret so the caller can sign requests:
+    #   X-Signature: sha256=<hex hmac of the raw body using this secret>
+    return jsonify({"ok": True, "webhook": wh, "url": url, "secret": secret,
+                    "signing_help": "Sign requests with HMAC-SHA256 of the raw body using this secret; send as header 'X-Signature: sha256=<hex>'."})
 
 
 @app.post("/api/webhooks/<wh_id>/delete")
@@ -54606,29 +54611,61 @@ def api_webhook_receive(token: str):
     if not isinstance(wh, dict):
         return jsonify({"ok": False, "error": "Webhook not found"}), 404
 
+    # Per-token rate limit — this endpoint is unauthenticated and each trigger
+    # runs an AI action stack on the owner's account, so cap abuse/DoS.
+    _wh_rl_allowed, _wh_rl_msg = _rate_limit_check(f"rl:webhook:{token}", 30)
+    if not _wh_rl_allowed:
+        return jsonify({"ok": False, "error": _wh_rl_msg}), 429
+
     owner      = wh.get("owner") or "anon"
     teammate   = wh.get("teammate") or ""
     stack_name = wh.get("stack_name") or ""
+    secret     = wh.get("secret") or ""
 
     stacks_data = _load_saved_stacks(owner, teammate)
     stack       = (stacks_data.get("stacks") or {}).get(stack_name)
     if not stack:
         return jsonify({"ok": False, "error": "Stack not found"}), 404
 
-    # Replay protection: reject requests with X-Timestamp > 5 min old
-    _wh_ts_header = request.headers.get("X-Timestamp") or ""
-    if _wh_ts_header:
+    # Read the raw body once — needed for HMAC verification.
+    try:
+        _raw_body = request.get_data() or b""
+    except Exception:
+        _raw_body = b""
+
+    # Signature verification: REQUIRED for webhooks that have a secret (all
+    # webhooks created after this change). Legacy secret-less webhooks remain
+    # accepted for backward compatibility but should be recreated to get signing.
+    if secret:
+        _sig_header = (request.headers.get("X-Signature") or "").strip()
+        if _sig_header.startswith("sha256="):
+            _sig_header = _sig_header[7:]
+        _expected = hmac.new(secret.encode(), _raw_body, hashlib.sha256).hexdigest()
+        if not _sig_header or not hmac.compare_digest(_sig_header, _expected):
+            return jsonify({"ok": False, "error": "Invalid or missing signature."}), 401
+        # Timestamp replay protection is mandatory for signed webhooks.
+        _wh_ts_header = (request.headers.get("X-Timestamp") or "").strip()
         try:
-            _wh_ts = float(_wh_ts_header)
-            _age = abs(datetime.utcnow().timestamp() - _wh_ts)
-            if _age > 300:
-                return jsonify({"ok": False, "error": "Webhook timestamp too old — possible replay attack."}), 400
+            _age = abs(datetime.utcnow().timestamp() - float(_wh_ts_header))
         except Exception:
-            pass  # If header is malformed, allow through (not all callers send it)
+            return jsonify({"ok": False, "error": "Missing or invalid X-Timestamp."}), 400
+        if _age > 300:
+            return jsonify({"ok": False, "error": "Webhook timestamp too old — possible replay attack."}), 400
+    else:
+        # Legacy path: best-effort replay check only if the caller sends it.
+        _wh_ts_header = request.headers.get("X-Timestamp") or ""
+        if _wh_ts_header:
+            try:
+                if abs(datetime.utcnow().timestamp() - float(_wh_ts_header)) > 300:
+                    return jsonify({"ok": False, "error": "Webhook timestamp too old — possible replay attack."}), 400
+            except Exception:
+                pass
 
     # Accept an optional input payload from the caller
     try:
-        body = request.get_json(silent=True) or {}
+        body = json.loads(_raw_body.decode("utf-8")) if _raw_body else {}
+        if not isinstance(body, dict):
+            body = {}
         user_input = str(body.get("input") or body.get("message") or "")[:500]
     except Exception:
         user_input = ""
