@@ -15115,6 +15115,9 @@ HTML = r"""
     #customBenchRow .seat::before{
       background: rgba(196,181,253,.7) !important;
     }
+    /* Custom teammates keep their purple accent wherever they sit (table or bench). */
+    .seat.seatCustom{ border-color: rgba(196,181,253,.6); }
+    .seat.seatCustom::before{ background: rgba(196,181,253,.7); }
 
     .seatOperator{
       border-color: rgba(59,130,246,.55) !important;
@@ -23396,6 +23399,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       const seat = document.createElement("div");
       seat.className = "seat";
+      if(isCustom) seat.classList.add("seatCustom");
       seat.dataset.name = defn.name;
       seat.tabIndex = 0;
 
@@ -23488,12 +23492,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         seat.style.width = "100%";
         seat.style.height = "auto";
         seat.style.transform = "none";
-      } else if(isCustom){
-        // Custom teammate: rendered in #customBenchRow (a flex row below the table).
+      } else if(isCustom && idx === 0){
+        // Custom teammate overflowing to #customBenchRow (idx 0 signals bench).
         // CSS on #customBenchRow .seat handles position:relative and purple border.
         // No absolute positioning needed here.
       } else {
-        // Built-in: always use locked 8-slot ellipse — positions never shift
+        // Anyone on a real ellipse slot (built-in OR custom filling an open seat)
+        // is positioned on the locked 8-slot ellipse.
         seat.style.position = "absolute";
         const cardW = 118, cardH = 150;
         function _posSeat(){
@@ -23561,26 +23566,29 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       // Built-ins go on the fixed 8-slot ellipse; custom teammates go in the bench row below.
       // On mobile the bench is skipped — custom seats join the flat tableWrap list instead.
       const _isMobileRender = window.innerWidth <= 640;
+      const MAX_TABLE = ELLIPSE_SLOTS - 1; // 7 non-Operator seats on the ellipse
       let ellipseSlot = 1;
       let overflowIdx = 0;
       seats.forEach((name) => {
         const defn = installed[name];
         const isCustom = BUILTINS.indexOf(name) === -1;
-        if(isCustom){
-          const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
-          overflowIdx++;
-          if(_isMobileRender){
-            // Mobile: add to tableWrap so _phoneFlatten handles it like any other seat
-            wrap.appendChild(seat);
-          } else {
-            // Desktop: bench row below the table
-            if(_benchRow) _benchRow.appendChild(seat);
-            if(_bench) _bench.style.display = "";
-          }
-        } else {
-          const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, false, 0);
+        if(_isMobileRender){
+          // Mobile: flat list — _phoneFlatten handles layout.
+          const seat = makeSeat(defn, isCustom?0:ellipseSlot, ELLIPSE_SLOTS, isCustom, overflowIdx);
+          if(!isCustom) ellipseSlot++; else overflowIdx++;
+          wrap.appendChild(seat);
+        } else if(ellipseSlot <= MAX_TABLE){
+          // Room on the round table — seat ANY active teammate here (built-in
+          // or custom), so customs fill slots freed by dismissed teammates.
+          const seat = makeSeat(defn, ellipseSlot, ELLIPSE_SLOTS, isCustom, 0);
           ellipseSlot++;
           wrap.appendChild(seat);
+        } else {
+          // Table is full (>7 active) — overflow to the bench row below.
+          const seat = makeSeat(defn, 0, ELLIPSE_SLOTS, true, overflowIdx);
+          overflowIdx++;
+          if(_benchRow) _benchRow.appendChild(seat);
+          if(_bench) _bench.style.display = "";
         }
         setSeatLive(defn.name, seatStatus[defn.name] || "idle");
       });
