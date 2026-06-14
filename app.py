@@ -18916,6 +18916,7 @@ label {
             <button id="openApiKeyHelpBtn" class="saMoreItem" style="color:#e2e8f0;">🔑 API Keys</button>
             <button id="teamBtn" class="saMoreItem" style="color:#e2e8f0;">👥 My Team</button>
             <a id="seatManagerLink" href="/admin/seats" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🗝 Seat Manager</a>
+            <a id="errorLogLink" href="/admin/errors" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🩺 Error Log</a>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <!-- Help & Resources accordion -->
             <button id="helpAccordionBtn" class="saMoreItem" onclick="saToggleHelpAccordion()" style="color:#a78bfa;display:flex;justify-content:space-between;align-items:center;width:100%;">
@@ -35328,13 +35329,15 @@ $("settingsBtn").onclick = () => showSettingsModal();
     }
 
     async function runFirstRunGuidance(){
-      // Show Seat Manager link for admin users
+      // Show admin-only links (Seat Manager, Error Log) for admin users
       try{
         const res = await fetch("/api/me");
         const me = await res.json();
         if(me && me.ok && me.is_admin){
           const lnk = document.getElementById("seatManagerLink");
           if(lnk) lnk.style.display = "";
+          const elog = document.getElementById("errorLogLink");
+          if(elog) elog.style.display = "";
         }
       }catch(e){}
     }
