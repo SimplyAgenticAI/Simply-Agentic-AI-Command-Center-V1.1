@@ -25684,7 +25684,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _whisperAnalyser = null;
     let _whisperStream = null;
     let _whisperWaveRaf = null;
-    const AUTO_SEND_MS = 3000; // ms after last final word before auto-send
+    const AUTO_SEND_MS = 3500; // ms of genuine silence (no interim speech) before auto-send
 
     // ── HUD helpers ──────────────────────────────────────────────
     function _whisperHud(){ return $("whisperHud"); }
@@ -26145,7 +26145,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         _whisperSetTranscript(_buf, interim);
 
         // ── Auto-send countdown ────────────────────────────────
-        if(newFinals){
+        // Any ongoing INTERIM speech means the user is still talking — cancel
+        // any pending send + countdown so we never cut them off mid-sentence.
+        // (The Web Speech API finalizes phrase-by-phrase at tiny pauses, which
+        // is why arming purely on "final" sent in little bursts.)
+        if(interim){
+          if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+          _whisperHideCountdown();
+        }
+        // Arm the send only when a phrase has SETTLED: a final landed and there
+        // is no trailing interim (i.e. the user has actually paused). The timer
+        // then fires after AUTO_SEND_MS of genuine silence, and resumed speech
+        // (a new interim above) cancels it.
+        if(newFinals && !interim){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
           _whisperShowCountdown(AUTO_SEND_MS);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
