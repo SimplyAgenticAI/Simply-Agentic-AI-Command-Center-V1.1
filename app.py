@@ -19133,27 +19133,27 @@ label {
 
                     <div>
                       <label>Mission</label>
-                      <textarea id="editMission" placeholder="What is this teammate's core mission and purpose?" style="height:120px;"></textarea>
+                      <textarea id="editMission" placeholder="What is this teammate's core mission and purpose?" style="height:150px;"></textarea>
                     </div>
 
                     <div>
                       <label>Goal</label>
-                      <textarea id="editGoal" placeholder="What outcome is this teammate working to achieve?" style="height:110px;"></textarea>
+                      <textarea id="editGoal" placeholder="What outcome is this teammate working to achieve?" style="height:150px;"></textarea>
                     </div>
 
                     <div>
                       <label>Responsibilities <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(one per line)</span></label>
-                      <textarea id="editResponsibilities" placeholder="One responsibility per line" style="height:190px;"></textarea>
+                      <textarea id="editResponsibilities" placeholder="One responsibility per line" style="height:300px;"></textarea>
                     </div>
 
                     <div class="et2col">
                       <div>
                         <label>Thinking Style</label>
-                        <textarea id="editThinking" placeholder="How should this teammate approach and frame problems?" style="height:130px;"></textarea>
+                        <textarea id="editThinking" placeholder="How should this teammate approach and frame problems?" style="height:200px;"></textarea>
                       </div>
                       <div>
                         <label>Will Not Do <span style="opacity:.5;font-size:10px;text-transform:none;letter-spacing:0;">(one per line)</span></label>
-                        <textarea id="editWillNotDo" placeholder="One rule per line" style="height:130px;"></textarea>
+                        <textarea id="editWillNotDo" placeholder="One rule per line" style="height:200px;"></textarea>
                       </div>
                     </div>
                   </div>
