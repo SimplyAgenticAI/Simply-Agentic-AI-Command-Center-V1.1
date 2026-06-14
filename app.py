@@ -27389,7 +27389,7 @@ $("draftWithSelected").onclick = async () => {
 
       // ── RIGHT EDITOR ──────────────────────────────────────────────────────────
       const right = document.createElement("div");
-      right.style.cssText = isMobile ? "flex:1;overflow-y:auto;padding:16px 14px;" : "flex:1;overflow-y:auto;padding:28px 32px;";
+      right.style.cssText = isMobile ? "flex:1;overflow-y:auto;padding:16px 14px;" : "flex:1;overflow-y:auto;padding:18px 32px;";
 
       // Mobile selector
       let mobSel = null;
@@ -27415,7 +27415,7 @@ $("draftWithSelected").onclick = async () => {
       rHdrInfo.style.cssText = "display:flex;flex-direction:column;gap:5px;flex:1;";
       rHdrInfo.appendChild(rHdrName); rHdrInfo.appendChild(rHdrRole); rHdrInfo.appendChild(rHdrBadge);
       const rHdr = document.createElement("div");
-      rHdr.style.cssText = "display:flex;align-items:center;gap:20px;margin-bottom:24px;padding-bottom:22px;border-bottom:1px solid rgba(42,58,106,.4);";
+      rHdr.style.cssText = "display:flex;align-items:center;gap:20px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid rgba(42,58,106,.4);";
       rHdr.appendChild(rHdrCircle); rHdr.appendChild(rHdrInfo);
       right.appendChild(rHdr);
 
@@ -27435,9 +27435,9 @@ $("draftWithSelected").onclick = async () => {
       // available window space automatically — no dragging needed.
       const fMiss  = mkTa(isMobile?"110px":"150px");
       const fGoal  = mkTa(isMobile?"110px":"150px");
-      const fThink = mkTa(isMobile?"160px":"26vh");
-      const fResp  = mkTa(isMobile?"320px":"46vh");
-      const fWnd   = mkTa(isMobile?"320px":"46vh");
+      const fThink = mkTa(isMobile?"150px":"21vh");
+      const fResp  = mkTa(isMobile?"300px":"37vh");
+      const fWnd   = mkTa(isMobile?"300px":"37vh");
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
