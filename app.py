@@ -675,6 +675,8 @@ def _get_team_seats_used(owner_username: str) -> int:
     """Seats used = owner (1) + number of active team members."""
     return 1 + len(_get_team_members(owner_username))
 
+_TEAM_SEAT_LOCK = threading.Lock()
+
 def _can_add_team_member(owner_username: str) -> Tuple[bool, str]:
     """Check whether the owner has room for another team member."""
     plan  = _get_user_plan(owner_username)
@@ -685,27 +687,35 @@ def _can_add_team_member(owner_username: str) -> Tuple[bool, str]:
     return True, ""
 
 def _add_team_member(owner_username: str, member_username: str) -> Tuple[bool, str]:
-    """Link a user as a team member of owner. Returns (ok, error_msg)."""
-    ok, msg = _can_add_team_member(owner_username)
-    if not ok:
-        return False, msg
-    data  = load_users()
-    users = data.get("users") or {}
-    owner = users.get(owner_username)
-    if not owner:
-        return False, "Owner not found."
-    member = users.get(member_username)
-    if not member:
-        return False, "Member not found."
-    if member.get("team_owner") and member["team_owner"] != owner_username:
-        return False, "User already belongs to another team."
-    members = list(owner.get("team_members") or [])
-    if member_username not in members:
-        members.append(member_username)
-    owner["team_members"] = members
-    member["team_owner"]  = owner_username
-    save_users(data)
-    return True, ""
+    """Link a user as a team member of owner. Returns (ok, error_msg).
+
+    The capacity check and the membership write happen inside a single lock and
+    the seat count is re-verified after acquiring it — otherwise two concurrent
+    invites could both pass the check and seat more members than the plan allows
+    (free seats / revenue leak)."""
+    with _TEAM_SEAT_LOCK:
+        # Re-check capacity inside the lock (the value can change between the
+        # caller's check and here under concurrency).
+        ok, msg = _can_add_team_member(owner_username)
+        if not ok:
+            return False, msg
+        data  = load_users()
+        users = data.get("users") or {}
+        owner = users.get(owner_username)
+        if not owner:
+            return False, "Owner not found."
+        member = users.get(member_username)
+        if not member:
+            return False, "Member not found."
+        if member.get("team_owner") and member["team_owner"] != owner_username:
+            return False, "User already belongs to another team."
+        members = list(owner.get("team_members") or [])
+        if member_username not in members:
+            members.append(member_username)
+        owner["team_members"] = members
+        member["team_owner"]  = owner_username
+        save_users(data)
+        return True, ""
 
 def _remove_team_member(owner_username: str, member_username: str) -> Tuple[bool, str]:
     """Unlink a team member from owner."""
@@ -934,9 +944,10 @@ def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optiona
             if data.get("error") == "invalid_grant":
                 return None, "__INVALID_GRANT__"
             return None, f"Token refresh failed: {data}"
-        expires_in = int(data.get("expires_in") or 0)
-        if expires_in:
-            data["expires_at"] = _now_epoch() + max(0, expires_in - 30)
+        # Default to a conservative ~55 min when the provider omits expires_in,
+        # so expires_at is always populated and refresh logic stays correct.
+        expires_in = int(data.get("expires_in") or 0) or 3300
+        data["expires_at"] = _now_epoch() + max(0, expires_in - 30)
         # refresh response often doesn't include refresh_token; keep the old one
         data.setdefault("refresh_token", refresh_token)
         return data, ""
@@ -947,7 +958,10 @@ def _token_expired(token_info: Dict[str, Any]) -> bool:
     try:
         exp = int(token_info.get("expires_at") or 0)
         if exp <= 0:
-            return False
+            # Unknown expiry: treat as expired so a refresh is attempted. The
+            # caller only refreshes when a refresh_token exists, so genuinely
+            # non-expiring tokens (no refresh_token) are left alone.
+            return bool(token_info.get("refresh_token"))
         return _now_epoch() >= exp
     except Exception:
         return False
@@ -1551,16 +1565,28 @@ def _is_valid_seat_code(code: str) -> Tuple[bool, str]:
         return False, "This access code has already been used. Each code is for one account only."
     return True, ""
 
-def _claim_seat_code(code: str, username: str) -> None:
-    """Mark a seat code as used by the given username."""
-    data = _load_seats()
-    seats = data.get("seats", {})
-    if code in seats:
-        seats[code]["status"] = "used"
-        seats[code]["claimed_by"] = username
-        seats[code]["claimed_at"] = now_iso()
+def _claim_seat_code(code: str, username: str) -> bool:
+    """Atomically mark a seat code as used by the given username. Re-validates
+    availability inside the lock and refuses to overwrite a seat already claimed
+    by someone else, so two simultaneous registrations can't both claim one
+    paid seat. Returns True if this call claimed it."""
+    with _FOUNDER_SEATS_LOCK:
+        data = _load_seats()
+        seats = data.get("seats", {})
+        seat = seats.get(code)
+        if not seat:
+            return False
+        if seat.get("status") == "inactive":
+            return False
+        existing = seat.get("claimed_by")
+        if existing and existing != username:
+            return False  # already claimed by another account
+        seat["status"] = "used"
+        seat["claimed_by"] = username
+        seat["claimed_at"] = now_iso()
         data["seats"] = seats
         _save_seats(data)
+        return True
 
 def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
     """Return True if this user is an admin.
