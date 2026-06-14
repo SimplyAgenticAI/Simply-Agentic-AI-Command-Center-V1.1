@@ -52995,16 +52995,33 @@ def _load_oauth_states():
 def _save_oauth_states(data):
     save_json(OAUTH_STATE_STORE, data)
 
+_OAUTH_STATE_TTL_SEC = 600  # 10 minutes
+
+def _oauth_state_fresh(rec) -> bool:
+    """True if an oauth-state record is present and not older than the TTL."""
+    if not isinstance(rec, dict):
+        return False
+    try:
+        at = datetime.fromisoformat(str(rec.get("at") or "").replace("Z", ""))
+    except Exception:
+        return False
+    return (datetime.utcnow() - at).total_seconds() <= _OAUTH_STATE_TTL_SEC
+
+def _evict_stale_oauth_states(data: dict) -> dict:
+    """Drop expired entries so the store can't grow unbounded."""
+    return {k: v for k, v in (data or {}).items() if _oauth_state_fresh(v)}
+
 def _store_oauth_state(state, username):
-    data = _load_oauth_states()
+    data = _evict_stale_oauth_states(_load_oauth_states())
     data[state] = {"username": username, "at": now_iso()}
     _save_oauth_states(data)
 
 def _consume_oauth_state(state):
     data = _load_oauth_states()
     rec = data.pop(state, None)
-    _save_oauth_states(data)
-    return rec
+    _save_oauth_states(_evict_stale_oauth_states(data))
+    # Single-use AND time-bounded: an expired state is treated as invalid.
+    return rec if _oauth_state_fresh(rec) else None
 
 
 # =============================================================================
