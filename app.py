@@ -138,6 +138,37 @@ def _capture_error(exc: Exception, context: str = "") -> None:
             entry["method"] = request.method
         except Exception:
             pass
+        # Who hit it — makes errors actionable ("which customer saw this").
+        try:
+            _u = current_user()
+            entry["user"] = (_u.get("username") if isinstance(_u, dict) else None) or ""
+        except Exception:
+            pass
+        # The failing input — sensitive fields redacted so we never log secrets.
+        try:
+            if request.method in ("POST", "PUT", "PATCH"):
+                _raw = request.get_json(silent=True)
+                if isinstance(_raw, dict):
+                    _SENSITIVE = ("password", "passwd", "pass", "token", "secret",
+                                  "openai_key", "claude_key", "api_key", "access_token",
+                                  "refresh_token", "card", "cvv", "ssn")
+                    def _redact(d):
+                        out = {}
+                        for k, v in d.items():
+                            if any(s in str(k).lower() for s in _SENSITIVE):
+                                out[k] = "***redacted***"
+                            elif isinstance(v, dict):
+                                out[k] = _redact(v)
+                            else:
+                                out[k] = (v[:500] + "…") if isinstance(v, str) and len(v) > 500 else v
+                        return out
+                    entry["body"] = _redact(_raw)
+                else:
+                    entry["body"] = (request.get_data(as_text=True) or "")[:500]
+            if request.args:
+                entry["args"] = {k: v for k, v in request.args.items()}
+        except Exception:
+            pass
 
         path = _error_log_path()
         with _ERROR_LOG_LOCK:
@@ -51240,18 +51271,46 @@ def admin_error_log():
     except Exception:
         log = []
 
+    # At-a-glance counts so an admin can spot a spike without reading every entry.
+    _now_dt = datetime.utcnow()
+    _cnt_24h = _cnt_1h = 0
+    for _e in log:
+        try:
+            _edt = datetime.fromisoformat(str(_e.get("at", "")).replace("Z", ""))
+            _age_h = (_now_dt - _edt).total_seconds() / 3600.0
+            if _age_h <= 24: _cnt_24h += 1
+            if _age_h <= 1:  _cnt_1h += 1
+        except Exception:
+            pass
+
+    def _esc(s):
+        return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
     rows = ""
     for entry in log:
         color = "#fee2e2" if entry.get("type") else "#f8fafc"
         tb = (entry.get("traceback") or "").replace("<", "&lt;").replace(">", "&gt;")
+        _user = entry.get("user") or "—"
+        _ctx  = entry.get("context") or ""
+        _meta_bits = ""
+        if entry.get("body") is not None:
+            try:
+                _meta_bits += f'<div style="margin-top:8px;"><b>Input (redacted):</b><pre style="margin:4px 0 0;font-size:11px;white-space:pre-wrap;color:#475569;background:rgba(0,0,0,.03);padding:6px 8px;border-radius:6px;">{_esc(json.dumps(entry.get("body"), indent=2))[:2000]}</pre></div>'
+            except Exception:
+                pass
+        if entry.get("args"):
+            _meta_bits += f'<div style="margin-top:6px;font-size:12px;color:#475569;"><b>Query:</b> {_esc(entry.get("args"))}</div>'
         rows += f"""
         <details style="background:{color};border:1px solid rgba(0,0,0,.08);border-radius:8px;margin-bottom:10px;padding:12px 16px;">
           <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#1e293b;">
             [{entry.get('at','')[:19].replace('T',' ')}]&nbsp;
-            <span style="color:#dc2626;">{entry.get('type','?')}</span>&nbsp;—&nbsp;
-            {entry.get('method','?')} {entry.get('path','')} &nbsp;
-            <span style="color:#64748b;font-weight:400;">{str(entry.get('message',''))[:120]}</span>
+            <span style="color:#dc2626;">{_esc(entry.get('type','?'))}</span>&nbsp;—&nbsp;
+            {_esc(entry.get('method','?'))} {_esc(entry.get('path',''))} &nbsp;
+            <span style="color:#0369a1;font-weight:600;">👤 {_esc(_user)}</span> &nbsp;
+            <span style="color:#64748b;font-weight:400;">{_esc(str(entry.get('message',''))[:120])}</span>
           </summary>
+          {f'<div style="margin-top:8px;font-size:12px;color:#7c3aed;"><b>Where:</b> {_esc(_ctx)}</div>' if _ctx else ''}
+          {_meta_bits}
           <pre style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;color:#334155;overflow-x:auto;">{tb}</pre>
         </details>"""
 
@@ -51267,7 +51326,11 @@ def admin_error_log():
     .meta{{font-size:13px;color:#64748b;margin:0 0 20px;}}
     a{{color:#6d28d9;font-size:13px;}}</style></head><body>
     <h1>Error Log</h1>
-    <p class="meta">{len(log)} error(s) stored (last 200 kept) &nbsp;·&nbsp; {clear_btn} &nbsp;·&nbsp; <a href="/">← Back</a></p>
+    <p class="meta">
+      <b style="color:{'#dc2626' if _cnt_1h else '#0f172a'};">{_cnt_1h}</b> in the last hour &nbsp;·&nbsp;
+      <b style="color:{'#dc2626' if _cnt_24h else '#0f172a'};">{_cnt_24h}</b> in the last 24h &nbsp;·&nbsp;
+      {len(log)} stored (last 200 kept) &nbsp;·&nbsp; {clear_btn} &nbsp;·&nbsp; <a href="/">← Back</a>
+    </p>
     {'<p style="color:#64748b;font-size:14px;">No errors recorded yet. 🎉</p>' if not log else rows}
     </body></html>"""
     return html
