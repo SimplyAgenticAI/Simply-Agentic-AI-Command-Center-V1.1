@@ -58495,15 +58495,30 @@ def _load_sp_conns(uname: str) -> dict:
         p = _sp_conns_path(uname)
         if p.exists():
             d = json.loads(p.read_text(encoding="utf-8"))
-            return d if isinstance(d, dict) else {}
+            if not isinstance(d, dict):
+                return {}
+            # Encrypted-at-rest blob (social OAuth/page tokens). Backward
+            # compatible: legacy plaintext files have the conns dict directly.
+            if "_encrypted" in d:
+                raw = _decrypt_field(d.get("_encrypted") or "")
+                if not raw:
+                    return {}
+                inner = json.loads(raw)
+                return inner if isinstance(inner, dict) else {}
+            return d
     except Exception:
         pass
     return {}
 
 def _save_sp_conns(uname: str, conns: dict) -> None:
     p = _sp_conns_path(uname)
+    # Social tokens (FB page tokens, IG/YouTube/TikTok access tokens) are
+    # long-lived and sensitive — encrypt the whole blob at rest when a
+    # FIELD_ENCRYPTION_KEY is configured. Falls back to plaintext (with the
+    # same startup warning as API keys) when no key is set.
+    payload = {"_encrypted": _encrypt_field(json.dumps(conns))} if _FERNET else conns
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(conns, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     tmp.replace(p)
 
 def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
