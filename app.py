@@ -58032,6 +58032,25 @@ def api_extension_my_key():
     return jsonify({"ok": True, "key": key, "connect_url": f"{base}/extension/connect?key={key}"})
 
 
+@app.post("/api/extension/rotate_key")
+def api_extension_rotate_key():
+    """Revoke the current extension key and issue a new one — use if the old
+    key may have leaked (it grants full account API access to the extension)."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
+    new_key = secrets.token_hex(32)
+    data = load_users()
+    rec = (data.get("users") or {}).get(uname)
+    if not rec:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    rec.setdefault("settings", {})["extension_api_key"] = new_key
+    data["users"][uname] = rec
+    save_users(data)
+    base = PUBLIC_BASE_URL or ""
+    return jsonify({"ok": True, "key": new_key, "connect_url": f"{base}/extension/connect?key={new_key}"})
+
+
 @app.get("/extension/connect")
 def extension_connect():
     u = current_user()
