@@ -15118,6 +15118,10 @@ HTML = r"""
     /* Custom teammates keep their purple accent wherever they sit (table or bench). */
     .seat.seatCustom{ border-color: rgba(196,181,253,.6); }
     .seat.seatCustom::before{ background: rgba(196,181,253,.7); }
+    /* Drag-to-swap feedback */
+    .seat[draggable="true"]{ cursor: grab; }
+    .seat.seatDragging{ opacity:.45; cursor: grabbing; }
+    .seat.seatDropTarget{ outline:2px dashed rgba(196,181,253,.95); outline-offset:3px; box-shadow:0 0 0 4px rgba(124,58,237,.18); }
 
     .seatOperator{
       border-color: rgba(59,130,246,.55) !important;
@@ -22858,6 +22862,23 @@ window.showModal = function showModal(title, body, imgUrl){
       return a.filter(n => installed[n]);
     }
 
+    // Swap two teammates' table positions (drag-and-drop). Swaps their slots in
+    // the active order, re-renders immediately (optimistic), and persists.
+    async function swapSeats(nameA, nameB){
+      try{
+        if(!nameA || !nameB || nameA === nameB) return;
+        const full = (state && Array.isArray(state.active_order)) ? state.active_order.slice() : [];
+        const ia = full.indexOf(nameA), ib = full.indexOf(nameB);
+        if(ia === -1 || ib === -1) return;
+        full[ia] = nameB; full[ib] = nameA;
+        if(state) state.active_order = full;
+        renderTable();
+        try{ if(typeof showToast==="function") showToast("↔ Swapped "+nameA+" and "+nameB); }catch(_){}
+        await fetch("/api/active_order", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({active_order: full})});
+      }catch(_){}
+    }
+    window.swapSeats = swapSeats;
+
     // RULE: If more than 3 teammates are active, keep the gold and purple pulse on persistently.
     function updateTablePulseFromStatuses(){
       const order = activeOrder();
@@ -23517,11 +23538,39 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         else { requestAnimationFrame(function(){ requestAnimationFrame(_posSeat); }); }
       }
 
-      // ── Click to select (no drag) ──
+      // ── Click to select ──
       seat.addEventListener("click", () => { selectSeat(defn.name); });
       seat.addEventListener("keydown", e => {
         if(e.key === "Enter" || e.key === " "){ e.preventDefault(); selectSeat(defn.name); }
       });
+
+      // ── Drag to swap positions (desktop only) ──
+      // A plain click still selects; only a drag (press + move) starts DnD.
+      if(!isMobile){
+        seat.draggable = true;
+        seat.addEventListener("dragstart", e => {
+          try{ e.dataTransfer.setData("text/plain", defn.name); e.dataTransfer.effectAllowed = "move"; }catch(_){}
+          seat.classList.add("seatDragging");
+        });
+        seat.addEventListener("dragend", () => {
+          seat.classList.remove("seatDragging");
+          document.querySelectorAll(".seat.seatDropTarget").forEach(s => s.classList.remove("seatDropTarget"));
+        });
+        seat.addEventListener("dragover", e => {
+          e.preventDefault();
+          try{ e.dataTransfer.dropEffect = "move"; }catch(_){}
+          if(!seat.classList.contains("seatDragging")) seat.classList.add("seatDropTarget");
+        });
+        seat.addEventListener("dragleave", () => seat.classList.remove("seatDropTarget"));
+        seat.addEventListener("drop", e => {
+          e.preventDefault();
+          seat.classList.remove("seatDropTarget");
+          let from = "";
+          try{ from = e.dataTransfer.getData("text/plain"); }catch(_){}
+          const to = defn.name;
+          if(from && to && from !== to && typeof swapSeats === "function") swapSeats(from, to);
+        });
+      }
 
       return seat;
     }
