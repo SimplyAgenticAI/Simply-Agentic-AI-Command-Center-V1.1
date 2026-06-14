@@ -725,6 +725,17 @@ def _remove_team_member(owner_username: str, member_username: str) -> Tuple[bool
     return True, ""
 
 
+def _legacy_first_username(users: Dict[str, Any]) -> Optional[str]:
+    """Username of the earliest-created account, IGNORING records with a
+    missing/blank created_at. An empty string sorts before any real timestamp,
+    so a blank-created_at user would otherwise be wrongly elected as the
+    'first user' (and granted admin/teams). Returns None if none qualify."""
+    dated = [u for u in (users or {}).values() if (u.get("created_at") or "").strip()]
+    if not dated:
+        return None
+    return min(dated, key=lambda x: x.get("created_at") or "").get("username")
+
+
 def _get_user_plan(username: str) -> str:
     """Return the plan key ('founder'/'solo'/'teams') for a given username.
     Looks up their seat record. Admins (first user) get 'teams' automatically.
@@ -747,13 +758,12 @@ def _get_user_plan(username: str) -> str:
         # Admin always gets teams access
         data = load_users()
         users = data.get("users") or {}
-        if users:
-            first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
-            if first.get("username") == username:
-                result = "teams"
-                if cache is not None:
-                    cache[username] = result
-                return result
+        urec = users.get(username) or {}
+        if urec.get("is_admin") is True or (_legacy_first_username(users) == username and username):
+            result = "teams"
+            if cache is not None:
+                cache[username] = result
+            return result
         seats = (_load_seats().get("seats") or {})
         for seat in seats.values():
             if seat.get("claimed_by") == username:
@@ -797,7 +807,11 @@ def _get_user_trial_info(username: str) -> Dict[str, Any]:
             except Exception:
                 return default
             now_dt = datetime.utcnow()
-            days_remaining = max(0, (trial_end_dt - now_dt).days)
+            # Ceiling, not floor: with ~18h left a user should see "1 day", not
+            # a confusing "0 days remaining" while the trial is still active.
+            import math as _math
+            _secs_left = (trial_end_dt - now_dt).total_seconds()
+            days_remaining = max(0, _math.ceil(_secs_left / 86400)) if _secs_left > 0 else 0
             trial_expired  = now_dt > trial_end_dt
             on_trial       = bool(seat.get("trial_active")) and not trial_expired
             return {
@@ -1188,7 +1202,9 @@ def _migrate_global_registry_once() -> None:
         users = users_data.get("users") or {}
         if not users:
             return
-        admin = min(users.items(), key=lambda kv: kv[1].get("created_at") or "")[0]
+        admin = _legacy_first_username(users)
+        if not admin:
+            return
     except Exception:
         return
 
@@ -1562,13 +1578,15 @@ def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
         users = data.get("users") or {}
         if not users:
             return False
-        first = min(users.values(), key=lambda x: (x.get("created_at") or ""))
-        is_first = (first.get("username") == uname)
+        first_uname = _legacy_first_username(users)
+        is_first = (first_uname is not None and first_uname == uname)
         # Opportunistically stamp the flag so next call is fast
-        if is_first and not first.get("is_admin"):
-            first["is_admin"] = True
-            data["users"][uname] = first
-            save_users(data)
+        if is_first:
+            first = users.get(uname) or {}
+            if not first.get("is_admin"):
+                first["is_admin"] = True
+                data["users"][uname] = first
+                save_users(data)
         return is_first
     except Exception:
         return False
