@@ -1005,7 +1005,13 @@ def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
         key = (ANTHROPIC_API_KEY or "").strip()
     if not key:
         return None
-    return _anthropic_sdk.Anthropic(api_key=key)
+    # Explicit timeout so a hung upstream connection (e.g. provider stalls
+    # before the first token) can't pin a worker forever.
+    try:
+        return _anthropic_sdk.Anthropic(api_key=key, timeout=90.0)
+    except TypeError:
+        # Older SDK without a timeout kwarg.
+        return _anthropic_sdk.Anthropic(api_key=key)
 
 def _is_claude_model(model: Optional[str]) -> bool:
     return (model or "").lower().startswith("claude")
@@ -7067,19 +7073,9 @@ def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
         if _word_in(_EDIT_HINTS, p):
             return True
 
-    # ── EXCLUSION LIST: only when no image in context ─────────────────────
-    # These words signal code/text/help requests, not image requests.
-    _img_excl = [
-        "fix", "debug", "prompt", "code", "write", "explain", "help",
-        "how do", "how to", "how can", "issue", "error", "problem",
-        "troubleshoot", "what is", "what are", "improve", "optimize",
-        "review", "check", "update", "change", "edit", "refactor",
-        "remove", "delete", "why ", "font", "color", "style",
-    ]
-    if not edit_context_active and any(ex in p for ex in _img_excl):
-        return False
-
-    # ── STRONG TRIGGERS ───────────────────────────────────────────────────
+    # ── STRONG TRIGGERS (evaluated BEFORE the exclusion list) ─────────────
+    # A clear image request like "create a poster in my brand color" must not
+    # be killed by an incidental excluded word ("color"). Strong signals win.
     _extended_triggers = list(_IMAGE_TRIGGERS) + [
         "visualize", "mockup", "mock up", "thumbnail for", "banner for",
         "social post", "create art", "generate art", "concept art",
@@ -7100,6 +7096,10 @@ def is_image_request(prompt: str, has_image_context: bool = False) -> bool:
             if (f"{verb} a {noun}" in p or f"{verb} an {noun}" in p
                     or f"{verb} me a {noun}" in p or f"{verb} me an {noun}" in p):
                 return True
+
+    # ── EXCLUSION LIST: only reached when NO strong image signal matched ──
+    # Signals a code/text/help request. (Now redundant for positives since
+    # strong triggers already returned True above; kept for clarity.)
     return False
 
 def _pick_image_model() -> str:
