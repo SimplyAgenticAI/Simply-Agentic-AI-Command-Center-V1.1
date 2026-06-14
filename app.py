@@ -45611,9 +45611,15 @@ window.toggleNotifPanel = function(){
           });
         }).catch(function(){});
 
-      // When the controller changes (new SW took over), reload to serve fresh content
+      // When the controller changes (new SW took over), reload to serve fresh
+      // content — BUT only for a genuine UPDATE, not the first-ever install.
+      // On a first visit the page starts uncontrolled; the SW's clients.claim()
+      // then fires controllerchange, and reloading there caused the annoying
+      // "loads, then resets" on first open. Ignore that initial claim.
+      var _hadController = !!navigator.serviceWorker.controller;
       var _reloading = false;
       navigator.serviceWorker.addEventListener('controllerchange', function(){
+        if(!_hadController){ _hadController = true; return; }  // initial claim — don't reload
         if(_reloading) return;
         _reloading = true;
         // Show a brief toast before reloading so the user isn't surprised
