@@ -27421,7 +27421,7 @@ $("draftWithSelected").onclick = async () => {
 
       function mkLbl(txt){ const l=document.createElement("label"); l.style.cssText=LABEL_CSS; l.textContent=txt; return l; }
       function mkInput(readonly){ const el=document.createElement("input"); el.type="text"; el.style.cssText=INPUT_CSS+(readonly?";opacity:.5;cursor:default":""); if(readonly) el.readOnly=true; return el; }
-      function mkTa(h){ const el=document.createElement("textarea"); el.style.cssText=TA_CSS+"min-height:"+(h||80)+"px;"; return el; }
+      function mkTa(h){ const el=document.createElement("textarea"); const hv=(typeof h==="number")?(h+"px"):(h||"80px"); el.style.cssText=TA_CSS+"min-height:"+hv+";"; return el; }
       function mkSel(choices){ const s=document.createElement("select"); s.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; s.appendChild(o); }); return s; }
       function wrap(label, el){ const w=document.createElement("div"); w.appendChild(mkLbl(label)); w.appendChild(el); return w; }
       function mkCard(icon, title){ const c=document.createElement("div"); c.style.cssText=CARD_CSS; const h=document.createElement("div"); h.style.cssText=CARD_HDR; const ic=document.createElement("span"); ic.style.cssText=CARD_ICON; ic.textContent=icon; const tt=document.createElement("span"); tt.style.cssText=CARD_TITLE; tt.textContent=title; h.appendChild(ic); h.appendChild(tt); c.appendChild(h); return c; }
@@ -27431,11 +27431,13 @@ $("draftWithSelected").onclick = async () => {
       const fName  = mkInput(true);
       const fJob   = mkInput(false);
       const fVer   = mkInput(false);
-      const fMiss  = mkTa(isWide?150:120);
-      const fGoal  = mkTa(isWide?150:120);
-      const fThink = mkTa(isWide?130:105);
-      const fResp  = mkTa(isWide?300:220);
-      const fWnd   = mkTa(isWide?300:220);
+      // Viewport-relative heights so the boxes open large and fill the
+      // available window space automatically — no dragging needed.
+      const fMiss  = mkTa(isMobile?"110px":"150px");
+      const fGoal  = mkTa(isMobile?"110px":"150px");
+      const fThink = mkTa(isMobile?"160px":"26vh");
+      const fResp  = mkTa(isMobile?"320px":"46vh");
+      const fWnd   = mkTa(isMobile?"320px":"46vh");
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
