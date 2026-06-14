@@ -11439,33 +11439,33 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 @media (min-width:641px){
   #tableWrap .seat:not(.sel), #tableWrap .seat:not(.sel):hover,
   #customBenchRow .seat:not(.sel), #customBenchRow .seat:not(.sel):hover{
-    background-color: transparent;
+    background-color: rgba(150,186,228,.10) !important;
     background-image:
-      radial-gradient(70% 55% at 0% 0%, rgba(255,255,255,.13), transparent 58%),
-      radial-gradient(70% 60% at 100% 100%, rgba(214,238,255,.10), transparent 58%),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='150' height='150' filter='url(%23f)'/%3E%3C/svg%3E"),
-      linear-gradient(180deg, rgba(224,244,255,.17) 0%, rgba(190,214,255,.05) 100%);
-    background-size: cover, cover, 150px 150px, cover;
-    background-repeat: no-repeat, no-repeat, repeat, no-repeat;
-    background-blend-mode: screen, screen, soft-light, normal;
-    backdrop-filter: blur(11px) saturate(160%) brightness(1.12);
-    -webkit-backdrop-filter: blur(11px) saturate(160%) brightness(1.12);
+      radial-gradient(75% 60% at 0% 0%, rgba(255,255,255,.22), transparent 60%),
+      radial-gradient(75% 60% at 100% 100%, rgba(200,232,255,.16), transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23f)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, rgba(214,238,255,.26) 0%, rgba(160,194,245,.10) 100%) !important;
+    background-size: cover, cover, 140px 140px, cover !important;
+    background-repeat: no-repeat, no-repeat, repeat, no-repeat !important;
+    background-blend-mode: screen, screen, overlay, normal !important;
+    backdrop-filter: blur(13px) saturate(175%) brightness(1.18) !important;
+    -webkit-backdrop-filter: blur(13px) saturate(175%) brightness(1.18) !important;
   }
   #tableWrap .seat:not(.sel), #customBenchRow .seat:not(.sel){
-    border-color: rgba(204,230,255,.36);
+    border-color: rgba(196,228,255,.55) !important;
     box-shadow:
-      0 4px 28px rgba(0,0,0,.40),
-      inset 0 1px 0 rgba(224,242,255,.70),
-      inset 0 0 26px rgba(190,225,255,.12),
-      0 0 26px rgba(120,180,255,.13);
+      0 6px 30px rgba(0,0,0,.42),
+      inset 0 1px 0 rgba(235,247,255,.85),
+      inset 0 0 30px rgba(180,220,255,.20),
+      0 0 30px rgba(110,180,255,.22) !important;
   }
   #tableWrap .seat:not(.sel):hover, #customBenchRow .seat:not(.sel):hover{
-    border-color: rgba(224,244,255,.55);
+    border-color: rgba(235,247,255,.80) !important;
     box-shadow:
-      0 12px 40px rgba(0,0,0,.55),
-      inset 0 1px 0 rgba(224,242,255,.88),
-      inset 0 0 30px rgba(190,225,255,.20),
-      0 0 48px rgba(120,180,255,.32);
+      0 14px 44px rgba(0,0,0,.55),
+      inset 0 1px 0 rgba(245,252,255,.95),
+      inset 0 0 36px rgba(190,228,255,.30),
+      0 0 56px rgba(120,190,255,.45) !important;
   }
 }
 /* Seat number badge */
