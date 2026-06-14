@@ -23615,6 +23615,26 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         else { requestAnimationFrame(function(){ requestAnimationFrame(_posSeat); }); }
       }
 
+      // ── Frosted-ice look, applied INLINE (desktop only) ──
+      // Set directly on the element (same path as the operator-position code
+      // that does take effect) so it can't be lost to the stylesheet cascade.
+      // Background + backdrop only — border/box-shadow/pulse stay with CSS so
+      // selection emphasis still works.
+      if(!isMobile){
+        var _ice = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23f)'/%3E%3C/svg%3E";
+        seat.style.backgroundColor = "rgba(150,186,228,.10)";
+        seat.style.backgroundImage =
+          "radial-gradient(75% 60% at 0% 0%, rgba(255,255,255,.22), transparent 60%)," +
+          "radial-gradient(75% 60% at 100% 100%, rgba(200,232,255,.16), transparent 60%)," +
+          "url(\"" + _ice + "\")," +
+          "linear-gradient(180deg, rgba(214,238,255,.26) 0%, rgba(160,194,245,.10) 100%)";
+        seat.style.backgroundSize = "cover, cover, 140px 140px, cover";
+        seat.style.backgroundRepeat = "no-repeat, no-repeat, repeat, no-repeat";
+        seat.style.backgroundBlendMode = "screen, screen, overlay, normal";
+        seat.style.backdropFilter = "blur(13px) saturate(175%) brightness(1.18)";
+        seat.style.webkitBackdropFilter = "blur(13px) saturate(175%) brightness(1.18)";
+      }
+
       // ── Click to select ──
       seat.addEventListener("click", () => { selectSeat(defn.name); });
       seat.addEventListener("keydown", e => {
