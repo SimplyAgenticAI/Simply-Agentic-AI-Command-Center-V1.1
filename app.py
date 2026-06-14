@@ -310,9 +310,20 @@ def _decrypt_field(value: str) -> str:
         return ""
 
 
-# Stamped once at process startup so the service worker only changes (and
-# triggers a tab reload) on an actual deploy/restart — not on a timer.
-_SW_BUILD = str(int(time.time()))
+# Service-worker build id — MUST be deterministic per code version, identical
+# across every instance/worker/restart of the SAME code. Using process start
+# time here (the old behaviour) gave each instance a different id, so a
+# load-balanced browser saw a "new" SW on nearly every request → endless
+# self-reload loop AND an unstable view of the app. Derive it from the deploy
+# commit if available, else a hash of this file's contents.
+_SW_BUILD = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT")
+             or os.getenv("SOURCE_VERSION") or "").strip()[:12]
+if not _SW_BUILD:
+    try:
+        with open(__file__, "rb") as _swf:
+            _SW_BUILD = hashlib.md5(_swf.read()).hexdigest()[:12]
+    except Exception:
+        _SW_BUILD = str(int(time.time()))
 
 APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI V3.0")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
