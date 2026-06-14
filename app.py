@@ -11372,7 +11372,11 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .rt-arena::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:70%;height:50%;border-radius:50%;border:1px dashed rgba(124,58,237,.22);pointer-events:none;z-index:0;}
 .rt-arena>*{position:relative;z-index:1;}
 /* Vertical seat cards matching real interface */
-.seat{background:rgba(255,255,255,.05);backdrop-filter:blur(18px) saturate(180%);-webkit-backdrop-filter:blur(18px) saturate(180%);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:11px 8px 26px;display:flex;flex-direction:column;align-items:center;gap:0;box-shadow:0 4px 28px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.18),0 0 24px rgba(124,58,237,.08);position:relative;transition:border-color .25s,transform .2s,box-shadow .25s,background .25s;min-width:0;width:100%;cursor:pointer;}
+/* Light-frost glass: a faint dark tint + light blur so the background
+   animation flows visibly THROUGH the card (the old 18px blur smeared it into
+   a milky glow). The subtle dark tint keeps the light name/role/status text
+   readable over moving content. Tweak --seat-blur / the tint alpha to taste. */
+.seat{background:linear-gradient(180deg,rgba(12,16,34,.16) 0%,rgba(12,16,34,.30) 100%);backdrop-filter:blur(6px) saturate(150%);-webkit-backdrop-filter:blur(6px) saturate(150%);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:11px 8px 26px;display:flex;flex-direction:column;align-items:center;gap:0;box-shadow:0 4px 28px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.20),0 0 24px rgba(124,58,237,.10);position:relative;transition:border-color .25s,transform .2s,box-shadow .25s,background .25s;min-width:0;width:100%;cursor:pointer;}
 .seat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--seat-accent,rgba(124,58,237,.6));opacity:.65;border-radius:14px 14px 0 0;}
 .seat:hover{border-color:rgba(255,255,255,.25);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.55),0 0 40px rgba(124,58,237,.35),0 0 80px rgba(124,58,237,.12),inset 0 1px 0 rgba(255,255,255,.28);background:rgba(255,255,255,.08);}
 .seat:hover::before{opacity:1;}
