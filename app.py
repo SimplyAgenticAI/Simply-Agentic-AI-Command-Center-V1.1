@@ -52855,12 +52855,15 @@ def api_teammate_dream():
         "Mention patterns you observed. Note things you want to follow up on. "
         "This is NOT a report — it is a genuine internal monologue. 150-250 words."
     )
+    _g = _premium_mode_limit_gate(uname)
+    if _g: return _g
     try:
         reflection = call_llm(
             dream_system,
             [{"role": "user", "content": f"Here is our recent conversation:\n\n{combined}\n\nWrite your dream reflection now."}],
             temperature=0.75,
         )
+        _increment_msg_usage(uname)
         # Also auto-extract memory while we're here
         new_data = _extract_memory_from_thread(name, thread)
         if new_data:
@@ -52939,8 +52942,11 @@ def api_teammate_second_opinion():
         "Where do you agree? Where would you approach it differently? Be direct and specific. "
         "If you see a gap or a better path, say so. Keep it to 150-200 words."
     )
+    _g = _premium_mode_limit_gate(uname)
+    if _g: return _g
     try:
         opinion = call_llm(reviewer_sys, [{"role": "user", "content": prompt}], temperature=0.65)
+        _increment_msg_usage(uname)
         return jsonify({"ok": True, "reviewer": reviewer_name, "opinion": opinion.strip()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -53694,6 +53700,9 @@ def api_analyze_website():
     from flask import stream_with_context, Response as _Resp2
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _g = _premium_mode_limit_gate(uname)
+    if _g: return _g
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url: return jsonify({"ok": False, "error": "URL required"}), 400
@@ -53755,6 +53764,8 @@ Website content:
                         raw = raw[4:]
                 result = _json2.loads(raw)
                 _result[0] = result
+                try: _increment_msg_usage(uname)
+                except Exception: pass
             except _json2.JSONDecodeError:
                 _error[0] = "Could not parse AI response. Try again."
             except Exception as ex:
@@ -53883,10 +53894,14 @@ Return JSON in exactly this format:
   "talking_points": ["<specific talking point 1>", "<specific talking point 2>", "<specific talking point 3>"]
 }}"""
 
+    _uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _g = _premium_mode_limit_gate(_uname)
+    if _g: return _g
     try:
         raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.3)
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         brief = json.loads(raw)
+        _increment_msg_usage(_uname)
         return jsonify({"ok": True, "brief": brief})
     except json.JSONDecodeError:
         return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
@@ -53959,10 +53974,14 @@ Return JSON in exactly this format:
   "positioning_advice": "<2 sentence differentiation strategy specifically for this operator against the named competitors — what angle wins>"
 }}"""
 
+    _uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _g = _premium_mode_limit_gate(_uname)
+    if _g: return _g
     try:
         raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         market = json.loads(raw)
+        _increment_msg_usage(_uname)
         return jsonify({"ok": True, "market": market})
     except json.JSONDecodeError:
         return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
@@ -54030,10 +54049,14 @@ Return JSON in exactly this format:
   "outreach_hook": "<1 punchy sentence that references the exact pain these buyers are feeling — makes them stop scrolling>"
 }}"""
 
+    _uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _g = _premium_mode_limit_gate(_uname)
+    if _g: return _g
     try:
         raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         signals = json.loads(raw)
+        _increment_msg_usage(_uname)
         return jsonify({"ok": True, "signals": signals})
     except json.JSONDecodeError:
         return jsonify({"ok": False, "error": "Could not parse AI response. Try again."}), 500
@@ -58340,6 +58363,9 @@ def api_scout_ask():
     system = p.get("system") or "You are Compass, a helpful assistant for Simply Agentic AI."
     if not messages:
         return jsonify({"ok": False, "error": "No messages"}), 400
+    _uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    _g = _premium_mode_limit_gate(_uname)
+    if _g: return _g
     try:
         client = get_openai_client()
         resp = client.chat.completions.create(
@@ -58349,6 +58375,7 @@ def api_scout_ask():
             ],
             max_tokens=600, temperature=0.35,
         )
+        _increment_msg_usage(_uname)
         return jsonify({"ok": True, "answer": (resp.choices[0].message.content or "").strip()})
     except Exception as e:
         _capture_error(e, context="api_scout_ask")
