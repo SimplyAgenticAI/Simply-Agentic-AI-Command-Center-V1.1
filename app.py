@@ -11446,37 +11446,28 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .seat.sel::before{background:var(--seat-accent,rgba(124,58,237,.9));opacity:1;}
 @keyframes seatSelPulse{0%,100%{box-shadow:inset 0 0 0 1px var(--seat-accent,rgba(124,58,237,.6)),inset 0 1px 0 rgba(255,255,255,.22),0 0 38px var(--seat-accent,rgba(124,58,237,.55)),0 8px 28px rgba(0,0,0,.55);}50%{box-shadow:inset 0 0 0 1px var(--seat-accent,rgba(124,58,237,.9)),inset 0 1px 0 rgba(255,255,255,.30),0 0 58px var(--seat-accent,rgba(124,58,237,.75)),0 0 100px var(--seat-accent,rgba(124,58,237,.28)),0 8px 28px rgba(0,0,0,.55);}}
 
-/* ── FROSTED-ICE teammate cards (desktop only; round table + bench; not selected) ── */
+/* ── CLEAN TRANSLUCENT-ICE teammate cards (desktop only) ──
+   No noise/texture. Very light blur so the cosmic animation stays VISIBLE
+   through the card, a faint cool tint, a bright cool rim, and a soft glow. */
 @media (min-width:641px){
-  #tableWrap .seat:not(.sel), #tableWrap .seat:not(.sel):hover,
-  #customBenchRow .seat:not(.sel), #customBenchRow .seat:not(.sel):hover{
-    background-color: rgba(150,186,228,.10) !important;
-    background-image:
-      radial-gradient(75% 60% at 0% 0%, rgba(255,255,255,.22), transparent 60%),
-      radial-gradient(75% 60% at 100% 100%, rgba(200,232,255,.16), transparent 60%),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23f)'/%3E%3C/svg%3E"),
-      linear-gradient(180deg, rgba(214,238,255,.26) 0%, rgba(160,194,245,.10) 100%) !important;
-    background-size: cover, cover, 140px 140px, cover !important;
-    background-repeat: no-repeat, no-repeat, repeat, no-repeat !important;
-    background-blend-mode: screen, screen, overlay, normal !important;
-    backdrop-filter: blur(13px) saturate(175%) brightness(1.18) !important;
-    -webkit-backdrop-filter: blur(13px) saturate(175%) brightness(1.18) !important;
+  #tableWrap .seat, #customBenchRow .seat{
+    background: linear-gradient(180deg, rgba(196,224,255,.10) 0%, rgba(150,190,240,.05) 100%) !important;
+    backdrop-filter: blur(3px) saturate(135%) brightness(1.05) !important;
+    -webkit-backdrop-filter: blur(3px) saturate(135%) brightness(1.05) !important;
   }
   #tableWrap .seat:not(.sel), #customBenchRow .seat:not(.sel){
-    border-color: rgba(196,228,255,.55) !important;
+    border-color: rgba(200,228,255,.45) !important;
     box-shadow:
-      0 6px 30px rgba(0,0,0,.42),
-      inset 0 1px 0 rgba(235,247,255,.85),
-      inset 0 0 30px rgba(180,220,255,.20),
-      0 0 30px rgba(110,180,255,.22) !important;
+      0 4px 24px rgba(0,0,0,.35),
+      inset 0 1px 0 rgba(224,242,255,.55),
+      0 0 22px rgba(120,180,255,.14) !important;
   }
   #tableWrap .seat:not(.sel):hover, #customBenchRow .seat:not(.sel):hover{
-    border-color: rgba(235,247,255,.80) !important;
+    border-color: rgba(224,244,255,.70) !important;
     box-shadow:
-      0 14px 44px rgba(0,0,0,.55),
-      inset 0 1px 0 rgba(245,252,255,.95),
-      inset 0 0 36px rgba(190,228,255,.30),
-      0 0 56px rgba(120,190,255,.45) !important;
+      0 12px 38px rgba(0,0,0,.50),
+      inset 0 1px 0 rgba(235,248,255,.75),
+      0 0 40px rgba(120,185,255,.28) !important;
   }
 }
 /* Seat number badge */
@@ -23613,26 +23604,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
         if(wrap.offsetWidth > 0){ _posSeat(); }
         else { requestAnimationFrame(function(){ requestAnimationFrame(_posSeat); }); }
-      }
-
-      // ── Frosted-ice look, applied INLINE (desktop only) ──
-      // Set directly on the element (same path as the operator-position code
-      // that does take effect) so it can't be lost to the stylesheet cascade.
-      // Background + backdrop only — border/box-shadow/pulse stay with CSS so
-      // selection emphasis still works.
-      if(!isMobile){
-        var _ice = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23f)'/%3E%3C/svg%3E";
-        seat.style.backgroundColor = "rgba(150,186,228,.10)";
-        seat.style.backgroundImage =
-          "radial-gradient(75% 60% at 0% 0%, rgba(255,255,255,.22), transparent 60%)," +
-          "radial-gradient(75% 60% at 100% 100%, rgba(200,232,255,.16), transparent 60%)," +
-          "url(\"" + _ice + "\")," +
-          "linear-gradient(180deg, rgba(214,238,255,.26) 0%, rgba(160,194,245,.10) 100%)";
-        seat.style.backgroundSize = "cover, cover, 140px 140px, cover";
-        seat.style.backgroundRepeat = "no-repeat, no-repeat, repeat, no-repeat";
-        seat.style.backgroundBlendMode = "screen, screen, overlay, normal";
-        seat.style.backdropFilter = "blur(13px) saturate(175%) brightness(1.18)";
-        seat.style.webkitBackdropFilter = "blur(13px) saturate(175%) brightness(1.18)";
       }
 
       // ── Click to select ──
