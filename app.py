@@ -26784,6 +26784,10 @@ function _saJobNotify(seatName, status){
 
       setSeatLive(selectedSeat, "thinking", _saLooksLikeImageRequest(msg));
       setOpStatus("Sending to selected");
+      // Cache the raw typed text so a failed send can restore it (don't lose
+      // the user's message on rate limit / network drop / server error).
+      const _origMsgInput = $("followMsg").value;
+      const _restoreInput = function(){ try{ if($("followMsg") && !$("followMsg").value){ $("followMsg").value = _origMsgInput; } }catch(_){} };
       $("followMsg").value = "";
 
       // ── Optimistic user bubble ──
@@ -26821,6 +26825,7 @@ function _saJobNotify(seatName, status){
           const errData = await res.json().catch(()=>({}));
           aBody.innerText = errData.error || "Send failed";
           setSeatLive(selectedSeat, "waiting"); setOpStatus("Error");
+          _restoreInput();
           return;
         }
 
@@ -26857,7 +26862,7 @@ function _saJobNotify(seatName, status){
             if(!line.startsWith("data:")) continue;
             try{
               const ev = JSON.parse(line.slice(5).trim());
-              if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); return; }
+              if(ev.error){ aBody.innerText = ev.error; setSeatLive(selectedSeat,"waiting"); setOpStatus("Error"); _restoreInput(); return; }
               if(ev.token){ fullText += ev.token; if(_sfFollowFirstToken){_sfFollowFirstToken=false;} if(!aBody._rafPending){aBody._rafPending=true;requestAnimationFrame(function(){aBody._rafPending=false;var _st3=fullText.replace(/```email[\s\S]*?```/gi,'').replace(/```email[\s\S]*$/i,'').replace(/\*/g,'').replace(/\n{3,}/g,'\n\n').trim();aBody.textContent=_st3||fullText;cursor.remove();aBody.appendChild(cursor);if(threadBox)threadBox.scrollTop=threadBox.scrollHeight;});} }
               if(ev.done){ emailDraft = ev.email_draft || null; jobId = ev.job_id || null; _serverDone = true; }
             }catch(e){}
@@ -26902,6 +26907,7 @@ function _saJobNotify(seatName, status){
         cursor.remove();
         aBody.innerText = "Error: " + (err.message || "Send failed");
         setSeatLive(selectedSeat, "waiting"); setOpStatus("Error");
+        _restoreInput();
       }
 
       try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(e){}
@@ -40104,6 +40110,9 @@ document.addEventListener("click", function(e) {
       aBody.innerText = (fullText || "") + (fullText ? "\n\n" : "") + "[Stream error: "+(err.message||"unknown")+"]";
       if(typeof setSeatLive==="function") setSeatLive(seat,"waiting");
       if(typeof setOpStatus==="function") setOpStatus("Error");
+      // Restore the user's message so a failed send (rate limit, network drop,
+      // server error) doesn't destroy what they typed — let them retry.
+      if(!fullText && msgEl && !msgEl.value){ msgEl.value = msg; }
     }
     // Reload thread from server so conversation persists across seat switches
     try{ if(typeof window.refreshThread==="function") await window.refreshThread(); }catch(_){}
