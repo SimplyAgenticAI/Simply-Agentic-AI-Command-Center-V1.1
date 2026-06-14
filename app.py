@@ -2174,6 +2174,61 @@ def save_users(data: Dict[str, Any]) -> None:
             _HAS_ANY_USER_CACHE = True
 
 
+_UPDATE_USER_LOCK = threading.Lock()
+
+def update_user(username: str, mutate_fn) -> Optional[Dict[str, Any]]:
+    """Atomic single-row read-modify-write for ONE user, avoiding the
+    whole-dict load_users()/save_users() lost-update race (two requests each
+    load the full table, mutate different users, and the second save clobbers
+    the first). `mutate_fn(rec)` receives the user's record dict; it may mutate
+    in place and/or return a replacement. Returns the saved record, or None if
+    the user doesn't exist. Single-process atomic via _UPDATE_USER_LOCK; SQLite
+    row write makes it durable.
+    """
+    if not username:
+        return None
+    with _UPDATE_USER_LOCK:
+        rec = None
+        try:
+            conn = _users_db_conn()
+            row = conn.execute("SELECT data FROM users WHERE username = ?", (username,)).fetchone()
+            if row is None:
+                conn.close()
+                return None
+            rec = json.loads(row[0]) if row[0] else {}
+            new_rec = mutate_fn(rec)
+            if isinstance(new_rec, dict):
+                rec = new_rec
+            rec["updated_at"] = now_iso()
+            conn.execute(
+                "INSERT OR REPLACE INTO users (username, data, updated_at) VALUES (?,?,?)",
+                (username, json.dumps(rec), rec.get("updated_at")),
+            )
+            conn.commit()
+            conn.close()
+            _invalidate_users_cache()
+            return rec
+        except Exception:
+            # JSON fallback: read-modify-write the whole file under the same lock.
+            try:
+                data = load_json(USERS_PATH, {"users": {}, "updated_at": None})
+                users = data.setdefault("users", {})
+                if username not in users:
+                    return None
+                rec = users[username]
+                new_rec = mutate_fn(rec)
+                if isinstance(new_rec, dict):
+                    rec = new_rec
+                rec["updated_at"] = now_iso()
+                users[username] = rec
+                data["updated_at"] = now_iso()
+                save_json(USERS_PATH, data)
+                _invalidate_users_cache()
+                return rec
+            except Exception:
+                return None
+
+
 def delete_user(username: str) -> None:
     """Explicit, single-row account deletion — the ONLY path that removes a
     user row. Kept separate from save_users so a stale/partial users dict can
@@ -8432,16 +8487,16 @@ def api_change_password():
     ok, msg = _validate_password_strength(new_pw)
     if not ok:
         return jsonify({"ok": False, "error": msg}), 400
-    data = load_users()
-    user_rec = (data.get("users") or {}).get(uname)
+    user_rec = (load_users().get("users") or {}).get(uname)
     if not user_rec:
         return jsonify({"ok": False, "error": "User not found."}), 404
     if not check_password_hash(user_rec.get("password_hash", ""), current_pw):
         return jsonify({"ok": False, "error": "Current password is incorrect."}), 403
-    user_rec["password_hash"] = generate_password_hash(new_pw)
-    user_rec["updated_at"] = now_iso()
-    data["users"][uname] = user_rec
-    save_users(data)
+    # Atomic single-row write so a concurrent settings save can't clobber it.
+    def _set_pw(rec):
+        rec["password_hash"] = generate_password_hash(new_pw)
+        return rec
+    update_user(uname, _set_pw)
     _audit_log("password_changed", {}, username=uname)
     # Invalidate the current session so all other devices are logged out
     session.clear()
@@ -8503,58 +8558,64 @@ def api_set_user_settings():
     smtp_pass = (smtp_in.get("pass") or "").strip()
     smtp_from_name = (smtp_in.get("from_name") or "").strip()
 
-    users = load_users()
     uname = u.get("username")
-    rec = (users.get("users") or {}).get(uname) or u
-
-    rec.setdefault("settings", {})
-    # Only overwrite the stored key when a new non-empty value is submitted.
-    # The settings modal intentionally leaves the field blank (shows a hint),
-    # so a blank submission must never clear a working saved key.
-    if openai_key and len(openai_key) >= 20:
-        rec["settings"]["openai_key"] = _encrypt_field(openai_key)
-    if claude_key and len(claude_key) >= 20:
-        rec["settings"]["claude_key"] = _encrypt_field(claude_key)
-    if global_default_model:
-        rec["settings"]["global_default_model"] = global_default_model
-
-    # Tooltip level — always save when present (including "off")
-    tooltip_level = (data.get("tooltip_level") or "").strip().lower()
-    if tooltip_level in ("off", "low", "medium", "high"):
-        rec["settings"]["tooltip_level"] = tooltip_level
-
-    # UI theme / customisation — full replace so reset (empty dict) clears correctly
     theme_in = data.get("theme")
-    if isinstance(theme_in, dict):
-        allowed_theme_keys = {
-            "table_color", "table_glow_opacity",
-            "task_glow_color", "event_color",
-            "seat_glow_color", "nav_style",
-            "font_family", "font_size",
-            "arena_bg_color", "accent_color",
-            "bg_color", "bg_brightness",
-            "cal_glow_color", "cal_glow_opacity",
-        }
-        rec["settings"]["theme"] = {
-            k: v.strip()
-            for k, v in theme_in.items()
-            if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80
-        }
+    tooltip_level = (data.get("tooltip_level") or "").strip().lower()
 
-    rec["settings"].setdefault("smtp", {})
-    if smtp_host != "":
-        rec["settings"]["smtp"]["host"] = smtp_host
-    rec["settings"]["smtp"]["port"] = smtp_port
-    if smtp_user != "":
-        rec["settings"]["smtp"]["user"] = smtp_user
-    if smtp_pass != "":
-        rec["settings"]["smtp"]["pass"] = smtp_pass
-    if smtp_from_name != "":
-        rec["settings"]["smtp"]["from_name"] = smtp_from_name
+    def _apply_settings(rec):
+        rec.setdefault("settings", {})
+        # Only overwrite the stored key when a new non-empty value is submitted.
+        # The settings modal intentionally leaves the field blank (shows a hint),
+        # so a blank submission must never clear a working saved key.
+        if openai_key and len(openai_key) >= 20:
+            rec["settings"]["openai_key"] = _encrypt_field(openai_key)
+        if claude_key and len(claude_key) >= 20:
+            rec["settings"]["claude_key"] = _encrypt_field(claude_key)
+        if global_default_model:
+            rec["settings"]["global_default_model"] = global_default_model
 
-    rec["updated_at"] = now_iso()
-    users["users"][uname] = rec
-    save_users(users)
+        # Tooltip level — always save when present (including "off")
+        if tooltip_level in ("off", "low", "medium", "high"):
+            rec["settings"]["tooltip_level"] = tooltip_level
+
+        # UI theme / customisation — full replace so reset (empty dict) clears correctly
+        if isinstance(theme_in, dict):
+            allowed_theme_keys = {
+                "table_color", "table_glow_opacity",
+                "task_glow_color", "event_color",
+                "seat_glow_color", "nav_style",
+                "font_family", "font_size",
+                "arena_bg_color", "accent_color",
+                "bg_color", "bg_brightness",
+                "cal_glow_color", "cal_glow_opacity",
+            }
+            rec["settings"]["theme"] = {
+                k: v.strip()
+                for k, v in theme_in.items()
+                if k in allowed_theme_keys and isinstance(v, str) and len(v) <= 80
+            }
+
+        rec["settings"].setdefault("smtp", {})
+        if smtp_host != "":
+            rec["settings"]["smtp"]["host"] = smtp_host
+        rec["settings"]["smtp"]["port"] = smtp_port
+        if smtp_user != "":
+            rec["settings"]["smtp"]["user"] = smtp_user
+        if smtp_pass != "":
+            rec["settings"]["smtp"]["pass"] = smtp_pass
+        if smtp_from_name != "":
+            rec["settings"]["smtp"]["from_name"] = smtp_from_name
+        return rec
+
+    # Atomic single-row update so concurrent saves don't clobber each other.
+    if update_user(uname, _apply_settings) is None:
+        # Record not in the store yet (rare) — fall back to a full upsert.
+        users = load_users()
+        rec = (users.get("users") or {}).get(uname) or dict(u)
+        _apply_settings(rec)
+        rec["updated_at"] = now_iso()
+        users.setdefault("users", {})[uname] = rec
+        save_users(users)
 
     append_log("user_settings_updated", {"user": uname, "updated_at": now_iso(), "fields": list(data.keys())})
     changed_fields = [k for k in ("openai_key", "claude_key", "global_default_model", "tooltip_level", "smtp") if k in data]
