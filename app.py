@@ -27368,7 +27368,7 @@ $("draftWithSelected").onclick = async () => {
       const BUILTINS_ET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
 
       const INPUT_CSS  = "width:100%;box-sizing:border-box;background:rgba(7,11,28,.85);border:1px solid rgba(42,58,106,.7);border-radius:10px;color:#e6edff;padding:10px 13px;font-size:13px;line-height:1.4;font-family:inherit;outline:none;transition:border-color .15s;";
-      const TA_CSS     = INPUT_CSS + "resize:vertical;";
+      const TA_CSS     = INPUT_CSS + "resize:none;";
       const SELECT_CSS = INPUT_CSS + "cursor:pointer;";
       const LABEL_CSS  = "display:block;font-size:10px;font-weight:700;color:rgba(148,163,184,.55);margin-bottom:5px;letter-spacing:.08em;text-transform:uppercase;";
       const CARD_CSS   = "background:rgba(255,255,255,.035);border:1px solid rgba(42,58,106,.45);border-radius:14px;padding:18px 20px;margin-bottom:14px;backdrop-filter:blur(10px);";
@@ -27481,8 +27481,10 @@ $("draftWithSelected").onclick = async () => {
         const colL = document.createElement("div"); colL.style.cssText="display:flex;flex-direction:column;gap:14px;flex:1;";
         c3.style.flex="1";
         colL.appendChild(c1); colL.appendChild(c3);
-        // Right column: Personality + Voice
+        // Right column: Personality + Voice. Voice&Model fills the remaining
+        // height so its bottom aligns with the Behavior card (even columns).
         const colR = document.createElement("div"); colR.style.cssText="display:flex;flex-direction:column;gap:14px;flex:1;";
+        c4.style.flex="1";
         colR.appendChild(c2); colR.appendChild(c4);
         colGrid.appendChild(colL); colGrid.appendChild(colR);
         right.appendChild(colGrid);
@@ -27503,9 +27505,11 @@ $("draftWithSelected").onclick = async () => {
       const statusEl = document.createElement("span");
       statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:14px;";
       const footer = document.createElement("div");
-      footer.style.cssText = "display:flex;align-items:center;padding:18px 0 8px;border-top:1px solid rgba(42,58,106,.3);margin-top:6px;";
+      // Pinned action bar (appended to the modal body below the scrollable
+      // content) so Save Changes / Save & Exit are ALWAYS visible without
+      // scrolling, regardless of how tall the form is.
+      footer.style.cssText = "display:flex;align-items:center;flex-shrink:0;padding:14px 32px;border-top:1px solid rgba(42,58,106,.4);background:rgba(7,11,28,.65);";
       footer.appendChild(saveBtn); footer.appendChild(saveExitBtn); footer.appendChild(statusEl);
-      right.appendChild(footer);
 
       // ── Value-swap (no DOM rebuild) ───────────────────────────────────────────
       let currentEditName = "";
@@ -27654,6 +27658,7 @@ $("draftWithSelected").onclick = async () => {
 
       pane.appendChild(left); pane.appendChild(right);
       mb.appendChild(pane);
+      mb.appendChild(footer);  // pinned save bar below the scrollable form
 
       // Auto-select: the requested teammate if given, else the first.
       const _preName = (preselect && order.indexOf(preselect) !== -1) ? preselect : null;
