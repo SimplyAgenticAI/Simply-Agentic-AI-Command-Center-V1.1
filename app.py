@@ -23706,11 +23706,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const cx = w / 2;
           const cy = h / 2;
           const rx = w * 0.43;
-          // The Operator seat sits at 12 o'clock, directly above the round
-          // Group Console panel — give it a touch more vertical radius than
-          // the side seats so it clears the console by the same visual gap
-          // Orion (and the other side seats) have from the table.
-          const ry = h * 0.39;
+          // Operator sits on the EXACT same ellipse as the side seats (Orion
+          // etc.) so it is mathematically the same distance from the round
+          // table — rx/ry must match makeSeat's values (0.43 / 0.35).
+          const ry = h * 0.35;
           const pos = computeEllipsePos(0, 8, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
