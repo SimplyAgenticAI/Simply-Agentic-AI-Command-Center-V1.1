@@ -11376,7 +11376,7 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
    animation flows visibly THROUGH the card (the old 18px blur smeared it into
    a milky glow). The subtle dark tint keeps the light name/role/status text
    readable over moving content. Tweak --seat-blur / the tint alpha to taste. */
-.seat{background:linear-gradient(180deg,rgba(12,16,34,.16) 0%,rgba(12,16,34,.30) 100%);backdrop-filter:blur(6px) saturate(150%);-webkit-backdrop-filter:blur(6px) saturate(150%);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:11px 8px 26px;display:flex;flex-direction:column;align-items:center;gap:0;box-shadow:0 4px 28px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.20),0 0 24px rgba(124,58,237,.10);position:relative;transition:border-color .25s,transform .2s,box-shadow .25s,background .25s;min-width:0;width:100%;cursor:pointer;}
+.seat{background:linear-gradient(180deg,rgba(255,255,255,.16) 0%,rgba(205,220,255,.05) 100%);backdrop-filter:blur(9px) saturate(180%) brightness(1.15);-webkit-backdrop-filter:blur(9px) saturate(180%) brightness(1.15);border:1px solid rgba(255,255,255,.32);border-radius:14px;padding:11px 8px 26px;display:flex;flex-direction:column;align-items:center;gap:0;box-shadow:0 4px 28px rgba(0,0,0,.40),inset 0 1px 0 rgba(255,255,255,.50),inset 0 0 22px rgba(255,255,255,.07),0 0 24px rgba(124,58,237,.10);position:relative;transition:border-color .25s,transform .2s,box-shadow .25s,background .25s;min-width:0;width:100%;cursor:pointer;}
 .seat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--seat-accent,rgba(124,58,237,.6));opacity:.65;border-radius:14px 14px 0 0;}
 .seat:hover{border-color:rgba(255,255,255,.25);transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,.55),0 0 40px rgba(124,58,237,.35),0 0 80px rgba(124,58,237,.12),inset 0 1px 0 rgba(255,255,255,.28);background:rgba(255,255,255,.08);}
 .seat:hover::before{opacity:1;}
@@ -23706,10 +23706,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const cx = w / 2;
           const cy = h / 2;
           const rx = w * 0.43;
-          // Operator sits on the EXACT same ellipse as the side seats (Orion
-          // etc.) so it is mathematically the same distance from the round
-          // table — rx/ry must match makeSeat's values (0.43 / 0.35).
-          const ry = h * 0.35;
+          // Operator sits at 12 o'clock. The round table is wider than it is
+          // tall, so matching the side seats' ry (0.35) puts the operator
+          // visually closer to the table than Orion is. Nudge ry up slightly
+          // (between 0.35 and the old 0.39) so the gap matches the side seats.
+          const ry = h * 0.37;
           const pos = computeEllipsePos(0, 8, cx, cy, rx, ry);
           seat.style.left = Math.round(pos.cx - cardW / 2) + "px";
           seat.style.top  = Math.round(pos.cy - cardH / 2) + "px";
