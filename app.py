@@ -27421,7 +27421,7 @@ $("draftWithSelected").onclick = async () => {
 
       function mkLbl(txt){ const l=document.createElement("label"); l.style.cssText=LABEL_CSS; l.textContent=txt; return l; }
       function mkInput(readonly){ const el=document.createElement("input"); el.type="text"; el.style.cssText=INPUT_CSS+(readonly?";opacity:.5;cursor:default":""); if(readonly) el.readOnly=true; return el; }
-      function mkTa(h){ const el=document.createElement("textarea"); const hv=(typeof h==="number")?(h+"px"):(h||"80px"); el.style.cssText=TA_CSS+"min-height:"+hv+";"; return el; }
+      function mkTa(h){ const el=document.createElement("textarea"); const hv=(typeof h==="number")?(h+"px"):(h||"80px"); el.style.cssText=TA_CSS+"height:"+hv+";min-height:"+hv+";"; return el; }
       function mkSel(choices){ const s=document.createElement("select"); s.style.cssText=SELECT_CSS; choices.forEach(([v,tx])=>{ const o=document.createElement("option"); o.value=v; o.textContent=tx; s.appendChild(o); }); return s; }
       function wrap(label, el){ const w=document.createElement("div"); w.appendChild(mkLbl(label)); w.appendChild(el); return w; }
       function mkCard(icon, title){ const c=document.createElement("div"); c.style.cssText=CARD_CSS; const h=document.createElement("div"); h.style.cssText=CARD_HDR; const ic=document.createElement("span"); ic.style.cssText=CARD_ICON; ic.textContent=icon; const tt=document.createElement("span"); tt.style.cssText=CARD_TITLE; tt.textContent=title; h.appendChild(ic); h.appendChild(tt); c.appendChild(h); return c; }
