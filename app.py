@@ -1259,10 +1259,11 @@ def _image_job_set(job_id: str, patch: Dict[str, Any]) -> None:
         cur = IMAGE_JOBS.get(job_id) or {}
         cur.update(patch or {})
         IMAGE_JOBS[job_id] = cur
-    # Persist to disk (non-blocking, best-effort)
+    # Persist to disk atomically (tmp + rename) so a crash or a concurrent
+    # write from another worker can't leave a half-written / corrupt job file
+    # that makes the status poll silently return {} (spinner that never ends).
     try:
-        p = _job_path(job_id)
-        p.write_text(json.dumps(IMAGE_JOBS.get(job_id) or {}), encoding="utf-8")
+        save_json(_job_path(job_id), IMAGE_JOBS.get(job_id) or {})
     except Exception:
         pass
 
@@ -1301,7 +1302,7 @@ def _load_persisted_jobs() -> None:
                     data["status"] = "error"
                     data["error"] = "Server restarted during generation. Please try again."
                     data["stage_label"] = "❌ Server restarted"
-                    p.write_text(json.dumps(data), encoding="utf-8")
+                    save_json(p, data)
                 job_id = p.stem.replace("img_", "")
                 with IMAGE_JOBS_LOCK:
                     IMAGE_JOBS[job_id] = data
@@ -1366,7 +1367,8 @@ def _run_image_job(job_id: str, raw_prompt: str, teammate: str, username: str, l
             _image_job_set(job_id, {"status": "running", "stage": "generating", "stage_label": "🎨 Generating image..."})
             rec, url, err = generate_image_for_teammate(raw_prompt, teammate=teammate, username=username, lighting_mode=lighting_mode, mode=mode, source_file_id=source_file_id)
             # Capture refined prompt that generate_image_for_teammate stored
-            refined = _LAST_REFINED_PROMPT.pop(str(_thr.current_thread().ident), "") or raw_prompt
+            with _LAST_REFINED_PROMPT_LOCK:
+                refined = _LAST_REFINED_PROMPT.pop(str(_thr.current_thread().ident), "") or raw_prompt
         if err or not url:
             _image_job_set(job_id, {"status": "error", "stage": "error", "stage_label": "❌ Generation failed", "error": err or "Image generation failed"})
             _thread_replace_or_append_image_note(teammate, job_id, f"[Image failed] {err or 'Image generation failed'}", username=username)
@@ -7229,6 +7231,7 @@ def _get_openai_client_for_username(username: str):
 
 _LAST_REFINED_PROMPT: Dict[str, str] = {}      # keyed by thread id
 _LAST_REFINED_PROMPT_TS: Dict[str, float] = {} # timestamps for TTL eviction
+_LAST_REFINED_PROMPT_LOCK = threading.Lock()   # guards both dicts across image-job threads
 
 def _vision_describe_image(image_bytes: bytes, mimetype: str, user_prompt: str, client) -> str:
     """Use GPT-4o vision to generate a detailed visual description of an uploaded image.
@@ -7288,14 +7291,16 @@ def generate_image_for_teammate(raw_prompt: str, teammate: str, username: str, l
     prompt2 = _image_prompt_refine(prompt, lighting_mode=lighting_mode, prior_description=_prior_desc) or prompt
     # Store refined prompt keyed by calling thread so _run_image_job can retrieve it
     _tid = str(_thr.current_thread().ident)
-    _LAST_REFINED_PROMPT[_tid] = prompt2
-    _LAST_REFINED_PROMPT_TS[_tid] = time.time()
-    # Evict entries older than 10 minutes to prevent memory leak
     _now_t = time.time()
-    _stale_keys = [k for k, ts in _LAST_REFINED_PROMPT_TS.items() if _now_t - ts > 600]
-    for _sk in _stale_keys:
-        _LAST_REFINED_PROMPT.pop(_sk, None)
-        _LAST_REFINED_PROMPT_TS.pop(_sk, None)
+    with _LAST_REFINED_PROMPT_LOCK:
+        _LAST_REFINED_PROMPT[_tid] = prompt2
+        _LAST_REFINED_PROMPT_TS[_tid] = _now_t
+        # Evict entries older than 10 minutes to prevent memory leak (snapshot
+        # keys first so we never mutate while iterating).
+        _stale_keys = [k for k, ts in list(_LAST_REFINED_PROMPT_TS.items()) if _now_t - ts > 600]
+        for _sk in _stale_keys:
+            _LAST_REFINED_PROMPT.pop(_sk, None)
+            _LAST_REFINED_PROMPT_TS.pop(_sk, None)
 
     model = _pick_image_model()
     try:
