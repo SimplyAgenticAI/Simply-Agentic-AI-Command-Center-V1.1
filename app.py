@@ -27431,11 +27431,11 @@ $("draftWithSelected").onclick = async () => {
       const fName  = mkInput(true);
       const fJob   = mkInput(false);
       const fVer   = mkInput(false);
-      const fMiss  = mkTa(isWide?120:90);
-      const fGoal  = mkTa(isWide?120:90);
-      const fThink = mkTa(isWide?100:80);
-      const fResp  = mkTa(isWide?180:130);
-      const fWnd   = mkTa(isWide?180:130);
+      const fMiss  = mkTa(isWide?150:120);
+      const fGoal  = mkTa(isWide?150:120);
+      const fThink = mkTa(isWide?130:105);
+      const fResp  = mkTa(isWide?300:220);
+      const fWnd   = mkTa(isWide?300:220);
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
