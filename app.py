@@ -23442,7 +23442,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       editBtn.innerText = "Edit";
       editBtn.title = "Edit teammate framework";
       editBtn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
-      editBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); openEditForTeammate(defn.name); });
+      // Card Edit opens the SAME unified Edit Teammates window, pre-selected to
+      // this teammate (no more separate single-teammate modal).
+      editBtn.addEventListener("click", async e => { e.preventDefault(); e.stopPropagation(); try{ await loadState(); }catch(_){} showEditTeammatesModal(defn.name); });
       tools.appendChild(editBtn);
 
       if(window._SA_UNLOCKS && window._SA_UNLOCKS.indexOf("action_stacks") !== -1){
@@ -27330,7 +27332,9 @@ $("draftWithSelected").onclick = async () => {
     };
 
     // ── Edit Teammates picker ──
-    function showEditTeammatesModal(){
+    // preselect: optional teammate name to open directly (used by the card
+    // Edit button so it lands on that teammate within this same one window).
+    function showEditTeammatesModal(preselect){
       $("modalTitle").innerText = "✏️ Edit Teammates";
       hideAllModalForms();
       const mb = $("modalBody");
@@ -27476,13 +27480,17 @@ $("draftWithSelected").onclick = async () => {
       // Save footer — sticky at bottom of right panel
       const saveBtn = document.createElement("button");
       saveBtn.className = "btn btnPrimary";
-      saveBtn.style.cssText = "padding:12px 32px;font-size:14px;font-weight:700;min-width:160px;";
+      saveBtn.style.cssText = "padding:12px 28px;font-size:14px;font-weight:700;min-width:150px;";
       saveBtn.textContent = "💾 Save Changes";
+      const saveExitBtn = document.createElement("button");
+      saveExitBtn.className = "btn btnPrimary";
+      saveExitBtn.style.cssText = "padding:12px 28px;font-size:14px;font-weight:700;min-width:150px;margin-left:10px;";
+      saveExitBtn.textContent = "💾 Save & Exit";
       const statusEl = document.createElement("span");
       statusEl.style.cssText = "font-size:12px;color:rgba(148,163,184,.6);margin-left:14px;";
       const footer = document.createElement("div");
       footer.style.cssText = "display:flex;align-items:center;padding:18px 0 8px;border-top:1px solid rgba(42,58,106,.3);margin-top:6px;";
-      footer.appendChild(saveBtn); footer.appendChild(statusEl);
+      footer.appendChild(saveBtn); footer.appendChild(saveExitBtn); footer.appendChild(statusEl);
       right.appendChild(footer);
 
       // ── Value-swap (no DOM rebuild) ───────────────────────────────────────────
@@ -27511,10 +27519,11 @@ $("draftWithSelected").onclick = async () => {
         right.scrollTop = 0;
       }
 
-      // Save handler
-      saveBtn.addEventListener("click", async function(){
-        if(!currentEditName) return;
-        statusEl.textContent = "Saving…"; saveBtn.disabled = true;
+      // Save handler — shared by "Save Changes" and "Save & Exit".
+      async function doSaveTeammate(){
+        if(!currentEditName) return false;
+        statusEl.textContent = "Saving…"; saveBtn.disabled = true; saveExitBtn.disabled = true;
+        let ok = false;
         try{
           const res = await fetch("/api/teammate/"+encodeURIComponent(currentEditName),{
             method:"POST", headers:{"Content-Type":"application/json"},
@@ -27526,17 +27535,24 @@ $("draftWithSelected").onclick = async () => {
             })
           });
           const d = await res.json();
-          if(!d.ok){ statusEl.textContent = d.error||"Save failed"; saveBtn.disabled=false; return; }
-          statusEl.textContent = "✅ Saved!";
-          await loadState();
-          if(typeof showToast==="function") showToast("✅ "+currentEditName+" updated");
-          setTimeout(()=>{ statusEl.textContent=""; }, 2500);
+          if(!d.ok){ statusEl.textContent = d.error||"Save failed"; }
+          else {
+            statusEl.textContent = "✅ Saved!";
+            await loadState();
+            if(typeof showToast==="function") showToast("✅ "+currentEditName+" updated");
+            ok = true;
+            setTimeout(()=>{ statusEl.textContent=""; }, 2500);
+          }
         }catch(e){ statusEl.textContent = "Error saving"; }
-        saveBtn.disabled = false;
-      });
+        saveBtn.disabled = false; saveExitBtn.disabled = false;
+        return ok;
+      }
+      saveBtn.addEventListener("click", function(){ doSaveTeammate(); });
+      saveExitBtn.addEventListener("click", async function(){ if(await doSaveTeammate()) hideModal(); });
 
       // ── ROSTER CARDS (left sidebar) ───────────────────────────────────────────
       let activeCard = null;
+      let preselectCard = null;
       order.forEach(function(name){
         const defn = installedMap[name] || {};
         const isCustom = !BUILTINS_ET.has(name);
@@ -27613,6 +27629,7 @@ $("draftWithSelected").onclick = async () => {
           swapValues(name, defn);
         });
         left.appendChild(card);
+        if(preselect && name === preselect) preselectCard = card;
         if(mobSel){
           const opt = document.createElement("option");
           opt.value = name;
@@ -27624,11 +27641,14 @@ $("draftWithSelected").onclick = async () => {
       pane.appendChild(left); pane.appendChild(right);
       mb.appendChild(pane);
 
-      // Auto-select first teammate
+      // Auto-select: the requested teammate if given, else the first.
+      const _preName = (preselect && order.indexOf(preselect) !== -1) ? preselect : null;
       if(isMobile){
-        if(order.length) swapValues(order[0], installedMap[order[0]]||{});
+        const _sel = _preName || order[0];
+        if(_sel){ swapValues(_sel, installedMap[_sel]||{}); if(mobSel) mobSel.value = _sel; }
       } else {
-        if(left.firstElementChild) left.firstElementChild.click();
+        if(preselectCard) preselectCard.click();
+        else if(left.firstElementChild) left.firstElementChild.click();
       }
     }
 
