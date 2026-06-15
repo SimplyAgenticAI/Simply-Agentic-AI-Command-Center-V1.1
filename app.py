@@ -15313,6 +15313,37 @@ HTML = r"""
       pointer-events:none;
     }
 
+    /* Detach corner icon — top-left, appears on hover, pops teammate into a
+       floating Picture-in-Picture window that stays on top of other apps. */
+    .seatDetach{
+      position:absolute;
+      top:5px; left:5px;
+      width:22px; height:22px;
+      display:flex; align-items:center; justify-content:center;
+      border-radius:8px;
+      border:1px solid rgba(124,58,237,.45);
+      background:rgba(124,58,237,.18);
+      color:#c4b5fd;
+      font-size:13px; line-height:1;
+      cursor:pointer;
+      opacity:0;
+      transform:scale(.85);
+      transition:opacity .16s ease, transform .16s ease, background .15s, color .15s, box-shadow .15s;
+      pointer-events:auto;
+      z-index:45;
+      -webkit-backdrop-filter:blur(6px);
+      backdrop-filter:blur(6px);
+    }
+    .seat:hover .seatDetach,
+    .seat:focus-within .seatDetach{ opacity:1; transform:scale(1); }
+    .seatDetach:hover{
+      background:rgba(124,58,237,.42);
+      color:#fff;
+      box-shadow:0 3px 12px rgba(124,58,237,.5);
+      transform:scale(1.12);
+    }
+    .seatDetach:active{ transform:scale(.94); }
+
     .avatar{
       width:46px;height:46px;border-radius:13px;
       display:flex;align-items:center;justify-content:center;
@@ -23570,7 +23601,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         stackBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); openStackModal(defn.name); });
         tools.appendChild(stackBtn);
       }
+
       seat.appendChild(tools);
+
+      // ── Detach corner icon (desktop + Chromium Document Picture-in-Picture) ──
+      // A small ⧉ icon in the TOP-LEFT corner that only appears on hover. Pops
+      // the teammate into its own floating, always-on-top window that stays
+      // visible while you work in other apps (Messenger, Sheets, Facebook, etc.).
+      if(window.innerWidth > 640 && ("documentPictureInPicture" in window)){
+        const detachBtn = document.createElement("button");
+        detachBtn.className = "seatDetach";
+        detachBtn.innerHTML = "⧉";
+        detachBtn.title = "Detach — float " + defn.name + " in its own window on top of other apps";
+        detachBtn.setAttribute("aria-label", "Detach " + defn.name);
+        detachBtn.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); });
+        detachBtn.addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); if(window.detachTeammate) window.detachTeammate(defn.name); });
+        seat.appendChild(detachBtn);
+      }
 
       // ── Sin/cos circle positioning ──
       const isMobile = window.innerWidth <= 640;
@@ -27168,6 +27215,265 @@ function _saJobNotify(seatName, status){
     }
 
     $("sendFollow").onclick = sendFollow;
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  DETACH TEAMMATE — Document Picture-in-Picture floating companion window
+    //  Pops a teammate out of the round table into its own always-on-top window
+    //  that stays visible while you work in Messenger, Google Sheets, Facebook,
+    //  or any other app. Chromium-desktop only (feature-detected at the button).
+    //  Reuses the same backend as the main chat: GET /api/thread/<name> for
+    //  history, POST /api/followup/stream for streaming replies. CSRF is added
+    //  automatically by the global fetch wrapper because we call the opener's
+    //  fetch (not the PiP window's native fetch).
+    // ════════════════════════════════════════════════════════════════════════
+    window.detachTeammate = async function detachTeammate(name){
+      if(!("documentPictureInPicture" in window)){
+        showToast("⚠️ Detach needs Chrome or Edge (desktop) 116+");
+        return;
+      }
+      const defn = (state.installed && state.installed[name]) || {name: name, job_title: ""};
+      const av = defn.avatar || {bg:"#1f2a44", fg:"#e6edff", sigil:(name||"?").slice(0,1).toUpperCase()};
+
+      // Chromium allows only ONE PiP window at a time. If one is already open for
+      // THIS teammate, just focus it; otherwise opening a new one replaces it.
+      try{
+        if(window._saDetached && window._saDetached.name === name && window._saDetached.win && !window._saDetached.win.closed){
+          window._saDetached.win.focus();
+          return;
+        }
+      }catch(_){}
+
+      let pip;
+      try{
+        pip = await documentPictureInPicture.requestWindow({width: 390, height: 580});
+      }catch(err){
+        showToast("⚠️ Couldn't open detached window: " + (err && err.message ? err.message : err));
+        return;
+      }
+
+      const doc = pip.document;
+      doc.title = name + " — Simply Agentic AI";
+
+      // ── Self-contained styles (PiP windows don't inherit the parent's CSS) ──
+      const style = doc.createElement("style");
+      style.textContent = `
+        *{box-sizing:border-box;margin:0;padding:0;}
+        html,body{height:100%;}
+        body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+          background:#0b1020;color:#e6edff;display:flex;flex-direction:column;overflow:hidden;}
+        .dt-head{display:flex;align-items:center;gap:10px;padding:11px 13px;
+          background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(15,23,42,.65));
+          border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
+        .dt-av{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;
+          justify-content:center;font-weight:700;font-size:16px;flex:0 0 auto;
+          box-shadow:0 2px 10px rgba(0,0,0,.35);}
+        .dt-av svg{width:24px;height:24px;}
+        .dt-id{flex:1 1 auto;min-width:0;}
+        .dt-name{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .dt-role{font-size:11px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .dt-dot{width:9px;height:9px;border-radius:50%;background:#475569;flex:0 0 auto;
+          transition:background .2s,box-shadow .2s;}
+        .dt-dot.thinking{background:#f59e0b;box-shadow:0 0 8px rgba(245,158,11,.8);animation:dtpulse 1s infinite;}
+        .dt-dot.done{background:#22c55e;box-shadow:0 0 8px rgba(34,197,94,.7);}
+        .dt-dot.error{background:#ef4444;box-shadow:0 0 8px rgba(239,68,68,.7);}
+        @keyframes dtpulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+        .dt-thread{flex:1 1 auto;overflow-y:auto;padding:13px;display:flex;flex-direction:column;gap:11px;}
+        .dt-msg{max-width:88%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.5;
+          white-space:pre-wrap;word-wrap:break-word;}
+        .dt-msg.user{align-self:flex-end;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border-bottom-right-radius:5px;}
+        .dt-msg.assistant{align-self:flex-start;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-bottom-left-radius:5px;}
+        .dt-msg.system{align-self:center;background:transparent;opacity:.6;font-size:12px;text-align:center;}
+        .dt-who{font-size:10px;text-transform:uppercase;letter-spacing:.5px;opacity:.55;margin-bottom:3px;}
+        .dt-msg img{max-width:100%;border-radius:10px;margin-top:6px;display:block;}
+        .dt-msg a{color:#c4b5fd;}
+        .dt-cursor{display:inline-block;width:7px;height:14px;background:#c4b5fd;margin-left:2px;
+          vertical-align:text-bottom;animation:dtblink 1s steps(2) infinite;}
+        @keyframes dtblink{0%,100%{opacity:1;}50%{opacity:0;}}
+        .dt-dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:#c4b5fd;
+          margin:0 2px;animation:dtbob 1.2s infinite;}
+        .dt-dots span:nth-child(2){animation-delay:.15s;}
+        .dt-dots span:nth-child(3){animation-delay:.3s;}
+        @keyframes dtbob{0%,80%,100%{transform:translateY(0);opacity:.4;}40%{transform:translateY(-5px);opacity:1;}}
+        .dt-foot{flex:0 0 auto;padding:10px 11px;border-top:1px solid rgba(255,255,255,.12);
+          background:rgba(15,23,42,.6);display:flex;gap:8px;align-items:flex-end;}
+        .dt-input{flex:1 1 auto;resize:none;max-height:120px;min-height:40px;padding:9px 11px;
+          border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);
+          color:#e6edff;font-size:13.5px;font-family:inherit;line-height:1.4;}
+        .dt-input:focus{outline:none;border-color:rgba(124,58,237,.6);box-shadow:0 0 0 2px rgba(124,58,237,.2);}
+        .dt-send{flex:0 0 auto;width:40px;height:40px;border-radius:11px;border:none;cursor:pointer;
+          background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;font-size:16px;
+          display:flex;align-items:center;justify-content:center;transition:transform .1s,opacity .2s;}
+        .dt-send:hover{transform:scale(1.06);}
+        .dt-send:disabled{opacity:.45;cursor:default;transform:none;}
+        .dt-thread::-webkit-scrollbar{width:8px;}
+        .dt-thread::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:8px;}
+      `;
+      doc.head.appendChild(style);
+
+      // ── Header ──
+      const head = doc.createElement("div"); head.className = "dt-head";
+      const avEl = doc.createElement("div"); avEl.className = "dt-av";
+      avEl.style.background = av.bg; avEl.style.color = av.fg;
+      if(av.glyph){ avEl.innerHTML = av.glyph; } else { avEl.textContent = av.sigil || (name||"?").slice(0,1).toUpperCase(); }
+      const idWrap = doc.createElement("div"); idWrap.className = "dt-id";
+      const nmeEl = doc.createElement("div"); nmeEl.className = "dt-name"; nmeEl.textContent = name;
+      const roleEl = doc.createElement("div"); roleEl.className = "dt-role"; roleEl.textContent = defn.job_title || "Teammate";
+      idWrap.appendChild(nmeEl); idWrap.appendChild(roleEl);
+      const dot = doc.createElement("div"); dot.className = "dt-dot";
+      head.appendChild(avEl); head.appendChild(idWrap); head.appendChild(dot);
+      doc.body.appendChild(head);
+
+      // ── Thread ──
+      const thread = doc.createElement("div"); thread.className = "dt-thread";
+      doc.body.appendChild(thread);
+
+      // ── Footer (input + send) ──
+      const foot = doc.createElement("div"); foot.className = "dt-foot";
+      const input = doc.createElement("textarea"); input.className = "dt-input";
+      input.placeholder = "Message " + name + "…"; input.rows = 1;
+      const sendBtn = doc.createElement("button"); sendBtn.className = "dt-send"; sendBtn.innerHTML = "➤";
+      sendBtn.title = "Send (Enter)";
+      foot.appendChild(input); foot.appendChild(sendBtn);
+      doc.body.appendChild(foot);
+
+      // Track this window so a second detach of the same teammate just focuses it.
+      window._saDetached = {name: name, win: pip};
+      pip.addEventListener("pagehide", function(){ if(window._saDetached && window._saDetached.win === pip) window._saDetached = null; });
+
+      // ── Helpers ──
+      function scrollDown(){ thread.scrollTop = thread.scrollHeight; }
+      function setDot(cls){ dot.className = "dt-dot" + (cls ? " " + cls : ""); }
+      function addBubble(role, text, who){
+        const b = doc.createElement("div");
+        b.className = "dt-msg " + role;
+        if(who){ const w = doc.createElement("div"); w.className = "dt-who"; w.textContent = who; b.appendChild(w); }
+        const body = doc.createElement("div");
+        // Render any image URL inline; otherwise plain text.
+        const m = (text||"").match(/\/(?:api\/)?uploads\/[^\s]+\.(?:png|jpg|jpeg|webp|gif)/i);
+        if(m){
+          const cap = (text||"").replace(m[0], "").trim();
+          if(cap){ const c = doc.createElement("div"); c.textContent = cap; body.appendChild(c); }
+          const img = doc.createElement("img"); img.src = m[0]; img.alt = "Image"; body.appendChild(img);
+        } else {
+          body.textContent = text || "";
+        }
+        b.appendChild(body);
+        thread.appendChild(b);
+        scrollDown();
+        return body;
+      }
+
+      // ── Load conversation history ──
+      addBubble("system", "Loading conversation…");
+      try{
+        const r = await fetch("/api/thread/" + encodeURIComponent(name));
+        const d = await r.json();
+        thread.innerHTML = "";
+        const msgs = (d && d.ok && Array.isArray(d.thread)) ? d.thread : [];
+        if(!msgs.length){
+          addBubble("system", "Detached " + name + " — fully synced with the round table. Say hi.");
+        } else {
+          msgs.forEach(function(mm){
+            addBubble(mm.role === "user" ? "user" : "assistant", mm.content || "", mm.role === "user" ? "You" : name);
+          });
+        }
+      }catch(e){
+        thread.innerHTML = "";
+        addBubble("system", "Couldn't load history — you can still chat.");
+      }
+
+      // ── Send (streams from /api/followup/stream, same as main chat) ──
+      let sending = false;
+      async function pipSend(){
+        const msg = input.value.trim();
+        if(!msg || sending) return;
+        sending = true; sendBtn.disabled = true;
+        input.value = ""; input.style.height = "auto";
+
+        addBubble("user", msg, "You");
+        setDot("thinking");
+
+        const aBody = addBubble("assistant", "", name);
+        aBody.innerHTML = '<span class="dt-dots"><span></span><span></span><span></span></span>';
+        const cursor = doc.createElement("span"); cursor.className = "dt-cursor";
+        let first = true;
+
+        try{
+          const res = await fetch("/api/followup/stream", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({name: name, message: msg})
+          });
+
+          if(!res.ok || !res.body){
+            const ed = await res.json().catch(()=>({}));
+            aBody.textContent = ed.error || "Send failed";
+            setDot("error"); return;
+          }
+
+          // Image-job requests come back as plain JSON, not SSE.
+          const ct = res.headers.get("content-type") || "";
+          if(ct.includes("application/json")){
+            const jd = await res.json().catch(()=>({}));
+            if(jd.job_id){
+              aBody.textContent = "🎨 Generating image… it'll appear in the round-table chat.";
+              setDot("done");
+            } else {
+              aBody.textContent = jd.response || jd.error || "Done.";
+              setDot(jd.error ? "error" : "done");
+            }
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "", full = "";
+          while(true){
+            const {done, value} = await reader.read();
+            if(done) break;
+            buf += decoder.decode(value, {stream:true});
+            const lines = buf.split("\n");
+            buf = lines.pop();
+            for(const line of lines){
+              if(!line.startsWith("data:")) continue;
+              try{
+                const ev = JSON.parse(line.slice(5).trim());
+                if(ev.error){ aBody.textContent = ev.error; setDot("error"); return; }
+                if(ev.token){
+                  full += ev.token;
+                  if(first){ first = false; }
+                  const clean = full.replace(/```email[\s\S]*?```/gi,"").replace(/```email[\s\S]*$/i,"").replace(/\*/g,"").replace(/\n{3,}/g,"\n\n").trim();
+                  aBody.textContent = clean || full;
+                  aBody.appendChild(cursor);
+                  scrollDown();
+                }
+              }catch(_){}
+            }
+          }
+          cursor.remove();
+          setDot("done");
+        }catch(err){
+          cursor.remove();
+          aBody.textContent = "Error: " + (err && err.message ? err.message : "Send failed");
+          setDot("error");
+        }finally{
+          sending = false; sendBtn.disabled = false;
+          // Keep the round-table view in sync if this teammate is the one selected there.
+          try{ if(selectedSeat === name && typeof refreshThread === "function") refreshThread(); }catch(_){}
+        }
+      }
+
+      sendBtn.addEventListener("click", pipSend);
+      input.addEventListener("keydown", function(e){
+        if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); pipSend(); }
+      });
+      // Auto-grow the textarea as the user types.
+      input.addEventListener("input", function(){
+        input.style.height = "auto";
+        input.style.height = Math.min(input.scrollHeight, 120) + "px";
+      });
+      setTimeout(function(){ try{ input.focus(); }catch(_){} }, 60);
+    };
 
     $("installFullBtn").onclick = async () => {
       // Auto-save settings if the settings modal is open, then close any open modal
