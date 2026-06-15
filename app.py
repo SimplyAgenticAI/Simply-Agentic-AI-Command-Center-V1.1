@@ -5840,7 +5840,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "(one block per email, same numbered order, ALL blocks placed after the list)\n"
         "\n"
         "EMAIL IDEAS ONLY — when asked for ideas/suggestions, NOT actual drafts:\n"
-        "Give ONLY a short numbered list (bold name + one sentence). No blocks. User clicks one to get the full draft.\n"
+        "List the ideas inside choice markers so the operator can click one to expand it into a full draft (no email blocks here):\n"
+        "[CHOICES]\n- **Welcome Email**: Warm intro establishing trust.\n- **Value Email**: Pure value, no pitch.\n[/CHOICES]\n"
         "\n"
         "IMPORTANT EMAIL RULES:\n"
         "- Machine-readable blocks are hidden from chat — the UI renders them as styled email cards with an Open in Console button.\n"
@@ -6072,9 +6073,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
         + _rule4
 
-        # ── Rule 5: Action close ──────────────────────────────────────────────
-        + "5. **Action close**: End every reply with one clear next step or one direct question. "
-        "Never close with a recap or a trailing list of options.\n"
+        # ── Rule 5: Purposeful close ──────────────────────────────────────────
+        + "5. **Purposeful close**: End with momentum — a clear recommendation, one direct question, "
+        "or the delivered result itself. Vary how you close; don't end every reply the same way. "
+        "Never close with a recap or a trailing list of options to choose from.\n"
 
         # ── Rule 6: Length calibration ────────────────────────────────────────
         + "6. **Length calibration**: Match length to the request. Quick question = 2-4 sentences. "
@@ -6100,18 +6102,46 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     )
 
     format_rules = (
-        "RESPONSE FORMAT — follow every single rule, every single reply, no exceptions:\n"
-        "- Write in plain conversational prose for explanations, answers, and follow-ups.\n"
-        "- When giving options, steps, or choices: use a numbered list with sequential numbers (1. 2. 3. 4. 5. — never repeat 1. for every item).\n"
-        "- Each numbered item MUST be a single line: write the key phrase in bold, then a colon, then the full explanation — all on one line. Example: 1. **Strategy name**: Full description of what to do and why, written right here on the same line.\n"
-        "- CRITICAL: After each numbered item, do NOT add a blank line, a description line, or any continuation text before the next number. All content for that item is on the same line as the number.\n"
-        "- NEVER put sub-bullets, nested dashes, or follow-up bullet points under a numbered item. Everything for that point goes inline on the same line.\n"
-        "- When listing unordered features, attributes, or points: use a dash list (- item), also single-line per item.\n"
-        "- Use **bold** only for a single key word or short phrase per item — never bold full sentences.\n"
-        "- No # or ## or ### headers in chat replies. No tables unless explicitly asked for.\n"
-        "- Do not start every list item with an emoji. Emojis are fine in prose when they fit naturally.\n"
-        "- Never mix formats in one reply (e.g. some items numbered, some bulleted).\n"
-        "- Every reply must look like it came from the same consistent professional voice.\n"
+        "RESPONSE SHAPE — read the moment, then answer in the shape that actually fits:\n"
+        "- BEFORE answering, silently decide what this person needs RIGHT NOW: a single confident "
+        "recommendation, one sharp clarifying question, a few genuine options, or just doing the "
+        "thing. Then answer in THAT shape. Do not run every reply through the same template.\n"
+        "- Default to prose and a clear recommendation. A numbered/bulleted list is the EXCEPTION, "
+        "used only when several genuinely distinct points or steps truly warrant it — not as your "
+        "reflex for every reply.\n"
+        "- NEVER pad to a fixed count. There is no magic number of options. If one path is clearly "
+        "best, recommend it and mention the runner-up in a line. If there are honestly only two "
+        "real choices, give two. If the answer is one decision, give one. Avoid always landing on "
+        "five.\n"
+        "- When you DO present mutually-exclusive options for the operator to pick between, wrap "
+        "ONLY those options in choice markers so the UI can make them clickable:\n"
+        "[CHOICES]\n- First option, stated as the message the operator would send\n- Second option\n[/CHOICES]\n"
+        "  Use [CHOICES] ONLY for real pick-one decisions — never for steps, explanations, or "
+        "lists of points. Most replies will have no [CHOICES] block at all.\n"
+        "- When a list IS the right shape: keep each item on a single line — bold key phrase, colon, "
+        "then the explanation inline. No blank lines, sub-bullets, or continuation lines between "
+        "items. Use **bold** for one key phrase per item, never a whole sentence.\n"
+        "- No # / ## / ### headers in chat replies. No tables unless explicitly asked for. Don't "
+        "start every line with an emoji (emojis are fine in prose when natural).\n"
+        "- Sound like yourself every reply — your own perspective, not a generic template.\n"
+    )
+
+    # ── Lead with your lens ──────────────────────────────────────────────────
+    # The persona's thinking_style / mission / will_not_do are already injected
+    # above (_voice_block). This makes that identity drive SUBSTANCE, not just
+    # tone — so the same question gets a genuinely different answer from each
+    # teammate, and each stays true to what they will and won't do. Generic on
+    # purpose so custom teammates lead with their own defined lens too.
+    _lens_directive = (
+        "LEAD WITH YOUR LENS:\n"
+        "- Answer through YOUR specific lens — your thinking style and mission decide what matters "
+        "in this reply and what you lead with. The same question should get a different answer from "
+        "you than from a teammate with a different role, because you weigh different things.\n"
+        "- Honor what you will NOT do. If a request pulls you outside your lane, say so in one plain "
+        "sentence and redirect to how you'd actually approach it (or which teammate fits better) — "
+        "don't quietly morph into a generic assistant.\n"
+        "- Bring a real point of view. Lead with the angle only you would think of first, not the "
+        "obvious answer anyone would give.\n"
     )
 
     # ── Teammate long-term memory block ──────────────────────────────────────
@@ -6204,6 +6234,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{image_history_block}"
         f"{brand_context_block}"
         f"{_voice_block}"
+        f"{_lens_directive}"
         f"{behavior_rules}\n"
         f"{format_rules}\n"
         f"ROLE BLOCK (your identity — locked):\n{json.dumps(role_block, indent=2)}\n"
@@ -17944,6 +17975,16 @@ body {
   from { opacity: 0; transform: translateX(-5px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+/* Smart chips: only genuine pick-one choices are clickable (button-like).
+   Regular explanatory lists render as static prose (.sa-li-static). */
+.sa-choice {
+  animation: listItemIn .16s ease both;
+  background: rgba(124,58,237,.10);
+  border: 1px solid rgba(124,58,237,.32) !important;
+  transition: background .15s, border-color .15s, transform .12s;
+}
+.sa-choice:hover { background: rgba(124,58,237,.22); border-color: rgba(124,58,237,.55) !important; transform: translateX(2px); }
+.sa-li-static { animation: listItemIn .16s ease both; cursor: default; }
 /* Thread message entrance */
 @keyframes msgIn {
   from { opacity: 0; transform: translateY(6px); }
@@ -24232,7 +24273,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(!text) return '';
       const lines = text.split('\n');
       const out = [];
-      let inPre=false, inList=false, olCounter=0;
+      let inPre=false, inList=false, olCounter=0, inChoices=false;
       function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
       function inline(s){
         s=s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
@@ -24251,6 +24292,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           continue;
         }
         if(inPre){ out.push(esc(raw)); continue; }
+        // [CHOICES] … [/CHOICES] — wraps genuine pick-one options; the markers
+        // are stripped and items inside render as clickable chips (smart chips).
+        const _cm=raw.trim();
+        if(/^\[\/?CHOICES\]$/i.test(_cm)){ closeList(); inChoices=/^\[CHOICES\]$/i.test(_cm); continue; }
         const e=esc(raw);
         if(/^### /.test(e)){ closeList(); out.push('<div style="font-size:.95em;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
         if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:1.07em;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
@@ -24268,13 +24313,20 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             olCounter = _parsedN > olCounter ? _parsedN - 1 : olCounter;
           }
           olCounter++;
-          // Strip markdown emphasis/code markers so clicking this item sends
-          // plain text into the chat input, not literal **/`/_ characters.
-          const _olPick=_olText.replace(/[*_`]/g,'');
-          const _olSafe=_olPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-          out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
-            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
-            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
+          if(inChoices){
+            // Genuine pick-one option → clickable chip. Strip markdown markers so
+            // clicking sends clean text, not literal **/`/_ characters.
+            const _olPick=_olText.replace(/[*_`]/g,'');
+            const _olSafe=_olPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+            out.push('<div class="sa-li sa-choice" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;">'+
+              '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
+              '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
+          } else {
+            // Explanatory step → static prose, not clickable.
+            out.push('<div class="sa-li-static" style="display:flex;gap:8px;align-items:flex-start;padding:5px 9px;margin:2px 0;">'+
+              '<span style="color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;line-height:1.5;">'+olCounter+'.</span>'+
+              '<span style="flex:1;line-height:1.5;">'+inline(esc(_olText))+'</span></div>');
+          }
           continue;
         }
         // Bullet list
@@ -24283,13 +24335,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(ulM){
           const _ulText=ulM[1].trim();
           if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; }
-          // Strip markdown emphasis/code markers so clicking this item sends
-          // plain text into the chat input, not literal **/`/_ characters.
-          const _ulPick=_ulText.replace(/[*_`]/g,'');
-          const _ulSafe=_ulPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-          out.push('<div class="sa-li" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
-            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">•</span>'+
-            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
+          if(inChoices){
+            // Genuine pick-one option → clickable chip.
+            const _ulPick=_ulText.replace(/[*_`]/g,'');
+            const _ulSafe=_ulPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+            out.push('<div class="sa-li sa-choice" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;">'+
+              '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">➤</span>'+
+              '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
+          } else {
+            // Explanatory point → static prose, not clickable.
+            out.push('<div class="sa-li-static" style="display:flex;gap:8px;align-items:flex-start;padding:5px 9px;margin:2px 0;">'+
+              '<span style="color:#a78bfa;font-weight:700;min-width:18px;flex-shrink:0;line-height:1.5;">•</span>'+
+              '<span style="flex:1;line-height:1.5;">'+inline(esc(_ulText))+'</span></div>');
+          }
           continue;
         }
         // Blank line — keep list open (AI puts blanks between items); only add spacer outside lists
