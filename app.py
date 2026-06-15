@@ -15352,6 +15352,52 @@ HTML = r"""
     }
     .seatDetach:active{ transform:scale(.94); }
 
+    /* ════════════════════════════════════════════════════════════════════
+       VISUAL POLISH PASS — "living teammates" + chat refinements.
+       All effects hook state the app already tracks (seat status classes set
+       by setSeatLive, --seat-accent per seat, --chat-accent on select). Pure
+       CSS/animation; nothing here changes behaviour.
+       ════════════════════════════════════════════════════════════════════ */
+
+    /* #1 — Live "thinking" aura: the whole card breathes in its own accent. */
+    @keyframes seatThinkAura{
+      0%,100%{ box-shadow:0 4px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.24), inset 0 0 0 1px rgba(255,255,255,.06), 0 0 0 0 rgba(124,58,237,0); }
+      50%    { box-shadow:0 6px 32px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.30), inset 0 0 0 1px rgba(255,255,255,.10), 0 0 26px 2px var(--seat-accent,rgba(124,58,237,.65)); }
+    }
+    .seat.liveThinking{ animation: seatThinkAura 1.5s ease-in-out infinite; border-color: var(--seat-accent,rgba(255,255,255,.36)); }
+    .seat.liveDone{ box-shadow:0 4px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.24), 0 0 22px rgba(141,255,179,.20); }
+
+    /* #3 — Avatar breathing + #9 — status ring around the avatar. */
+    @keyframes avatarBreathe{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.08); } }
+    .avatar{ transition: box-shadow .35s ease; }
+    .seat.liveThinking .avatar{ animation: avatarBreathe 1.5s ease-in-out infinite; box-shadow:0 0 0 2px rgba(255,207,112,.85), 0 0 16px rgba(255,207,112,.45); }
+    .seat.liveDone .avatar{ box-shadow:0 0 0 2px rgba(141,255,179,.8), 0 0 14px rgba(141,255,179,.35); }
+    .seat.liveWaiting .avatar{ box-shadow:0 0 0 2px rgba(255,123,123,.8), 0 0 12px rgba(255,123,123,.3); }
+
+    /* #2 — Connection beams overlay canvas (sits behind the cards). */
+    #beamCanvas{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:5; }
+
+    /* #4 — Message bubble entrance (gentle slide-up + fade). Scoped to the
+       newest bubble so a full thread re-render doesn't re-animate everything. */
+    @keyframes saMsgIn{ from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:none; } }
+    #thread .msg:last-child{ animation: saMsgIn .28s ease both; }
+
+    /* #6 — Per-teammate chat theming via --chat-accent (set on select). */
+    :root{ --chat-accent: rgba(124,58,237,1); }
+    #seatTitle::before{ content:""; display:inline-block; width:9px; height:9px; border-radius:50%;
+      background:var(--chat-accent); margin-right:9px; vertical-align:middle;
+      box-shadow:0 0 9px var(--chat-accent); transition:background .3s, box-shadow .3s; }
+    #followMsg:focus{ border-color: var(--chat-accent) !important; box-shadow:0 0 0 2px rgba(124,58,237,.18); }
+
+    /* #7 — Shimmer skeleton (loading placeholder). */
+    @keyframes saShimmer{ 0%{ background-position:-180% 0; } 100%{ background-position:180% 0; } }
+    .sa-skel{ border-radius:9px; background:linear-gradient(100deg, rgba(255,255,255,.04) 30%, rgba(255,255,255,.12) 50%, rgba(255,255,255,.04) 70%);
+      background-size:200% 100%; animation:saShimmer 1.3s linear infinite; }
+    .sa-skel-row{ height:13px; margin:7px 0; }
+
+    /* #8 — Streaming cursor: add a soft glow to the existing bar. */
+    .sa-cursor{ box-shadow:0 0 8px rgba(124,58,237,.7); }
+
     .avatar{
       width:46px;height:46px;border-radius:13px;
       display:flex;align-items:center;justify-content:center;
@@ -23073,6 +23119,18 @@ window.showModal = function showModal(title, body, imgUrl){
 
       if(dot){ dot.className = "liveDot " + mode; }
 
+      // Tag the seat element with a status class so the card aura (#1), avatar
+      // breathing (#3) and status ring (#9) can react. Then keep the connection
+      // beams (#2) running while anyone is thinking.
+      try{
+        const _seatEl = document.querySelector('.seat[data-name="' + _cssEscape(name) + '"]');
+        if(_seatEl){
+          _seatEl.classList.remove("liveIdle","liveThinking","liveDone","liveWaiting");
+          _seatEl.classList.add({idle:"liveIdle",thinking:"liveThinking",done:"liveDone",waiting:"liveWaiting"}[mode] || "liveIdle");
+        }
+        if(mode === "thinking" && typeof _saEnsureBeams === "function") _saEnsureBeams();
+      }catch(_){}
+
       if(label){
         if(mode === "thinking"){
           const phrases = imageMode ? _SA_PHRASES_IMAGE : (_SA_PHRASES[name] || _SA_PHRASES["_default"]);
@@ -23093,6 +23151,71 @@ window.showModal = function showModal(title, body, imgUrl){
       }
       updateTablePulseFromStatuses();
     }
+
+    // ── #2 Connection beams ──────────────────────────────────────────────────
+    // Draws animated accent-colored light beams from the table centre out to any
+    // teammate that is currently thinking — the "round table comes alive" effect.
+    // Self-managing: starts on demand (from setSeatLive), auto-stops when nobody
+    // is thinking, and pauses while the page is hidden. Behind the cards, no
+    // pointer capture — purely decorative, cannot affect behaviour.
+    function _saEnsureBeams(){
+      const wrap = document.getElementById("tableWrap");
+      if(!wrap || window.innerWidth <= 640) return;  // desktop only
+
+      if(!window._saBeamVisWired){
+        window._saBeamVisWired = true;
+        document.addEventListener("visibilitychange", function(){ if(!document.hidden) _saEnsureBeams(); });
+      }
+
+      let cv = document.getElementById("beamCanvas");
+      if(!cv){
+        cv = document.createElement("canvas");
+        cv.id = "beamCanvas";
+        wrap.insertBefore(cv, wrap.firstChild);  // behind the seats (z-index 5 < 12)
+      }
+      if(window._saBeamRunning) return;
+      window._saBeamRunning = true;
+
+      const ctx = cv.getContext("2d");
+      let phase = 0;
+      function frame(){
+        if(document.hidden){ window._saBeamRunning = false; return; }
+        const rect = wrap.getBoundingClientRect();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const wPx = Math.round(rect.width * dpr), hPx = Math.round(rect.height * dpr);
+        if(cv.width !== wPx || cv.height !== hPx){ cv.width = wPx; cv.height = hPx; }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        const active = Array.from(wrap.querySelectorAll(".seat.liveThinking"));
+        if(!active.length){ window._saBeamRunning = false; return; }  // idle → stop the loop
+
+        const cx = rect.width / 2, cy = rect.height / 2;
+        phase += 0.03;
+        active.forEach(function(seat){
+          const sr = seat.getBoundingClientRect();
+          const sx = sr.left - rect.left + sr.width / 2;
+          const sy = sr.top  - rect.top  + sr.height / 2;
+          let accent = "";
+          try{ accent = getComputedStyle(seat).getPropertyValue("--seat-accent").trim(); }catch(_){}
+          if(!accent) accent = "rgba(124,58,237,.85)";
+          // Beam line: transparent at centre → accent at the card.
+          const grad = ctx.createLinearGradient(cx, cy, sx, sy);
+          grad.addColorStop(0, "rgba(124,58,237,0)");
+          grad.addColorStop(1, accent);
+          ctx.strokeStyle = grad; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.32;
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(sx, sy); ctx.stroke();
+          // Travelling pulse along the beam.
+          const t = Math.sin(phase + sx * 0.01) * 0.5 + 0.5;
+          ctx.globalAlpha = 0.9; ctx.fillStyle = accent;
+          ctx.beginPath(); ctx.arc(cx + (sx - cx) * t, cy + (sy - cy) * t, 2.6, 0, Math.PI * 2); ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+    window._saEnsureBeams = _saEnsureBeams;
 
     function setEmailFrom(teammate){
       const smtpUser = (state && state.email && state.email.smtp_user) ? state.email.smtp_user : "";
@@ -23693,6 +23816,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const to = defn.name;
           if(from && to && from !== to && typeof swapSeats === "function") swapSeats(from, to);
         });
+
+        // ── #5 Parallax tilt — card leans toward the cursor on hover (rAF-throttled) ──
+        let _tiltRaf = 0;
+        seat.addEventListener("pointermove", e => {
+          if(seat.classList.contains("seatDragging") || _tiltRaf) return;
+          _tiltRaf = requestAnimationFrame(() => {
+            _tiltRaf = 0;
+            const r = seat.getBoundingClientRect();
+            const px = (e.clientX - r.left) / r.width  - 0.5;
+            const py = (e.clientY - r.top)  / r.height - 0.5;
+            seat.style.transform = "perspective(640px) rotateX(" + (-py*8).toFixed(2) + "deg) rotateY(" + (px*8).toFixed(2) + "deg) translateY(-5px) scale(1.04)";
+          });
+        });
+        seat.addEventListener("pointerleave", () => {
+          if(_tiltRaf){ cancelAnimationFrame(_tiltRaf); _tiltRaf = 0; }
+          seat.style.transform = "";
+        });
       }
 
       return seat;
@@ -24051,6 +24191,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const defn = (state.installed || {})[name];
       $("seatTitle").innerText = defn ? defn.name : name;
       $("seatSub").innerText = defn ? defn.job_title : "";
+
+      // #6 — tint the chat (header dot + composer focus ring) with this
+      // teammate's accent so each conversation feels distinct.
+      try{
+        const _acc = (defn && defn.avatar && defn.avatar.bg) ? defn.avatar.bg : "rgba(124,58,237,1)";
+        document.documentElement.style.setProperty("--chat-accent", _acc);
+      }catch(_){}
 
       setEmailFrom(selectedSeat);
 
@@ -25152,6 +25299,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         renderOperatorProfile(data.profile || {});
         return;
       }
+
+      // #7 — brief shimmer skeleton while the thread loads.
+      try{
+        const _tb = document.getElementById("thread");
+        if(_tb){ _tb.innerHTML =
+          '<div class="msg assistant" style="animation:none;background:transparent;border:none;box-shadow:none;">'
+          + '<div class="sa-skel sa-skel-row" style="width:38%"></div>'
+          + '<div class="sa-skel sa-skel-row" style="width:88%"></div>'
+          + '<div class="sa-skel sa-skel-row" style="width:64%"></div></div>'; }
+      }catch(_){}
 
       const res = await fetch("/api/thread/" + encodeURIComponent(selectedSeat));
       const data = await res.json();
@@ -27297,8 +27454,20 @@ function _saJobNotify(seatName, status){
         .dt-msg img{max-width:100%;border-radius:10px;margin-top:6px;display:block;}
         .dt-msg a{color:#c4b5fd;}
         .dt-cursor{display:inline-block;width:7px;height:14px;background:#c4b5fd;margin-left:2px;
-          vertical-align:text-bottom;animation:dtblink 1s steps(2) infinite;}
+          vertical-align:text-bottom;border-radius:2px;box-shadow:0 0 8px rgba(124,58,237,.75);
+          animation:dtblink 1s steps(2) infinite;}
         @keyframes dtblink{0%,100%{opacity:1;}50%{opacity:0;}}
+        /* #10 — window entrance */
+        body{animation:dtBodyIn .26s ease both;}
+        @keyframes dtBodyIn{from{opacity:0;transform:scale(.985);}to{opacity:1;transform:none;}}
+        /* #4 — message bubble entrance */
+        .dt-msg{animation:dtMsgIn .26s ease both;}
+        @keyframes dtMsgIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+        /* #7 — shimmer skeleton */
+        .dt-skel{border-radius:8px;height:12px;margin:7px 0;
+          background:linear-gradient(100deg,rgba(255,255,255,.04) 30%,rgba(255,255,255,.13) 50%,rgba(255,255,255,.04) 70%);
+          background-size:200% 100%;animation:dtShim 1.3s linear infinite;}
+        @keyframes dtShim{0%{background-position:-180% 0;}100%{background-position:180% 0;}}
         .dt-dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:#c4b5fd;
           margin:0 2px;animation:dtbob 1.2s infinite;}
         .dt-dots span:nth-child(2){animation-delay:.15s;}
@@ -27586,8 +27755,10 @@ function _saJobNotify(seatName, status){
         bubble.appendChild(row);
       }
 
-      // ── Load conversation history ──
-      addBubble("system", "Loading conversation…");
+      // ── Load conversation history (with shimmer skeleton, #7) ──
+      const skel = doc.createElement("div"); skel.className = "dt-msg assistant"; skel.style.animation = "none";
+      skel.innerHTML = '<div class="dt-skel" style="width:42%"></div><div class="dt-skel" style="width:90%"></div><div class="dt-skel" style="width:66%"></div>';
+      thread.appendChild(skel);
       try{
         const r = await fetch("/api/thread/" + encodeURIComponent(name));
         const d = await r.json();
