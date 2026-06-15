@@ -24856,7 +24856,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
       msgs.forEach((m, msgIdx) => {
-       try {
         const div = document.createElement("div");
         const isUser = m.role === "user";
         div.className = "msg " + (isUser ? "user" : "assistant");
@@ -25204,21 +25203,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
-       } catch(_renderErr) {
-        // BULLETPROOF: a render failure on ONE message must never wipe the whole
-        // thread. Fall back to showing the reply as plain text so it can always
-        // be read (this is what was making Luna's HTML-containing replies vanish).
-        try{ console.error("renderThread message render failed — showing plain text fallback:", _renderErr); }catch(_){}
-        try{
-          const fb = document.createElement("div");
-          fb.className = "msg " + (m.role === "user" ? "user" : "assistant");
-          const fbWho = document.createElement("div"); fbWho.className = "who";
-          fbWho.innerText = m.role === "user" ? "You" : (selectedSeat || "");
-          const fbBody = document.createElement("div"); fbBody.className = "msg-body";
-          fbBody.innerText = (m.content || "");
-          fb.appendChild(fbWho); fb.appendChild(fbBody);
-          box.appendChild(fb);
-        }catch(_fbErr){}
       });
       // Auto-open the preview pane ONLY when the whole reply is a standalone HTML
       // document (e.g. "build me a landing page"). A normal chat reply that merely
@@ -25371,18 +25355,21 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
 
-      // Fetch the thread WITHOUT first wiping what's on screen — a slow or
-      // failed re-fetch must never blank out a reply the user is reading.
-      let data = null;
+      // #7 — brief shimmer skeleton while the thread loads.
       try{
-        const res = await fetch("/api/thread/" + encodeURIComponent(selectedSeat));
-        data = await res.json();
-      }catch(_netErr){
-        try{ console.error("refreshThread fetch failed — leaving current chat intact:", _netErr); }catch(_){}
-        return;  // leave existing content untouched
-      }
-      if(!data || !data.ok){
-        return;  // transient/empty — don't wipe the chat
+        const _tb = document.getElementById("thread");
+        if(_tb){ _tb.innerHTML =
+          '<div class="msg assistant" style="animation:none;background:transparent;border:none;box-shadow:none;">'
+          + '<div class="sa-skel sa-skel-row" style="width:38%"></div>'
+          + '<div class="sa-skel sa-skel-row" style="width:88%"></div>'
+          + '<div class="sa-skel sa-skel-row" style="width:64%"></div></div>'; }
+      }catch(_){}
+
+      const res = await fetch("/api/thread/" + encodeURIComponent(selectedSeat));
+      const data = await res.json();
+      if(!data.ok){
+        renderThread([]);
+        return;
       }
       renderThread(data.thread, data.image_state || {});
     }
