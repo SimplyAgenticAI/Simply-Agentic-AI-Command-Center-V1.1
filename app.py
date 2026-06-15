@@ -24856,6 +24856,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
       msgs.forEach((m, msgIdx) => {
+       try {
         const div = document.createElement("div");
         const isUser = m.role === "user";
         div.className = "msg " + (isUser ? "user" : "assistant");
@@ -25203,6 +25204,22 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(who);
         div.appendChild(content);
         box.appendChild(div);
+       } catch(_renderErr) {
+        // BULLETPROOF: a render failure on ONE message must never wipe the whole
+        // thread. Fall back to showing the reply as plain text so it can always
+        // be read (this is what made Luna's visual/HTML replies vanish).
+        try{ console.error("renderThread message render failed — plain-text fallback:", _renderErr); }catch(_e){}
+        try{
+          var fb = document.createElement("div");
+          fb.className = "msg " + (m.role === "user" ? "user" : "assistant");
+          var fbWho = document.createElement("div"); fbWho.className = "who";
+          fbWho.innerText = m.role === "user" ? "You" : (selectedSeat || "");
+          var fbBody = document.createElement("div"); fbBody.className = "msg-body";
+          fbBody.innerText = (m.content || "");
+          fb.appendChild(fbWho); fb.appendChild(fbBody);
+          box.appendChild(fb);
+        }catch(_fbErr){}
+       }
       });
       // Auto-open the preview pane ONLY when the whole reply is a standalone HTML
       // document (e.g. "build me a landing page"). A normal chat reply that merely
