@@ -24273,7 +24273,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(!text) return '';
       const lines = text.split('\n');
       const out = [];
-      let inPre=false, inList=false, olCounter=0, inChoices=false;
+      let inPre=false, inList=false, olCounter=0;
       function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
       function inline(s){
         s=s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
@@ -24292,10 +24292,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           continue;
         }
         if(inPre){ out.push(esc(raw)); continue; }
-        // [CHOICES] … [/CHOICES] — wraps genuine pick-one options; the markers
-        // are stripped and items inside render as clickable chips (smart chips).
+        // Strip any [CHOICES] / [/CHOICES] marker lines so they never show as
+        // literal text. All list items remain clickable (see ol/ul below).
         const _cm=raw.trim();
-        if(/^\[\/?CHOICES\]$/i.test(_cm)){ closeList(); inChoices=/^\[CHOICES\]$/i.test(_cm); continue; }
+        if(/^\[\/?CHOICES\]$/i.test(_cm)){ closeList(); continue; }
         const e=esc(raw);
         if(/^### /.test(e)){ closeList(); out.push('<div style="font-size:.95em;font-weight:700;color:#c4b5fd;margin:8px 0 3px;">'+inline(e.slice(4))+'</div>'); continue; }
         if(/^## /.test(e)){  closeList(); out.push('<div style="font-size:1.07em;font-weight:700;color:#c4b5fd;margin:10px 0 4px;">'+inline(e.slice(3))+'</div>'); continue; }
@@ -24313,20 +24313,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             olCounter = _parsedN > olCounter ? _parsedN - 1 : olCounter;
           }
           olCounter++;
-          if(inChoices){
-            // Genuine pick-one option → clickable chip. Strip markdown markers so
-            // clicking sends clean text, not literal **/`/_ characters.
-            const _olPick=_olText.replace(/[*_`]/g,'');
-            const _olSafe=_olPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-            out.push('<div class="sa-li sa-choice" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;">'+
-              '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
-              '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
-          } else {
-            // Explanatory step → static prose, not clickable.
-            out.push('<div class="sa-li-static" style="display:flex;gap:8px;align-items:flex-start;padding:5px 9px;margin:2px 0;">'+
-              '<span style="color:#a78bfa;font-weight:700;min-width:22px;flex-shrink:0;line-height:1.5;">'+olCounter+'.</span>'+
-              '<span style="flex:1;line-height:1.5;">'+inline(esc(_olText))+'</span></div>');
-          }
+          // Strip markdown emphasis/code markers so clicking this item sends
+          // plain text into the chat input, not literal **/`/_ characters.
+          const _olPick=_olText.replace(/[*_`]/g,'');
+          const _olSafe=_olPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          out.push('<div class="sa-li" data-sa-pick="'+_olSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">'+olCounter+'.</span>'+
+            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_olText))+'</span></div>');
           continue;
         }
         // Bullet list
@@ -24335,19 +24328,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(ulM){
           const _ulText=ulM[1].trim();
           if(!inList){ out.push('<div style="margin:6px 0 4px;">'); inList=true; }
-          if(inChoices){
-            // Genuine pick-one option → clickable chip.
-            const _ulPick=_ulText.replace(/[*_`]/g,'');
-            const _ulSafe=_ulPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-            out.push('<div class="sa-li sa-choice" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;">'+
-              '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">➤</span>'+
-              '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
-          } else {
-            // Explanatory point → static prose, not clickable.
-            out.push('<div class="sa-li-static" style="display:flex;gap:8px;align-items:flex-start;padding:5px 9px;margin:2px 0;">'+
-              '<span style="color:#a78bfa;font-weight:700;min-width:18px;flex-shrink:0;line-height:1.5;">•</span>'+
-              '<span style="flex:1;line-height:1.5;">'+inline(esc(_ulText))+'</span></div>');
-          }
+          // Strip markdown emphasis/code markers so clicking this item sends
+          // plain text into the chat input, not literal **/`/_ characters.
+          const _ulPick=_ulText.replace(/[*_`]/g,'');
+          const _ulSafe=_ulPick.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+          out.push('<div class="sa-li" data-sa-pick="'+_ulSafe+'" style="display:flex;gap:8px;align-items:flex-start;padding:7px 12px;border-radius:8px;margin:3px 0;cursor:pointer;border:1px solid transparent;">'+
+            '<span style="color:#a78bfa;font-weight:700;min-width:24px;flex-shrink:0;line-height:1.5;pointer-events:none;">•</span>'+
+            '<span style="flex:1;line-height:1.5;pointer-events:none;">'+inline(esc(_ulText))+'</span></div>');
           continue;
         }
         // Blank line — keep list open (AI puts blanks between items); only add spacer outside lists
