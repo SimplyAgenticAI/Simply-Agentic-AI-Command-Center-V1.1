@@ -12494,6 +12494,10 @@ function resize(){
 
 /* ── Main draw loop ── */
 function draw(){
+  /* Pause the whole animation while the tab/window is hidden (e.g. user is in
+     the detached Picture-in-Picture window or another app) — big CPU/GPU save,
+     zero visual change when the page is in front. Resumed on visibilitychange. */
+  if(document.hidden){_cgPaused=true;return;}
   T+=0.010;HUE=(HUE+0.14)%360;
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#02040c';ctx.fillRect(0,0,W,H);
@@ -12521,6 +12525,8 @@ function draw(){
 }
 
 window.addEventListener('resize',resize);
+var _cgPaused=false;
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&_cgPaused){_cgPaused=false;requestAnimationFrame(draw);}});
 resize();draw();
 })();
 </script>
@@ -15277,8 +15283,10 @@ HTML = r"""
       align-items: center;
       gap: 0;
       transition: transform .18s ease, border-color .2s ease, box-shadow .2s ease, background .2s ease;
-      backdrop-filter: blur(18px) saturate(180%);
-      -webkit-backdrop-filter: blur(18px) saturate(180%);
+      /* Lighter blur than before (was 18px/180%) — sharper text, far cheaper to
+         composite over the animated canvas behind the table. */
+      backdrop-filter: blur(12px) saturate(150%);
+      -webkit-backdrop-filter: blur(12px) saturate(150%);
       box-shadow: 0 4px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.24), inset 0 0 0 1px rgba(255,255,255,.06);
       user-select:none;
       touch-action: manipulation;
@@ -27264,12 +27272,14 @@ function _saJobNotify(seatName, status){
         .dt-head{display:flex;align-items:center;gap:10px;padding:11px 13px;
           background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(15,23,42,.65));
           border-bottom:1px solid rgba(255,255,255,.12);flex:0 0 auto;}
-        .dt-av{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;
-          justify-content:center;font-weight:700;font-size:16px;flex:0 0 auto;
-          box-shadow:0 2px 10px rgba(0,0,0,.35);}
+        /* Avatar matches the round-table seat avatar (radius/border/shadow/weight)
+           so the detached teammate reads as the same object, not a separate UI. */
+        .dt-av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;
+          justify-content:center;font-weight:800;font-size:16px;flex:0 0 auto;
+          border:1px solid rgba(255,255,255,.08);box-shadow:0 0 18px rgba(0,0,0,.30);}
         .dt-av svg{width:24px;height:24px;}
         .dt-id{flex:1 1 auto;min-width:0;}
-        .dt-name{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+        .dt-name{font-weight:800;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .dt-role{font-size:11px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .dt-dot{width:9px;height:9px;border-radius:50%;background:#475569;flex:0 0 auto;
           transition:background .2s,box-shadow .2s;}
@@ -27315,6 +27325,28 @@ function _saJobNotify(seatName, status){
         .dt-actbtn:disabled{opacity:.45;cursor:default;}
         .dt-actbtn.on{background:rgba(245,158,11,.22);border-color:rgba(245,158,11,.5);color:#fde68a;opacity:1;}
         .dt-actbtn.sa-playing{background:rgba(34,197,94,.22);border-color:rgba(34,197,94,.5);color:#86efac;opacity:1;}
+        .dt-menuwrap{position:relative;flex:0 0 auto;}
+        .dt-plus{width:40px;height:40px;border-radius:11px;cursor:pointer;
+          border:1px solid rgba(124,58,237,.4);background:rgba(124,58,237,.12);color:#c4b5fd;
+          font-size:20px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center;
+          transition:background .15s,color .15s,transform .12s;}
+        .dt-plus:hover{background:rgba(124,58,237,.3);color:#fff;}
+        .dt-plus:active{transform:scale(.94);}
+        .dt-menu{position:absolute;bottom:calc(100% + 6px);left:0;width:212px;
+          background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;
+          box-shadow:0 12px 40px rgba(0,0,0,.55);padding:5px;z-index:50;display:none;}
+        .dt-menu.open{display:block;}
+        .dt-menu button{display:block;width:100%;text-align:left;padding:8px 11px;border:none;
+          border-radius:8px;background:transparent;color:#e2e8f0;font-size:12.5px;cursor:pointer;
+          font-family:inherit;transition:background .12s;}
+        .dt-menu button:hover{background:rgba(255,255,255,.07);}
+        .dt-menu .dt-sep{height:1px;background:rgba(255,255,255,.07);margin:3px 0;}
+        .dt-chips{display:flex;flex-wrap:wrap;gap:5px;padding:6px 11px 0;}
+        .dt-chips:empty{display:none;}
+        .dt-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;
+          border-radius:8px;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.3);color:#c4b5fd;max-width:160px;}
+        .dt-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .dt-chip button{border:none;background:none;color:#fca5a5;cursor:pointer;font-size:13px;line-height:1;padding:0;flex:0 0 auto;}
         .dt-thread::-webkit-scrollbar{width:8px;}
         .dt-thread::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:8px;}
       `;
@@ -27337,8 +27369,32 @@ function _saJobNotify(seatName, status){
       const thread = doc.createElement("div"); thread.className = "dt-thread";
       doc.body.appendChild(thread);
 
-      // ── Footer (input + send) ──
+      // ── Attached-file chips (shown above the footer) ──
+      const chips = doc.createElement("div"); chips.className = "dt-chips";
+      doc.body.appendChild(chips);
+
+      // ── Footer ("+" Actions menu · input · send) ──
       const foot = doc.createElement("div"); foot.className = "dt-foot";
+
+      // Hidden file input for the Attach action.
+      const fileInput = doc.createElement("input");
+      fileInput.type = "file"; fileInput.multiple = true; fileInput.style.display = "none";
+      foot.appendChild(fileInput);
+
+      // "+" Actions menu (sensible subset: Attach · Screenshot · Prompt Library · Summarize).
+      const menuWrap = doc.createElement("div"); menuWrap.className = "dt-menuwrap";
+      const plusBtn = doc.createElement("button"); plusBtn.className = "dt-plus"; plusBtn.textContent = "+"; plusBtn.title = "Actions";
+      const menu = doc.createElement("div"); menu.className = "dt-menu";
+      const miAttach = doc.createElement("button"); miAttach.textContent = "📎 Attach Files or Photos";
+      const miShot   = doc.createElement("button"); miShot.textContent   = "📸 Take a Screenshot";
+      const sep1     = doc.createElement("div");    sep1.className = "dt-sep";
+      const miLib    = doc.createElement("button"); miLib.textContent    = "📚 Prompt Library";
+      const miSumm   = doc.createElement("button"); miSumm.textContent   = "📋 Summarize";
+      menu.appendChild(miAttach); menu.appendChild(miShot); menu.appendChild(sep1);
+      menu.appendChild(miLib); menu.appendChild(miSumm);
+      menuWrap.appendChild(plusBtn); menuWrap.appendChild(menu);
+      foot.appendChild(menuWrap);
+
       const input = doc.createElement("textarea"); input.className = "dt-input";
       input.placeholder = "Message " + name + "…"; input.rows = 1;
       const sendBtn = doc.createElement("button"); sendBtn.className = "dt-send"; sendBtn.innerHTML = "➤";
@@ -27355,6 +27411,77 @@ function _saJobNotify(seatName, status){
       pip.addEventListener("pagehide", function(){
         try{ if(_pipAbort) _pipAbort.abort(); }catch(_){}
         if(window._saDetached && window._saDetached.win === pip) window._saDetached = null;
+      });
+
+      // ── "+" Actions menu state & wiring ──────────────────────────────────────
+      // Attachments live in a LOCAL list (not the main composer's dmFileIds) and
+      // ride along in the next send via the file_ids field the endpoint already
+      // accepts. Reuses the opener's uploadOne()/POST /api/upload (same scope).
+      let pipFileIds = [];   // [{id, name}]
+      function renderChips(){
+        chips.innerHTML = "";
+        pipFileIds.forEach(function(f, i){
+          const chip = doc.createElement("div"); chip.className = "dt-chip";
+          const lbl = doc.createElement("span"); lbl.textContent = f.name || "file"; chip.appendChild(lbl);
+          const x = doc.createElement("button"); x.textContent = "✕"; x.title = "Remove";
+          x.onclick = function(){ pipFileIds.splice(i, 1); renderChips(); };
+          chip.appendChild(x); chips.appendChild(chip);
+        });
+      }
+      function closeMenu(){ menu.classList.remove("open"); }
+      plusBtn.addEventListener("click", function(e){ e.stopPropagation(); menu.classList.toggle("open"); });
+      doc.addEventListener("click", function(e){ if(!menuWrap.contains(e.target)) closeMenu(); });
+
+      async function attachFiles(files){
+        if(!files || !files.length) return;
+        if(typeof uploadOne !== "function"){ if(window.showToast) showToast("⚠️ Upload unavailable"); return; }
+        let ok = 0;
+        for(const file of Array.from(files)){
+          try{ const rec = await uploadOne(file); if(rec && rec.id){ pipFileIds.push({id: rec.id, name: file.name}); ok++; } }
+          catch(_){ }
+        }
+        renderChips();
+        if(window.showToast && ok) showToast("📎 " + ok + " file(s) attached");
+      }
+
+      miAttach.addEventListener("click", function(){ closeMenu(); fileInput.click(); });
+      fileInput.addEventListener("change", function(e){ attachFiles(e.target.files); fileInput.value = ""; });
+
+      miShot.addEventListener("click", async function(){
+        closeMenu();
+        const md = pip.navigator.mediaDevices || navigator.mediaDevices;
+        if(!md || !md.getDisplayMedia){ if(window.showToast) showToast("⚠️ Screenshot not supported here"); return; }
+        try{
+          const stream = await md.getDisplayMedia({video: true});
+          const track = stream.getVideoTracks()[0];
+          const video = doc.createElement("video"); video.srcObject = stream;
+          await video.play();
+          await new Promise(function(r){ setTimeout(r, 220); });
+          const cv = doc.createElement("canvas");
+          cv.width = video.videoWidth || 1280; cv.height = video.videoHeight || 720;
+          cv.getContext("2d").drawImage(video, 0, 0, cv.width, cv.height);
+          try{ track.stop(); }catch(_){}
+          cv.toBlob(async function(blob){
+            if(!blob) return;
+            const f = new File([blob], "screenshot-" + new Date().toISOString().slice(0,19).replace(/[:T]/g,"-") + ".png", {type: "image/png"});
+            await attachFiles([f]);
+          }, "image/png");
+        }catch(err){ if(!(err && err.name === "NotAllowedError") && window.showToast) showToast("⚠️ Screenshot failed"); }
+      });
+
+      miLib.addEventListener("click", function(){
+        closeMenu();
+        // Reuse the main-window prompt library (opens there; selection fills the
+        // main composer — documented limitation of the floating window for now).
+        try{ window.focus(); }catch(_){}
+        const b = document.getElementById("promptLibraryBtn");
+        if(b) b.click(); else if(window.showToast) showToast("Prompt Library is on the main window");
+      });
+
+      miSumm.addEventListener("click", function(){
+        closeMenu();
+        input.value = "Summarize our conversation so far in clear bullet points.";
+        pipSend();
       });
 
       // ── Helpers ──
@@ -27488,6 +27615,10 @@ function _saJobNotify(seatName, status){
         sending = true; sendBtn.disabled = true;
         input.value = ""; input.style.height = "auto";
 
+        // Capture & clear any attachments — they ride along via file_ids.
+        const sendIds = pipFileIds.map(function(f){ return f.id; });
+        pipFileIds = []; renderChips();
+
         addBubble("user", msg, "You");
         setDot("thinking");
 
@@ -27495,8 +27626,19 @@ function _saJobNotify(seatName, status){
         const aBubble = aOut.bubble, aBody = aOut.body;
         aBody.innerHTML = '<span class="dt-dots"><span></span><span></span><span></span></span>';
         const cursor = doc.createElement("span"); cursor.className = "dt-cursor";
-        let first = true;
         const cleanText = function(t){ return t.replace(/```email[\s\S]*?```/gi,"").replace(/```email[\s\S]*$/i,"").replace(/\*/g,"").replace(/\n{3,}/g,"\n\n").trim(); };
+
+        // rAF-batched repaint — coalesce many tokens into one paint per frame
+        // (mirrors the main chat's _rafPending pattern; avoids per-token thrash).
+        const raf = (pip.requestAnimationFrame ? pip.requestAnimationFrame.bind(pip) : requestAnimationFrame);
+        let full = "", rafScheduled = false, streamDone = false;
+        function paint(){
+          rafScheduled = false;
+          if(streamDone) return;
+          aBody.textContent = cleanText(full) || full;
+          aBody.appendChild(cursor);
+          scrollDown();
+        }
 
         // AbortController so closing the window cancels the stream (see _pipAbort).
         _pipAbort = ("AbortController" in pip || "AbortController" in window) ? new AbortController() : null;
@@ -27505,7 +27647,7 @@ function _saJobNotify(seatName, status){
           const res = await fetch("/api/followup/stream", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: name, message: msg}),
+            body: JSON.stringify({name: name, message: msg, file_ids: sendIds}),
             signal: _pipAbort ? _pipAbort.signal : undefined
           });
 
@@ -27531,7 +27673,7 @@ function _saJobNotify(seatName, status){
 
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
-          let buf = "", full = "";
+          let buf = "";
           try{
             while(true){
               const {done, value} = await reader.read();
@@ -27543,13 +27685,10 @@ function _saJobNotify(seatName, status){
                 if(!line.startsWith("data:")) continue;
                 try{
                   const ev = JSON.parse(line.slice(5).trim());
-                  if(ev.error){ aBody.textContent = ev.error; setDot("error"); return; }
+                  if(ev.error){ streamDone = true; aBody.textContent = ev.error; setDot("error"); return; }
                   if(ev.token){
                     full += ev.token;
-                    if(first){ first = false; }
-                    aBody.textContent = cleanText(full) || full;
-                    aBody.appendChild(cursor);
-                    scrollDown();
+                    if(!rafScheduled){ rafScheduled = true; raf(paint); }
                   }
                 }catch(_){}
               }
@@ -27558,11 +27697,15 @@ function _saJobNotify(seatName, status){
             // Always release the stream reader so the server thread is freed.
             try{ reader.releaseLock(); }catch(_){}
           }
+          // Final, authoritative paint (no cursor) — beats any pending rAF.
+          streamDone = true;
           cursor.remove();
-          setDot("done");
           const finalText = cleanText(full);
+          aBody.textContent = finalText || full;
+          setDot("done");
           if(finalText) addActionRow(aBubble, aBody, finalText);
         }catch(err){
+          streamDone = true;
           cursor.remove();
           // A user-initiated abort (window closed) is not an error worth showing.
           if(!(err && err.name === "AbortError")){
