@@ -27305,6 +27305,16 @@ function _saJobNotify(seatName, status){
           display:flex;align-items:center;justify-content:center;transition:transform .1s,opacity .2s;}
         .dt-send:hover{transform:scale(1.06);}
         .dt-send:disabled{opacity:.45;cursor:default;transform:none;}
+        .dt-act{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;}
+        .dt-actbtn{font-size:10.5px;line-height:1;padding:4px 8px;border-radius:8px;
+          border:1px solid rgba(124,58,237,.3);background:rgba(124,58,237,.1);color:#c4b5fd;
+          cursor:pointer;opacity:.82;white-space:nowrap;
+          transition:background .15s,color .15s,opacity .15s,transform .12s;}
+        .dt-actbtn:hover{background:rgba(124,58,237,.34);color:#fff;opacity:1;transform:translateY(-1px);}
+        .dt-actbtn:active{transform:scale(.96);}
+        .dt-actbtn:disabled{opacity:.45;cursor:default;}
+        .dt-actbtn.on{background:rgba(245,158,11,.22);border-color:rgba(245,158,11,.5);color:#fde68a;opacity:1;}
+        .dt-actbtn.sa-playing{background:rgba(34,197,94,.22);border-color:rgba(34,197,94,.5);color:#86efac;opacity:1;}
         .dt-thread::-webkit-scrollbar{width:8px;}
         .dt-thread::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:8px;}
       `;
@@ -27337,8 +27347,15 @@ function _saJobNotify(seatName, status){
       doc.body.appendChild(foot);
 
       // Track this window so a second detach of the same teammate just focuses it.
+      // _pipAbort cancels any in-flight streaming reply when the window is closed,
+      // so a half-read SSE stream never lingers and ties up a server thread
+      // (gunicorn runs only 1 worker × 4 threads — a stuck stream starves the rest).
+      let _pipAbort = null;
       window._saDetached = {name: name, win: pip};
-      pip.addEventListener("pagehide", function(){ if(window._saDetached && window._saDetached.win === pip) window._saDetached = null; });
+      pip.addEventListener("pagehide", function(){
+        try{ if(_pipAbort) _pipAbort.abort(); }catch(_){}
+        if(window._saDetached && window._saDetached.win === pip) window._saDetached = null;
+      });
 
       // ── Helpers ──
       function scrollDown(){ thread.scrollTop = thread.scrollHeight; }
@@ -27360,7 +27377,86 @@ function _saJobNotify(seatName, status){
         b.appendChild(body);
         thread.appendChild(b);
         scrollDown();
-        return body;
+        return {bubble: b, body: body};
+      }
+
+      // ── Per-response action toolbar — mirrors the round-table message buttons:
+      //    Copy · Speak · Save to Vault · Expand · Summarize · Pin. Each hits the
+      //    exact same backend endpoint as the main thread (CSRF auto-added via the
+      //    opener's wrapped fetch), so the detached window is fully feature-parity.
+      function addActionRow(bubble, body, rawIn){
+        let raw = rawIn || "";
+        if(!raw) return;
+        const row = doc.createElement("div"); row.className = "dt-act";
+        function mk(label, title){ const btn = doc.createElement("button"); btn.className = "dt-actbtn"; btn.textContent = label; btn.title = title; return btn; }
+
+        // Copy
+        const copyBtn = mk("📋 Copy", "Copy response");
+        copyBtn.onclick = function(){
+          const done = function(){ copyBtn.textContent = "✓ Copied"; setTimeout(function(){ copyBtn.textContent = "📋 Copy"; }, 1400); };
+          const fallback = function(){ const ta = doc.createElement("textarea"); ta.value = raw; ta.style.position = "fixed"; ta.style.opacity = "0"; doc.body.appendChild(ta); ta.select(); try{ doc.execCommand("copy"); }catch(_){} doc.body.removeChild(ta); done(); };
+          try{
+            const clip = pip.navigator && pip.navigator.clipboard;
+            if(clip && clip.writeText){ clip.writeText(raw).then(done).catch(fallback); } else { fallback(); }
+          }catch(_){ fallback(); }
+        };
+
+        // Speak — uses the teammate's configured TTS voice; saTtsSpeak toggles play/stop.
+        const speakBtn = mk("🔊 Speak", "Read response aloud");
+        speakBtn.onclick = function(){
+          const voice = ((state && state.installed && state.installed[name]) || {}).tts_voice || "alloy";
+          if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
+        };
+
+        // Save to Response Vault
+        const vaultBtn = mk("🗄️ Vault", "Save this response to your Response Vault");
+        vaultBtn.onclick = async function(){
+          vaultBtn.disabled = true; vaultBtn.textContent = "⏳ Saving…";
+          try{
+            const label = name + " — " + new Date().toISOString().slice(0,10);
+            const r = await fetch("/api/vault/save", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: raw, label: label, teammate: name})});
+            const d = await r.json();
+            if(d.ok){ vaultBtn.textContent = "✅ Saved"; if(window.showToast) showToast("🗄️ Saved to Response Vault"); setTimeout(function(){ vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; }, 1600); }
+            else { vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; if(window.showToast) showToast("⚠️ " + (d.error || "Save failed")); }
+          }catch(_){ vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; }
+        };
+
+        // Expand / Summarize — transform the response in place via the notepad AI.
+        function aiTransform(action, btn, label){
+          return async function(){
+            btn.disabled = true; btn.textContent = "⏳…";
+            try{
+              const r = await fetch("/api/notepad/ai", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({action: action, content: raw.slice(0,4000)})});
+              const d = await r.json();
+              if(d.ok && d.result){ body.textContent = d.result; raw = d.result; scrollDown(); if(window.showToast) showToast(action === "expand" ? "🔼 Expanded" : "📝 Summarized"); }
+              else if(window.showToast) showToast(d.error || (label + " failed"));
+            }catch(_){ if(window.showToast) showToast(label + " failed"); }
+            btn.disabled = false; btn.textContent = label;
+          };
+        }
+        const expandBtn = mk("🔼 Expand", "Expand this response");
+        expandBtn.onclick = aiTransform("expand", expandBtn, "🔼 Expand");
+        const summBtn = mk("📝 Summary", "Summarize this response");
+        summBtn.onclick = aiTransform("summarize", summBtn, "📝 Summary");
+
+        // Pin — toggles the response in this teammate's pinned set (syncs the
+        // round-table pins badge via the shared _updatePinsPanel from this scope).
+        const pinBtn = mk("📌 Pin", "Pin this response");
+        pinBtn.onclick = async function(){
+          try{
+            const r = await fetch("/api/thread/pin", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: name, text: raw, action: "toggle"})});
+            const d = await r.json();
+            const on = !!d.pinned;
+            pinBtn.textContent = on ? "📌 Unpin" : "📌 Pin";
+            pinBtn.classList.toggle("on", on);
+            if(window.showToast) showToast(on ? "📌 Pinned!" : "📌 Unpinned");
+            try{ if(typeof _updatePinsPanel === "function") _updatePinsPanel(); }catch(_){}
+          }catch(_){}
+        };
+
+        row.appendChild(copyBtn); row.appendChild(speakBtn); row.appendChild(vaultBtn);
+        row.appendChild(expandBtn); row.appendChild(summBtn); row.appendChild(pinBtn);
+        bubble.appendChild(row);
       }
 
       // ── Load conversation history ──
@@ -27374,7 +27470,9 @@ function _saJobNotify(seatName, status){
           addBubble("system", "Detached " + name + " — fully synced with the round table. Say hi.");
         } else {
           msgs.forEach(function(mm){
-            addBubble(mm.role === "user" ? "user" : "assistant", mm.content || "", mm.role === "user" ? "You" : name);
+            const isU = mm.role === "user";
+            const out = addBubble(isU ? "user" : "assistant", mm.content || "", isU ? "You" : name);
+            if(!isU && (mm.content || "").trim()) addActionRow(out.bubble, out.body, mm.content || "");
           });
         }
       }catch(e){
@@ -27393,16 +27491,22 @@ function _saJobNotify(seatName, status){
         addBubble("user", msg, "You");
         setDot("thinking");
 
-        const aBody = addBubble("assistant", "", name);
+        const aOut = addBubble("assistant", "", name);
+        const aBubble = aOut.bubble, aBody = aOut.body;
         aBody.innerHTML = '<span class="dt-dots"><span></span><span></span><span></span></span>';
         const cursor = doc.createElement("span"); cursor.className = "dt-cursor";
         let first = true;
+        const cleanText = function(t){ return t.replace(/```email[\s\S]*?```/gi,"").replace(/```email[\s\S]*$/i,"").replace(/\*/g,"").replace(/\n{3,}/g,"\n\n").trim(); };
+
+        // AbortController so closing the window cancels the stream (see _pipAbort).
+        _pipAbort = ("AbortController" in pip || "AbortController" in window) ? new AbortController() : null;
 
         try{
           const res = await fetch("/api/followup/stream", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: name, message: msg})
+            body: JSON.stringify({name: name, message: msg}),
+            signal: _pipAbort ? _pipAbort.signal : undefined
           });
 
           if(!res.ok || !res.body){
@@ -27428,35 +27532,45 @@ function _saJobNotify(seatName, status){
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buf = "", full = "";
-          while(true){
-            const {done, value} = await reader.read();
-            if(done) break;
-            buf += decoder.decode(value, {stream:true});
-            const lines = buf.split("\n");
-            buf = lines.pop();
-            for(const line of lines){
-              if(!line.startsWith("data:")) continue;
-              try{
-                const ev = JSON.parse(line.slice(5).trim());
-                if(ev.error){ aBody.textContent = ev.error; setDot("error"); return; }
-                if(ev.token){
-                  full += ev.token;
-                  if(first){ first = false; }
-                  const clean = full.replace(/```email[\s\S]*?```/gi,"").replace(/```email[\s\S]*$/i,"").replace(/\*/g,"").replace(/\n{3,}/g,"\n\n").trim();
-                  aBody.textContent = clean || full;
-                  aBody.appendChild(cursor);
-                  scrollDown();
-                }
-              }catch(_){}
+          try{
+            while(true){
+              const {done, value} = await reader.read();
+              if(done) break;
+              buf += decoder.decode(value, {stream:true});
+              const lines = buf.split("\n");
+              buf = lines.pop();
+              for(const line of lines){
+                if(!line.startsWith("data:")) continue;
+                try{
+                  const ev = JSON.parse(line.slice(5).trim());
+                  if(ev.error){ aBody.textContent = ev.error; setDot("error"); return; }
+                  if(ev.token){
+                    full += ev.token;
+                    if(first){ first = false; }
+                    aBody.textContent = cleanText(full) || full;
+                    aBody.appendChild(cursor);
+                    scrollDown();
+                  }
+                }catch(_){}
+              }
             }
+          }finally{
+            // Always release the stream reader so the server thread is freed.
+            try{ reader.releaseLock(); }catch(_){}
           }
           cursor.remove();
           setDot("done");
+          const finalText = cleanText(full);
+          if(finalText) addActionRow(aBubble, aBody, finalText);
         }catch(err){
           cursor.remove();
-          aBody.textContent = "Error: " + (err && err.message ? err.message : "Send failed");
-          setDot("error");
+          // A user-initiated abort (window closed) is not an error worth showing.
+          if(!(err && err.name === "AbortError")){
+            aBody.textContent = "Error: " + (err && err.message ? err.message : "Send failed");
+            setDot("error");
+          }
         }finally{
+          _pipAbort = null;
           sending = false; sendBtn.disabled = false;
           // Keep the round-table view in sync if this teammate is the one selected there.
           try{ if(selectedSeat === name && typeof refreshThread === "function") refreshThread(); }catch(_){}
