@@ -25204,17 +25204,27 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         div.appendChild(content);
         box.appendChild(div);
       });
-      // Auto-open preview pane for the last assistant message that contains HTML
+      // Auto-open the preview pane ONLY when the whole reply is a standalone HTML
+      // document (e.g. "build me a landing page"). A normal chat reply that merely
+      // contains some inline markup or a ```html snippet must NEVER trigger this —
+      // otherwise design-heavy teammates like Luna get their text reply hidden
+      // behind the preview pane and it looks like the reply vanished.
       if(typeof window._saPreviewDetect === 'function' && typeof window._saPreviewShow === 'function'){
         var _lastAsst = null;
         for(var _mi = msgs.length - 1; _mi >= 0; _mi--){
           if(msgs[_mi].role !== 'user'){ _lastAsst = msgs[_mi]; break; }
         }
-        if(_lastAsst){
-          var _autoDet = window._saPreviewDetect(_lastAsst.content || '');
-          if(_autoDet && _autoDet.type === 'html' && (_lastAsst.content || '').length > 300){
+        var _lac = _lastAsst ? (_lastAsst.content || '') : '';
+        var _isPureHtmlDoc = /^\s*(?:<!DOCTYPE\s+html|<html[\s>])/i.test(_lac);
+        if(_isPureHtmlDoc){
+          var _autoDet = window._saPreviewDetect(_lac);
+          if(_autoDet && _autoDet.type === 'html'){
             window._saPreviewShow(_autoDet, selectedSeat || 'Preview');
           }
+        } else if(window._saPreviewIsOpen && typeof window._saPreviewClose === 'function'){
+          // A normal text reply must keep the chat visible — never leave a
+          // previously auto-opened preview pane covering it.
+          window._saPreviewClose();
         }
       }
       // Context window indicator update
