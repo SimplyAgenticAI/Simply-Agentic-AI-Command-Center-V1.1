@@ -30617,6 +30617,8 @@ Challenge weak assumptions. Surface risks.`;
         showToast('Delete failed');
       }
     }
+    // Expose for inline onclick handlers (e.g. the pipeline card remove button).
+    try{ window.crmDeleteClient = crmDeleteClient; }catch(_){}
 
     function crmUpdateBulkBar(){
       const n = window._crmSelectedIds ? window._crmSelectedIds.size : 0;
@@ -32129,6 +32131,7 @@ Challenge weak assumptions. Surface risks.`;
                   ${(hasEmail||fbUrl)?`<button id="draftBtn-${cid}" onclick="crmPipelineDraft('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);color:#fcd34d;cursor:pointer;" title="AI-draft outreach">✦ Draft</button>`:''}
                   <button onclick="crmCreateTaskForContact('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;cursor:pointer;" title="Add calendar task for this contact">+ Task</button>
                   ${c.seq_replied?`<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(16,185,129,.15);color:#6ee7b7;font-weight:700;">Replied ✓</span>`:`<button onclick="crmMarkReplied('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#6ee7b7;cursor:pointer;" title="Mark as replied — pauses sequences">↩ Replied</button>`}
+                  <button onclick="crmDeleteClient('${cid}')" style="font-size:11px;padding:2px 7px;border-radius:6px;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:#fca5a5;cursor:pointer;margin-left:auto;" title="Remove from pipeline (deletes this contact)">🗑 Remove</button>
                 </div>
               </div>`;
             }).join('')}
