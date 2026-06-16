@@ -1,0 +1,77 @@
+"""Tests for the Phase 1 teammate tool engine (additive — does not touch chat)."""
+import app as app_module
+
+
+def test_tool_defs_well_formed():
+    defs = app_module._TEAMMATE_TOOL_DEFS
+    assert defs, "expected at least one tool def"
+    seen = set()
+    for t in defs:
+        assert t["name"] and t["name"] not in seen, f"duplicate/empty tool name: {t.get('name')}"
+        seen.add(t["name"])
+        assert t["description"]
+        assert t["risk"] in ("auto", "confirm")
+        assert callable(t["executor"])
+        params = t["parameters"]
+        assert params.get("type") == "object"
+        assert "properties" in params
+
+
+def test_openai_and_anthropic_schemas_build():
+    oai = app_module._tools_openai_schema()
+    ant = app_module._tools_anthropic_schema()
+    assert len(oai) == len(ant) == len(app_module._TEAMMATE_TOOL_DEFS)
+    for f in oai:
+        assert f["type"] == "function"
+        assert f["function"]["name"] and f["function"]["parameters"]
+    for a in ant:
+        assert a["name"] and a["input_schema"]
+
+
+def test_risk_classification():
+    assert app_module._tool_risk("generate_image") == "auto"
+    assert app_module._tool_risk("crm_find_client") == "auto"
+    # Unknown tool defaults to the safe side (confirm).
+    assert app_module._tool_risk("does_not_exist") == "confirm"
+
+
+def test_draft_email_executor():
+    res = app_module._tool_draft_email("u", "Willow",
+                                       {"to": "a@b.com", "subject": "Hi", "body": "Hello there"})
+    assert res["ok"] is True
+    assert res["draft"]["to"] == "a@b.com"
+    assert res["draft"]["body"] == "Hello there"
+    # Missing body fails gracefully.
+    bad = app_module._tool_draft_email("u", "Willow", {"subject": "x"})
+    assert bad["ok"] is False
+
+
+def test_crm_add_then_find_roundtrip():
+    uname = "tooltest_crm"
+    add = app_module._execute_teammate_tool(
+        "crm_add_client", {"name": "Jamie Cole", "email": "jamie@gsrealty.com",
+                           "company": "Garden State Realty"}, uname, "Ava")
+    assert add["ok"] is True
+    assert add["client_id"]
+
+    found = app_module._execute_teammate_tool(
+        "crm_find_client", {"query": "jamie"}, uname, "Ava")
+    assert found["ok"] is True
+    assert any(m["name"] == "Jamie Cole" for m in found["matches"])
+
+    # Search by company also works.
+    found2 = app_module._execute_teammate_tool(
+        "crm_find_client", {"query": "garden state"}, uname, "Ava")
+    assert any("Garden State" in m["company"] for m in found2["matches"])
+
+
+def test_unknown_tool_is_safe():
+    res = app_module._execute_teammate_tool("nope", {}, "u", "Ava")
+    assert res["ok"] is False
+    assert "Unknown tool" in res["summary"]
+
+
+def test_research_never_raises():
+    # Without an OpenAI key RAG can't embed — must still return a dict, not raise.
+    res = app_module._execute_teammate_tool("research", {"query": "pricing"}, "tooltest_rag", "Ava")
+    assert isinstance(res, dict) and "ok" in res

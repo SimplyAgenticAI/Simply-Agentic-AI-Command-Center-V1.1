@@ -56019,6 +56019,205 @@ def api_webhook_receive(token: str):
                     "teammate": teammate, "stack_name": stack_name})
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  TEAMMATE TOOL ENGINE (Phase 1 — real tool use)
+#  Lets a teammate actually DO things via the model's tool/function calling.
+#  This section is purely additive: nothing here runs until the chat handler is
+#  wired to it (separate step) and the feature flag is on. Each executor is a
+#  thin, defensive wrapper over an EXISTING function and returns a structured
+#  result {ok, summary, ...}. Risk is "auto" (run immediately) or "confirm"
+#  (propose to the operator, execute only on explicit confirm).
+# ══════════════════════════════════════════════════════════════════════════════
+
+SAAI_TOOLS_ENABLED = os.getenv("SAAI_TOOLS_ENABLED", "0") == "1"
+
+
+def _tool_generate_image(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Kick off an image generation job (reuses create_image_job)."""
+    prompt = (args.get("prompt") or "").strip()
+    if not prompt:
+        return {"ok": False, "summary": "No image prompt provided."}
+    mode = (args.get("mode") or "new").strip().lower()
+    if mode not in ("new", "edit", "variation"):
+        mode = "new"
+    try:
+        job_id = create_image_job(prompt, teammate=teammate, username=uname,
+                                  lighting_mode=False, mode=mode)
+        return {"ok": True, "job_id": job_id, "mode": mode,
+                "summary": f"Started generating an image: {prompt[:80]}"}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not start image generation: {e}"}
+
+
+def _tool_crm_find_client(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Look up CRM clients by name / email / company (read-only)."""
+    q = (args.get("query") or "").strip().lower()
+    if not q:
+        return {"ok": False, "summary": "No search query provided."}
+    try:
+        crm = _crm_load(uname)
+        matches = []
+        for cid, c in (crm.get("clients") or {}).items():
+            hay = " ".join(str(c.get(k, "")) for k in ("name", "email", "company", "phone")).lower()
+            if q in hay:
+                matches.append({"id": cid, "name": c.get("name", ""), "company": c.get("company", ""),
+                                "email": c.get("email", ""), "pipeline_stage": c.get("pipeline_stage", "")})
+        matches = matches[:10]
+        return {"ok": True, "matches": matches,
+                "summary": f"Found {len(matches)} matching client(s) for '{q}'."}
+    except Exception as e:
+        return {"ok": False, "summary": f"CRM lookup failed: {e}"}
+
+
+def _tool_crm_add_client(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add a client to the CRM (mirrors api_crm_clients_create's record shape)."""
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "summary": "A client name is required to add a contact."}
+    try:
+        crm = _crm_load(uname)
+        cid = _crm_new_id("c")
+        now = now_iso()
+        tags_in = args.get("tags") or []
+        if isinstance(tags_in, str):
+            tags = [t.strip() for t in tags_in.split(",") if t.strip()]
+        elif isinstance(tags_in, list):
+            tags = [str(t).strip() for t in tags_in if str(t).strip()]
+        else:
+            tags = []
+        stage = (args.get("pipeline_stage") or "Lead").strip()
+        if stage not in (crm.get("pipeline", {}).get("stages") or []):
+            stage = "Lead"
+        client = {
+            "id": cid, "name": name,
+            "company": (args.get("company") or "").strip(),
+            "email": (args.get("email") or "").strip(),
+            "phone": (args.get("phone") or "").strip(),
+            "tags": tags, "status": "lead", "pipeline_stage": stage,
+            "last_contact": "", "next_followup": "",
+            "notes": (args.get("notes") or "").strip(),
+            "last_summary": "", "deal_value": 0, "custom_fields": {},
+            "created_at": now, "updated_at": now,
+        }
+        crm["clients"][cid] = client
+        _crm_save(uname, crm)
+        return {"ok": True, "client_id": cid,
+                "summary": f"Added {name} to your CRM as a {stage}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not add the contact: {e}"}
+
+
+def _tool_crm_log_activity(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Append an activity note to a CRM client (reuses _crm_activity_append)."""
+    cid = (args.get("client_id") or "").strip()
+    note = (args.get("note") or "").strip()
+    if not cid or not note:
+        return {"ok": False, "summary": "Need both a client_id and a note."}
+    try:
+        crm = _crm_load(uname)
+        if cid not in (crm.get("clients") or {}):
+            return {"ok": False, "summary": "No client with that id."}
+        _crm_activity_append(uname, cid, "note", note)
+        return {"ok": True, "summary": "Logged the note to that client's activity."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not log activity: {e}"}
+
+
+def _tool_draft_email(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Produce an email draft (no send). Sending is a separate confirm-only tool."""
+    to = (args.get("to") or "").strip()
+    subject = (args.get("subject") or "").strip()
+    body = (args.get("body") or "").strip()
+    if not body:
+        return {"ok": False, "summary": "Need an email body to draft."}
+    return {"ok": True, "draft": {"to": to, "subject": subject, "body": body},
+            "summary": f"Drafted an email{(' to ' + to) if to else ''}."}
+
+
+def _tool_research(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Read-only research over the operator's indexed knowledge base (RAG)."""
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "summary": "No research query provided."}
+    try:
+        ctx = _rag_retrieve(uname, query, top_k=5) or ""
+        if not ctx.strip():
+            return {"ok": True, "context": "", "summary": "No relevant info found in the knowledge base yet."}
+        return {"ok": True, "context": ctx[:4000],
+                "summary": f"Pulled relevant context for '{query[:60]}' from your knowledge base."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Research failed: {e}"}
+
+
+# Tool definitions — neutral schema (OpenAI/Anthropic builders below convert).
+# risk: "auto" runs immediately; "confirm" requires operator confirmation.
+_TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
+    {"name": "generate_image", "risk": "auto", "executor": _tool_generate_image,
+     "description": "Generate or edit an image/graphic/logo/poster for the operator. Use when they ask for a visual.",
+     "parameters": {"type": "object", "properties": {
+         "prompt": {"type": "string", "description": "Full visual description of the image to create."},
+         "mode": {"type": "string", "enum": ["new", "edit", "variation"], "description": "new = fresh image; edit/variation = change the current one."}},
+         "required": ["prompt"]}},
+    {"name": "crm_find_client", "risk": "auto", "executor": _tool_crm_find_client,
+     "description": "Search the operator's CRM for a client by name, email, or company.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Name, email, or company to search for."}},
+         "required": ["query"]}},
+    {"name": "crm_add_client", "risk": "auto", "executor": _tool_crm_add_client,
+     "description": "Add a new contact/lead to the operator's CRM.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"}, "email": {"type": "string"}, "company": {"type": "string"},
+         "phone": {"type": "string"}, "notes": {"type": "string"},
+         "tags": {"type": "array", "items": {"type": "string"}},
+         "pipeline_stage": {"type": "string", "description": "e.g. Lead, Contacted, Qualified."}},
+         "required": ["name"]}},
+    {"name": "crm_log_activity", "risk": "auto", "executor": _tool_crm_log_activity,
+     "description": "Log a note/activity onto an existing CRM client (find the client_id first via crm_find_client).",
+     "parameters": {"type": "object", "properties": {
+         "client_id": {"type": "string"}, "note": {"type": "string"}},
+         "required": ["client_id", "note"]}},
+    {"name": "draft_email", "risk": "auto", "executor": _tool_draft_email,
+     "description": "Draft an email (does NOT send). Use to prepare a message for the operator to review and send.",
+     "parameters": {"type": "object", "properties": {
+         "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
+         "required": ["body"]}},
+    {"name": "research", "risk": "auto", "executor": _tool_research,
+     "description": "Search the operator's own indexed documents/knowledge base for relevant context (read-only).",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string"}},
+         "required": ["query"]}},
+]
+
+_TOOL_BY_NAME: Dict[str, Dict[str, Any]] = {t["name"]: t for t in _TEAMMATE_TOOL_DEFS}
+
+
+def _tool_risk(name: str) -> str:
+    t = _TOOL_BY_NAME.get(name)
+    return (t.get("risk") if t else "confirm") or "confirm"
+
+
+def _execute_teammate_tool(name: str, args: Dict[str, Any], uname: str, teammate: str) -> Dict[str, Any]:
+    """Dispatch a single tool call to its executor. Always returns a dict; never raises."""
+    t = _TOOL_BY_NAME.get(name)
+    if not t:
+        return {"ok": False, "summary": f"Unknown tool: {name}"}
+    try:
+        return t["executor"](uname, teammate, args or {})
+    except Exception as e:
+        return {"ok": False, "summary": f"Tool '{name}' failed: {e}"}
+
+
+def _tools_openai_schema() -> List[Dict[str, Any]]:
+    return [{"type": "function", "function": {
+        "name": t["name"], "description": t["description"], "parameters": t["parameters"]}}
+        for t in _TEAMMATE_TOOL_DEFS]
+
+
+def _tools_anthropic_schema() -> List[Dict[str, Any]]:
+    return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
+            for t in _TEAMMATE_TOOL_DEFS]
+
+
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
 @app.post("/api/followup/stream")
 def api_followup_stream():
