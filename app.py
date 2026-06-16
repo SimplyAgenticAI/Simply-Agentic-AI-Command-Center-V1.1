@@ -24750,6 +24750,52 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       };
     };
 
+    // Build a Confirm/Cancel card for a teammate's proposed confirm-risk action
+    // (e.g. send_email). Confirm/Cancel both hit /api/teammate/action/execute,
+    // which runs (or cancels) it, neutralizes the pending block, and we refresh.
+    function _saConfirmCard(ca){
+      const card = document.createElement("div");
+      card.style.cssText = "margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.08);";
+      const title = document.createElement("div");
+      title.style.cssText = "font-size:13px;font-weight:700;color:#fcd34d;margin-bottom:6px;";
+      title.textContent = "⚠ Confirm before this happens";
+      card.appendChild(title);
+      const a = (ca && ca.args) || {};
+      const det = document.createElement("div");
+      det.style.cssText = "font-size:12px;color:#cbd5e1;opacity:.9;margin-bottom:10px;white-space:pre-wrap;line-height:1.5;";
+      const lines = [];
+      if(a.to) lines.push("To: " + a.to);
+      if(a.subject) lines.push("Subject: " + a.subject);
+      if(a.body) lines.push("\n" + (String(a.body).length > 320 ? String(a.body).slice(0,320) + "…" : a.body));
+      if(lines.length){ det.textContent = lines.join("\n"); card.appendChild(det); }
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
+      const confirmBtn = document.createElement("button");
+      confirmBtn.className = "btn btnMini";
+      confirmBtn.textContent = "✓ Confirm & Send";
+      confirmBtn.style.cssText = "background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "btn btnMini";
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.style.cssText = "background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);color:#fca5a5;";
+      const finish = async function(isCancel){
+        confirmBtn.disabled = true; cancelBtn.disabled = true;
+        confirmBtn.textContent = isCancel ? "Confirm & Send" : "Sending…";
+        try{
+          const res = await fetch("/api/teammate/action/execute", {method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({teammate: window.selectedSeat||"", action: ca.action, args: a, cancel: !!isCancel})});
+          const d = await res.json().catch(()=>({}));
+          if(typeof showToast === "function") showToast(isCancel ? "Cancelled" : (d.summary || (d.ok ? "Done" : "Couldn't complete")));
+        }catch(_e){ if(typeof showToast === "function") showToast("Action failed"); }
+        try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_e){}
+      };
+      confirmBtn.onclick = function(){ finish(false); };
+      cancelBtn.onclick = function(){ finish(true); };
+      row.appendChild(confirmBtn); row.appendChild(cancelBtn);
+      card.appendChild(row);
+      return card;
+    }
+
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
       lastImageState = imageState || lastImageState || {};
@@ -24998,13 +25044,20 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           if(m.role === 'user'){
             content.innerText = raw;
           } else {
+            // A teammate may propose a confirm-risk action via a [confirm_action]
+            // block — strip it from the visible text and render an approval card.
+            const _caMatch = raw.match(/\[confirm_action\]([\s\S]*?)\[\/confirm_action\]/);
+            const _rawNoCa = _caMatch ? raw.replace(_caMatch[0], '').trim() : raw;
             const _ep2 = (typeof window.saParseEmailBlocks==='function')
-              ? window.saParseEmailBlocks(raw)
-              : {cleanText: raw, emails: []};
-            content.innerHTML = saMarkdown(_ep2.cleanText || (_ep2.emails.length ? '' : raw));
+              ? window.saParseEmailBlocks(_rawNoCa)
+              : {cleanText: _rawNoCa, emails: []};
+            content.innerHTML = saMarkdown(_ep2.cleanText || (_ep2.emails.length ? '' : _rawNoCa));
             // Render each email as a styled preview card
             if(_ep2.emails.length > 0 && typeof window._saEmailCard==='function'){
               _ep2.emails.forEach(function(em2){ content.appendChild(window._saEmailCard(em2, window.selectedSeat||'')); });
+            }
+            if(_caMatch && typeof _saConfirmCard === 'function'){
+              try{ content.appendChild(_saConfirmCard(JSON.parse(_caMatch[1]))); }catch(_caErr){}
             }
           }
           // CRM name detection — if response mentions a known contact, show quick-open button
@@ -56260,6 +56313,33 @@ def _tool_research(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str,
         return {"ok": False, "summary": f"Research failed: {e}"}
 
 
+def _tool_send_email(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Send an email on the operator's behalf (CONFIRM-risk; only runs after the
+    operator confirms via the action-execute endpoint)."""
+    to = (args.get("to") or "").strip()
+    subject = (args.get("subject") or "").strip()
+    body = (args.get("body") or "").strip()
+    if not to or not body:
+        return {"ok": False, "summary": "Need a recipient and a body to send the email."}
+    try:
+        u = (load_users().get("users") or {}).get(uname) or {}
+        ok, _provider, err = _crm_send_email_to(u, to, subject, body)
+        if ok:
+            return {"ok": True, "summary": f"Sent the email to {to}."}
+        return {"ok": False, "summary": f"Couldn't send the email: {err or 'email not configured (connect Gmail or SMTP in Settings)'}"}
+    except Exception as e:
+        return {"ok": False, "summary": f"Send failed: {e}"}
+
+
+def _confirm_summary(name: str, args: Dict[str, Any]) -> str:
+    """Human-readable one-liner describing a confirm-risk action for the card."""
+    if name == "send_email":
+        to = (args.get("to") or "the recipient")
+        subj = (args.get("subject") or "").strip()
+        return f"Send this email to {to}" + (f" — “{subj}”" if subj else "") + "?"
+    return f"Run {name}?"
+
+
 # Tool definitions — neutral schema (OpenAI/Anthropic builders below convert).
 # risk: "auto" runs immediately; "confirm" requires operator confirmation.
 _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
@@ -56297,6 +56377,11 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"}},
          "required": ["query"]}},
+    {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
+     "description": "Actually SEND an email on the operator's behalf. Requires explicit operator confirmation. Use only when they clearly want it sent now (not just drafted).",
+     "parameters": {"type": "object", "properties": {
+         "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
+         "required": ["to", "body"]}},
 ]
 
 _TOOL_BY_NAME: Dict[str, Dict[str, Any]] = {t["name"]: t for t in _TEAMMATE_TOOL_DEFS}
@@ -56327,6 +56412,50 @@ def _tools_openai_schema() -> List[Dict[str, Any]]:
 def _tools_anthropic_schema() -> List[Dict[str, Any]]:
     return [{"name": t["name"], "description": t["description"], "input_schema": t["parameters"]}
             for t in _TEAMMATE_TOOL_DEFS]
+
+
+@app.post("/api/teammate/action/execute")
+def api_teammate_action_execute():
+    """Execute a confirm-risk tool action AFTER the operator clicks Confirm on the
+    card. Only whitelisted confirm-risk tools are runnable here; CSRF + auth apply."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    action = (payload.get("action") or "").strip()
+    args = payload.get("args") if isinstance(payload.get("args"), dict) else {}
+    teammate = (payload.get("teammate") or "").strip() or "Alex"
+
+    def _neutralize_block(mark: str) -> None:
+        try:
+            thr = load_thread(teammate, uname)
+            for _m in reversed(thr):
+                if _m.get("role") == "assistant" and "[confirm_action]" in (_m.get("content") or ""):
+                    _m["content"] = re.sub(r"\[confirm_action\][\s\S]*?\[/confirm_action\]",
+                                           "(" + mark + ")", _m["content"])
+                    break
+            save_thread(teammate, thr, uname)
+        except Exception:
+            pass
+
+    # Cancel — just neutralize the pending card; never execute.
+    if payload.get("cancel"):
+        _neutralize_block("✗ cancelled")
+        return jsonify({"ok": True, "cancelled": True, "summary": "Cancelled."})
+
+    if action not in _TOOL_BY_NAME or _tool_risk(action) != "confirm":
+        return jsonify({"ok": False, "error": "Unknown or non-confirmable action."}), 400
+    res = _execute_teammate_tool(action, args, uname, teammate)
+    # Neutralize the pending card so it can't be replayed, then append the outcome.
+    _neutralize_block("✓ done" if res.get("ok") else "✗ not sent")
+    try:
+        thr = load_thread(teammate, uname)
+        thr.append({"role": "assistant", "content": "🔧 " + (res.get("summary") or action)})
+        save_thread(teammate, thr, uname)
+    except Exception:
+        pass
+    return jsonify({"ok": bool(res.get("ok")), "summary": res.get("summary", "")})
 
 
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
@@ -56587,6 +56716,7 @@ def api_followup_stream():
                 _final = ""
                 _did_tool = False
                 _tool_notes = []
+                _pending_confirm = None
                 try:
                     _tmsgs = ([{"role": "system", "content": sys_prompt}]
                               + list(thread)
@@ -56608,6 +56738,7 @@ def api_followup_stream():
                                        "tool_calls": [{"id": c.id, "type": "function",
                                            "function": {"name": c.function.name,
                                                         "arguments": c.function.arguments}} for c in _calls]})
+                        _stop = False
                         for c in _calls:
                             _nm = c.function.name
                             try:
@@ -56616,17 +56747,41 @@ def api_followup_stream():
                                 _args = {}
                             if _tool_risk(_nm) == "auto":
                                 _res = _execute_teammate_tool(_nm, _args, uname, name)
+                                _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
+                                _tmsgs.append({"role": "tool", "tool_call_id": c.id,
+                                               "content": json.dumps(_res)[:4000]})
                             else:
-                                _res = {"ok": False, "summary": f"{_nm} needs your confirmation (coming soon)."}
-                            _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
-                            _tmsgs.append({"role": "tool", "tool_call_id": c.id,
-                                           "content": json.dumps(_res)[:4000]})
-                    if not _final:
+                                # Confirm-risk action — stop and ask the operator.
+                                _pending_confirm = {"action": _nm, "args": _args,
+                                                    "summary": _confirm_summary(_nm, _args)}
+                                _stop = True
+                                break
+                        if _stop or _final:
+                            break
+                    if not _final and not _pending_confirm:
                         _final = "Done." if _did_tool else ""
                 except Exception as _tool_exc:
                     _tool_ok = False
                     try: print("[TOOLS] tool path failed, falling back to normal chat:", _tool_exc, flush=True)
                     except Exception: pass
+                # Confirm-risk action → stream the proposal + a machine-readable
+                # [confirm_action] block the client renders as Confirm/Cancel.
+                if _tool_ok and _pending_confirm:
+                    _pre = ("\n".join(_tool_notes) + "\n\n") if _tool_notes else ""
+                    _visible = _pre + _pending_confirm["summary"]
+                    for _i in range(0, len(_visible), 80):
+                        yield "data: " + json.dumps({"token": _visible[_i:_i + 80]}) + "\n\n"
+                    _stored = (_visible + "\n[confirm_action]"
+                               + json.dumps(_pending_confirm, ensure_ascii=False)
+                               + "[/confirm_action]")
+                    try:
+                        save_thread(name, pre_thread + [{"role": "user", "content": msg2},
+                                                        {"role": "assistant", "content": _stored}], uname)
+                    except Exception:
+                        pass
+                    _persisted = True
+                    yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
+                    return
                 # Take over the response when the tool path produced an answer
                 # (with or without a tool call — single API call either way).
                 # Only an exception or an empty answer falls through to normal

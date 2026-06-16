@@ -75,3 +75,25 @@ def test_research_never_raises():
     # Without an OpenAI key RAG can't embed — must still return a dict, not raise.
     res = app_module._execute_teammate_tool("research", {"query": "pricing"}, "tooltest_rag", "Ava")
     assert isinstance(res, dict) and "ok" in res
+
+
+def test_send_email_is_confirm_risk():
+    assert app_module._tool_risk("send_email") == "confirm"
+    assert "send_email" in app_module._TOOL_BY_NAME
+
+
+def test_send_email_missing_fields_fails_safely():
+    res = app_module._execute_teammate_tool("send_email", {"subject": "Hi"}, "u", "Willow")
+    assert res["ok"] is False  # no recipient/body
+
+
+def test_confirm_summary_is_human_readable():
+    s = app_module._confirm_summary("send_email", {"to": "john@x.com", "subject": "Proposal"})
+    assert "john@x.com" in s
+
+
+def test_action_execute_endpoint_requires_auth():
+    with app_module.app.test_client() as c:
+        resp = c.post("/api/teammate/action/execute")
+        assert resp.status_code in (401, 403)
+        assert resp.status_code != 200
