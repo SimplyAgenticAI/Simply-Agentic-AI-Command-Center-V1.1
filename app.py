@@ -21789,6 +21789,7 @@ input[type="range"]::-moz-range-progress {
                     <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
                     <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
                     <button id="pipelineBtn"        class="saMoreItem" style="color:#a78bfa;" onclick="if(typeof _saOpenPipeline==='function')_saOpenPipeline()">⛓ Relay</button>
+                    <button id="teamGoalBtn" class="saMoreItem" style="color:#6ee7b7;" onclick="if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()">🧠 Team Goal</button>
                     <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
                   </div>
                 </div>
@@ -24795,6 +24796,60 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       card.appendChild(row);
       return card;
     }
+
+    // ── Team Goal (Phase 2 orchestration UI) — describe a goal, the team plans
+    //    it, each specialist handles a step, and you get one synthesized result.
+    function _saRenderTeamRun(d){
+      const esc = function(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
+      let html = "";
+      (d.steps||[]).forEach(function(s, i){
+        const out = String(s.output||"");
+        html += '<div style="margin-bottom:10px;padding:11px 13px;border-radius:11px;border:1px solid rgba(124,58,237,.25);background:rgba(124,58,237,.06);">'
+          + '<div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:4px;">Step '+(i+1)+' · '+esc(s.teammate)+'</div>'
+          + '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:6px;">'+esc(s.task)+'</div>'
+          + '<div style="font-size:12.5px;color:#cbd5e1;white-space:pre-wrap;line-height:1.55;">'+esc(out.slice(0,1200))+(out.length>1200?"…":"")+'</div></div>';
+      });
+      if(d.synthesis){
+        html += '<div style="margin-top:14px;padding:13px 15px;border-radius:12px;border:1px solid rgba(110,231,183,.4);background:rgba(110,231,183,.08);">'
+          + '<div style="font-size:13px;font-weight:800;color:#6ee7b7;margin-bottom:6px;">✓ Final result</div>'
+          + '<div style="font-size:13.5px;color:#e6edff;white-space:pre-wrap;line-height:1.6;">'+esc(d.synthesis)+'</div></div>';
+      }
+      return html || '<div style="color:#94a3b8;font-size:13px;">No output produced.</div>';
+    }
+
+    window._saOpenTeamGoal = function(){
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow-y:auto;";
+      ov.innerHTML = '<div style="background:rgba(8,13,33,.98);border:1px solid rgba(110,231,183,.3);border-radius:18px;padding:22px 24px;max-width:640px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.7);">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+        + '<div style="font-size:17px;font-weight:800;color:#6ee7b7;">🧠 Team Goal</div>'
+        + '<button id="_tgClose" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">✕</button></div>'
+        + '<div style="font-size:12.5px;color:#cbd5e1;opacity:.85;margin-bottom:12px;line-height:1.5;">Describe a goal. Your team plans it, each teammate handles their part, and you get one finished result.</div>'
+        + '<textarea id="_tgGoal" placeholder="e.g. Plan and write a 5-email welcome sequence for new coaching clients" style="width:100%;min-height:84px;resize:vertical;padding:11px 13px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6edff;font-size:13.5px;font-family:inherit;line-height:1.5;box-sizing:border-box;"></textarea>'
+        + '<button id="_tgRun" class="btn btnPrimary" style="width:100%;margin-top:12px;">▶ Run the team</button>'
+        + '<div id="_tgResults" style="margin-top:16px;"></div></div>';
+      document.body.appendChild(ov);
+      const close = function(){ ov.remove(); };
+      ov.querySelector("#_tgClose").onclick = close;
+      ov.onclick = function(e){ if(e.target===ov) close(); };
+      const goalEl = ov.querySelector("#_tgGoal");
+      const runBtn = ov.querySelector("#_tgRun");
+      const resBox = ov.querySelector("#_tgResults");
+      try{ goalEl.focus(); }catch(_){}
+      runBtn.onclick = async function(){
+        const goal = (goalEl.value||"").trim();
+        if(!goal){ goalEl.focus(); return; }
+        runBtn.disabled = true; runBtn.textContent = "⏳ Your team is working…";
+        resBox.innerHTML = '<div style="font-size:13px;color:#94a3b8;padding:8px 0;">Planning and delegating across your team — this can take a moment…</div>';
+        try{
+          const res = await fetch("/api/team/orchestrate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({goal: goal})});
+          const d = await res.json().catch(()=>({}));
+          if(!d || !d.ok){ resBox.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+((d&&d.error)||"Could not run the team.")+'</div>'; }
+          else { resBox.innerHTML = _saRenderTeamRun(d); }
+        }catch(e){ resBox.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Run failed: '+(e&&e.message?e.message:e)+'</div>'; }
+        runBtn.disabled = false; runBtn.textContent = "▶ Run again";
+      };
+    };
 
     function renderThread(msgs, imageState){
       lastSeatAssistantText = "";
