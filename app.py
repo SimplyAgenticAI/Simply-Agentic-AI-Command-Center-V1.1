@@ -56367,20 +56367,16 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "client_id": {"type": "string"}, "note": {"type": "string"}},
          "required": ["client_id", "note"]}},
-    {"name": "draft_email", "risk": "auto", "executor": _tool_draft_email,
-     "description": "Draft an email (does NOT send). Use to prepare a message for the operator to review and send.",
-     "parameters": {"type": "object", "properties": {
-         "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
-         "required": ["body"]}},
     {"name": "research", "risk": "auto", "executor": _tool_research,
      "description": "Search the operator's own indexed documents/knowledge base for relevant context (read-only).",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"}},
          "required": ["query"]}},
     {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
-     "description": "Actually SEND an email on the operator's behalf. Requires explicit operator confirmation. Use only when they clearly want it sent now (not just drafted).",
+     "description": "Email someone on the operator's behalf. Use this WHENEVER the operator asks to email, send, or message a person — compose the full email (to, subject, body) yourself from the conversation. The system ALWAYS shows the operator a confirmation card to review and approve before anything is actually sent, so this is safe and is the correct tool for any 'email X' / 'send this to X' request. Do not just describe the email in text — call this tool so the operator gets the Send button.",
      "parameters": {"type": "object", "properties": {
-         "to": {"type": "string"}, "subject": {"type": "string"}, "body": {"type": "string"}},
+         "to": {"type": "string", "description": "Recipient email address."},
+         "subject": {"type": "string"}, "body": {"type": "string", "description": "Full email body, signed off appropriately."}},
          "required": ["to", "body"]}},
 ]
 
