@@ -26986,6 +26986,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         return;
       }
 
+      // Clear the Group Console input now that we're sending, so the operator can
+      // immediately start typing the next prompt without erasing the old one.
+      try{ const _op = $("opPrompt"); if(_op){ _op.value = ""; _op.style.height = "auto"; } }catch(_){}
+
       // Round-table behavior: if the operator opens the message by calling out a
       // specific teammate ("Willow, ..." or "@Willow ..."), ONLY that teammate
       // responds — like addressing one person at a real table. A general question
