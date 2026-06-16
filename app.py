@@ -56454,6 +56454,103 @@ def api_teammate_action_execute():
     return jsonify({"ok": bool(res.get("ok")), "summary": res.get("summary", "")})
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  TEAM ORCHESTRATION (Phase 2) — turn one goal into coordinated teamwork.
+#  A planner decomposes the goal into ordered steps, assigns each to the best-fit
+#  specialist (run via _call_teammate_prompt_for_user so each uses its persona +
+#  tools), threads prior outputs forward, then synthesizes one final deliverable.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_plan_json(raw: str) -> Dict[str, Any]:
+    s = (raw or "").strip()
+    m = re.search(r"\{[\s\S]*\}", s)
+    if m:
+        s = m.group(0)
+    try:
+        out = json.loads(s)
+        return out if isinstance(out, dict) else {}
+    except Exception:
+        return {}
+
+
+def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, Any]:
+    """Plan → delegate to specialists → synthesize. Returns a structured run dict;
+    never raises (failures come back as {ok: False, error})."""
+    goal = (goal or "").strip()
+    if not goal:
+        return {"ok": False, "error": "No goal provided."}
+    try:
+        reg = load_registry(uname)
+        installed = reg.get("installed") or {}
+    except Exception:
+        installed = {}
+    roster = [(n, (d.get("job_title") or "")) for n, d in installed.items()]
+    if not roster:
+        return {"ok": False, "error": "No teammates available to run this."}
+    roster_text = "\n".join(f"- {n}: {jt}" for n, jt in roster)
+
+    # 1. Plan — strict JSON, only real teammates, 2..max_steps steps.
+    planner_sys = (
+        "You are an orchestrator. Break the operator's goal into a short ordered plan and assign "
+        "each step to the single best-fit teammate from the roster. Each step's task must be a "
+        "clear, self-contained instruction. Output ONLY JSON, no prose:\n"
+        '{"steps":[{"teammate":"<exact name>","task":"<instruction>"}]}\n'
+        f"Use between 2 and {max_steps} steps. Only these teammates exist:\n{roster_text}"
+    )
+    try:
+        plan_raw = call_llm(planner_sys, [{"role": "user", "content": f"Goal: {goal}"}], temperature=0.3)
+    except Exception as e:
+        return {"ok": False, "error": f"Planning failed: {e}"}
+    valid = set(installed.keys())
+    steps_def = [s for s in (_parse_plan_json(plan_raw).get("steps") or [])
+                 if isinstance(s, dict) and s.get("teammate") in valid and (s.get("task") or "").strip()][:max_steps]
+    if not steps_def:
+        return {"ok": False, "error": "Couldn't produce a valid plan for that goal."}
+
+    # 2. Delegate — each specialist runs its task with the team's work so far.
+    results: List[Dict[str, Any]] = []
+    context = ""
+    for s in steps_def:
+        tm, task = s["teammate"], s["task"].strip()
+        prompt = f"GOAL: {goal}\n\nYOUR TASK: {task}"
+        if context:
+            prompt += f"\n\nWORK ALREADY DONE BY THE TEAM (build on it, don't repeat it):\n{context[-4000:]}"
+        try:
+            out = _call_teammate_prompt_for_user(uname, tm, prompt) or ""
+        except Exception as e:
+            out = f"(step failed: {e})"
+        results.append({"teammate": tm, "task": task, "output": out})
+        context += f"\n\n[{tm} — {task}]\n{out}"
+
+    # 3. Synthesize — one cohesive deliverable.
+    try:
+        synthesis = call_llm(
+            "Synthesize the team's work into one cohesive, finished deliverable for the operator. "
+            "Be direct and useful; no preamble, no 'here is'.",
+            [{"role": "user", "content": f"GOAL: {goal}\n\nTEAM WORK:\n{context[-8000:]}\n\nProduce the final result now."}],
+            temperature=0.5)
+    except Exception:
+        synthesis = results[-1]["output"] if results else ""
+
+    return {"ok": True, "goal": goal, "steps": results, "synthesis": synthesis}
+
+
+@app.post("/api/team/orchestrate")
+def api_team_orchestrate():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    goal = (payload.get("goal") or "").strip()
+    if not goal:
+        return jsonify({"ok": False, "error": "Goal required"}), 400
+    try:
+        return jsonify(_orchestrate_goal(uname, goal))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
 @app.post("/api/followup/stream")
 def api_followup_stream():
