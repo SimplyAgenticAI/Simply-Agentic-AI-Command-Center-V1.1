@@ -14846,6 +14846,12 @@ def api_operator_profile_set():
     except Exception:
         pass
 
+    # Re-index the operator's business context into RAG so teammates stay current
+    # (background thread — never blocks the save; safe no-op without an API key).
+    try:
+        threading.Thread(target=_rag_autoingest_operator, args=(uname,), daemon=True).start()
+    except Exception:
+        pass
 
     return jsonify({"ok": True, "profile": prof})
 
@@ -54632,6 +54638,108 @@ def _rag_retrieve(username: str, query: str, top_k: int = 0) -> str:
         + "\n\n".join(parts)
         + "\n----- END KNOWLEDGE BASE -----\n"
     )
+
+
+# ── Auto-ingest the operator's own world into RAG (Phase 3 — memory) ──────────
+# Reuses the existing embedding/index pipeline so every teammate automatically
+# retrieves real business facts + clients via _rag_retrieve (already wired into
+# both chat paths). Server-side only. Stable doc_ids so re-syncing replaces, not
+# duplicates. Returns chunk count; never raises.
+
+def _rag_upsert_doc(username: str, doc_id: str, label: str, text: str) -> int:
+    """Embed `text` and (re)write it into the user's RAG index under doc_id."""
+    text = (text or "").strip()
+    if not text:
+        return 0
+    chunks = _chunk_text(text)[:400]
+    if not chunks:
+        return 0
+    try:
+        oai = get_openai_client()
+        vectors: List[List[float]] = []
+        for i in range(0, len(chunks), 96):
+            vectors.extend(_embed_texts(chunks[i:i + 96], oai))
+    except Exception:
+        return 0  # no key / embedding failure — skip silently
+    idx_path = _rag_index_path(username)
+    existing: List[str] = []
+    if idx_path.exists():
+        for line in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                if json.loads(line).get("doc_id") != doc_id:
+                    existing.append(line)
+            except Exception:
+                pass
+    new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
+                 for i, (c, v) in enumerate(zip(chunks, vectors))]
+    try:
+        idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    except Exception:
+        return 0
+    try:
+        meta = _rag_load_meta(username)
+        meta.setdefault("docs", {})[doc_id] = {
+            "doc_id": doc_id, "label": label, "filename": "",
+            "chunks": len(chunks), "indexed_at": now_iso(), "source": "auto",
+        }
+        _rag_save_meta(username, meta)
+    except Exception:
+        pass
+    return len(chunks)
+
+
+def _rag_autoingest_operator(username: str) -> int:
+    """Index the operator's profile + CRM contacts so teammates know the business."""
+    total = 0
+    try:
+        p = _load_operator_profile(username) or {}
+        lines = []
+        for key, lbl in (("display_name", "Operator name"), ("business", "Business"),
+                         ("offers", "Offers / products"), ("audience", "Ideal client / audience"),
+                         ("goals", "Current goals"), ("notes", "Notes")):
+            v = (p.get(key) or "").strip()
+            if v:
+                lines.append(f"{lbl}: {v}")
+        if lines:
+            total += _rag_upsert_doc(username, "auto_operator_profile",
+                                     "Operator business profile",
+                                     "OPERATOR BUSINESS PROFILE\n" + "\n".join(lines))
+    except Exception:
+        pass
+    try:
+        crm = _crm_load(username)
+        clients = list((crm.get("clients") or {}).values())
+        if clients:
+            rows = []
+            for c in clients[:500]:
+                bits = [str(c.get("name", "")).strip()]
+                if c.get("company"): bits.append(f"({c['company']})")
+                if c.get("pipeline_stage"): bits.append(f"- stage: {c['pipeline_stage']}")
+                if c.get("email"): bits.append(f"- {c['email']}")
+                if c.get("notes"): bits.append(f"- notes: {str(c['notes'])[:200]}")
+                row = " ".join(b for b in bits if b)
+                if row.strip():
+                    rows.append(row)
+            if rows:
+                total += _rag_upsert_doc(username, "auto_crm_clients", "CRM clients",
+                                         "CRM CLIENTS / CONTACTS\n" + "\n".join(rows))
+    except Exception:
+        pass
+    return total
+
+
+@app.post("/api/rag/sync_business")
+def api_rag_sync_business():
+    """On-demand: re-index the operator's profile + CRM into the knowledge base."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try:
+        n = _rag_autoingest_operator(uname)
+        return jsonify({"ok": True, "chunks": n})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── CONVERSATION BRANCHING ────────────────────────────────────────────────────
