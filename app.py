@@ -449,7 +449,10 @@ PLANS: Dict[str, Any] = {
         "team_seats":       2,
         "founder":          True,
         "features": [
-            "All 7 built-in AI teammates — GPT-4o & Claude",
+            "All 7 built-in AI teammates — frontier GPT & Claude models",
+            "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
+            "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
+            "AI memory — your teammates learn your business, offers & clients over time",
             "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
@@ -474,6 +477,9 @@ PLANS: Dict[str, Any] = {
         "msg_limit":        600,
         "features": [
             "All 7 built-in AI teammates — AI included, no API key needed",
+            "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
+            "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
+            "AI memory — your teammates learn your business, offers & clients over time",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Lead Lab, Social Studio & Offer Builder",
@@ -13429,7 +13435,7 @@ def terms_page():
 <style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
 <a class="back" href="/">← Back</a>
 <h1>Terms of Service</h1>
-<p class="meta">Last updated: {datetime.utcnow().strftime("%B %d, %Y")} &nbsp;|&nbsp; <a href="/privacy">Privacy Policy</a></p>
+<p class="meta">Last updated: June 16, 2026 &nbsp;|&nbsp; <a href="/privacy">Privacy Policy</a></p>
 
 <p>By accessing or using {app_name} ("the Service"), you agree to be bound by these Terms of Service. If you disagree with any part of these terms, you may not access the Service.</p>
 
@@ -13449,8 +13455,9 @@ def terms_page():
 <h2>5. Acceptable Use</h2>
 <p>You may not use the Service to: send unsolicited bulk email or spam; violate any applicable law or regulation; infringe the intellectual property rights of others; transmit malware or harmful code; or attempt to gain unauthorized access to any part of the Service or its infrastructure.</p>
 
-<h2>6. AI-Generated Content</h2>
-<p>The Service uses AI models to generate content on your behalf. You are solely responsible for reviewing, verifying, and taking responsibility for any content generated through the Service before using it. AI-generated content may be inaccurate, incomplete, or inappropriate for your specific use case.</p>
+<h2>6. AI-Generated Content &amp; AI Actions</h2>
+<p>The Service uses AI models to generate content and, where you enable or confirm them, to take actions on your behalf — including drafting and sending emails, creating and updating CRM records, generating images, retrieving and reading web pages, conducting research, and running multi-step workflows across your AI teammates. Some actions (such as sending an email) require your explicit confirmation before they execute; others may run automatically based on settings, schedules, or automations you configure.</p>
+<p>You are solely responsible for reviewing and verifying AI-generated content, and for any action you authorize, confirm, or schedule through the Service, before relying on it or its results. AI output and AI-initiated actions may be inaccurate, incomplete, or inappropriate for your specific use case. You remain responsible for all communications sent and all changes made to your data through the Service, whether initiated by you directly or by an AI teammate acting on your behalf.</p>
 
 <h2>7. Termination</h2>
 <p>We reserve the right to suspend or terminate your account at any time if you violate these Terms. Upon termination, your right to use the Service ceases immediately. You may request an export of your data before termination.</p>
@@ -13475,7 +13482,7 @@ def privacy_page():
 <style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
 <a class="back" href="/">← Back</a>
 <h1>Privacy Policy</h1>
-<p class="meta">Last updated: {datetime.utcnow().strftime("%B %d, %Y")} &nbsp;|&nbsp; <a href="/terms">Terms of Service</a></p>
+<p class="meta">Last updated: June 16, 2026 &nbsp;|&nbsp; <a href="/terms">Terms of Service</a></p>
 
 <p>This Privacy Policy describes how {app_name} ("we", "us", "our") collects, uses, and protects your information when you use our Service.</p>
 
@@ -13485,7 +13492,8 @@ def privacy_page():
 <li><strong>Billing information:</strong> payment is processed by Stripe. We store only your Stripe customer ID and subscription status — we never store raw card numbers.</li>
 <li><strong>API keys:</strong> if you provide third-party API keys (OpenAI, Anthropic), these are stored in your account settings and used exclusively to operate features you have enabled.</li>
 <li><strong>Connected accounts:</strong> if you connect Google (Gmail/Calendar), we store OAuth tokens to send emails and create calendar events on your behalf. We do not read or store the content of emails we do not send.</li>
-<li><strong>Usage data:</strong> AI conversation threads, CRM contacts, uploaded files, and other content you create within the Service.</li>
+<li><strong>Usage data:</strong> AI conversation threads, CRM contacts, uploaded files, web pages your AI teammates retrieve at your request, business context you provide or index for AI memory, and other content you create within the Service.</li>
+<li><strong>AI processing:</strong> to provide AI features, relevant portions of your content (including messages, retrieved web pages, and indexed business context) are sent to our AI providers (OpenAI, Anthropic) for processing. We do not use your content to train our own models.</li>
 </ul>
 
 <h2>2. How We Use Your Information</h2>
@@ -61792,7 +61800,7 @@ a{color:#a78bfa;text-decoration:none;}
     <div class="ep-info">
       <div class="ep-meta"><span class="ep-num">EP 01</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Getting started</div>
-      <div class="ep-desc">Add your OpenAI key and get the AI brain connected. Start here — everything else depends on this.</div>
+      <div class="ep-desc">Your AI is included and ready — no setup needed on most plans. Want unlimited use or your own model? Add an OpenAI or Anthropic key in Settings. Start here.</div>
       <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
@@ -61914,11 +61922,11 @@ var EPISODES = {
   1: {
     num:'EP 01', title:'Getting started',
     steps:[
-      {t:'Open <strong>Settings</strong>', d:'Click the Settings dropdown in the top navigation bar.'},
-      {t:'Find <strong>OpenAI API Key</strong>', d:'Scroll to the API Key field inside Settings. It\'s near the top.'},
-      {t:'Paste your key', d:'Visit platform.openai.com, create a key, and paste it here. It starts with sk-.'},
-      {t:'Click <strong>Save settings</strong>', d:'Hit Save — a green "Connected" badge will confirm the connection.'},
-      {t:'You\'re ready!', d:'All 7 AI teammates are now powered up. Click any seat at the round table to start.'},
+      {t:'Your AI is <strong>already on</strong>', d:'On most plans your monthly AI credits are included — your 7 teammates are ready to go, no setup required.'},
+      {t:'(Optional) Open <strong>Settings</strong>', d:'Want unlimited use or to run your own model? Click the Settings dropdown in the top navigation bar.'},
+      {t:'(Optional) Add an <strong>API key</strong>', d:'Paste an OpenAI (sk-...) or Anthropic (sk-ant-...) key to run on your own account with no message limit. You can skip this and use the included credits.'},
+      {t:'Click <strong>Save settings</strong>', d:'A green "Connected" badge confirms it.'},
+      {t:'You\'re ready!', d:'All 7 AI teammates are powered up. Click any seat at the round table to start.'},
     ],
     ani: buildEP1
   },
@@ -61928,7 +61936,8 @@ var EPISODES = {
       {t:'Find the <strong>oval table</strong>', d:'The main screen shows an oval conference table. Operator sits at the head (12 o\'clock). Your 7 teammates are seated around it.'},
       {t:'Press <strong>1–7</strong> to jump to a seat', d:'Each seat has a number badge. Press that number on your keyboard to activate that teammate instantly — no clicking required.'},
       {t:'Click any <strong>seat card</strong>', d:'Each card is a different AI specialist — Sales, Marketing, Operations, and more. Click to open their thread on the right.'},
-      {t:'Type your request', d:'Just describe what you need in plain English. No special commands required.'},
+      {t:'They don\'t just advise — they <strong>act</strong>', d:'Ask in plain English. Teammates can actually do things: add a contact to your CRM, draft and send an email (with your one-click approval), generate an image, or read & research a web page.'},
+      {t:'Give the whole team a <strong>Team Goal</strong>', d:'Open the ⋯ More menu and pick Team Goal — describe an outcome and your teammates plan it, split the work, and deliver one finished result together.'},
       {t:'<strong>Switch teammates</strong> anytime', d:'Press a number key or click a different seat mid-conversation to bring in another specialist.'},
     ],
     ani: buildEP2
@@ -61940,6 +61949,7 @@ var EPISODES = {
       {t:'Click <strong>+ Add Contact</strong>', d:'Fill in the name, email, phone and any notes about this person.'},
       {t:'Send a <strong>message</strong>', d:'Open any contact and hit Message to draft a personalised email with AI help.'},
       {t:'Add <strong>tags & notes</strong>', d:'Tag contacts by type (Lead, Client, Partner) and write private notes.'},
+      {t:'Or just <strong>ask a teammate</strong>', d:'Skip the form entirely — tell any teammate "add Jamie Cole (jamie@x.com) to my CRM" or "log a note on Jamie" and they\'ll do it for you.'},
       {t:'Filter & search', d:'Use the search bar or filter by tag to find exactly who you need instantly.'},
     ],
     ani: buildEP3
