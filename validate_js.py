@@ -12,21 +12,36 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module
 app_module.app.config.update(TESTING=True)
 
+
+def _scripts(html):
+    out = []
+    for m in re.finditer(r"<script\b([^>]*)>(.*?)</script>", html, re.DOTALL | re.IGNORECASE):
+        attrs, body = m.group(1), m.group(2)
+        if "src=" in attrs.lower():
+            continue
+        if body.strip():
+            out.append(body)
+    return out
+
+
+blocks = []
+# 1) Authenticated app page (the bulk of the inline JS lives here).
 with app_module.app.test_client() as c:
     c.post("/register", data={
         "username": "jsval", "email": "", "password": "TestPass123!",
         "password2": "TestPass123!", "tos_accepted": "on",
     }, follow_redirects=True)
-    html = c.get("/").get_data(as_text=True)
+    blocks += _scripts(c.get("/").get_data(as_text=True))
 
-# Extract inline <script> blocks (skip those with a src= attribute).
-blocks = []
-for m in re.finditer(r"<script\b([^>]*)>(.*?)</script>", html, re.DOTALL | re.IGNORECASE):
-    attrs, body = m.group(1), m.group(2)
-    if "src=" in attrs.lower():
-        continue
-    if body.strip():
-        blocks.append(body)
+# 2) Unauthenticated pages (landing/login + a couple public routes) — their own scripts.
+with app_module.app.test_client() as c2:
+    for _route in ("/login", "/getting-started", "/pricing"):
+        try:
+            r = c2.get(_route, follow_redirects=True)
+            if r.status_code == 200:
+                blocks += _scripts(r.get_data(as_text=True))
+        except Exception:
+            pass
 
 print(f"Found {len(blocks)} inline <script> blocks; checking with node --check...")
 failures = 0

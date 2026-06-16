@@ -24836,24 +24836,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     // ── Team Goal (Phase 2 orchestration UI) — describe a goal, the team plans
     //    it, each specialist handles a step, and you get one synthesized result.
-    function _saRenderTeamRun(d){
-      const esc = function(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
-      let html = "";
-      (d.steps||[]).forEach(function(s, i){
-        const out = String(s.output||"");
-        html += '<div style="margin-bottom:10px;padding:11px 13px;border-radius:11px;border:1px solid rgba(124,58,237,.25);background:rgba(124,58,237,.06);">'
-          + '<div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:4px;">Step '+(i+1)+' · '+esc(s.teammate)+'</div>'
-          + '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:6px;">'+esc(s.task)+'</div>'
-          + '<div style="font-size:12.5px;color:#cbd5e1;white-space:pre-wrap;line-height:1.55;">'+esc(out.slice(0,1200))+(out.length>1200?"…":"")+'</div></div>';
-      });
-      if(d.synthesis){
-        html += '<div style="margin-top:14px;padding:13px 15px;border-radius:12px;border:1px solid rgba(110,231,183,.4);background:rgba(110,231,183,.08);">'
-          + '<div style="font-size:13px;font-weight:800;color:#6ee7b7;margin-bottom:6px;">✓ Final result</div>'
-          + '<div style="font-size:13.5px;color:#e6edff;white-space:pre-wrap;line-height:1.6;">'+esc(d.synthesis)+'</div></div>';
-      }
-      return html || '<div style="color:#94a3b8;font-size:13px;">No output produced.</div>';
-    }
-
     window._saOpenTeamGoal = function(){
       const ov = document.createElement("div");
       ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow-y:auto;";
@@ -56659,6 +56641,27 @@ def _parse_plan_json(raw: str) -> Dict[str, Any]:
         return {}
 
 
+# Concurrency cap — a single orchestration run holds a worker thread for its whole
+# duration (planner + every teammate + synthesis). With only 1 worker, bound how
+# many can run at once so Team Goal can't starve the rest of the app.
+_ORCH_LOCK = threading.Lock()
+_ORCH_ACTIVE = [0]
+_ORCH_MAX = int(os.getenv("SAAI_ORCH_MAX", "3"))
+
+
+def _orch_try_acquire() -> bool:
+    with _ORCH_LOCK:
+        if _ORCH_ACTIVE[0] >= _ORCH_MAX:
+            return False
+        _ORCH_ACTIVE[0] += 1
+        return True
+
+
+def _orch_release() -> None:
+    with _ORCH_LOCK:
+        _ORCH_ACTIVE[0] = max(0, _ORCH_ACTIVE[0] - 1)
+
+
 def _orchestrate_goal_events(uname: str, goal: str, max_steps: int = 4):
     """Generator yielding orchestration events (single source of truth for both
     the streaming and non-streaming endpoints): error | plan | step_start | step
@@ -56749,10 +56752,14 @@ def api_team_orchestrate():
     goal = (payload.get("goal") or "").strip()
     if not goal:
         return jsonify({"ok": False, "error": "Goal required"}), 400
+    if not _orch_try_acquire():
+        return jsonify({"ok": False, "error": "The team is busy with other runs — try again in a moment."}), 429
     try:
         return jsonify(_orchestrate_goal(uname, goal))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        _orch_release()
 
 
 @app.post("/api/team/orchestrate/stream")
@@ -56766,6 +56773,8 @@ def api_team_orchestrate_stream():
     goal = (payload.get("goal") or "").strip()
     if not goal:
         return jsonify({"ok": False, "error": "Goal required"}), 400
+    if not _orch_try_acquire():
+        return jsonify({"ok": False, "error": "The team is busy with other runs — try again in a moment."}), 429
 
     def _gen():
         try:
@@ -56773,6 +56782,8 @@ def api_team_orchestrate_stream():
                 yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
         except Exception as e:
             yield "data: " + json.dumps({"type": "error", "error": str(e)}) + "\n\n"
+        finally:
+            _orch_release()
 
     return Response(stream_with_context(_gen()), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"})
