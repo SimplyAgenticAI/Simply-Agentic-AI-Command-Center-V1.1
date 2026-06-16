@@ -56368,6 +56368,23 @@ def _tool_research(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str,
         return {"ok": False, "summary": f"Research failed: {e}"}
 
 
+def _tool_read_url(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch and read the text of a web page (read-only; SSRF-protected)."""
+    url = (args.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "summary": "No URL provided."}
+    try:
+        text, err = _fetch_url_content(url, max_chars=8000)
+        if err:
+            return {"ok": False, "summary": f"Couldn't read that page: {err}"}
+        if not (text or "").strip():
+            return {"ok": True, "content": "", "summary": "That page had no readable text."}
+        return {"ok": True, "content": text[:8000],
+                "summary": f"Read the page at {url}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Failed to read the URL: {e}"}
+
+
 def _tool_send_email(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Send an email on the operator's behalf (CONFIRM-risk; only runs after the
     operator confirms via the action-execute endpoint)."""
@@ -56427,6 +56444,11 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string"}},
          "required": ["query"]}},
+    {"name": "read_url", "risk": "auto", "executor": _tool_read_url,
+     "description": "Fetch and read the live text of a web page or link (read-only). Use to analyze a website, read an article/landing page, or pull facts from a URL the operator mentions.",
+     "parameters": {"type": "object", "properties": {
+         "url": {"type": "string", "description": "The full URL to read."}},
+         "required": ["url"]}},
     {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
      "description": "Email someone on the operator's behalf. Use this WHENEVER the operator asks to email, send, or message a person — compose the full email (to, subject, body) yourself from the conversation. The system ALWAYS shows the operator a confirmation card to review and approve before anything is actually sent, so this is safe and is the correct tool for any 'email X' / 'send this to X' request. Do not just describe the email in text — call this tool so the operator gets the Send button.",
      "parameters": {"type": "object", "properties": {

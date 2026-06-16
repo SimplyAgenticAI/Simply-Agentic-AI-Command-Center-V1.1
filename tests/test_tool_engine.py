@@ -97,3 +97,11 @@ def test_action_execute_endpoint_requires_auth():
         resp = c.post("/api/teammate/action/execute")
         assert resp.status_code in (401, 403)
         assert resp.status_code != 200
+
+
+def test_read_url_is_auto_and_safe():
+    assert app_module._tool_risk("read_url") == "auto"
+    assert "read_url" in app_module._TOOL_BY_NAME
+    # Empty URL fails gracefully; never raises.
+    res = app_module._execute_teammate_tool("read_url", {"url": ""}, "u", "Ava")
+    assert res["ok"] is False
