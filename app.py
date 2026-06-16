@@ -24758,17 +24758,34 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const card = document.createElement("div");
       card.style.cssText = "margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.08);";
       const title = document.createElement("div");
-      title.style.cssText = "font-size:13px;font-weight:700;color:#fcd34d;margin-bottom:6px;";
-      title.textContent = "⚠ Confirm before this happens";
+      title.style.cssText = "font-size:13px;font-weight:700;color:#fcd34d;margin-bottom:8px;";
+      title.textContent = "⚠ Review & confirm before sending";
       card.appendChild(title);
       const a = (ca && ca.args) || {};
-      const det = document.createElement("div");
-      det.style.cssText = "font-size:12px;color:#cbd5e1;opacity:.9;margin-bottom:10px;white-space:pre-wrap;line-height:1.5;";
-      const lines = [];
-      if(a.to) lines.push("To: " + a.to);
-      if(a.subject) lines.push("Subject: " + a.subject);
-      if(a.body) lines.push("\n" + (String(a.body).length > 320 ? String(a.body).slice(0,320) + "…" : a.body));
-      if(lines.length){ det.textContent = lines.join("\n"); card.appendChild(det); }
+      const isEmail = !!(ca && ca.action === "send_email");
+
+      // Editable fields for email; clicking Confirm sends the EDITED values.
+      let toEl, subjEl, bodyEl;
+      const fStyle = "width:100%;box-sizing:border-box;padding:7px 10px;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6edff;font-size:12.5px;font-family:inherit;margin-bottom:7px;";
+      if(isEmail){
+        const mkLabel = function(t){ const l=document.createElement("div"); l.textContent=t; l.style.cssText="font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:3px;"; return l; };
+        card.appendChild(mkLabel("To"));
+        toEl = document.createElement("input"); toEl.type="text"; toEl.value=a.to||""; toEl.style.cssText=fStyle; card.appendChild(toEl);
+        card.appendChild(mkLabel("Subject"));
+        subjEl = document.createElement("input"); subjEl.type="text"; subjEl.value=a.subject||""; subjEl.style.cssText=fStyle; card.appendChild(subjEl);
+        card.appendChild(mkLabel("Message"));
+        bodyEl = document.createElement("textarea"); bodyEl.value=a.body||""; bodyEl.style.cssText=fStyle+"min-height:120px;resize:vertical;line-height:1.5;"; card.appendChild(bodyEl);
+      } else {
+        const det = document.createElement("div");
+        det.style.cssText = "font-size:12.5px;color:#cbd5e1;margin-bottom:10px;";
+        det.textContent = (ca && ca.summary) || ("Run " + ((ca&&ca.action)||"action") + "?");
+        card.appendChild(det);
+      }
+      const curArgs = function(){
+        if(!isEmail) return a;
+        return {to:(toEl.value||"").trim(), subject:(subjEl.value||"").trim(), body:(bodyEl.value||"")};
+      };
+
       const row = document.createElement("div");
       row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
       const confirmBtn = document.createElement("button");
@@ -24779,12 +24796,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       cancelBtn.className = "btn btnMini";
       cancelBtn.textContent = "Cancel";
       cancelBtn.style.cssText = "background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);color:#fca5a5;";
+      const post = function(payload){
+        return fetch("/api/teammate/action/execute", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+      };
       const finish = async function(isCancel){
         confirmBtn.disabled = true; cancelBtn.disabled = true;
         confirmBtn.textContent = isCancel ? "Confirm & Send" : "Sending…";
         try{
-          const res = await fetch("/api/teammate/action/execute", {method:"POST", headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({teammate: window.selectedSeat||"", action: ca.action, args: a, cancel: !!isCancel})});
+          const res = await post({teammate: window.selectedSeat||"", action: ca.action, args: curArgs(), cancel: !!isCancel});
           const d = await res.json().catch(()=>({}));
           if(typeof showToast === "function") showToast(isCancel ? "Cancelled" : (d.summary || (d.ok ? "Done" : "Couldn't complete")));
         }catch(_e){ if(typeof showToast === "function") showToast("Action failed"); }
@@ -24793,6 +24812,24 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       confirmBtn.onclick = function(){ finish(false); };
       cancelBtn.onclick = function(){ finish(true); };
       row.appendChild(confirmBtn); row.appendChild(cancelBtn);
+
+      // Open the (edited) draft full-screen in the Email Console; neutralize the
+      // chat card so it can't be double-sent — the send happens in the console.
+      if(isEmail && typeof window.applyEmailDraft === "function"){
+        const consoleBtn = document.createElement("button");
+        consoleBtn.className = "btn btnMini";
+        consoleBtn.textContent = "✉ Open in Email Console";
+        consoleBtn.style.cssText = "background:rgba(59,130,246,.16);border:1px solid rgba(59,130,246,.4);color:#93c5fd;";
+        consoleBtn.onclick = async function(){
+          const args = curArgs();
+          confirmBtn.disabled = true; cancelBtn.disabled = true; consoleBtn.disabled = true;
+          try{ window.applyEmailDraft({to:args.to, subject:args.subject, body:args.body}, window.selectedSeat||""); }catch(_e){}
+          try{ await post({teammate: window.selectedSeat||"", action: ca.action, args: args, cancel: true}); }catch(_e){}
+          if(typeof showToast === "function") showToast("↪ Opened in Email Console — review & send there");
+          try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_e){}
+        };
+        row.appendChild(consoleBtn);
+      }
       card.appendChild(row);
       return card;
     }
