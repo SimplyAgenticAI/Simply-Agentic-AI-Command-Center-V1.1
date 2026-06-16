@@ -46758,17 +46758,17 @@ window.toggleNotifPanel = function(){
       // then fires controllerchange, and reloading there caused the annoying
       // "loads, then resets" on first open. Ignore that initial claim.
       var _hadController = !!navigator.serviceWorker.controller;
-      var _reloading = false;
+      var _notifiedUpdate = false;
       navigator.serviceWorker.addEventListener('controllerchange', function(){
-        if(!_hadController){ _hadController = true; return; }  // initial claim — don't reload
-        if(_reloading) return;
-        _reloading = true;
-        // Show a brief toast before reloading so the user isn't surprised
+        if(!_hadController){ _hadController = true; return; }  // initial claim — ignore
+        // A new version activated in the background. Do NOT force-reload the tab —
+        // that caused the jarring "loads, then reboots a few seconds later" after
+        // every deploy. Just let the operator know; the new version loads on their
+        // next manual refresh / navigation, like a normal website.
+        if(_notifiedUpdate) return;
+        _notifiedUpdate = true;
         if(typeof showToast === 'function'){
-          showToast('⚡ App updated — refreshing…');
-          setTimeout(function(){ window.location.reload(); }, 1200);
-        } else {
-          window.location.reload();
+          showToast('✨ A new version is ready — refresh anytime to update.');
         }
       });
     });
