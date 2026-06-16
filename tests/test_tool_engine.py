@@ -105,3 +105,18 @@ def test_read_url_is_auto_and_safe():
     # Empty URL fails gracefully; never raises.
     res = app_module._execute_teammate_tool("read_url", {"url": ""}, "u", "Ava")
     assert res["ok"] is False
+
+
+def test_injection_guard_escalates_mutating_tools_after_external_content():
+    # No untrusted content read yet → auto stays auto.
+    assert app_module._effective_tool_risk("crm_add_client", False) == "auto"
+    # After reading untrusted external content, state-mutating auto tools escalate
+    # to confirm so injected instructions can't silently write to the CRM.
+    assert app_module._effective_tool_risk("crm_add_client", True) == "confirm"
+    assert app_module._effective_tool_risk("crm_log_activity", True) == "confirm"
+    # Non-mutating auto tools are unaffected.
+    assert app_module._effective_tool_risk("generate_image", True) == "auto"
+    assert app_module._effective_tool_risk("read_url", True) == "auto"
+    # Already-confirm tools stay confirm regardless.
+    assert app_module._effective_tool_risk("send_email", True) == "confirm"
+    assert app_module._effective_tool_risk("send_email", False) == "confirm"
