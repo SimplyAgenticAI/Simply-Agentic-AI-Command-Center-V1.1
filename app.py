@@ -56400,6 +56400,15 @@ def api_followup_stream():
     # LLM-context truncation applied to `thread` above.
     pre_thread = list(full_thread)
 
+    # Real tool use is enabled by the env flag OR automatically for the operator
+    # (admin) account — so the operator can use it in prod without env config,
+    # while it stays off for everyone else until proven. Computed here in request
+    # context (current_user() is unreliable inside the SSE generator).
+    try:
+        _tools_on = SAAI_TOOLS_ENABLED or _is_admin_user(current_user())
+    except Exception:
+        _tools_on = SAAI_TOOLS_ENABLED
+
     def _persist_stream_result(parts: list) -> tuple:
         """Save thread, extract draft, log. Returns (complete_text, draft)."""
         complete_text = "".join(parts)
@@ -56459,54 +56468,71 @@ def api_followup_stream():
             # It runs a short tool loop (auto tools execute; results fed back),
             # streaming tool-status + the final answer via the SAME token events
             # the client already renders — so no client changes are needed here.
-            if SAAI_TOOLS_ENABLED and not _use_claude and oai_client is not None:
-                _tmsgs = ([{"role": "system", "content": sys_prompt}]
-                          + list(thread)
-                          + [{"role": "user", "content": user_content}])
+            if _tools_on and not _use_claude and oai_client is not None:
+                # Run the tool rounds WITHOUT yielding so that any failure can
+                # fall through cleanly to the normal streaming path below — tools
+                # become a pure enhancement that can never degrade the chat.
+                _tool_ok = True
                 _final = ""
                 _did_tool = False
-                for _round in range(5):
-                    if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
-                        break
-                    _r = oai_client.chat.completions.create(
-                        model=preferred_model, messages=_tmsgs,
-                        tools=_tools_openai_schema(), tool_choice="auto",
-                        temperature=0.65, timeout=90)
-                    _m = _r.choices[0].message
-                    _calls = getattr(_m, "tool_calls", None)
-                    if not _calls:
-                        _final = _m.content or ""
-                        break
-                    _did_tool = True
-                    _tmsgs.append({"role": "assistant", "content": _m.content or "",
-                                   "tool_calls": [{"id": c.id, "type": "function",
-                                       "function": {"name": c.function.name,
-                                                    "arguments": c.function.arguments}} for c in _calls]})
-                    for c in _calls:
-                        _nm = c.function.name
-                        try:
-                            _args = json.loads(c.function.arguments or "{}")
-                        except Exception:
-                            _args = {}
-                        if _tool_risk(_nm) == "auto":
-                            _res = _execute_teammate_tool(_nm, _args, uname, name)
-                        else:
-                            _res = {"ok": False, "summary": f"{_nm} needs your confirmation (coming soon)."}
-                        yield "data: " + json.dumps({"token": "🔧 " + (_res.get("summary") or _nm) + "\n"}) + "\n\n"
-                        _tmsgs.append({"role": "tool", "tool_call_id": c.id,
-                                       "content": json.dumps(_res)[:4000]})
-                if not _final:
-                    _final = "Done." if _did_tool else "I couldn't complete that — try rephrasing."
-                for _i in range(0, len(_final), 80):
-                    yield "data: " + json.dumps({"token": _final[_i:_i + 80]}) + "\n\n"
+                _tool_notes = []
                 try:
-                    save_thread(name, pre_thread + [{"role": "user", "content": msg2},
-                                                    {"role": "assistant", "content": _final}], uname)
-                except Exception:
-                    pass
-                _persisted = True
-                yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
-                return
+                    _tmsgs = ([{"role": "system", "content": sys_prompt}]
+                              + list(thread)
+                              + [{"role": "user", "content": user_content}])
+                    for _round in range(5):
+                        if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
+                            break
+                        _r = oai_client.chat.completions.create(
+                            model=preferred_model, messages=_tmsgs,
+                            tools=_tools_openai_schema(), tool_choice="auto",
+                            temperature=0.65, timeout=90)
+                        _m = _r.choices[0].message
+                        _calls = getattr(_m, "tool_calls", None)
+                        if not _calls:
+                            _final = _m.content or ""
+                            break
+                        _did_tool = True
+                        _tmsgs.append({"role": "assistant", "content": _m.content or "",
+                                       "tool_calls": [{"id": c.id, "type": "function",
+                                           "function": {"name": c.function.name,
+                                                        "arguments": c.function.arguments}} for c in _calls]})
+                        for c in _calls:
+                            _nm = c.function.name
+                            try:
+                                _args = json.loads(c.function.arguments or "{}")
+                            except Exception:
+                                _args = {}
+                            if _tool_risk(_nm) == "auto":
+                                _res = _execute_teammate_tool(_nm, _args, uname, name)
+                            else:
+                                _res = {"ok": False, "summary": f"{_nm} needs your confirmation (coming soon)."}
+                            _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
+                            _tmsgs.append({"role": "tool", "tool_call_id": c.id,
+                                           "content": json.dumps(_res)[:4000]})
+                    if not _final:
+                        _final = "Done." if _did_tool else ""
+                except Exception as _tool_exc:
+                    _tool_ok = False
+                    try: print("[TOOLS] tool path failed, falling back to normal chat:", _tool_exc, flush=True)
+                    except Exception: pass
+                # Take over the response when the tool path produced an answer
+                # (with or without a tool call — single API call either way).
+                # Only an exception or an empty answer falls through to normal
+                # streaming below.
+                if _tool_ok and _final:
+                    _body = ("\n".join(_tool_notes) + "\n\n" + _final) if _tool_notes else _final
+                    for _i in range(0, len(_body), 80):
+                        yield "data: " + json.dumps({"token": _body[_i:_i + 80]}) + "\n\n"
+                    try:
+                        save_thread(name, pre_thread + [{"role": "user", "content": msg2},
+                                                        {"role": "assistant", "content": _body}], uname)
+                    except Exception:
+                        pass
+                    _persisted = True
+                    yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
+                    return
+                # No tool was used (or it failed) → fall through to normal streaming.
             # ── Claude streaming path ─────────────────────────────────────────
             if _use_claude:
                 claude_client = _get_claude_client_for_user(current_user())
