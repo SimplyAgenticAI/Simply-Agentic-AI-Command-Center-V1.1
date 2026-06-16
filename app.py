@@ -61789,7 +61789,7 @@ a{color:#a78bfa;text-decoration:none;}
   <h1>Get up to speed in minutes ✨</h1>
   <p>Click any episode for a full-screen animated walkthrough — every feature shown step by step, with written instructions alongside the animation.</p>
   <div class="gs-progress">
-    <span id="progressLabel">0 of 8 complete</span>
+    <span id="progressLabel">0 of 10 complete</span>
     <div class="gs-progress-bar"><div class="gs-progress-fill" id="progressFill" style="width:0%"></div></div>
   </div>
 </div>
@@ -61864,6 +61864,24 @@ a{color:#a78bfa;text-decoration:none;}
       <div class="ep-meta"><span class="ep-num">EP 08</span><span class="ep-dur">~2 min</span></div>
       <div class="ep-title">Chrome extension</div>
       <div class="ep-desc">Import leads from Facebook with one click. The extension bridges social media and your CRM automatically.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
+    </div>
+  </div>
+  <div class="ep-card" data-ep="9" id="ep9">
+    <div class="ep-preview" id="prev9"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 09</span><span class="ep-dur">~2 min</span></div>
+      <div class="ep-title">Teammates that take action</div>
+      <div class="ep-desc">Your teammates don't just advise — they do the work. Add CRM contacts, generate images, research the web, and send emails (with your one-click approval) right from chat.</div>
+      <div class="ep-cta">▶ Watch walkthrough →</div>
+    </div>
+  </div>
+  <div class="ep-card" data-ep="10" id="ep10">
+    <div class="ep-preview" id="prev10"><div class="ep-watched-badge">✓ Done</div><div class="ep-play-hint"><div class="ep-play-circle">▶</div></div></div>
+    <div class="ep-info">
+      <div class="ep-meta"><span class="ep-num">EP 10</span><span class="ep-dur">~2 min</span></div>
+      <div class="ep-title">Team Goal</div>
+      <div class="ep-desc">Describe a goal and your whole AI team plans it, splits the work between the right specialists, and delivers one finished result — live.</div>
       <div class="ep-cta">▶ Watch walkthrough →</div>
     </div>
   </div>
@@ -62008,6 +62026,28 @@ var EPISODES = {
       {t:'Draft a <strong>message with AI</strong>', d:'Hit "Draft message" to get an AI-written personalised opening message instantly.'},
     ],
     ani: buildEP8
+  },
+  9: {
+    num:'EP 09', title:'Teammates that take action',
+    steps:[
+      {t:'Just <strong>ask</strong>', d:'In any teammate\'s chat, describe what you want done in plain English — like "add Jamie Cole (jamie@x.com) to my CRM."'},
+      {t:'They <strong>do it</strong>, not just describe it', d:'Teammates can add and update CRM contacts, generate images, and read &amp; research live web pages — automatically and safely.'},
+      {t:'Risky actions ask <strong>first</strong>', d:'Sending an email shows a Confirm card with the editable draft. Nothing goes out until you approve it.'},
+      {t:'See what happened', d:'A small 🔧 note shows each action a teammate took, right in the conversation.'},
+      {t:'Edit before you send', d:'On the email Confirm card you can tweak the To, Subject and Body, or open it full-screen in the Email Console.'},
+    ],
+    ani: buildEP9
+  },
+  10: {
+    num:'EP 10', title:'Team Goal',
+    steps:[
+      {t:'Open <strong>Team Goal</strong>', d:'Click the ⋯ More menu in the chat, then choose 🧠 Team Goal.'},
+      {t:'Describe the <strong>outcome</strong>', d:'Type a goal like "plan and write a 5-email welcome sequence for new clients."'},
+      {t:'The team <strong>plans it</strong>', d:'An orchestrator breaks the goal into steps and assigns each to the best-fit teammate.'},
+      {t:'Watch them <strong>collaborate</strong>', d:'Each specialist does their part live — strategy, research, copy, design — building on the last.'},
+      {t:'Get one <strong>finished result</strong>', d:'Everything is synthesized into a single deliverable you can use right away.'},
+    ],
+    ani: buildEP10
   },
 };
 
@@ -62321,10 +62361,64 @@ function buildEP8(container, id){
   seq(id, steps, 8800, container);
 }
 
-var BUILDERS = {1:buildEP1,2:buildEP2,3:buildEP3,4:buildEP4,5:buildEP5,6:buildEP6,7:buildEP7,8:buildEP8};
+function buildEP9(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('Ava — teammate'));
+      var body=div('ani-body'); s.appendChild(body); container.appendChild(s);
+      var msg=div('ani-card'); msg.style.cssText='font-size:9px;color:#cbd5e1;'; msg.textContent='You: add Jamie Cole to my CRM'; body.appendChild(msg);
+    }],
+    [1400,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var act=div('ani-card slide-in-r'); act.id=id+'act'; act.style.cssText='border-color:rgba(124,58,237,.5);margin-top:6px;';
+      act.innerHTML='<span style="font-size:8.5px;">🔧 Adding contact…</span>';
+      var tr=div('ani-progress-track'); tr.style.marginTop='6px'; act.appendChild(tr);
+      var fl=div('ani-progress-fill'); fl.style.transition='width 1.4s'; tr.appendChild(fl);
+      body.appendChild(act); setTimeout(function(){fl.style.width='100%';},50);
+    }],
+    [3200,function(){
+      var act=document.getElementById(id+'act'); if(!act)return;
+      var b=div('ani-badge green fade-in'); b.style.marginTop='5px'; b.textContent='✓ Jamie added to CRM'; act.appendChild(b);
+    }],
+  ];
+  seq(id, steps, 6000, container);
+}
+
+function buildEP10(container, id){
+  var steps=[
+    [0,function(){
+      container.innerHTML='';
+      var s=div('ani-screen'); s.appendChild(mkBar('Team Goal'));
+      var body=div('ani-body'); s.appendChild(body); container.appendChild(s);
+      var g=div('ani-card'); g.style.cssText='font-size:9px;color:#cbd5e1;'; g.textContent='Goal: launch a 5-email welcome sequence'; body.appendChild(g);
+    }],
+    [1300,function(){
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var s1=div('ani-card slide-in-r'); s1.id=id+'s1'; s1.style.cssText='border-color:rgba(124,58,237,.4);margin-top:6px;';
+      s1.innerHTML='<span style="font-size:8.5px;font-weight:700;color:#c4b5fd;">Alex · plan</span>'; body.appendChild(s1);
+    }],
+    [2700,function(){
+      var s1=document.getElementById(id+'s1'); if(s1){ var b=div('ani-badge green fade-in'); b.style.cssText='margin-left:6px;'; b.textContent='✓'; s1.appendChild(b); }
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var s2=div('ani-card slide-in-r'); s2.id=id+'s2'; s2.style.cssText='border-color:rgba(124,58,237,.4);margin-top:6px;';
+      s2.innerHTML='<span style="font-size:8.5px;font-weight:700;color:#c4b5fd;">Willow · write</span>'; body.appendChild(s2);
+    }],
+    [4200,function(){
+      var s2=document.getElementById(id+'s2'); if(s2){ var b=div('ani-badge green fade-in'); b.style.cssText='margin-left:6px;'; b.textContent='✓'; s2.appendChild(b); }
+      var body=container.querySelector('.ani-body'); if(!body)return;
+      var fin=div('ani-card fade-in'); fin.style.cssText='border-color:rgba(110,231,183,.5);background:rgba(110,231,183,.08);margin-top:6px;';
+      fin.innerHTML='<span style="font-size:9px;font-weight:800;color:#6ee7b7;">✓ Final result delivered</span>'; body.appendChild(fin);
+    }],
+  ];
+  seq(id, steps, 7000, container);
+}
+
+var BUILDERS = {1:buildEP1,2:buildEP2,3:buildEP3,4:buildEP4,5:buildEP5,6:buildEP6,7:buildEP7,8:buildEP8,9:buildEP9,10:buildEP10};
+var EP_TOTAL = Object.keys(EPISODES).length;
 
 // ── Launch thumbnail animations on the cards ──────────────────────────────────
-for(var _i=1;_i<=8;_i++){
+for(var _i=1;_i<=EP_TOTAL;_i++){
   (function(n){
     var container = document.getElementById('prev'+n);
     if(container) BUILDERS[n](container, 'card'+n);
@@ -62340,9 +62434,9 @@ function markWatched(n){
 }
 function updateProgress(){
   var count=Object.keys(watched).length;
-  document.getElementById('progressLabel').textContent=count+' of 8 complete';
-  document.getElementById('progressFill').style.width=Math.round(count/8*100)+'%';
-  for(var i=1;i<=8;i++){
+  document.getElementById('progressLabel').textContent=count+' of '+EP_TOTAL+' complete';
+  document.getElementById('progressFill').style.width=Math.round(count/EP_TOTAL*100)+'%';
+  for(var i=1;i<=EP_TOTAL;i++){
     var card=document.getElementById('ep'+i);
     if(card){ if(watched['ep'+i])card.classList.add('watched'); else card.classList.remove('watched'); }
   }
@@ -62375,7 +62469,7 @@ function openModal(n){
   // nav dots
   var dotsEl = document.getElementById('gsNavDots');
   dotsEl.innerHTML = '';
-  for(var i=1;i<=8;i++){
+  for(var i=1;i<=EP_TOTAL;i++){
     (function(idx){
       var dot = div('gs-nav-dot'); dot.dataset.ep=idx;
       if(idx===n) dot.classList.add('active');
@@ -62386,8 +62480,8 @@ function openModal(n){
   }
   // prev / next
   document.getElementById('gsPrev').disabled = (n===1);
-  document.getElementById('gsNext').disabled = (n===8);
-  document.getElementById('gsNext').textContent = n===8 ? 'Done ✓' : 'Next →';
+  document.getElementById('gsNext').disabled = (n===EP_TOTAL);
+  document.getElementById('gsNext').textContent = n===EP_TOTAL ? 'Done ✓' : 'Next →';
   // watched button
   var wb = document.getElementById('gsWatchedBtn');
   wb.textContent = watched['ep'+n] ? '✓ Completed' : '✓ Mark complete';
@@ -62411,7 +62505,7 @@ document.getElementById('gsModalClose').onclick = closeModal;
 document.getElementById('gsBg').onclick = function(e){ if(e.target===this) closeModal(); };
 document.getElementById('gsPrev').onclick = function(){ if(currentEp>1) openModal(currentEp-1); };
 document.getElementById('gsNext').onclick = function(){
-  if(currentEp<8){ openModal(currentEp+1); }
+  if(currentEp<EP_TOTAL){ openModal(currentEp+1); }
   else { closeModal(); }
 };
 document.getElementById('gsWatchedBtn').onclick = function(){
@@ -62421,7 +62515,7 @@ document.getElementById('gsWatchedBtn').onclick = function(){
 document.addEventListener('keydown',function(e){
   if(document.getElementById('gsBg').style.display==='none') return;
   if(e.key==='Escape') closeModal();
-  if(e.key==='ArrowRight' && currentEp<8) openModal(currentEp+1);
+  if(e.key==='ArrowRight' && currentEp<EP_TOTAL) openModal(currentEp+1);
   if(e.key==='ArrowLeft'  && currentEp>1) openModal(currentEp-1);
 });
 
