@@ -21850,18 +21850,10 @@ input[type="range"]::-moz-range-progress {
           </div>
         </div>
 
-        <!-- Shared Team Memory panel -->
-        <div class="groupCard" id="sharedMemoryCard" style="margin-top:12px;display:none;">
-          <div class="sideHead">
-            <div class="sideTitle">
-              <div class="h1">🧠 Shared Team Memory</div>
-              <div class="h2">Facts, decisions, and open loops extracted from group sessions.</div>
-            </div>
-            <button class="btn btnMini" id="clearSharedMemoryBtn">Clear</button>
-          </div>
-          <div id="sharedMemoryBody" style="padding:8px 4px;font-size:12px;line-height:1.6;color:rgba(182,196,255,.85);">
-          </div>
-        </div>
+        <!-- Shared Team Memory panel removed from the main interface — the
+             feature still works: shared memory is extracted after sessions and
+             injected into every teammate's context automatically. -->
+
       </div>
     </div>
 
@@ -38958,18 +38950,8 @@ if(typeof maybeAutoShowOnboarding === "function"){
         if(typeof showToast==="function") showToast("Shared memory cleared");
       }catch(e){}
     });
-    loadSharedMemory();
+    // (panel removed from the main interface — no load needed)
   });
-
-  // Poll after convene so the panel updates automatically
-  (function patchConveneAll(){
-    const orig = window.conveneAll;
-    if(typeof orig !== "function"){ setTimeout(patchConveneAll, 400); return; }
-    window.conveneAll = async function(){
-      await orig.apply(this, arguments);
-      setTimeout(loadSharedMemory, 3500);  // wait for async extraction
-    };
-  })();
 
   /* ── 2. TOOL-CALL BADGES ON MESSAGES ──────────────────────────────────────── */
   // Patch sendFollow / followup response to show tool badges
