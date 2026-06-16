@@ -56453,6 +56453,60 @@ def api_followup_stream():
         parts = []
         _persisted = False
         try:
+            # ── Tool-enabled agentic path (flag-gated; OpenAI tool-calling) ───
+            # When SAAI_TOOLS_ENABLED is off (default), this whole block is
+            # skipped and the streaming paths below are byte-for-byte unchanged.
+            # It runs a short tool loop (auto tools execute; results fed back),
+            # streaming tool-status + the final answer via the SAME token events
+            # the client already renders — so no client changes are needed here.
+            if SAAI_TOOLS_ENABLED and not _use_claude and oai_client is not None:
+                _tmsgs = ([{"role": "system", "content": sys_prompt}]
+                          + list(thread)
+                          + [{"role": "user", "content": user_content}])
+                _final = ""
+                _did_tool = False
+                for _round in range(5):
+                    if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
+                        break
+                    _r = oai_client.chat.completions.create(
+                        model=preferred_model, messages=_tmsgs,
+                        tools=_tools_openai_schema(), tool_choice="auto",
+                        temperature=0.65, timeout=90)
+                    _m = _r.choices[0].message
+                    _calls = getattr(_m, "tool_calls", None)
+                    if not _calls:
+                        _final = _m.content or ""
+                        break
+                    _did_tool = True
+                    _tmsgs.append({"role": "assistant", "content": _m.content or "",
+                                   "tool_calls": [{"id": c.id, "type": "function",
+                                       "function": {"name": c.function.name,
+                                                    "arguments": c.function.arguments}} for c in _calls]})
+                    for c in _calls:
+                        _nm = c.function.name
+                        try:
+                            _args = json.loads(c.function.arguments or "{}")
+                        except Exception:
+                            _args = {}
+                        if _tool_risk(_nm) == "auto":
+                            _res = _execute_teammate_tool(_nm, _args, uname, name)
+                        else:
+                            _res = {"ok": False, "summary": f"{_nm} needs your confirmation (coming soon)."}
+                        yield "data: " + json.dumps({"token": "🔧 " + (_res.get("summary") or _nm) + "\n"}) + "\n\n"
+                        _tmsgs.append({"role": "tool", "tool_call_id": c.id,
+                                       "content": json.dumps(_res)[:4000]})
+                if not _final:
+                    _final = "Done." if _did_tool else "I couldn't complete that — try rephrasing."
+                for _i in range(0, len(_final), 80):
+                    yield "data: " + json.dumps({"token": _final[_i:_i + 80]}) + "\n\n"
+                try:
+                    save_thread(name, pre_thread + [{"role": "user", "content": msg2},
+                                                    {"role": "assistant", "content": _final}], uname)
+                except Exception:
+                    pass
+                _persisted = True
+                yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
+                return
             # ── Claude streaming path ─────────────────────────────────────────
             if _use_claude:
                 claude_client = _get_claude_client_for_user(current_user())
