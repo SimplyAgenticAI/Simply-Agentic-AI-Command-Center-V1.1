@@ -56969,6 +56969,103 @@ def api_followup_stream():
                     yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
                     return
                 # No tool was used (or it failed) → fall through to normal streaming.
+
+            # ── Tool-enabled agentic path for Claude models (Anthropic tool use) ──
+            # Same shape + fallback-safety as the OpenAI branch above: run the tool
+            # rounds; on any failure or empty result, fall through to the normal
+            # Claude streaming path below so the chat is never degraded.
+            if _tools_on and _use_claude:
+                try:
+                    _cc = _get_claude_client_for_user(current_user())
+                except Exception:
+                    _cc = None
+                if _cc is not None:
+                    _tool_ok = True
+                    _final = ""
+                    _did_tool = False
+                    _tool_notes = []
+                    _pending_confirm = None
+                    try:
+                        _cmsgs = []
+                        for _mm in list(thread):
+                            _mc = _mm.get("content", "")
+                            if isinstance(_mc, list):
+                                _mc = " ".join(p.get("text", "") for p in _mc
+                                               if isinstance(p, dict) and p.get("type") == "text").strip()
+                            _cmsgs.append({"role": _mm.get("role", "user"), "content": str(_mc)})
+                        _cmsgs.append({"role": "user", "content": msg2})
+                        for _round in range(5):
+                            if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
+                                break
+                            _resp = _cc.messages.create(
+                                model=preferred_model, max_tokens=4096, system=sys_prompt,
+                                messages=_cmsgs, tools=_tools_anthropic_schema())
+                            _text_parts, _tool_uses, _asst_content = [], [], []
+                            for _block in _resp.content:
+                                _bt = getattr(_block, "type", "")
+                                if _bt == "text":
+                                    _text_parts.append(getattr(_block, "text", ""))
+                                    _asst_content.append({"type": "text", "text": getattr(_block, "text", "")})
+                                elif _bt == "tool_use":
+                                    _tool_uses.append(_block)
+                                    _asst_content.append({"type": "tool_use", "id": _block.id,
+                                                          "name": _block.name, "input": _block.input})
+                            if not _tool_uses:
+                                _final = "".join(_text_parts)
+                                break
+                            _did_tool = True
+                            _cmsgs.append({"role": "assistant", "content": _asst_content})
+                            _results, _stop = [], False
+                            for _tu in _tool_uses:
+                                _nm = _tu.name
+                                _args = _tu.input if isinstance(_tu.input, dict) else {}
+                                if _tool_risk(_nm) == "auto":
+                                    _res = _execute_teammate_tool(_nm, _args, uname, name)
+                                    _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
+                                    _results.append({"type": "tool_result", "tool_use_id": _tu.id,
+                                                     "content": json.dumps(_res)[:4000]})
+                                else:
+                                    _pending_confirm = {"action": _nm, "args": _args,
+                                                        "summary": _confirm_summary(_nm, _args)}
+                                    _stop = True
+                                    break
+                            if _stop:
+                                break
+                            _cmsgs.append({"role": "user", "content": _results})
+                        if not _final and not _pending_confirm:
+                            _final = "Done." if _did_tool else ""
+                    except Exception as _tool_exc:
+                        _tool_ok = False
+                        try: print("[TOOLS] claude tool path failed, falling back:", _tool_exc, flush=True)
+                        except Exception: pass
+                    if _tool_ok and _pending_confirm:
+                        _pre = ("\n".join(_tool_notes) + "\n\n") if _tool_notes else ""
+                        _visible = _pre + _pending_confirm["summary"]
+                        for _i in range(0, len(_visible), 80):
+                            yield "data: " + json.dumps({"token": _visible[_i:_i + 80]}) + "\n\n"
+                        _stored = (_visible + "\n[confirm_action]"
+                                   + json.dumps(_pending_confirm, ensure_ascii=False) + "[/confirm_action]")
+                        try:
+                            save_thread(name, pre_thread + [{"role": "user", "content": msg2},
+                                                            {"role": "assistant", "content": _stored}], uname)
+                        except Exception:
+                            pass
+                        _persisted = True
+                        yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
+                        return
+                    if _tool_ok and _final:
+                        _body = ("\n".join(_tool_notes) + "\n\n" + _final) if _tool_notes else _final
+                        for _i in range(0, len(_body), 80):
+                            yield "data: " + json.dumps({"token": _body[_i:_i + 80]}) + "\n\n"
+                        try:
+                            save_thread(name, pre_thread + [{"role": "user", "content": msg2},
+                                                            {"role": "assistant", "content": _body}], uname)
+                        except Exception:
+                            pass
+                        _persisted = True
+                        yield "data: " + json.dumps({"done": True, "attachment_meta": attach_meta}) + "\n\n"
+                        return
+                    # Tool path failed/empty → fall through to normal Claude streaming.
             # ── Claude streaming path ─────────────────────────────────────────
             if _use_claude:
                 claude_client = _get_claude_client_for_user(current_user())
