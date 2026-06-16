@@ -24840,13 +24840,44 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const goal = (goalEl.value||"").trim();
         if(!goal){ goalEl.focus(); return; }
         runBtn.disabled = true; runBtn.textContent = "⏳ Your team is working…";
-        resBox.innerHTML = '<div style="font-size:13px;color:#94a3b8;padding:8px 0;">Planning and delegating across your team — this can take a moment…</div>';
+        const esc = function(s){ return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
+        resBox.innerHTML = '<div style="font-size:13px;color:#94a3b8;padding:4px 0 10px;">Planning the work across your team…</div>';
+        const stepsWrap = document.createElement("div"); resBox.appendChild(stepsWrap);
+        const synthWrap = document.createElement("div"); resBox.appendChild(synthWrap);
+        const stepEls = [];
+        function renderStep(i, teammate, task, output, working){
+          let el = stepEls[i];
+          if(!el){ el = document.createElement("div"); el.style.cssText = "margin-bottom:10px;padding:11px 13px;border-radius:11px;border:1px solid rgba(124,58,237,.25);background:rgba(124,58,237,.06);"; stepsWrap.appendChild(el); stepEls[i] = el; }
+          const out = output==null ? "" : String(output);
+          el.innerHTML = '<div style="font-size:12px;font-weight:700;color:#c4b5fd;margin-bottom:4px;">Step '+(i+1)+' · '+esc(teammate)+(working?' <span style="opacity:.7;font-weight:400;">— working…</span>':'')+'</div>'
+            + '<div style="font-size:11.5px;color:#94a3b8;margin-bottom:6px;">'+esc(task)+'</div>'
+            + (output!=null ? '<div style="font-size:12.5px;color:#cbd5e1;white-space:pre-wrap;line-height:1.55;">'+esc(out.slice(0,1200))+(out.length>1200?"…":"")+'</div>' : '');
+        }
         try{
-          const res = await fetch("/api/team/orchestrate", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({goal: goal})});
-          const d = await res.json().catch(()=>({}));
-          if(!d || !d.ok){ resBox.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+((d&&d.error)||"Could not run the team.")+'</div>'; }
-          else { resBox.innerHTML = _saRenderTeamRun(d); }
-        }catch(e){ resBox.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Run failed: '+(e&&e.message?e.message:e)+'</div>'; }
+          const res = await fetch("/api/team/orchestrate/stream", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({goal: goal})});
+          if(!res.ok || !res.body){
+            const d = await res.json().catch(()=>({}));
+            synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+esc((d&&d.error)||"Could not run the team.")+'</div>';
+          } else {
+            const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+            while(true){
+              const r = await reader.read();
+              if(r.done) break;
+              buf += dec.decode(r.value, {stream:true});
+              const lines = buf.split("\n"); buf = lines.pop();
+              for(const line of lines){
+                if(!line.startsWith("data:")) continue;
+                let ev; try{ ev = JSON.parse(line.slice(5).trim()); }catch(_e){ continue; }
+                if(ev.type === "error"){ synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+esc(ev.error||"Run failed")+'</div>'; }
+                else if(ev.type === "plan"){ resBox.firstChild.textContent = "Your team is on it…"; (ev.steps||[]).forEach(function(s,i){ renderStep(i, s.teammate, s.task, null, false); }); }
+                else if(ev.type === "step_start"){ renderStep(ev.index, ev.teammate, ev.task, null, true); }
+                else if(ev.type === "step"){ renderStep(ev.index, ev.teammate, ev.task, ev.output, false); }
+                else if(ev.type === "synthesis"){ synthWrap.innerHTML = '<div style="margin-top:14px;padding:13px 15px;border-radius:12px;border:1px solid rgba(110,231,183,.4);background:rgba(110,231,183,.08);"><div style="font-size:13px;font-weight:800;color:#6ee7b7;margin-bottom:6px;">✓ Final result</div><div style="font-size:13.5px;color:#e6edff;white-space:pre-wrap;line-height:1.6;">'+esc(ev.text||"")+'</div></div>'; }
+              }
+              try{ synthWrap.scrollIntoView({block:"nearest"}); }catch(_e){}
+            }
+          }
+        }catch(e){ synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Run failed: '+esc(e&&e.message?e.message:e)+'</div>'; }
         runBtn.disabled = false; runBtn.textContent = "▶ Run again";
       };
     };
@@ -56550,12 +56581,13 @@ def _parse_plan_json(raw: str) -> Dict[str, Any]:
         return {}
 
 
-def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, Any]:
-    """Plan → delegate to specialists → synthesize. Returns a structured run dict;
-    never raises (failures come back as {ok: False, error})."""
+def _orchestrate_goal_events(uname: str, goal: str, max_steps: int = 4):
+    """Generator yielding orchestration events (single source of truth for both
+    the streaming and non-streaming endpoints): error | plan | step_start | step
+    | synthesis | done. Never raises mid-stream for expected failures."""
     goal = (goal or "").strip()
     if not goal:
-        return {"ok": False, "error": "No goal provided."}
+        yield {"type": "error", "error": "No goal provided."}; return
     try:
         reg = load_registry(uname)
         installed = reg.get("installed") or {}
@@ -56563,10 +56595,9 @@ def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, An
         installed = {}
     roster = [(n, (d.get("job_title") or "")) for n, d in installed.items()]
     if not roster:
-        return {"ok": False, "error": "No teammates available to run this."}
+        yield {"type": "error", "error": "No teammates available to run this."}; return
     roster_text = "\n".join(f"- {n}: {jt}" for n, jt in roster)
 
-    # 1. Plan — strict JSON, only real teammates, 2..max_steps steps.
     planner_sys = (
         "You are an orchestrator. Break the operator's goal into a short ordered plan and assign "
         "each step to the single best-fit teammate from the roster. Each step's task must be a "
@@ -56577,18 +56608,18 @@ def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, An
     try:
         plan_raw = call_llm(planner_sys, [{"role": "user", "content": f"Goal: {goal}"}], temperature=0.3)
     except Exception as e:
-        return {"ok": False, "error": f"Planning failed: {e}"}
+        yield {"type": "error", "error": f"Planning failed: {e}"}; return
     valid = set(installed.keys())
     steps_def = [s for s in (_parse_plan_json(plan_raw).get("steps") or [])
                  if isinstance(s, dict) and s.get("teammate") in valid and (s.get("task") or "").strip()][:max_steps]
     if not steps_def:
-        return {"ok": False, "error": "Couldn't produce a valid plan for that goal."}
+        yield {"type": "error", "error": "Couldn't produce a valid plan for that goal."}; return
+    yield {"type": "plan", "steps": [{"teammate": s["teammate"], "task": s["task"].strip()} for s in steps_def]}
 
-    # 2. Delegate — each specialist runs its task with the team's work so far.
-    results: List[Dict[str, Any]] = []
-    context = ""
-    for s in steps_def:
+    context, last_out = "", ""
+    for i, s in enumerate(steps_def):
         tm, task = s["teammate"], s["task"].strip()
+        yield {"type": "step_start", "index": i, "teammate": tm, "task": task}
         prompt = f"GOAL: {goal}\n\nYOUR TASK: {task}"
         if context:
             prompt += f"\n\nWORK ALREADY DONE BY THE TEAM (build on it, don't repeat it):\n{context[-4000:]}"
@@ -56596,10 +56627,10 @@ def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, An
             out = _call_teammate_prompt_for_user(uname, tm, prompt) or ""
         except Exception as e:
             out = f"(step failed: {e})"
-        results.append({"teammate": tm, "task": task, "output": out})
+        last_out = out
         context += f"\n\n[{tm} — {task}]\n{out}"
+        yield {"type": "step", "index": i, "teammate": tm, "task": task, "output": out}
 
-    # 3. Synthesize — one cohesive deliverable.
     try:
         synthesis = call_llm(
             "Synthesize the team's work into one cohesive, finished deliverable for the operator. "
@@ -56607,9 +56638,27 @@ def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, An
             [{"role": "user", "content": f"GOAL: {goal}\n\nTEAM WORK:\n{context[-8000:]}\n\nProduce the final result now."}],
             temperature=0.5)
     except Exception:
-        synthesis = results[-1]["output"] if results else ""
+        synthesis = ""
+    if not synthesis:
+        synthesis = last_out
+    yield {"type": "synthesis", "text": synthesis}
+    yield {"type": "done"}
 
-    return {"ok": True, "goal": goal, "steps": results, "synthesis": synthesis}
+
+def _orchestrate_goal(uname: str, goal: str, max_steps: int = 4) -> Dict[str, Any]:
+    """Non-streaming wrapper — drains the event generator into a result dict.
+    Never raises (failures come back as {ok: False, error})."""
+    steps: List[Dict[str, Any]] = []
+    synthesis = ""
+    for ev in _orchestrate_goal_events(uname, goal, max_steps):
+        t = ev.get("type")
+        if t == "error":
+            return {"ok": False, "error": ev.get("error", "Orchestration failed.")}
+        if t == "step":
+            steps.append({"teammate": ev["teammate"], "task": ev["task"], "output": ev["output"]})
+        elif t == "synthesis":
+            synthesis = ev.get("text", "")
+    return {"ok": True, "goal": (goal or "").strip(), "steps": steps, "synthesis": synthesis}
 
 
 @app.post("/api/team/orchestrate")
@@ -56626,6 +56675,29 @@ def api_team_orchestrate():
         return jsonify(_orchestrate_goal(uname, goal))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/team/orchestrate/stream")
+def api_team_orchestrate_stream():
+    """SSE version — emits plan/step/synthesis events live as the team works."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    payload = request.get_json(silent=True) or {}
+    goal = (payload.get("goal") or "").strip()
+    if not goal:
+        return jsonify({"ok": False, "error": "Goal required"}), 400
+
+    def _gen():
+        try:
+            for ev in _orchestrate_goal_events(uname, goal):
+                yield "data: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+        except Exception as e:
+            yield "data: " + json.dumps({"type": "error", "error": str(e)}) + "\n\n"
+
+    return Response(stream_with_context(_gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"})
 
 
 # ── 1. SSE STREAMING FOLLOWUP ─────────────────────────────────────────────────
