@@ -26980,17 +26980,32 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
 
       const reg = state?.registry || null;
-      const order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
+      let order = (reg?.active_order && reg.active_order.length) ? reg.active_order : (reg?.installed_order || []);
       if(!order || !order.length){
         showToast("⚠️ Add teammates to the round table first");
         return;
       }
 
-      order.forEach(n => setSeatLive(n, "thinking"));
-      setOpStatus("Sending to all");
+      // Round-table behavior: if the operator opens the message by calling out a
+      // specific teammate ("Willow, ..." or "@Willow ..."), ONLY that teammate
+      // responds — like addressing one person at a real table. A general question
+      // still fans out to the whole team.
+      function _saDirectedTeammate(text, names){
+        let t = (text || "").trim().replace(/^@/, "").replace(/^(hey|ok|okay|yo)[\s,]+/i, "");
+        for(const nm of names){
+          const esc = String(nm).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          if(new RegExp("^" + esc + "(?=[\\s,:;.\\-—?!]|$)", "i").test(t)) return nm;
+        }
+        return null;
+      }
+      const _directed = _saDirectedTeammate(prompt, order);
+      if(_directed){ order = [_directed]; }
 
-      // Assembly roll-call stays on the server (fast path)
-      if(isAssemblyPhrase(prompt)){
+      order.forEach(n => setSeatLive(n, "thinking"));
+      setOpStatus(_directed ? ("Sending to " + _directed) : "Sending to all");
+
+      // Assembly roll-call stays on the server (fast path) — never for a direct call-out.
+      if(!_directed && isAssemblyPhrase(prompt)){
         assemblyPulseActive = true;
         updateTablePulseFromStatuses();
 
