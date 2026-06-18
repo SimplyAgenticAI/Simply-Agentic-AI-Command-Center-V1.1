@@ -29782,6 +29782,7 @@ Challenge weak assumptions. Surface risks.`;
         if(m) m.style.display='none';
         document.body.style.overflow='';
         _tpStopVoiceDetect();
+        _tpStopCamera(); // release any camera left running (e.g. restored by the visibility handler)
         var vb=document.getElementById('tpVoiceBtn');
         if(vb){ vb.style.background='rgba(30,42,74,.6)'; vb.style.borderColor='rgba(42,58,106,.6)'; vb.style.color='#cbd5e1'; vb.innerText='\u{1F3A4} Voice Scroll'; }
       };
@@ -30056,6 +30057,14 @@ Challenge weak assumptions. Surface risks.`;
         }
       });
 
+      // Hard safety net: if the page is hidden/unloaded while a stream is live, release ALL teleprompter media.
+      window.addEventListener('pagehide', function(){
+        try{ _tpStopVoiceDetect(); }catch(e){}
+        try{ if(_tpRecorder){ try{_tpRecorder.stop();}catch(_){ } _tpRecorder=null; } }catch(e){}
+        _tpRecording=false;
+        try{ _tpStopCamera(); }catch(e){}
+      });
+
       function _tpDoRestart(){
         // Reset scroll to very beginning
         _tpScrollPos=0;
@@ -30095,6 +30104,7 @@ Challenge weak assumptions. Surface risks.`;
         if(_tpScrollRAF){ cancelAnimationFrame(_tpScrollRAF); _tpScrollRAF=null; }
         if(_tpWakeLock){ try{_tpWakeLock.release();}catch(e){} _tpWakeLock=null; }
         _tpStopCamera(); // stops all tracks — releases camera, mic, and iOS audio session
+        _tpStopVoiceDetect(); // also release the Voice-Scroll mic stream (was leaking on close)
         var ov=document.getElementById('tpOverlay');
         if(ov){
           ov.style.display='none'; ov.onclick=null;
@@ -31932,6 +31942,9 @@ Challenge weak assumptions. Surface risks.`;
       }
       const hasEstimated = items.some(it => it.email && it.confidence === 'low');
       const estimatedNote = hasEstimated ? `<div style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:8px 12px;font-size:12px;color:#fbbf24;margin-bottom:10px;">⚠ Some leads have no verified public email. Pattern estimates are shown in amber — always verify before outreach.</div>` : '';
+      const _crmClients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
+      const _crmEmails = new Set(_crmClients.map(c=>(c.email||'').trim().toLowerCase()).filter(Boolean));
+      const _crmNames = new Set(_crmClients.map(c=>(c.company||c.name||'').trim().toLowerCase()).filter(Boolean));
       const _netNewCount = items.filter(it=>{
         const em=(it.email||'').trim().toLowerCase();
         const co=(it.company||'').trim().toLowerCase();
@@ -31943,9 +31956,6 @@ Challenge weak assumptions. Surface risks.`;
           ${_netNewCount>0?`<button class="btn btnMini btnPrimary" onclick="crmAddAllNetNew()" style="font-size:12px;padding:5px 14px;">+ Add All Net New (${_netNewCount})</button>`:''}
           <button class="btn btnMini" onclick="crmExportLeadsCSV()" style="font-size:12px;padding:5px 14px;">⬇ Export CSV</button>
         </div></div>`;
-      const _crmClients = Array.isArray(crmCache.clients) ? crmCache.clients : [];
-      const _crmEmails = new Set(_crmClients.map(c=>(c.email||'').trim().toLowerCase()).filter(Boolean));
-      const _crmNames = new Set(_crmClients.map(c=>(c.company||c.name||'').trim().toLowerCase()).filter(Boolean));
       box.innerHTML = exportBar + estimatedNote + items.map((item, idx)=>{
         const email = item.email || '';
         const isVerifiedEmail = email && item.confidence !== 'low';
