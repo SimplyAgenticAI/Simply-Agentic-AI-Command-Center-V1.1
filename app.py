@@ -325,7 +325,11 @@ if not _SW_BUILD:
     except Exception:
         _SW_BUILD = str(int(time.time()))
 
-APP_TITLE = os.getenv("APP_TITLE", "Simply Agentic AI V3.0")
+# Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
+# Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
+# mentions update from this one constant.
+APP_VERSION = os.getenv("APP_VERSION", "3.1")
+APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
@@ -1076,6 +1080,8 @@ def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = 
     return MODEL
 
 app = Flask(__name__)
+# Make the app version available to every template as {{app_ver}} (single source of truth).
+app.jinja_env.globals["app_ver"] = APP_VERSION
 
 # -----------------------------
 # Uploads static serving (additive)
@@ -3045,7 +3051,7 @@ def _handle_413(e):
 
 @app.before_request
 def _auth_guard() -> Optional[Any]:
-    if request.path in ("/login", "/setup", "/reset", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
+    if request.path in ("/login", "/setup", "/reset", "/reset/confirm", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
     if request.path.startswith("/static/"):
         return None
@@ -12583,7 +12589,7 @@ resize();draw();
     <div class="muted">Sign in to your command center.</div>
     <div style="margin:10px 0 4px;display:flex;justify-content:center;">
       <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(99,102,241,.18));border:1px solid rgba(124,58,237,.45);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:0.04em;">
-        &#10024; What&#39;s New in V3.0 &nbsp;&middot;&nbsp; Smarter teammates &nbsp;&middot;&nbsp; Faster pipeline &nbsp;&middot;&nbsp; Polished UI
+        &#10024; What&#39;s New in V{{app_ver}} &nbsp;&middot;&nbsp; Smarter teammates &nbsp;&middot;&nbsp; Faster pipeline &nbsp;&middot;&nbsp; Polished UI
       </span>
     </div>
 
@@ -13089,35 +13095,38 @@ RESET_HTML = r"""
 </head><body>
   <div class="card">
     <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
-    <div class="muted">Request a reset token, then set a new password.</div>
+    <div class="muted">Reset your password securely.</div>
 
     <form method="post" action="/reset">
       <label>Username</label>
       <input name="username" autocomplete="username" required/>
       <div class="row">
-        <button class="btn btnPrimary" type="submit">Generate reset token</button>
+        <button class="btn btnPrimary" type="submit">Email me a reset link</button>
         <a class="muted" href="/login">Back to login</a>
       </div>
+      <div class="muted" style="margin-top:8px;font-size:12px;opacity:.8;">We'll email a secure reset link to the address on file for that account. The link expires in 1 hour.</div>
     </form>
 
-    {% if token %}<div class="ok">Reset token (copy this): {{token}}</div>{% endif %}
     {% if error %}<div class="err">{{error}}</div>{% endif %}
+    {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
 
-    <div style="height:14px"></div>
+    <div style="height:16px"></div>
+    <div class="muted" style="font-size:12px;">Opened a reset link from your email? Set your new password:</div>
+    <div style="height:8px"></div>
 
     <form method="post" action="/reset_password">
       <label>Username</label>
-      <input name="username" autocomplete="username" required/>
-      <label>Reset token</label>
-      <input name="token" required/>
+      <input name="username" autocomplete="username" value="{{ prefill_username|default('') }}" required/>
+      <label>Reset code</label>
+      <input name="token" value="{{ prefill_token|default('') }}" placeholder="From your reset link/email" required/>
       <label>New password</label>
       <input name="new_password" type="password" autocomplete="new-password" required/>
+      <label>Confirm new password</label>
+      <input name="new_password2" type="password" autocomplete="new-password" required/>
       <div class="row">
         <button class="btn btnPrimary" type="submit">Set new password</button>
       </div>
     </form>
-
-    {% if ok %}<div class="ok">{{ok}}</div>{% endif %}
   </div>
 </body></html>
 """
@@ -13776,6 +13785,16 @@ def _require_invite_code() -> bool:
 def _invite_code_value() -> str:
     return (os.getenv("INVITE_CODE") or "").strip()
 
+def _default_signup_plan() -> str:
+    """New signups default to Founder so the limited founder seats fill first;
+    fall back to Solo once founder is sold out."""
+    try:
+        if "founder" in PLANS and _founder_seats_remaining() > 0:
+            return "founder"
+    except Exception:
+        pass
+    return "solo"
+
 @app.get("/register")
 def register_get():
     _ref = (request.args.get("ref") or "").strip()
@@ -13788,9 +13807,11 @@ def register_get():
     stripe_email = None
     stripe_err   = None
     stripe_session = (request.args.get("stripe_session") or "").strip()
-    selected_plan  = _normalize_plan_key((request.args.get("plan") or "solo").strip().lower())
+    # No explicit ?plan= → default to Founder (fill founder seats first), else Solo.
+    _plan_param    = (request.args.get("plan") or "").strip().lower()
+    selected_plan  = _normalize_plan_key(_plan_param or _default_signup_plan())
     if selected_plan not in PLANS:
-        selected_plan = "solo"
+        selected_plan = _default_signup_plan()
 
     if stripe_session:
         code, email = _stripe_session_code(stripe_session)
@@ -13828,25 +13849,25 @@ def register_post():
         return render_template_string(REGISTER_HTML, app_title=APP_TITLE,
             error="Too many registration attempts. Please wait before trying again.",
             ok=None, require_code=True, stripe_code=None, stripe_email=None,
-            stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+            stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     username = _clean_username(request.form.get("username",""))
     email = (request.form.get("email","") or "").strip()
     pw = (request.form.get("password","") or "").strip()
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if len(username) > 40:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if email and not EMAIL_RE.match(email):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     _pw_ok, _pw_err = _validate_password_strength(pw)
     if not _pw_ok:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if not request.form.get("tos_accepted"):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
@@ -13855,12 +13876,12 @@ def register_post():
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
         if not ok:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan="solo", plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     # ── Email verification ────────────────────────────────────────────────────
     # Skip for: first user (admin, no SMTP yet), or when SMTP is not configured,
@@ -14708,80 +14729,106 @@ def reset_post():
     if not _rl_ok:
         return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Too many reset attempts. Please wait before trying again.", token=None, ok=None)
     username = _clean_username(request.form.get("username", ""))
+
+    # Identical response whether or not the account exists, and we NEVER show the
+    # token or the email address on screen — the reset link is delivered ONLY to the
+    # account's registered email. Knowing a username alone cannot reset an account.
+    GENERIC_OK = ("If an account with that username exists, a password reset link has been "
+                  "emailed to the address on file. The link expires in 1 hour. "
+                  "Check your inbox (and spam folder).")
+
     data = load_users()
     u = (data.get("users") or {}).get(username)
-    if not u:
-        # Return same message regardless of whether username exists (prevents enumeration)
-        return render_template_string(RESET_HTML, app_title=APP_TITLE,
-            ok="If that username exists, a reset link has been sent to the associated email.",
-            error=None, token=None)
+    if u:
+        token = _make_token()
+        u.setdefault("reset", {})
+        u["reset"]["token_hash"] = _hash_token(token)
+        u["reset"]["created_at"] = now_iso()
+        u["updated_at"] = now_iso()
+        data["users"][username] = u
+        save_users(data)
+        _audit_log("password_reset_requested", {}, username=username)
 
-    token = _make_token()
-    u.setdefault("reset", {})
-    u["reset"]["token_hash"] = _hash_token(token)
-    u["reset"]["created_at"] = now_iso()
-    u["updated_at"] = now_iso()
-
-    data["users"][username] = u
-    save_users(data)
-    _audit_log("password_reset_requested", {}, username=username)
-
-    # Try to email the token if the user has an email address on file
-    user_email = (u.get("email") or "").strip()
-    sent_email = False
-    if user_email:
-        try:
-            reset_body = (
-                f"Hello {username},\n\n"
-                f"You requested a password reset for {APP_TITLE}.\n\n"
-                f"Your reset token is:\n\n    {token}\n\n"
-                f"Enter this token at {PUBLIC_BASE_URL or 'the app'}/reset to set a new password.\n"
-                f"This token expires in 1 hour.\n\n"
-                f"If you did not request this, ignore this email.\n"
-            )
-            # Try SMTP (global server settings) for password reset emails
-            if SMTP_USER and SMTP_PASS:
+        user_email = (u.get("email") or "").strip()
+        if user_email and SMTP_USER and SMTP_PASS:
+            try:
+                from urllib.parse import quote as _q
+                base = (PUBLIC_BASE_URL or request.url_root.rstrip("/") or "").rstrip("/")
+                reset_link = f"{base}/reset/confirm?u={_q(username)}&t={_q(token)}"
+                reset_body = (
+                    f"Hello {username},\n\n"
+                    f"You requested a password reset for {APP_TITLE}.\n\n"
+                    f"Click this secure link to set a new password:\n\n    {reset_link}\n\n"
+                    f"Or, if the link doesn't work, go to {base}/reset and enter this reset code:\n\n    {token}\n\n"
+                    f"This link and code expire in 1 hour and can be used only once.\n\n"
+                    f"If you did not request this, you can safely ignore this email — your password will not change.\n"
+                )
                 send_email_smtp(user_email, f"Password Reset - {APP_TITLE}", reset_body,
                                 SMTP_FROM_NAME, SMTP_USER)
-                sent_email = True
-        except Exception:
-            pass
+            except Exception:
+                # Delivery failed — record for admin retrieval, never expose to the requester
+                _audit_log("password_reset_email_failed", {}, username=username)
+                append_log("reset_token_email_failed", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
+        else:
+            # No email on file or SMTP not configured — store hashed token for admin retrieval, never expose
+            _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
+            append_log("reset_token_no_email", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
 
-    if sent_email:
-        ok_msg = f"Reset token sent to {user_email}. Check your inbox (and spam folder)."
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=ok_msg)
-    elif user_email:
-        # Email on file but SMTP not configured — log token securely, never expose in HTML
-        _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
-        append_log("reset_token_no_smtp", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None,
-            ok="Email delivery is not configured. An admin must retrieve the reset token from the server admin panel (/admin/errors) to complete this reset.")
-    else:
-        # No email on account — log token securely, never expose in HTML
-        _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
-        append_log("reset_token_no_email", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None,
-            ok="No email address is on file for this account. An admin must retrieve the reset token from the server admin panel to complete this reset.")
+    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=GENERIC_OK)
+
+@app.get("/reset/confirm")
+def reset_confirm():
+    # Landing page for the emailed reset link. Validates the token WITHOUT consuming it,
+    # then shows the set-new-password form (prefilled). Generic errors — no enumeration.
+    username = _clean_username(request.args.get("u", ""))
+    token = (request.args.get("t") or "").strip()
+    valid = False
+    if username and token:
+        data = load_users()
+        u = (data.get("users") or {}).get(username)
+        if u:
+            th = ((u.get("reset") or {}).get("token_hash")) or ""
+            if th and hmac.compare_digest(_hash_token(token), th):
+                created = ((u.get("reset") or {}).get("created_at")) or ""
+                try:
+                    if created and datetime.utcnow() <= datetime.fromisoformat(created.replace("Z", "")) + timedelta(hours=1):
+                        valid = True
+                except Exception:
+                    valid = False
+    if not valid:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE,
+            error="This reset link is invalid or has expired. Request a new one above.",
+            ok=None, token=None, prefill_username="", prefill_token="")
+    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
+        ok="Reset link verified — choose your new password below.",
+        token=None, prefill_username=username, prefill_token=token)
 
 @app.post("/reset_password")
 def reset_password_post():
     username = _clean_username(request.form.get("username", ""))
     token = (request.form.get("token") or "").strip()
     new_password = (request.form.get("new_password") or "").strip()
+    new_password2 = (request.form.get("new_password2") or "").strip()
+
+    # New password must be entered twice and match
+    if new_password != new_password2:
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Passwords do not match.", token=None, ok=None, prefill_username=username, prefill_token=token)
 
     _pw_ok, _pw_err = _validate_password_strength(new_password)
     if not _pw_ok:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_pw_err, token=None, ok=None)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_pw_err, token=None, ok=None, prefill_username=username, prefill_token=token)
 
     data = load_users()
     u = (data.get("users") or {}).get(username)
+    # Same generic message for unknown-user and bad-token — prevents account enumeration
+    _BAD = "Invalid or expired reset link/code. Request a new one above."
     if not u:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Unknown username", token=None, ok=None)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
     computed = _hash_token(token)
     if not th or not hmac.compare_digest(computed, th):
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Invalid reset token.", token=None, ok=None)
+        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
 
     # Token expires after 1 hour
     token_created = ((u.get("reset") or {}).get("created_at")) or ""
@@ -29722,6 +29769,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpScrollPos=0, _tpScrollRAF=null, _tpLastTs=null;
       var _tpWakeLock=null, _tpCamStream=null, _tpRecorder=null, _tpChunks=[];
       var _tpMirrored=true, _tpCamOn=true, _tpRecording=false;
+      var _tpCamDeviceId=null; // chosen camera (null = system default / front camera)
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
       var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null, _tpSaveBarTimer=null;
@@ -29851,34 +29899,65 @@ Challenge weak assumptions. Surface risks.`;
       }
 
       function _tpStartCamera(){
-        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return;
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ if(typeof showToast==='function') showToast('This browser does not support camera access'); return; }
         _tpCamPending=true;
-        // Video-only for the preview — mic is grabbed only when Record is pressed
-        navigator.mediaDevices.getUserMedia({
-          video:{facingMode:'user',width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,min:24}},
-          audio:false
-        }).then(function(stream){
-          _tpCamPending=false;
-          _tpCamStream=stream;
-          var vid=document.getElementById('tpCamVideo');
-          if(vid){ vid.srcObject=stream; vid.style.display='block'; }
-          _applyMirror();
-        }).catch(function(){
-          // Fall back without ideal constraints
-          navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false})
-            .then(function(stream){
+        // Video-only for the preview — mic is grabbed only when Record is pressed.
+        // Use the chosen camera if set, else the system default (front camera on mobile).
+        var base = _tpCamDeviceId ? {deviceId:{exact:_tpCamDeviceId}} : {facingMode:'user'};
+        var attempts = [
+          {video: Object.assign({}, base, {width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}), audio:false},
+          {video: base, audio:false},
+          {video: true, audio:false}   // last resort: the SYSTEM DEFAULT camera, no constraints
+        ];
+        (function tryAttempt(i){
+          if(i>=attempts.length){
+            _tpCamPending=false;
+            if(typeof showToast==='function') showToast('No camera detected — tap "Choose camera" to connect or pick one');
+            return;
+          }
+          navigator.mediaDevices.getUserMedia(attempts[i]).then(function(stream){
+            _tpCamPending=false;
+            _tpCamStream=stream;
+            // Remember the device we actually got so "Choose camera" can switch from here
+            try{ var st=stream.getVideoTracks()[0]; var sid=st&&st.getSettings&&st.getSettings().deviceId; if(sid) _tpCamDeviceId=sid; }catch(e){}
+            var vid=document.getElementById('tpCamVideo');
+            if(vid){ vid.srcObject=stream; vid.style.display='block'; }
+            _applyMirror();
+          }).catch(function(err){
+            // Permission explicitly blocked — don't keep retrying, tell the user how to fix it
+            if(err && (err.name==='NotAllowedError'||err.name==='SecurityError')){
               _tpCamPending=false;
-              _tpCamStream=stream;
-              var vid=document.getElementById('tpCamVideo');
-              if(vid){ vid.srcObject=stream; vid.style.display='block'; }
-              _applyMirror();
-            })
-            .catch(function(){
-              _tpCamPending=false;
-              if(typeof showToast==='function') showToast('Camera denied — tap Record to scroll without recording');
-            });
-        });
+              if(typeof showToast==='function') showToast('Camera blocked — allow camera access in your browser, then tap "Choose camera"');
+              return;
+            }
+            tryAttempt(i+1); // OverConstrained / NotFound on this attempt → relax and retry
+          });
+        })(0);
       }
+
+      // Connect / choose a camera — picks up the default when none was auto-detected, and cycles cameras on repeat taps.
+      window.tpChooseCamera = function(){
+        if(!navigator.mediaDevices||!navigator.mediaDevices.enumerateDevices){ if(typeof showToast==='function') showToast('Camera selection is not supported here'); return; }
+        // A getUserMedia grant is required before device labels are readable.
+        navigator.mediaDevices.getUserMedia({video:true,audio:false}).then(function(s){
+          try{ s.getTracks().forEach(function(t){t.stop();}); }catch(e){}
+          navigator.mediaDevices.enumerateDevices().then(function(devs){
+            var cams=devs.filter(function(d){return d.kind==='videoinput';});
+            if(!cams.length){ if(typeof showToast==='function') showToast('No camera found on this device'); return; }
+            var idx=0;
+            if(_tpCamDeviceId){
+              for(var j=0;j<cams.length;j++){ if(cams[j].deviceId===_tpCamDeviceId){ idx=(j+1)%cams.length; break; } }
+            }
+            _tpCamDeviceId=cams[idx].deviceId;
+            _tpCamOn=true;
+            var cb=document.getElementById('tpCamBtn');
+            if(cb){ cb.innerHTML='&#128247; Cam'; cb.style.background='rgba(255,255,255,.07)'; cb.style.color='#cbd5e1'; }
+            _tpStopCamera();
+            _tpStartCamera();
+            if(typeof showToast==='function') showToast('Camera: ' + (cams[idx].label || ('Camera '+(idx+1))) + (cams.length>1?' — tap again to switch':''));
+          }).catch(function(){ if(typeof showToast==='function') showToast('Could not list cameras'); });
+        }).catch(function(){ if(typeof showToast==='function') showToast('Allow camera access to choose a camera'); });
+      };
 
       function _tpStopCamera(){
         if(_tpCamStream){ _tpCamStream.getTracks().forEach(function(t){t.stop();}); _tpCamStream=null; }
@@ -30388,12 +30467,13 @@ Challenge weak assumptions. Surface risks.`;
         var audConstraints=_tpIsIOS
           ?{autoGainControl:false}
           :{echoCancellation:false,noiseSuppression:false,autoGainControl:false,sampleRate:{ideal:48000},sampleSize:16,channelCount:1};
-        var vidConstraints={facingMode:'user',width:{ideal:1920,min:1280},height:{ideal:1080,min:720},frameRate:{ideal:30,min:24}};
+        var _vbase = _tpCamDeviceId ? {deviceId:{exact:_tpCamDeviceId}} : {facingMode:'user'};
+        var vidConstraints=Object.assign({}, _vbase, {width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}});
         navigator.mediaDevices.getUserMedia({video:vidConstraints,audio:audConstraints})
           .then(function(stream){ _buildRecorder(stream); })
           .catch(function(){
-            // Fallback: relax video constraints, keep raw audio
-            navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:audConstraints})
+            // Fallback: any/default camera, keep raw audio
+            navigator.mediaDevices.getUserMedia({video:true,audio:audConstraints})
               .then(function(stream){ _buildRecorder(stream); })
               .catch(function(){
                 _tpStopCamera();
@@ -46666,6 +46746,7 @@ window.toggleNotifPanel = function(){
       <button onclick="tpAdjustFont(4)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;font-size:12px;cursor:pointer;">A+</button>
     </div>
     <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#cbd5e1;font-size:12px;cursor:pointer;white-space:nowrap;">&#128247; Cam</button>
+    <button onclick="tpChooseCamera()" id="tpCamPickBtn" title="Connect or choose a camera" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#cbd5e1;font-size:12px;cursor:pointer;white-space:nowrap;">&#127909; Choose camera</button>
     <button onclick="tpRecBtnClick()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s;">&#9679; Record</button>
   </div>
 
