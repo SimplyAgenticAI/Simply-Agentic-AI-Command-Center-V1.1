@@ -328,7 +328,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "3.1")
+APP_VERSION = os.getenv("APP_VERSION", "3.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -6520,24 +6520,46 @@ def _is_ssrf_safe(url: str) -> bool:
     except Exception:
         return False
 
-def _safe_requests_get(url: str, headers: Dict[str, str], timeout: int, max_redirects: int = 4):
+def _safe_requests_get(url: str, headers: Dict[str, str], timeout: int, max_redirects: int = 4, max_bytes: int = 200_000):
     """requests.get that validates EVERY hop against _is_ssrf_safe instead of
     blindly following redirects. A public URL that 302-redirects to an internal
     address (cloud metadata, localhost) would otherwise defeat the guard.
-    Returns the final Response, or None if any hop is unsafe / it fails."""
+    Returns the final Response, or None if any hop is unsafe / it fails.
+    Caps response body at max_bytes to prevent large pages from filling RAM."""
     cur = url
     for _ in range(max_redirects + 1):
         if not _is_ssrf_safe(cur):
             return None
-        r = requests.get(cur, headers=headers, timeout=timeout, allow_redirects=False)
+        r = requests.get(cur, headers=headers, timeout=timeout, allow_redirects=False, stream=True)
         if r.status_code in (301, 302, 303, 307, 308):
+            r.close()
             loc = r.headers.get("Location") or ""
             if not loc:
-                return r
+                return None
             from urllib.parse import urljoin
             cur = urljoin(cur, loc)
             continue
-        return r
+        # Stream only up to max_bytes so huge pages don't fill RAM
+        chunks: list = []
+        total = 0
+        try:
+            for chunk in r.iter_content(chunk_size=16_384):
+                chunks.append(chunk)
+                total += len(chunk)
+                if total >= max_bytes:
+                    break
+        finally:
+            r.close()
+        _raw = b"".join(chunks)
+        _ctype = r.headers.get("content-type", "")
+        _enc_m = re.search(r"charset=([\w-]+)", _ctype)
+        _enc = _enc_m.group(1) if _enc_m else "utf-8"
+        class _R:
+            status_code = r.status_code
+            headers = r.headers
+            url = r.url
+            text = _raw.decode(_enc, errors="replace")
+        return _R()
     return None
 
 class _SSRFSafeRedirectHandler(_urllib_req.HTTPRedirectHandler):
@@ -50949,26 +50971,23 @@ def _crm_fetch_text_url(url: str, timeout: int = 14) -> Tuple[str, str]:
         return "", url
 
 
-def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, str]]:
-    """Try fetching common contact/about pages for a domain in parallel.
+def _crm_fetch_contact_pages(domain: str, timeout: int = 8) -> List[Tuple[str, str]]:
+    """Fetch the homepage + /contact + /about for a domain in parallel.
+    Capped at 4 URLs and stops after collecting 2 useful pages to limit RAM usage.
     Returns list of (html, url) for pages that responded successfully.
     """
     base = f"https://{domain}"
     candidates = [
-        base + "/contact",
-        base + "/contact-us",
-        base + "/about",
-        base + "/about-us",
-        base + "/team",
-        base + "/staff",
-        base + "/reach-us",
         base,
+        base + "/contact",
+        base + "/about",
+        base + "/contact-us",
     ]
     results: List[Tuple[str, str]] = []
     def fetch_one(u: str) -> Tuple[str, str]:
         try:
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"}
-            r = _safe_requests_get(u, headers, timeout)
+            r = _safe_requests_get(u, headers, timeout, max_bytes=150_000)
             if r is not None:
                 ctype = (r.headers.get("Content-Type") or "").lower()
                 if r.status_code < 400 and ("text/html" in ctype or not ctype):
@@ -50977,12 +50996,14 @@ def _crm_fetch_contact_pages(domain: str, timeout: int = 10) -> List[Tuple[str, 
             pass
         return "", u
     try:
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        with ThreadPoolExecutor(max_workers=2) as ex:
             futures = {ex.submit(fetch_one, u): u for u in candidates}
-            for fut in as_completed(futures, timeout=20):
+            for fut in as_completed(futures, timeout=15):
                 html, final_url = fut.result(timeout=0)
                 if html:
                     results.append((html, final_url))
+                    if len(results) >= 2:  # 2 pages is enough; stop early to save RAM
+                        break
     except Exception:
         pass
     return results
@@ -51436,9 +51457,10 @@ def _crm_enrich_result(result: Dict[str, str], niche: str, location: str, query:
     company = signals_agg.get("company") or hint_company or _crm_guess_company(result.get("title") or "", domain)
     title   = "Realtor" if re.search(r"real estate|realtor|broker", niche or "", flags=re.I) else "Contact"
 
-    # Detect business type and activity from combined HTML
+    # Detect business type and activity from combined HTML, then free it immediately
     biz_type = _crm_detect_business_type(combined_html, name, company)
     activity  = _crm_detect_activity(combined_html, hint_snippet)
+    del combined_html  # free potentially large string before building candidate dict
 
     candidate: Dict[str, Any] = {
         "name":         name or company,
@@ -51642,7 +51664,7 @@ def _crm_build_queries_v2(niche: str, location: str, lead_count: int, search_mod
                 continue
             seen_q.add(key)
             queries.append(q)
-    max_q = 10 if mode == "precision" else (22 if mode == "balanced" else 32)
+    max_q = 6 if mode == "precision" else (12 if mode == "balanced" else 18)
     return queries[:max_q]
 
 
@@ -51770,13 +51792,13 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
             break
 
     # Pass 2: enrich a small subset only, to keep the route fast and avoid server/proxy timeouts.
+    # Capped at min(lead_count, 8) items and 2 workers to limit parallel RAM usage.
     if len(out) < lead_count and raw_results:
-        enrich_pool = raw_results[:max(lead_count * 2, 12)]
-        max_workers = 4
+        enrich_pool = raw_results[:min(lead_count, 8)]
         try:
-            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            with ThreadPoolExecutor(max_workers=2) as ex:
                 future_map = {ex.submit(_crm_enrich_result, row, niche, location, row.get('query') or ''): row for row in enrich_pool}
-                for fut in as_completed(future_map, timeout=20):
+                for fut in as_completed(future_map, timeout=18):
                     row = future_map.get(fut) or {}
                     try:
                         item = fut.result(timeout=0)
@@ -51789,8 +51811,10 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
             pass
 
     # Pass 3: deterministic fallback rows from raw results so the user always gets a usable list.
+    fallback_pool = list(raw_results)  # copy ref before clearing
+    raw_results.clear()                # free search-result memory before fallback pass
     if len(out) < lead_count:
-        for row in raw_results:
+        for row in fallback_pool:
             item = _crm_fallback_candidate_from_result(row, niche, location, row.get('query') or '') or _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
             if include_item(item) and len(out) >= lead_count:
                 break
@@ -51890,7 +51914,7 @@ def api_crm_lead_lab():
 
             t = _thr.Thread(target=_worker, daemon=True)
             t.start()
-            _deadline = _ti.monotonic() + 110  # hard cap — never let the stream run > ~110s
+            _deadline = _ti.monotonic() + 55  # hard cap — stay under Render's 60 s proxy timeout
             while not _done[0]:
                 # Yield a padded heartbeat large enough to force Gunicorn/Nginx buffer flush
                 yield (": heartbeat\n\n" + " " * 512 + "\n")
@@ -54704,6 +54728,7 @@ def api_rag_index():
     new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
                  for i, (c, v) in enumerate(zip(chunks, all_vectors))]
     idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    _rag_invalidate_cache(uname)
     meta = _rag_load_meta(uname)
     meta.setdefault("docs", {})[doc_id] = {
         "doc_id": doc_id, "label": label or rec.get("filename", "Document"),
@@ -54757,6 +54782,7 @@ def api_rag_index_url():
     new_lines = [json.dumps({"doc_id": doc_id, "chunk_idx": i, "text": c, "vec": v}, ensure_ascii=False)
                  for i, (c, v) in enumerate(zip(chunks, all_vectors))]
     idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+    _rag_invalidate_cache(uname)
     meta = _rag_load_meta(uname)
     meta.setdefault("docs", {})[doc_id] = {
         "doc_id": doc_id, "label": label or url[:60], "filename": url,
@@ -54799,6 +54825,7 @@ def api_rag_delete():
             except Exception:
                 pass  # drop malformed lines rather than crashing
         idx_path.write_text("\n".join(kept), encoding="utf-8")
+        _rag_invalidate_cache(uname)
     meta = _rag_load_meta(uname)
     (meta.get("docs") or {}).pop(doc_id, None)
     _rag_save_meta(uname, meta)
@@ -54857,17 +54884,50 @@ def _rag_dynamic_top_k(query: str) -> int:
 
 _RAG_MIN_SCORE = 0.30  # skip chunks below this cosine similarity threshold
 
-def _rag_retrieve(username: str, query: str, top_k: int = 0) -> str:
-    """Retrieve relevant knowledge base chunks. top_k=0 means auto-select based on query length."""
-    idx_path = _rag_index_path(username)
-    if not idx_path.exists():
-        return ""
+# Per-user RAG vector cache keyed by (username, file_mtime).
+# Avoids re-deserializing potentially 10s of MB of embedding vectors from disk on every chat.
+_RAG_VEC_CACHE: Dict[str, Any] = {}
+_RAG_VEC_CACHE_LOCK = threading.Lock()
+_RAG_VEC_CACHE_MAX = 10  # max number of user caches to keep in memory at once
+
+def _rag_load_rows(idx_path) -> list:
+    """Load and cache RAG index rows. Re-reads only when the file has been modified."""
+    key = str(idx_path)
+    try:
+        mtime = idx_path.stat().st_mtime
+    except Exception:
+        return []
+    with _RAG_VEC_CACHE_LOCK:
+        entry = _RAG_VEC_CACHE.get(key)
+        if entry and entry["mtime"] == mtime:
+            return entry["rows"]
+    # Read outside the lock so we don't block other requests
     rows = []
     for line in idx_path.read_text(encoding="utf-8", errors="ignore").splitlines():
         try:
             rows.append(json.loads(line))
         except Exception:
             pass
+    with _RAG_VEC_CACHE_LOCK:
+        if len(_RAG_VEC_CACHE) >= _RAG_VEC_CACHE_MAX:
+            # Evict the oldest entry
+            oldest = next(iter(_RAG_VEC_CACHE))
+            _RAG_VEC_CACHE.pop(oldest, None)
+        _RAG_VEC_CACHE[key] = {"mtime": mtime, "rows": rows}
+    return rows
+
+def _rag_invalidate_cache(username: str) -> None:
+    """Call after indexing new documents so the next retrieve sees fresh vectors."""
+    key = str(_rag_index_path(username))
+    with _RAG_VEC_CACHE_LOCK:
+        _RAG_VEC_CACHE.pop(key, None)
+
+def _rag_retrieve(username: str, query: str, top_k: int = 0) -> str:
+    """Retrieve relevant knowledge base chunks. top_k=0 means auto-select based on query length."""
+    idx_path = _rag_index_path(username)
+    if not idx_path.exists():
+        return ""
+    rows = _rag_load_rows(idx_path)
     if not rows:
         return ""
     try:
@@ -54932,6 +54992,7 @@ def _rag_upsert_doc(username: str, doc_id: str, label: str, text: str) -> int:
                  for i, (c, v) in enumerate(zip(chunks, vectors))]
     try:
         idx_path.write_text("\n".join(existing + new_lines), encoding="utf-8")
+        _rag_invalidate_cache(username)
     except Exception:
         return 0
     try:
@@ -60931,6 +60992,51 @@ def api_extension_diag_list():
         uname = (u.get("username") if isinstance(u, dict) else None) or _get_session_username()
         log = [e for e in log if e.get("user") == uname]
     return jsonify({"ok": True, "entries": log[:100]})
+
+
+@app.get("/api/admin/memstats")
+def api_admin_memstats():
+    """Live memory stats — admin only. Shows RSS, caches, and per-component sizes
+    so you can track what's using RAM without needing Render's metrics dashboard."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admin only"}), 403
+    import gc
+    gc.collect()
+    stats: Dict[str, Any] = {}
+    # Process RSS via /proc/self/status (works on Linux/Render)
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    kb = int(line.split()[1])
+                    stats["rss_mb"] = round(kb / 1024, 1)
+                    break
+    except Exception:
+        stats["rss_mb"] = "unavailable"
+    # Cache sizes
+    with _RAG_VEC_CACHE_LOCK:
+        stats["rag_vec_cache_users"] = len(_RAG_VEC_CACHE)
+        stats["rag_vec_cache_rows"] = sum(len(v["rows"]) for v in _RAG_VEC_CACHE.values())
+    with _SYS_PROMPT_CACHE_LOCK:
+        stats["sys_prompt_cache_entries"] = len(_SYS_PROMPT_CACHE)
+    with IMAGE_JOBS_LOCK:
+        stats["image_jobs"] = len(IMAGE_JOBS)
+    with VISUAL_JOBS_LOCK:
+        stats["visual_jobs"] = len(VISUAL_JOBS)
+    with _JSON_FILE_LOCKS_LOCK:
+        stats["json_file_locks"] = len(_JSON_FILE_LOCKS)
+    stats["lead_lab_cache_entries"] = len(getattr(api_crm_lead_lab, "_cache", {}) or {})
+    # Guidance
+    if isinstance(stats.get("rss_mb"), float):
+        rss = stats["rss_mb"]
+        if rss < 350:
+            stats["health"] = "good"
+        elif rss < 430:
+            stats["health"] = "watch"
+        else:
+            stats["health"] = "critical — approaching 512 MB Render limit"
+    return jsonify({"ok": True, **stats})
 
 
 # =========================
