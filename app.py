@@ -51,18 +51,12 @@ try:
 except Exception:
     _anthropic_sdk = None
 
-# Optional Gmail OAuth (Option C). These imports are optional so the app doesn't crash if deps aren't installed.
-# If these libs are missing, Gmail connect/send will return a clear error message instead of taking the whole server down.
-try:
-    from google.oauth2.credentials import Credentials as GoogleCredentials
-    from google_auth_oauthlib.flow import Flow as GoogleOAuthFlow
-    from googleapiclient.discovery import build as google_build
-    from googleapiclient.errors import HttpError as GoogleHttpError
-except Exception:
-    GoogleCredentials = None
-    GoogleOAuthFlow = None
-    google_build = None
-    GoogleHttpError = Exception
+# Gmail OAuth uses raw requests.post calls — no Google SDK classes are needed.
+# These stubs satisfy any isinstance/None checks left in older code paths.
+GoogleCredentials = None
+GoogleOAuthFlow = None
+google_build = None
+GoogleHttpError = Exception
 
 load_dotenv()
 
@@ -3134,6 +3128,8 @@ def _json_file_lock(path: Path) -> threading.Lock:
     key = str(path.resolve())
     with _JSON_FILE_LOCKS_LOCK:
         if key not in _JSON_FILE_LOCKS:
+            if len(_JSON_FILE_LOCKS) >= 500:  # prevent unbounded growth; evict an idle entry
+                _JSON_FILE_LOCKS.pop(next(iter(_JSON_FILE_LOCKS)), None)
             _JSON_FILE_LOCKS[key] = threading.Lock()
         return _JSON_FILE_LOCKS[key]
 
@@ -6252,6 +6248,9 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"ROLE BLOCK (your identity — locked):\n{json.dumps(role_block, indent=2)}\n"
     )
     with _SYS_PROMPT_CACHE_LOCK:
+        if len(_SYS_PROMPT_CACHE) >= 40:  # cap at 40 entries (6 teammates × ~6 users × 2 modes)
+            oldest_key = min(_SYS_PROMPT_CACHE, key=lambda k: _SYS_PROMPT_CACHE[k]["ts"])
+            _SYS_PROMPT_CACHE.pop(oldest_key, None)
         _SYS_PROMPT_CACHE[_cache_key] = {"prompt": _base_prompt, "ts": _t.monotonic()}
     suffix = ""
     if rag_context:
@@ -51951,7 +51950,10 @@ def api_crm_lead_lab():
             except Exception:
                 pass
 
-            yield _json.dumps({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning}) + "\n"
+            payload = _json.dumps({"ok": True, "items": final[:lead_count], "count": min(len(final), lead_count), "warning": warning})
+            del final  # free lead list before yielding so GC can reclaim it
+            import gc as _gc; _gc.collect()
+            yield payload + "\n"
         except Exception as e:
             try:
                 append_log("crm_lead_lab_error", {"error": str(e), "at": now_iso()})
