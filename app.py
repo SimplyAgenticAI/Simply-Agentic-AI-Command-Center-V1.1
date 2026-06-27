@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "3.3")
+APP_VERSION = os.getenv("APP_VERSION", "3.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -534,10 +534,12 @@ def _normalize_plan_key(key: str) -> str:
     return _PLAN_KEY_ALIASES.get(k, k) if k not in PLANS else k
 
 # ── Per-plan usage limits ────────────────────────────────────────────────────
-MSG_LIMITS   = {"founder": 1000, "solo": 600,  "teams": 2000}
-IMAGE_LIMITS = {"founder": 20,   "solo": 15,   "teams": 40}
+MSG_LIMITS      = {"founder": 1000, "solo": 600,  "teams": 2000}
+IMAGE_LIMITS    = {"founder": 20,   "solo": 15,   "teams": 40}
+LEAD_LAB_LIMITS = {"founder": 5,    "solo": 3,    "teams": 10}   # daily runs
 
-_MSG_USAGE_LOCK = threading.Lock()
+_MSG_USAGE_LOCK      = threading.Lock()
+_LEAD_LAB_USAGE_LOCK = threading.Lock()
 
 def _msg_usage_path(username: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
@@ -641,6 +643,53 @@ def _check_image_limit(username: str, plan_key: str) -> tuple:
     usage  = _get_msg_usage(username)
     iused  = usage["image_count"]
     return (iused < ilimit, iused, ilimit, False)
+
+
+# ── Lead Lab daily usage counter ─────────────────────────────────────────────
+
+def _ll_usage_path(username: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
+    return Path(DATA_DIR) / f"ll_usage_{safe}.json"
+
+def _get_ll_usage(username: str) -> Dict[str, Any]:
+    """Return {date, count} for today UTC. Resets automatically at midnight."""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    try:
+        path = _ll_usage_path(username)
+        if path.exists():
+            d = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(d, dict) and d.get("date") == today:
+                return {"date": today, "count": int(d.get("count", 0))}
+    except Exception:
+        pass
+    return {"date": today, "count": 0}
+
+def _increment_ll_usage(username: str) -> int:
+    """Thread-safe daily increment. Returns new count."""
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with _LEAD_LAB_USAGE_LOCK:
+        try:
+            path = _ll_usage_path(username)
+            d = {"date": today, "count": 0}
+            if path.exists():
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict) and raw.get("date") == today:
+                    d = raw
+            d["date"]  = today
+            d["count"] = int(d.get("count", 0)) + 1
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(d), encoding="utf-8")
+            tmp.replace(path)
+            return d["count"]
+        except Exception:
+            return 1
+
+def _check_lead_lab_limit(username: str, plan_key: str) -> tuple:
+    """Return (allowed, used, limit). Not bypassed by own API key — Lead Lab is server-side."""
+    k     = _normalize_plan_key(plan_key)
+    limit = LEAD_LAB_LIMITS.get(k, 3)
+    used  = _get_ll_usage(username)["count"]
+    return (used < limit, used, limit)
 
 
 def _plan_price_id(plan_key: str) -> str:
@@ -17905,10 +17954,21 @@ def api_crm_lead_lab():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    # Strict rate limit — each call triggers hundreds of outbound HTTP requests
+    # Strict per-minute rate limit — each call triggers hundreds of outbound HTTP requests
     _rl_ll = _check_rate_limit("lead_lab", 2)  # max 2 calls per minute per user
     if _rl_ll:
         return _rl_ll
+    # Per-plan daily limit
+    _uname   = u.get("username", "")
+    _plan_k  = _get_user_plan(_uname)
+    _ll_ok, _ll_used, _ll_limit = _check_lead_lab_limit(_uname, _plan_k)
+    if not _ll_ok:
+        _plan_nm = (PLANS.get(_normalize_plan_key(_plan_k)) or {}).get("name", "your plan")
+        return jsonify({"ok": False, "error": (
+            f"You've used all {_ll_limit} Lead Lab runs included in {_plan_nm} today. "
+            f"Resets at midnight UTC — or upgrade for more daily runs."
+        )}), 429
+    _increment_ll_usage(_uname)
     payload = request.get_json(silent=True) or {}
     niche          = (payload.get("niche") or "").strip()
     location       = (payload.get("location") or "").strip()
