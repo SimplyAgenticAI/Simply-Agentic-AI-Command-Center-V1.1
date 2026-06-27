@@ -64,6 +64,9 @@
   <meta name="apple-mobile-web-app-title" content="Simply Agentic"/>
   <link rel="apple-touch-icon" href="/pwa-icon-180.png"/>
   <link rel="manifest" href="/manifest.json"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"/>
   <script>
   /* PWA: capture beforeinstallprompt as early as possible so it is never missed.
      When it fires, schedule the auto-banner (mobile only). */
@@ -95,15 +98,30 @@
   <meta name="twitter:description" content="Your AI-powered business operating system."/>
   <title>{{app_title}}</title>
   <style>
-    :root{ --text:#eef2ff; --muted:#d4dcffee; --surface:#1a2040; --card:#1e2548; --border:rgba(80,110,200,.35); }
+    :root{
+      --text:#eef2ff; --muted:#d4dcffee; --surface:#1a2040; --card:#1e2548;
+      --border:rgba(80,110,200,.35);
+      --bg-deep:#09090f; --bg-base:#0d1117;
+      --accent-violet:#7c3aed; --accent-cyan:#06b6d4;
+    }
     *{box-sizing:border-box}
     html, body{ height:auto; min-height:100%; overflow-y:auto; }
+    @keyframes auroraShift{
+      0%  { background-position: 0% 0%,   100% 100%, 50% 0%,   0 0; }
+      33% { background-position: 40% 60%, 70%  30%,  80% 70%,  0 0; }
+      66% { background-position: 80% 20%, 20%  80%,  20% 40%,  0 0; }
+      100%{ background-position: 0% 0%,   100% 100%, 50% 0%,   0 0; }
+    }
     body{
       margin:0;
-      font-family: Arial, sans-serif;
+      font-family: 'Inter', sans-serif;
       background:
-        radial-gradient(900px 600px at 50% 30%, rgba(124,58,237,.22), transparent 55%),
-        linear-gradient(160deg, #141b2e 0%, #111829 40%, #141f3c 100%);
+        radial-gradient(ellipse 90% 65% at 20% 10%, rgba(124,58,237,.28), transparent 52%),
+        radial-gradient(ellipse 70% 55% at 80% 90%, rgba(6,182,212,.20), transparent 50%),
+        radial-gradient(ellipse 55% 45% at 55% 55%, rgba(79,50,180,.12), transparent 62%),
+        linear-gradient(160deg, #09090f 0%, #0d1117 40%, #0e1428 100%);
+      background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
+      animation: auroraShift 20s ease-in-out infinite;
       color:var(--text);
     }
 
@@ -540,6 +558,31 @@
     .seat.liveThinking{ animation: seatThinkAura 1.5s ease-in-out infinite; border-color: var(--seat-accent,rgba(255,255,255,.36)); }
     .seat.liveDone{ box-shadow:0 4px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.24), 0 0 22px rgba(141,255,179,.20); }
 
+    /* Orbital accent ring — pulses in each seat's unique accent color when active */
+    @keyframes orbRingPulse{
+      0%,100%{ box-shadow: 0 0 0 1.5px var(--seat-accent,rgba(124,58,237,.5)), 0 0 12px 1px var(--seat-accent,rgba(124,58,237,.25)); opacity:.55; }
+      50%    { box-shadow: 0 0 0 1.5px var(--seat-accent,rgba(124,58,237,1)),   0 0 30px 5px var(--seat-accent,rgba(124,58,237,.6)); opacity:1; }
+    }
+    .seat.liveThinking::after{
+      content:"";
+      position:absolute;
+      inset:-3px;
+      border-radius:20px;
+      pointer-events:none;
+      z-index:2;
+      animation: orbRingPulse 1.8s ease-in-out infinite;
+    }
+
+    /* Per-seat unique accent colors via nth-child */
+    .seat:nth-child(1){ --seat-accent: rgba(124,58,237,.85); }
+    .seat:nth-child(2){ --seat-accent: rgba(6,182,212,.85); }
+    .seat:nth-child(3){ --seat-accent: rgba(251,191,36,.85); }
+    .seat:nth-child(4){ --seat-accent: rgba(52,211,153,.85); }
+    .seat:nth-child(5){ --seat-accent: rgba(249,115,22,.85); }
+    .seat:nth-child(6){ --seat-accent: rgba(236,72,153,.85); }
+    .seat:nth-child(7){ --seat-accent: rgba(99,102,241,.85); }
+    .seat:nth-child(8){ --seat-accent: rgba(20,184,166,.85); }
+
     /* #3 — Avatar breathing + #9 — status ring around the avatar. */
     @keyframes avatarBreathe{ 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.08); } }
     .avatar{ transition: box-shadow .35s ease; }
@@ -568,8 +611,7 @@
       background-size:200% 100%; animation:saShimmer 1.3s linear infinite; }
     .sa-skel-row{ height:13px; margin:7px 0; }
 
-    /* #8 — Streaming cursor: add a soft glow to the existing bar. */
-    .sa-cursor{ box-shadow:0 0 8px rgba(124,58,237,.7); }
+    /* #8 — Streaming cursor: glow handled by base definition below. */
 
     .avatar{
       width:46px;height:46px;border-radius:13px;
@@ -926,23 +968,24 @@
       word-break: break-word;
     }
 
-    /* ── Assistant response: full-width document card ── */
+    /* ── Assistant response: deep glassmorphism card ── */
     .msg.assistant .msg-body{
       align-self: stretch;
       width: 100%;
-      background: rgba(255,255,255,.06);
-      backdrop-filter: blur(14px) saturate(160%);
-      -webkit-backdrop-filter: blur(14px) saturate(160%);
-      border-left: 3px solid rgba(148,88,255,.80);
+      background: rgba(13,17,23,.72);
+      backdrop-filter: blur(28px) saturate(200%);
+      -webkit-backdrop-filter: blur(28px) saturate(200%);
+      border-left: 3px solid rgba(124,58,237,.88);
+      border-top: 1px solid rgba(255,255,255,.06);
       border-radius: 0 10px 10px 0;
-      padding: 8px 10px 8px 14px;
-      color: #dde4f5;
+      padding: 10px 12px 10px 16px;
+      color: #e2e8f0;
       font-size: 14px;
-      line-height: 1.65;
+      line-height: 1.68;
       white-space: pre-wrap;
       word-break: break-word;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
-      contain: layout style; /* isolate reflows so streaming updates don't thrash the whole page */
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 4px 24px rgba(0,0,0,.35);
+      contain: layout style;
     }
 
     /* Exchange grouping — tighter within same speaker, more space between turns */
@@ -955,17 +998,18 @@
       margin-top: 3px;
     }
 
-    /* ── Streaming cursor (thin glowing bar, smooth pulse) ── */
+    /* ── Streaming cursor: terminal block ▋ style ── */
     .sa-cursor{
       display: inline-block;
-      width: 2px; height: 0.85em;
-      background: linear-gradient(180deg, rgba(196,181,253,.95), rgba(124,58,237,.55));
-      border-radius: 2px;
-      margin-left: 3px;
+      width: 0.52em; height: 1.05em;
+      background: rgba(167,139,250,.92);
+      border-radius: 1.5px;
+      margin-left: 2px;
       vertical-align: text-bottom;
-      animation: saCursorPulse .9s ease-in-out infinite;
+      animation: saCursorBlink .85s step-end infinite;
+      box-shadow: 0 0 10px rgba(167,139,250,.55), 0 0 24px rgba(124,58,237,.28);
     }
-    @keyframes saCursorPulse{ 0%,100%{opacity:1;} 50%{opacity:0.1;} }
+    @keyframes saCursorBlink{ 0%,100%{opacity:1;} 50%{opacity:0;} }
 
     /* ── Thinking dots (before first token) ── */
     .sa-think-dots{
@@ -993,6 +1037,75 @@
     }
     @keyframes shimmer{ 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
 
+    /* ── Micro-animations: hover lifts + ripple ── */
+    .btn:hover:not(:disabled):not([disabled]){ transform: translateY(-1px); }
+    .btn:active:not(:disabled):not([disabled]){ transform: translateY(0) scale(.97); }
+    .saDropItem{ transition: background .1s ease, padding-left .12s ease !important; }
+    .saDropItem:hover{ padding-left: 20px !important; }
+    .sa-ripple{
+      position:absolute;border-radius:50%;
+      width:120px;height:120px;margin:-60px;
+      background:rgba(255,255,255,.13);
+      transform:scale(0);animation:saRippleOut .45s ease-out forwards;
+      pointer-events:none;z-index:0;
+    }
+    @keyframes saRippleOut{ to{ transform:scale(3.5);opacity:0; } }
+
+    /* ── HUD context bar ── */
+    #saHudBar{
+      display:flex;align-items:center;gap:10px;padding:4px 16px;
+      font-size:11px;font-weight:500;letter-spacing:.03em;
+      color:rgba(148,163,184,.55);
+      background:rgba(9,9,15,.55);
+      border-bottom:1px solid rgba(255,255,255,.04);
+      backdrop-filter:blur(10px);
+      overflow:hidden;white-space:nowrap;
+    }
+    .saHudSep{ opacity:.28; }
+    .saHudRight{ margin-left:auto;display:flex;align-items:center;gap:6px;cursor:pointer;transition:color .15s; }
+    .saHudRight:hover{ color:rgba(196,181,253,.85); }
+    #saHudBar kbd{
+      display:inline-flex;align-items:center;padding:1px 6px;
+      border:1px solid rgba(255,255,255,.13);border-radius:4px;
+      background:rgba(255,255,255,.05);font-size:10px;font-family:inherit;
+      color:rgba(148,163,184,.7);letter-spacing:.02em;
+    }
+    @media(max-width:640px){ #saHudBar{ display:none; } }
+
+    /* ── Command palette ── */
+    #saCmdPalette{
+      display:none;position:fixed;inset:0;z-index:999999;
+      background:rgba(9,9,15,.78);backdrop-filter:blur(22px) saturate(180%);
+      -webkit-backdrop-filter:blur(22px) saturate(180%);
+      align-items:flex-start;justify-content:center;padding-top:12vh;
+    }
+    #saCmdPalette.saCmdOpen{ display:flex; }
+    #saCmdBox{
+      width:min(640px,90vw);
+      background:rgba(13,17,23,.96);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      box-shadow:0 32px 96px rgba(0,0,0,.85),0 0 0 1px rgba(124,58,237,.22),inset 0 1px 0 rgba(255,255,255,.06);
+      overflow:hidden;
+      animation:saCmdIn .18s cubic-bezier(.34,1.1,.64,1) both;
+    }
+    @keyframes saCmdIn{ from{opacity:0;transform:translateY(-12px) scale(.97);} to{opacity:1;transform:none;} }
+    #saCmdInput{
+      width:100%;padding:16px 20px;
+      background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,.07);
+      font-size:16px;font-family:'Inter',sans-serif;color:#eef2ff;outline:none;
+    }
+    #saCmdInput::placeholder{ color:rgba(100,116,139,.6); }
+    #saCmdList{ max-height:360px;overflow-y:auto;padding:6px; }
+    .saCmdItem{
+      display:flex;align-items:center;gap:10px;padding:10px 14px;
+      border-radius:10px;cursor:pointer;font-size:13px;font-weight:500;
+      color:#e2e8f0;transition:background .08s;
+    }
+    .saCmdItem:hover,.saCmdItem.saCmdActive{
+      background:rgba(124,58,237,.18);color:#f1f5f9;
+    }
+    .saCmdIcon{ font-size:16px;width:26px;text-align:center;flex-shrink:0; }
 
     /* ── Teammate status improvements ── */
     .seatStatus{ transition: color .3s; }
@@ -4377,6 +4490,19 @@ label {
     </div>
   </div>
 
+
+  <!-- ===== HUD CONTEXT BAR ===== -->
+  <div id="saHudBar">
+    <span id="saHudTeammate">Command Center</span>
+    <span class="saHudSep">·</span>
+    <span id="saHudModel">{{model}}</span>
+    <span class="saHudSep">·</span>
+    <span id="saHudMsgCount">0 messages</span>
+    <div class="saHudRight" onclick="window.saOpenCmdPalette&&window.saOpenCmdPalette()">
+      <kbd>⌘K</kbd>
+      <span>commands</span>
+    </div>
+  </div>
 
   <div class="stage">
     <div>
@@ -17133,39 +17259,51 @@ Challenge weak assumptions. Surface risks.`;
           _llActivityBadge(item.activity||''),
           rating ? _llBadge(rating,'amber') : '',
         ].filter(Boolean).join(' ');
-        const emailHtml = isVerifiedEmail
-          ? `<div>✉ <a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;">${escapeHtml(email)}</a></div>`
-          : isEstimatedEmail
-          ? `<div style="opacity:.65;">⚠ <span style="color:#fbbf24;font-size:11px;">Pattern estimate</span> · ${escapeHtml(email)} <span style="color:#475569;font-size:10px;">(not verified)</span></div>`
-          : '<div style="opacity:.4;">No public email found</div>';
-        return `<div class="diagCard" style="padding:16px;margin-bottom:10px;" data-ll-idx="${idx}">
-          <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;">
-            <div>
-              <div style="font-weight:500;font-size:15px;margin-bottom:2px;">${escapeHtml(item.name||item.company||'(no name)')}</div>
-              <div style="font-size:13px;color:#cbd5e1;margin-bottom:6px;">${escapeHtml(item.company||'')}${item.title&&item.title!=='Contact'?' · '+escapeHtml(item.title):''}</div>
-              <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">${badges}</div>
-              ${item.warm_reason?`<div style="font-size:12px;color:#a78bfa;margin-bottom:8px;line-height:1.5;">&#9889; ${escapeHtml(item.warm_reason)}</div>`:''}
-              <div style="font-size:13px;color:#e2e8f0;line-height:2;">
-                ${emailHtml}
-                ${phone?`<div>📞 ${escapeHtml(phone)}</div>`:'<div style="opacity:.4;">No phone found</div>'}
+        const scoreColor = item.confidence === 'high' ? '#10b981' : item.confidence === 'low' ? '#f87171' : '#f59e0b';
+        const scoreLabel = item.score ? String(item.score) : '–';
+        return `<div style="
+            background:rgba(13,17,23,.94);border:1px solid rgba(255,255,255,.07);
+            border-left:3px solid ${scoreColor};border-radius:12px;padding:16px;
+            margin-bottom:8px;position:relative;
+          " data-ll-idx="${idx}">
+          <div style="display:flex;gap:12px;align-items:flex-start;">
+            <div style="width:36px;height:36px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;font-weight:800;color:${scoreColor};">${scoreLabel}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:3px;">
+                <span style="font-weight:700;font-size:15px;color:#f1f5f9;">${escapeHtml(item.name||item.company||'(no name)')}</span>
+                ${crmBadge}
+              </div>
+              <div style="font-size:12px;color:#64748b;margin-bottom:8px;">${escapeHtml(item.company||'')}${item.title&&item.title!=='Contact'?` &middot; ${escapeHtml(item.title)}`:''}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">${badges}</div>
+              ${item.warm_reason?`<div style="font-size:12px;color:#a78bfa;margin-bottom:8px;padding:6px 8px;background:rgba(124,58,237,.08);border-radius:6px;border-left:2px solid rgba(124,58,237,.4);">&#9889; ${escapeHtml(item.warm_reason)}</div>`:''}
+              <div style="display:flex;flex-direction:column;gap:5px;font-size:13px;">
+                ${isVerifiedEmail
+                  ? `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(16,185,129,.12);color:#34d399;font-weight:700;letter-spacing:.04em;flex-shrink:0;">✓ EMAIL</span><a href="mailto:${escapeHtml(email)}" style="color:#a78bfa;text-decoration:none;word-break:break-all;">${escapeHtml(email)}</a></span>`
+                  : isEstimatedEmail
+                  ? `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(251,191,36,.10);color:#fbbf24;font-weight:700;letter-spacing:.04em;flex-shrink:0;">~ EST</span><span style="color:#94a3b8;opacity:.8;word-break:break-all;">${escapeHtml(email)}</span></span>`
+                  : `<span style="opacity:.28;font-size:12px;">No email found</span>`
+                }
+                ${phone
+                  ? `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(99,102,241,.12);color:#818cf8;font-weight:700;letter-spacing:.04em;flex-shrink:0;">PHONE</span><span style="color:#cbd5e1;">${escapeHtml(phone)}</span></span>`
+                  : `<span style="opacity:.2;font-size:12px;">No phone found</span>`
+                }
                 ${(()=>{
                   const site = item.website || (item.domain ? 'https://'+item.domain : '');
                   if(!site) return '';
                   const display = site.replace(/^https?:\/\/(www\.)?/,'').replace(/\/$/,'');
-                  return `<div>🌐 <a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:none;word-break:break-all;">${escapeHtml(display)}</a></div>`;
+                  return `<span style="display:inline-flex;align-items:center;gap:6px;"><span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(6,182,212,.10);color:#22d3ee;font-weight:700;letter-spacing:.04em;flex-shrink:0;">WEB</span><a href="${escapeHtml(site)}" target="_blank" rel="noopener" style="color:#7dd3fc;text-decoration:none;word-break:break-all;">${escapeHtml(display)}</a></span>`;
                 })()}
               </div>
               ${_llSocialIcons(item)}
             </div>
-
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;border-top:0.5px solid rgba(255,255,255,.06);padding-top:10px;">
-            ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}">📋 Copy email</button>`:''}
-            ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}">📋 Copy phone</button>`:''}
-            ${isVerifiedEmail?`<button class="btn btnMini" data-ll-email="${idx}">✉ Draft email</button>`:''}
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.05);">
+            ${email?`<button class="btn btnMini" data-ll-copy-email="${idx}" style="font-size:11px;">Copy Email</button>`:''}
+            ${phone?`<button class="btn btnMini" data-ll-copy-phone="${idx}" style="font-size:11px;">Copy Phone</button>`:''}
+            ${isVerifiedEmail?`<button class="btn btnMini" data-ll-email="${idx}" style="font-size:11px;">Draft Email</button>`:''}
             ${inCRM
-              ? `<button class="btn btnMini" disabled style="margin-left:auto;opacity:.5;cursor:default;border-color:rgba(16,185,129,.3);color:#6ee7b7;">✓ In CRM</button>`
-              : `<button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;">+ Add to CRM</button>`
+              ? `<button class="btn btnMini" disabled style="margin-left:auto;opacity:.4;cursor:default;border-color:rgba(16,185,129,.25);color:#6ee7b7;font-size:11px;">✓ In CRM</button>`
+              : `<button class="btn btnPrimary btnMini" data-ll-add="${idx}" style="margin-left:auto;font-size:11px;">+ Add to CRM</button>`
             }
           </div>
         </div>`;
@@ -33935,6 +34073,126 @@ function saWinClose(key){
   if(typeof h==='function') h();
   else if(typeof h==='string'&&window[h]) window[h]();
 }
+</script>
+
+  <!-- ===== COMMAND PALETTE ===== -->
+  <div id="saCmdPalette">
+    <div id="saCmdBox">
+      <input id="saCmdInput" type="text" placeholder="Search commands…" autocomplete="off" spellcheck="false"/>
+      <div id="saCmdList"></div>
+    </div>
+  </div>
+<script>
+(function(){
+  var CMDS=[
+    {icon:'👥',label:'Create Teammate',fn:function(){var b=document.getElementById('createTeamBtn');if(b)b.click();}},
+    {icon:'✏️',label:'Edit Teammates',fn:function(){var b=document.getElementById('editTeammatesBtn');if(b)b.click();}},
+    {icon:'🔬',label:'Find Leads — Lead Lab',fn:function(){var b=document.getElementById('leadLabBtn');if(b)b.click();}},
+    {icon:'📣',label:'Social Studio',fn:function(){var b=document.getElementById('socialStudioBtn');if(b)b.click();}},
+    {icon:'🎯',label:'Offer Builder',fn:function(){var b=document.getElementById('offerBuilderBtn');if(b)b.click();}},
+    {icon:'📋',label:'Growth Playbook',fn:function(){var b=document.getElementById('growthPlaybookBtn');if(b)b.click();}},
+    {icon:'🌐',label:'Site Analyzer',fn:function(){if(window.showSiteAnalyzerModal)window.showSiteAnalyzerModal();}},
+    {icon:'📝',label:'Notepad',fn:function(){if(window.showNotepadModal)window.showNotepadModal();}},
+    {icon:'🎙',label:'Teleprompter',fn:function(){if(window.showTeleprompterModal)window.showTeleprompterModal();}},
+    {icon:'🎯',label:'Prospect Dossier',fn:function(){if(window.showProspectDossierModal)window.showProspectDossierModal();}},
+    {icon:'📊',label:'Market Scanner',fn:function(){if(window.showMarketScannerModal)window.showMarketScannerModal();}},
+    {icon:'📡',label:'Intent Signals',fn:function(){if(window.showIntentSignalsModal)window.showIntentSignalsModal();}},
+    {icon:'✂️',label:'Video Editor',fn:function(){if(window.showVideoEditorModal)window.showVideoEditorModal();}},
+    {icon:'⚙️',label:'Settings',fn:function(){var b=document.getElementById('settingsBtn');if(b)b.click();}},
+    {icon:'🧑‍💼',label:'Operator Profile',fn:function(){var b=document.getElementById('operatorProfileBtn');if(b)b.click();}},
+    {icon:'🧠',label:'Core Framework',fn:function(){var b=document.getElementById('frameworkBtn');if(b)b.click();}},
+    {icon:'🔑',label:'API Keys',fn:function(){var b=document.getElementById('openApiKeyHelpBtn');if(b)b.click();}},
+  ];
+  var _idx=0,_fil=CMDS;
+  var pal=document.getElementById('saCmdPalette');
+  var inp=document.getElementById('saCmdInput');
+  var lst=document.getElementById('saCmdList');
+  if(!pal||!inp||!lst) return;
+  function render(items){
+    _fil=items;_idx=0;
+    if(!items.length){
+      lst.innerHTML='<div style="padding:24px;text-align:center;color:#475569;font-size:13px;">No commands found</div>';
+      return;
+    }
+    lst.innerHTML=items.map(function(c,i){
+      return '<div class="saCmdItem'+(i===0?' saCmdActive':'')+'" data-cidx="'+i+'"><span class="saCmdIcon">'+c.icon+'</span>'+c.label+'</div>';
+    }).join('');
+    lst.querySelectorAll('.saCmdItem').forEach(function(el){
+      el.onmouseenter=function(){_idx=+el.dataset.cidx;hl();};
+      el.onclick=function(){go(_fil[+el.dataset.cidx]);};
+    });
+  }
+  function hl(){
+    lst.querySelectorAll('.saCmdItem').forEach(function(el,i){el.classList.toggle('saCmdActive',i===_idx);});
+    var a=lst.querySelector('.saCmdActive');
+    if(a) a.scrollIntoView({block:'nearest'});
+  }
+  function go(cmd){if(cmd){close_();cmd.fn();}}
+  function open_(){
+    pal.classList.add('saCmdOpen');
+    inp.value='';
+    render(CMDS);
+    requestAnimationFrame(function(){inp.focus();});
+  }
+  function close_(){pal.classList.remove('saCmdOpen');inp.value='';}
+  inp.oninput=function(){
+    var q=inp.value.trim().toLowerCase();
+    render(q?CMDS.filter(function(c){return c.label.toLowerCase().includes(q);}):CMDS);
+  };
+  inp.onkeydown=function(e){
+    if(e.key==='ArrowDown'){e.preventDefault();_idx=Math.min(_idx+1,_fil.length-1);hl();}
+    else if(e.key==='ArrowUp'){e.preventDefault();_idx=Math.max(_idx-1,0);hl();}
+    else if(e.key==='Enter'){e.preventDefault();go(_fil[_idx]);}
+    else if(e.key==='Escape'){close_();}
+  };
+  pal.onclick=function(e){if(e.target===pal)close_();};
+  document.addEventListener('keydown',function(e){
+    if((e.metaKey||e.ctrlKey)&&e.key==='k'){
+      e.preventDefault();
+      pal.classList.contains('saCmdOpen')?close_():open_();
+    }
+  });
+  window.saOpenCmdPalette=open_;
+  window.saCloseCmdPalette=close_;
+
+  // Ripple effect on .btn clicks
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('.btn');
+    if(!btn||btn.disabled||btn.hasAttribute('disabled')) return;
+    var r=document.createElement('span');
+    r.className='sa-ripple';
+    var rect=btn.getBoundingClientRect();
+    r.style.left=(e.clientX-rect.left)+'px';
+    r.style.top=(e.clientY-rect.top)+'px';
+    if(getComputedStyle(btn).position==='static') btn.style.position='relative';
+    btn.style.overflow='hidden';
+    btn.appendChild(r);
+    r.addEventListener('animationend',function(){r.remove();});
+  });
+
+  // HUD: track message count via MutationObserver
+  (function(){
+    function _startObs(){
+      var thread=document.getElementById('thread');
+      if(!thread) return;
+      var obs=new MutationObserver(function(){
+        var count=thread.querySelectorAll('.msg').length;
+        var el=document.getElementById('saHudMsgCount');
+        if(el) el.textContent=count+(count===1?' message':' messages');
+      });
+      obs.observe(thread,{childList:true,subtree:false});
+    }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',_startObs);
+    else _startObs();
+    setTimeout(_startObs,2500);
+  })();
+
+  // HUD: update teammate name on seat click
+  window.saHudSetTeammate=function(name){
+    var el=document.getElementById('saHudTeammate');
+    if(el&&name) el.textContent=name;
+  };
+})();
 </script>
 
 </body>
