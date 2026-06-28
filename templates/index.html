@@ -31902,10 +31902,12 @@ window.toggleNotifPanel = function(){
   function _fixSideH(){
     var tb=document.querySelector('.topbar');
     var nb=document.querySelector('.saNavBar');
+    var hud=document.getElementById('saHudBar');
     if(!tb) return;
     var tbH=Math.ceil(tb.getBoundingClientRect().height);
     var nbH=nb ? Math.ceil(nb.getBoundingClientRect().height) : 50;
-    document.documentElement.style.setProperty('--topbar-h', tbH+'px');
+    var hudH=(hud && hud.offsetParent!==null) ? Math.ceil(hud.getBoundingClientRect().height) : 0;
+    document.documentElement.style.setProperty('--topbar-h', (tbH+hudH)+'px');
     document.documentElement.style.setProperty('--navbar-h',  nbH+'px');
   }
   if(document.readyState==='loading'){
