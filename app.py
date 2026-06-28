@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "3.4")
+APP_VERSION = os.getenv("APP_VERSION", "3.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -540,6 +540,11 @@ LEAD_LAB_LIMITS = {"founder": 5,    "solo": 3,    "teams": 10}   # daily runs
 
 _MSG_USAGE_LOCK      = threading.Lock()
 _LEAD_LAB_USAGE_LOCK = threading.Lock()
+
+# Lead Lab concurrency queue — hard cap: only 2 runs ever at once
+_LL_MAX_CONCURRENT = 2
+_LL_STATE          = {"active": 0, "queue": []}   # mutated in-place; no global needed
+_LL_STATE_LOCK     = threading.Lock()
 
 def _msg_usage_path(username: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
@@ -17968,7 +17973,7 @@ def api_crm_lead_lab():
             f"You've used all {_ll_limit} Lead Lab runs included in {_plan_nm} today. "
             f"Resets at midnight UTC — or upgrade for more daily runs."
         )}), 429
-    _increment_ll_usage(_uname)
+    # _increment_ll_usage called inside _generate() after a slot is acquired
     payload = request.get_json(silent=True) or {}
     niche          = (payload.get("niche") or "").strip()
     location       = (payload.get("location") or "").strip()
@@ -17989,7 +17994,40 @@ def api_crm_lead_lab():
 
     def _generate():
         import time as _ti
+        _slot  = False
+        _entry = {"u": _uname}
+        with _LL_STATE_LOCK:
+            _LL_STATE["queue"].append(_entry)
         try:
+            # ── Queue: wait for a free concurrency slot ───────────────────────
+            _wait_start = _ti.monotonic()
+            while True:
+                with _LL_STATE_LOCK:
+                    try:
+                        _qpos = _LL_STATE["queue"].index(_entry) + 1
+                    except ValueError:
+                        _qpos = 1
+                    if _LL_STATE["active"] < _LL_MAX_CONCURRENT:
+                        _LL_STATE["active"] += 1
+                        try:
+                            _LL_STATE["queue"].remove(_entry)
+                        except ValueError:
+                            pass
+                        _slot = True
+                        break
+                if _ti.monotonic() - _wait_start > 300:
+                    yield _json.dumps({"ok": False, "error": "No Lead Lab slot opened in 5 minutes — please try again."}) + "\n"
+                    return
+                if _qpos == 1:
+                    _qmsg = "You’re next — another search is finishing up, starting yours shortly."
+                else:
+                    _qmsg = (f"Queue #{_qpos} — Lead Lab searches hundreds of sites at once so we cap "
+                             f"concurrent runs. {_qpos - 1} search{'es' if _qpos > 2 else ''} running "
+                             f"ahead of you — won’t be long.")
+                yield _json.dumps({"queued": True, "position": _qpos, "msg": _qmsg}) + "\n"
+                _ti.sleep(4)
+            # Slot acquired — charge the daily run count, then do the work
+            _increment_ll_usage(_uname)
             # Check cache first
             _cache_str = f"{niche}|{location}|{search_mode}|{require_contact}|{biz_type_filter}|{require_social}|{require_reviews}|{specific_areas}"
             _cache_key = _hl.md5(_cache_str.encode()).hexdigest()
@@ -18096,6 +18134,15 @@ def api_crm_lead_lab():
             except Exception:
                 pass
             yield _json.dumps({"ok": False, "error": f"Lead Lab server error: {str(e)}"}) + "\n"
+        finally:
+            # Always release the slot so the next queued user can proceed
+            with _LL_STATE_LOCK:
+                if _slot:
+                    _LL_STATE["active"] = max(0, _LL_STATE["active"] - 1)
+                try:
+                    _LL_STATE["queue"].remove(_entry)
+                except ValueError:
+                    pass
 
     return _Resp(stream_with_context(_generate()), content_type="text/plain; charset=utf-8",
                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})

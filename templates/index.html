@@ -17441,19 +17441,53 @@ Challenge weak assumptions. Surface risks.`;
           })
         });
         clearInterval(ticker);
-        // Streaming response — heartbeat lines (" \n") then final JSON line
-        const raw=await res.text();
+        // Streaming reader — handles real-time queue position updates then final JSON result
         let data=null;
-        const lines=raw.split('\n');
-        for(let i=0;i<lines.length;i++){
-          const ln=lines[i].trim();
-          if(ln.startsWith('{')&&ln.endsWith('}')){
-            try{ const p=JSON.parse(ln); if(p.ok===true||p.ok===false){data=p;} }catch(e){}
+        let _rawFallback='';
+        if(res.body&&typeof res.body.getReader==='function'){
+          const _rdr=res.body.getReader();
+          const _dec=new TextDecoder();
+          let _buf='';
+          try{
+            while(true){
+              const {done,value}=await _rdr.read();
+              if(done) break;
+              const _chunk=_dec.decode(value,{stream:true});
+              _rawFallback+=_chunk;
+              _buf+=_chunk;
+              const _lns=_buf.split('\n');
+              _buf=_lns.pop();
+              for(const _ln of _lns){
+                const _t=_ln.trim();
+                if(!_t.startsWith('{')||!_t.endsWith('}')) continue;
+                try{
+                  const _p=JSON.parse(_t);
+                  if(_p.queued){
+                    const _le=$('leadLabLoadingTxt');
+                    if(_le) _le.innerHTML=
+                      '<span style="color:#06b6d4;font-weight:600;">'
+                      +(_p.position===1?'You\'re next':'Queue #'+_p.position)
+                      +'</span> &mdash; '+(_p.msg||'waiting for a slot…');
+                    continue;
+                  }
+                  if(_p.ok===true||_p.ok===false) data=_p;
+                }catch(_e){}
+              }
+            }
+          }catch(_re){}
+        } else {
+          // Fallback for environments without ReadableStream
+          _rawFallback=await res.text();
+          const _lns2=_rawFallback.split('\n');
+          for(const _ln of _lns2){
+            const _t=_ln.trim();
+            if(!_t.startsWith('{')||!_t.endsWith('}')) continue;
+            try{ const _p=JSON.parse(_t); if(_p.ok===true||_p.ok===false) data=_p; }catch(_){}
           }
         }
         if(!data){
-          if(raw.includes('<!DOCTYPE')||raw.includes('<html')) throw new Error('Server timed out — the lead search took too long. Try a smaller lead count or narrower niche/location.');
-          throw new Error('Invalid server response: '+raw.slice(0,200));
+          if(_rawFallback.includes('<!DOCTYPE')||_rawFallback.includes('<html')) throw new Error('Server timed out — the lead search took too long. Try a smaller lead count or narrower niche/location.');
+          throw new Error('Invalid server response: '+_rawFallback.slice(0,200));
         }
         if(!data.ok) throw new Error(data.error||'Lead build failed');
         crmRenderLeadResults(data.items||[]);
