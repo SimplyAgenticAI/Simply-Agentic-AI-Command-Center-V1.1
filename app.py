@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "3.6")
+APP_VERSION = os.getenv("APP_VERSION", "3.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -5784,7 +5784,8 @@ def _invalidate_sys_prompt_cache(username: str = "", teammate: str = "") -> None
 
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                            rag_context: str = "", memory_context: str = "",
-                           image_request_active: bool = False) -> str:
+                           image_request_active: bool = False,
+                           tools_enabled: bool = False) -> str:
     role_block = {
         "name": defn.get("name", ""),
         "job_title": defn.get("job_title", ""),
@@ -6097,6 +6098,30 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         "When a user's need clearly maps to one of these tools, say so: e.g. 'Want me to run a Lead Lab search on that?' or 'The Site Analyzer would give you a full breakdown in seconds.'\n"
     )
 
+    # ── Phase 1d: live ACTIONS block — only injected when the agentic tool loop is
+    # active for this request. Tells the teammate to ACT (call the matching tool)
+    # instead of merely offering. Without this the model defaults to "want me to…?"
+    # even though the tools are wired and callable.
+    if tools_enabled:
+        _actions_block = (
+            "ACTIONS YOU CAN TAKE RIGHT NOW — use them, don't just offer\n"
+            "These are real tools you can call. When the operator's request maps to one, TAKE the "
+            "action instead of describing it or asking for permission first:\n"
+            "- generate_image — create an image / logo / poster / graphic. Call it; never say 'I can make one' and stop.\n"
+            "- crm_find_client — look a person/company up in the CRM before answering questions about them.\n"
+            "- crm_add_client — add a new lead/contact when the operator gives you their details.\n"
+            "- crm_log_activity — record a note, call, or meeting on an existing contact.\n"
+            "- research — search the operator's own indexed documents / knowledge base.\n"
+            "- read_url — fetch and read a web page or link the operator shares.\n"
+            "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
+            "request and compose the full email yourself. The system shows the operator a Confirm card before "
+            "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
+            "Lead with action. Only ask a clarifying question when you genuinely can't proceed without it. "
+            "Calling a tool IS real execution, so acting is fully consistent with the PROMISE RULE.\n"
+        )
+    else:
+        _actions_block = ""
+
     # ── Rule 4: Specificity (conditionally chosen based on profile completeness) ──
     _rule4 = (
         "4. **Specificity — profile not set**: The operator has not filled in their profile yet. "
@@ -6303,6 +6328,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{web_search_rules}\n"
         f"{email_rules}\n"
         f"{_tools_block}\n"
+        f"{_actions_block}"
         f"{operator_block}"
         f"{session_objective_block}"
         f"{client_block}"
@@ -23253,7 +23279,16 @@ def api_followup_stream():
     # even if the suggestion's wording happens to contain "logo"/"design a"/etc.
     _is_img_req_s = (not from_suggestion) and is_image_request(msg2, has_image_context=_has_img_ctx_s)
 
-    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s)
+    # Whether the agentic tool loop runs this request — admin/operator always,
+    # everyone else only when SAAI_TOOLS_ENABLED. Computed here (in request
+    # context; current_user() is unreliable inside the SSE generator) so the
+    # system prompt can tell the teammate to ACT when its tools are live.
+    try:
+        _tools_on = SAAI_TOOLS_ENABLED or _is_admin_user(current_user())
+    except Exception:
+        _tools_on = SAAI_TOOLS_ENABLED
+
+    sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s, tools_enabled=_tools_on)
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
     if _is_img_req_s:
@@ -23317,14 +23352,8 @@ def api_followup_stream():
     # LLM-context truncation applied to `thread` above.
     pre_thread = list(full_thread)
 
-    # Real tool use is enabled by the env flag OR automatically for the operator
-    # (admin) account — so the operator can use it in prod without env config,
-    # while it stays off for everyone else until proven. Computed here in request
-    # context (current_user() is unreliable inside the SSE generator).
-    try:
-        _tools_on = SAAI_TOOLS_ENABLED or _is_admin_user(current_user())
-    except Exception:
-        _tools_on = SAAI_TOOLS_ENABLED
+    # (_tools_on computed above, before the system prompt, so the prompt can tell
+    # the teammate to ACT when its tools are live.)
 
     def _persist_stream_result(parts: list) -> tuple:
         """Save thread, extract draft, log. Returns (complete_text, draft)."""
