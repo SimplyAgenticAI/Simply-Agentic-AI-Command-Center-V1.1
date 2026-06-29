@@ -16069,7 +16069,7 @@ Challenge weak assumptions. Surface risks.`;
       const clientName = c ? (c.name || 'this contact') : 'this contact';
       const confirmed = await new Promise(resolve=>{
         const ov = document.createElement('div');
-        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:999999;display:flex;align-items:center;justify-content:center;';
         ov.innerHTML = `<div style="background:rgba(8,13,33,.97);border:1px solid rgba(248,113,113,.25);border-radius:18px;padding:28px 32px;max-width:360px;width:90%;backdrop-filter:blur(22px);box-shadow:0 20px 60px rgba(0,0,0,.7);text-align:center;">
           <div style="font-size:32px;margin-bottom:12px;">🗑</div>
           <div style="font-size:16px;font-weight:700;color:#e2e8f0;margin-bottom:8px;">Delete Contact?</div>
