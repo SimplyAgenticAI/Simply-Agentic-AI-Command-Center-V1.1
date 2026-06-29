@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "3.8")
+APP_VERSION = os.getenv("APP_VERSION", "3.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -5010,22 +5010,29 @@ _START_OVER_HINTS = [
     "start over", "from scratch", "completely different", "brand new", "new graphic", "new image"
 ]
 
-def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False, username: str = "") -> str:
+def classify_image_request_mode(prompt: str, teammate_name: str, has_reference_image: bool = False, username: str = "", has_recent_context: Optional[bool] = None) -> str:
     p = (prompt or "").strip().lower()
-    state = load_image_state(teammate_name, username or _get_session_username())
-    has_current = bool((state.get("current_image_id") or "").strip())
+    # "Current image" only counts as editable context when it's RECENT. The caller
+    # passes has_recent_context (current image generated within the last few turns);
+    # without it, fall back to raw state. A weeks-old image must never silently
+    # become the base for an unrelated new request.
+    if has_recent_context is None:
+        state = load_image_state(teammate_name, username or _get_session_username())
+        has_current = bool((state.get("current_image_id") or "").strip())
+    else:
+        has_current = bool(has_recent_context)
     has_context = has_reference_image or has_current
     if any(x in p for x in _START_OVER_HINTS):
         return "new"
     if any(x in p for x in _VARIATION_HINTS):
         return "variation"
+    # Edit only when the prompt actually refers back to the existing image (an edit
+    # verb / referential phrase from _EDIT_HINTS) AND that image is recent. A
+    # self-contained request that names a new subject — "make me a poster for a
+    # summer coffee sale" — is a fresh image, never an edit of a prior graphic.
     if has_context and any(x in p for x in _EDIT_HINTS):
         return "edit"
     if has_reference_image:
-        return "edit"
-    # Only default to edit for short/ambiguous follow-ups.
-    # Long descriptive prompts (> 60 chars) are almost certainly fresh image requests.
-    if has_current and len(p) <= 60 and not any(x in p for x in ["create", "generate", "new", "from scratch"]):
         return "edit"
     return "new"
 
@@ -9996,8 +10003,16 @@ def _api_followup_impl(data):
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx, image_request_active=_is_img_req)
 
     if _is_img_req:
-        source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname, has_recent_context=_img_context_recent)
+        # Only anchor to a prior image when there's a fresh upload, or the request
+        # is an actual edit/variation — a brand-new request must not inherit the
+        # last generated image as its base (see streaming handler for rationale).
+        if latest_uploaded_image:
+            source_rec = latest_uploaded_image
+        elif mode in ("edit", "variation"):
+            source_rec = _latest_image_record_from_state(name, uname)
+        else:
+            source_rec = None
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
 
@@ -23292,8 +23307,17 @@ def api_followup_stream():
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
     if _is_img_req_s:
-        source_rec = latest_uploaded_image or _latest_image_record_from_state(name, uname)
-        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname)
+        mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname, has_recent_context=_img_context_recent_s)
+        # Only anchor to a prior image when there's a fresh upload, or the request
+        # is an actual edit/variation. A brand-new request must NOT inherit the last
+        # generated image as its base — otherwise an unrelated graphic (e.g. a past
+        # self-portrait) bleeds into the new one.
+        if latest_uploaded_image:
+            source_rec = latest_uploaded_image
+        elif mode in ("edit", "variation"):
+            source_rec = _latest_image_record_from_state(name, uname)
+        else:
+            source_rec = None
         source_file_id = (source_rec.get("id") if isinstance(source_rec, dict) else "") or ""
         job_prompt = build_image_request_prompt(msg, name, mode=mode, source_rec=source_rec, username=uname)
         _img_rl = _check_rate_limit("image", RATE_LIMIT_IMAGE)
