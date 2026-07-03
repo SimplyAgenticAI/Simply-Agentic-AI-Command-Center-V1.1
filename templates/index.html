@@ -213,8 +213,11 @@
     .stage{
       min-height: calc(100vh - 24px);
       display:grid;
-      grid-template-columns: minmax(0, 1fr) 680px;
-      column-gap: 22px;
+      /* Fluid right panel: roomy on big monitors, gracefully narrower on laptops so
+         the center (round table) never gets crushed. Replaces the old fixed 680/580/
+         500px width steps. */
+      grid-template-columns: minmax(0, 1fr) clamp(360px, 30vw, 620px);
+      column-gap: clamp(14px, 1.6vw, 22px);
       align-items:start;
       position:relative;
       z-index:2;
@@ -1577,17 +1580,23 @@
     .pill button:hover{ color: var(--text); }
 
 
-    @media (max-width: 1500px) and (min-width: 1281px){
-      .stage{ grid-template-columns: minmax(0,1fr) 580px; }
-    }
-
+    /* Right-panel width is now fluid via clamp() on .stage (see base rule) — no fixed
+       width steps needed. Just re-flow the command-row buttons at mid widths. */
     @media (max-width: 1280px){
-      .stage{ grid-template-columns: minmax(0,1fr) 500px; }
       .commandRow{ grid-template-columns: repeat(3, minmax(150px, 1fr)); }
       .commandRow.secondary{ grid-template-columns: repeat(2, minmax(180px, 1fr)); max-width:none; }
     }
 
-    @media (max-width: 980px){
+    /* ── Laptop comfort tier (901–1400px wide): lightly relax spacing/type so the
+       two-column view feels roomy, not cramped, on smaller laptop widths. ── */
+    @media (min-width: 901px) and (max-width: 1400px){
+      .arena{ padding-top: 12px; }
+      .commandRow .btn, .commandRow a.btn{ font-size: 13px; min-height: 42px; }
+    }
+
+    /* Collapse to a single stacked column only once two columns get genuinely tight.
+       Lowered from 980 → 900 so laptops keep the comfortable side-by-side layout. */
+    @media (max-width: 900px){
       .stage{ grid-template-columns: 1fr; }
       .side{ position:relative; top:0; height:auto; overflow:visible; border-left:0; }
       .tableWrap{ min-height: 360px; }
@@ -1596,6 +1605,30 @@
       .modalForm .grid{ grid-template-columns: 1fr; }
       .modal{ width: calc(100vw - 22px); }
       .modalBarTitle{ max-width: 240px; }
+    }
+
+    /* ── Height-aware comfort (laptops with shorter screens): tighten the arena and
+       the centered operator console to reclaim vertical space. We deliberately do NOT
+       shrink the round table's HEIGHT here: 8 fixed-size seat cards need a ~600px-tall
+       ellipse or the vertically-stacked side seats overlap. Vertical savings come from
+       trimming chrome/padding instead; the table keeps its overlap-safe size and the
+       page scrolls gently if the screen is very short.
+       Guarded to the two-column layout (≥901px) so it never fights the stacked view. ── */
+    @media (min-width: 901px) and (max-height: 900px){
+      .arena{ padding: 10px 0 18px 0; }
+    }
+    @media (min-width: 901px) and (max-height: 760px){
+      .arena{ padding: 6px 0 12px 0; }
+      .operator{ padding: 10px; }
+      .opText{ height: 60px; }
+    }
+
+    /* ── Short viewport of ANY width: trim the header stack (topbar + nav + HUD) to
+       reclaim vertical space — the cheapest comfort win on laptops. ── */
+    @media (max-height: 820px){
+      .topbar{ padding: 8px 16px 7px 16px; }
+      .saNavBar{ padding: 6px 16px; }
+      #saHudBar{ padding: 2px 16px; }
     }
   
 
@@ -9276,6 +9309,24 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       updateTablePulseFromStatuses();
     }
+
+    // Desktop/laptop: re-fit the round table when the window resizes (resizing the
+    // browser, or dragging between a laptop screen and an external monitor). The seat
+    // ellipse is computed from the live table size, so a debounced re-render re-centers
+    // everything. Mobile (≤720px) has its own fit path and is skipped.
+    let _rtResizeTimer = null;
+    let _rtLastW = window.innerWidth, _rtLastH = window.innerHeight;
+    window.addEventListener("resize", function(){
+      if(window.innerWidth <= 720) return;
+      // Ignore tiny changes (e.g. mobile URL-bar show/hide) — only re-fit on real resizes.
+      if(Math.abs(window.innerWidth - _rtLastW) < 24 && Math.abs(window.innerHeight - _rtLastH) < 24) return;
+      _rtLastW = window.innerWidth; _rtLastH = window.innerHeight;
+      clearTimeout(_rtResizeTimer);
+      _rtResizeTimer = setTimeout(function(){
+        try{ if(state && state.installed) renderTable(); }catch(_){}
+      }, 220);
+    }, {passive:true});
+
     function makeOperatorSeat(totalSeats){
       const wrap = $("tableWrap");
       const wrapRect = wrap.getBoundingClientRect();
