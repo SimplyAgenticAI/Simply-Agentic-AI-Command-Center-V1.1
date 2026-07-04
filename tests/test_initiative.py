@@ -71,3 +71,23 @@ def test_previously_broken_authed_endpoints_no_longer_500(auth_client):
     assert r.status_code < 500
 
 
+
+
+def test_initiative_normalizes_odd_date_formats(auth_client):
+    uname = "smoketest"
+    for nm in ("USDate Uma", "Fuzzy Fred"):
+        res = app_module._execute_teammate_tool("crm_add_client", {"name": nm}, uname, "Alex")
+        assert res["ok"], res
+    crm = app_module._crm_load(uname)
+    for c in crm["clients"].values():
+        if c.get("name") == "USDate Uma":
+            c["next_followup"] = "01/01/2020"      # US format, overdue
+        elif c.get("name") == "Fuzzy Fred":
+            c["next_followup"] = "sometime soon"   # unparseable -> treated as absent
+    app_module._crm_save(uname, crm)
+
+    d = auth_client.get("/api/agent/initiative").get_json()
+    assert d["ok"]
+    titles = " | ".join(i["title"] for i in d["items"])
+    assert "USDate Uma" in titles          # normalized and flagged overdue
+    assert "Fuzzy Fred" not in titles      # garbage date never false-flags

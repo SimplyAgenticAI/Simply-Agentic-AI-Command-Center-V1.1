@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.0")
+APP_VERSION = os.getenv("APP_VERSION", "5.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23134,18 +23134,38 @@ def api_agent_initiative():
         nm = c.get("name") or "a contact"
         return nm + (f" ({c.get('email')})" if c.get("email") else "")
 
-    overdue = sorted((c for c in clients if (c.get("next_followup") or "") and c["next_followup"] < today),
-                     key=lambda c: c.get("next_followup") or "")
+    def _norm_date(s) -> str:
+        """Best-effort normalize to YYYY-MM-DD; '' when unparseable. Imported
+        contacts (CSV / Facebook extension) carry arbitrary date formats — an
+        unparseable date counts as ABSENT, so it can never false-flag a
+        follow-up or hide one behind a bogus comparison."""
+        s = str(s or "").strip()
+        if not s:
+            return ""
+        if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+            return s[:10]
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%d.%m.%Y", "%b %d, %Y", "%B %d, %Y", "%d %b %Y"):
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+        return ""
+
+    _nf = {id(c): _norm_date(c.get("next_followup")) for c in clients}
+    _lc = {id(c): _norm_date(c.get("last_contact")) for c in clients}
+
+    overdue = sorted((c for c in clients if _nf[id(c)] and _nf[id(c)] < today),
+                     key=lambda c: _nf[id(c)])
     for c in overdue[:2]:
         _push("overdue", c,
               f"{c.get('name') or 'A contact'} is overdue for follow-up",
-              f"Was due {c.get('next_followup')} · stage: {c.get('pipeline_stage') or 'Lead'}",
+              f"Was due {_nf[id(c)]} · stage: {c.get('pipeline_stage') or 'Lead'}",
               f"Draft a short, friendly follow-up email to {_who(c)} — their follow-up was due "
-              f"{c.get('next_followup')} and they're in the {c.get('pipeline_stage') or 'Lead'} stage. "
+              f"{_nf[id(c)]} and they're in the {c.get('pipeline_stage') or 'Lead'} stage. "
               f"Then log the outreach on their CRM record.")
 
     if len(items) < 3:
-        for c in (c for c in clients if (c.get("next_followup") or "") == today):
+        for c in (c for c in clients if _nf[id(c)] == today):
             if len(items) >= 3:
                 break
             _push("due_today", c,
@@ -23158,15 +23178,15 @@ def api_agent_initiative():
         quiet = sorted((c for c in clients
                         if (c.get("pipeline_stage") or "Lead") != "Client"
                         and not c.get("seq_replied")
-                        and not (c.get("next_followup") or "")
-                        and (c.get("last_contact") or "") and c["last_contact"] < stale_before),
-                       key=lambda c: c.get("last_contact") or "")
+                        and not _nf[id(c)]
+                        and _lc[id(c)] and _lc[id(c)] < stale_before),
+                       key=lambda c: _lc[id(c)])
         for c in quiet[: 3 - len(items)]:
             _push("quiet", c,
                   f"{c.get('name') or 'A contact'} has gone quiet",
-                  f"Last contact {c.get('last_contact')} · stage: {c.get('pipeline_stage') or 'Lead'}",
+                  f"Last contact {_lc[id(c)]} · stage: {c.get('pipeline_stage') or 'Lead'}",
                   f"Write a short re-engagement message for {_who(c)} — no contact since "
-                  f"{c.get('last_contact')}. Suggest one concrete reason to reconnect, then "
+                  f"{_lc[id(c)]}. Suggest one concrete reason to reconnect, then "
                   f"log it on their CRM record.")
 
     return jsonify({"ok": True, "items": items[:3], "date": today})
