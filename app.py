@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "4.9")
+APP_VERSION = os.getenv("APP_VERSION", "5.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -9525,7 +9525,7 @@ def api_visuals_list():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     try:
-        data_path = DATA_DIR / f"visuals_{uname}.json"
+        data_path = DATA / f"visuals_{uname}.json"
         import json as _json
         if data_path.exists():
             visuals = _json.loads(data_path.read_text(encoding="utf-8"))
@@ -9551,7 +9551,7 @@ def api_visuals_save():
         return jsonify({"ok": False, "error": "No HTML provided"}), 400
     try:
         import json as _json, time as _time
-        data_path = DATA_DIR / f"visuals_{uname}.json"
+        data_path = DATA / f"visuals_{uname}.json"
         visuals = _json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else []
         entry = {
             "id": str(int(_time.time() * 1000)),
@@ -9579,7 +9579,7 @@ def api_visuals_delete(vis_id: str):
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     try:
         import json as _json
-        data_path = DATA_DIR / f"visuals_{uname}.json"
+        data_path = DATA / f"visuals_{uname}.json"
         if not data_path.exists():
             return jsonify({"ok": True})
         visuals = _json.loads(data_path.read_text(encoding="utf-8"))
@@ -14788,7 +14788,20 @@ def stripe_manage():
     if not u:
         return redirect(url_for("login"))
     if not STRIPE_SECRET_KEY:
-        return "Billing portal is not configured.", 503
+        # Graceful, styled fallback instead of a bare 503 — this is a page real
+        # operators land on from "Manage plan" links.
+        return (
+            "<!doctype html><html><body style='background:#0b1024;color:#e2e8f0;"
+            "font-family:system-ui,sans-serif;display:flex;align-items:center;"
+            "justify-content:center;height:100vh;margin:0;'><div style='text-align:center;"
+            "max-width:420px;padding:32px;background:rgba(20,28,60,.6);border:1px solid "
+            "rgba(124,58,237,.35);border-radius:16px;'><div style='font-size:34px;"
+            "margin-bottom:12px;'>💳</div><h2 style='margin:0 0 8px;'>Billing portal unavailable</h2>"
+            "<p style='color:#a8b4c8;font-size:14px;line-height:1.6;'>Billing isn't configured on "
+            "this deployment yet. If you believe this is an error, contact support.</p>"
+            "<a href='/' style='display:inline-block;margin-top:14px;color:#c4b5fd;'>&larr; Back to dashboard</a>"
+            "</div></body></html>"
+        ), 200
 
     uname = u.get("username", "")
     # Look up the Stripe customer ID from their seat record
@@ -21657,7 +21670,9 @@ Website content:
                   headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 def _analyze_reports_path(uname: str) -> Path:
-    return DATA_DIR / "analyze_reports" / f"{uname}.json"
+    # DATA is the Path object; DATA_DIR is its str twin and cannot be joined
+    # with `/` — using it here 500'd every analyze-reports route since launch.
+    return DATA / "analyze_reports" / f"{uname}.json"
 
 @app.post("/api/analyze/reports")
 def api_analyze_reports_save():

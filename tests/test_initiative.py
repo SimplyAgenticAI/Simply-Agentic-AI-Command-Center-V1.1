@@ -1,4 +1,4 @@
-"""Agent initiative endpoint — rules-based CRM scan surfacing proactive suggestions."""
+﻿"""Agent initiative endpoint â€” rules-based CRM scan surfacing proactive suggestions."""
 import pytest
 
 import app as app_module
@@ -16,6 +16,7 @@ def auth_client(flask_app):
         }, follow_redirects=True)
         c.post("/login", data={"username": "smoketest", "password": "TestPass123!"},
                follow_redirects=True)
+        c.csrf_token = c.get("/api/csrf_token").get_json()["csrf_token"]
         yield c
 
 
@@ -49,3 +50,24 @@ def test_initiative_surfaces_overdue_due_and_quiet(auth_client):
         assert it["prompt"] and it["teammate"]
         # prompts must be self-contained: name the contact and the action
         assert it["client"] in it["prompt"]
+
+
+def test_previously_broken_authed_endpoints_no_longer_500(auth_client):
+    # DATA_DIR (str) was joined with / â€” TypeError -> 500 on every call since
+    # launch. These must all succeed for a real authenticated session now.
+    r = auth_client.get("/api/visuals")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+
+    r = auth_client.get("/api/analyze/reports")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+
+    r = auth_client.post("/api/analyze/reports", json={"url": "https://x.com", "analysis": {"score": 88}}, headers={"X-CSRF-Token": auth_client.csrf_token})
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    r = auth_client.get("/api/analyze/reports")
+    assert any(rep.get("url") == "https://x.com" for rep in r.get_json()["reports"])
+
+    # Without Stripe configured this must be a friendly page, never a 5xx.
+    r = auth_client.get("/stripe/manage")
+    assert r.status_code < 500
+
+
