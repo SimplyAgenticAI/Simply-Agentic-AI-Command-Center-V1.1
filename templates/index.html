@@ -640,6 +640,31 @@
     }
     .saActionChip.show{ opacity:1; transform:translate(-50%,-115%) scale(1); }
 
+    /* ── AGENT INITIATIVE: "your team noticed" strip above the round table.
+       Rules-based CRM scan; each row's button hands the action to a teammate. ── */
+    #saInitiative{
+      width:min(1100px,95vw); margin:10px auto 0; position:relative; z-index:15;
+      background:rgba(14,20,45,.88); border:1px solid rgba(103,232,249,.28);
+      border-radius:14px; padding:10px 14px;
+      box-shadow:0 8px 32px rgba(0,0,0,.4), 0 0 22px rgba(34,211,238,.08);
+    }
+    .saInitHead{ display:flex; align-items:center; justify-content:space-between; margin-bottom:2px; }
+    .saInitTitle{ font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:#67e8f9; }
+    .saInitClose{ background:none; border:none; color:#94a3b8; font-size:17px; cursor:pointer; line-height:1; padding:0 2px; }
+    .saInitClose:hover{ color:#e2e8f0; }
+    .saInitRow{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid rgba(255,255,255,.07); }
+    .saInitRow:nth-of-type(2){ border-top:none; }
+    .saInitT1{ font-size:13px; font-weight:600; color:#e2e8f0; }
+    .saInitT2{ font-size:11px; color:#a8b4c8; margin-top:1px; }
+    .saInitGo{
+      flex-shrink:0; padding:6px 14px; border-radius:999px; cursor:pointer;
+      border:1px solid rgba(103,232,249,.45); background:rgba(8,145,178,.15);
+      color:#a5f3fc; font-size:12px; font-weight:700; transition:background .15s;
+    }
+    .saInitGo:hover{ background:rgba(8,145,178,.32); }
+    .saInitGo:disabled{ opacity:.6; cursor:default; }
+    @media(max-width:720px){ #saInitiative{ display:none; } }
+
     /* #4 — Message bubble entrance (gentle slide-up + fade). Scoped to the
        newest bubble so a full thread re-render doesn't re-animate everything. */
     @keyframes saMsgIn{ from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:none; } }
@@ -34392,6 +34417,64 @@ function saWinClose(key){
     var el=document.getElementById('saHudTeammate');
     if(el&&name) el.textContent=name;
   };
+})();
+</script>
+
+<!-- ═══ AGENT INITIATIVE — proactive "your team noticed" strip ═══ -->
+<script>
+(function(){
+'use strict';
+if(window.innerWidth <= 720) return;                      // desktop dashboard only
+var KEY = 'sa_initiative_dismissed';
+function _today(){ return new Date().toISOString().slice(0,10); }
+try{ if(localStorage.getItem(KEY) === _today()) return; }catch(_){}
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); }
+function build(items){
+  var arena = document.querySelector('.arena');
+  if(!arena || !arena.parentNode || !items.length) return;
+  var strip = document.createElement('div');
+  strip.id = 'saInitiative';
+  var html = '<div class="saInitHead"><span class="saInitTitle">&#128064; Your team noticed</span>'
+           + '<button class="saInitClose" title="Dismiss for today">&times;</button></div>';
+  items.forEach(function(it, i){
+    html += '<div class="saInitRow">'
+          + '<div class="saInitTxt"><div class="saInitT1">' + esc(it.title) + '</div>'
+          + '<div class="saInitT2">' + esc(it.detail) + '</div></div>'
+          + '<button class="saInitGo" data-i="' + i + '">Do it &rarr; ' + esc(it.teammate) + '</button>'
+          + '</div>';
+  });
+  strip.innerHTML = html;
+  arena.parentNode.insertBefore(strip, arena);
+  strip.querySelector('.saInitClose').addEventListener('click', function(){
+    try{ localStorage.setItem(KEY, _today()); }catch(_){}
+    strip.remove();
+  });
+  Array.prototype.forEach.call(strip.querySelectorAll('.saInitGo'), function(btn){
+    btn.addEventListener('click', function(){
+      var it = items[parseInt(btn.dataset.i, 10)];
+      if(!it) return;
+      btn.disabled = true; btn.textContent = 'On it…';
+      // Hand off to the teammate through the normal chat — the agentic tool
+      // loop takes over from there (drafts, CRM logging, confirm cards).
+      var go = (typeof window.selectSeat === 'function') ? window.selectSeat(it.teammate) : Promise.resolve();
+      Promise.resolve(go).then(function(){
+        var fm = document.getElementById('followMsg'), sf = document.getElementById('sendFollow');
+        if(fm && sf){ fm.value = it.prompt; sf.click(); btn.textContent = '✓ Handed to ' + it.teammate; }
+        else { btn.disabled = false; btn.textContent = 'Do it → ' + it.teammate; }
+      }).catch(function(){
+        btn.disabled = false; btn.textContent = 'Do it → ' + it.teammate;
+      });
+    });
+  });
+}
+function load(){
+  fetch('/api/agent/initiative').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if(d && d.ok && d.items && d.items.length) build(d.items);
+  }).catch(function(){});
+}
+// Delay so the table renders first and the strip never blocks initial paint.
+if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', function(){ setTimeout(load, 1500); }); }
+else { setTimeout(load, 1500); }
 })();
 </script>
 

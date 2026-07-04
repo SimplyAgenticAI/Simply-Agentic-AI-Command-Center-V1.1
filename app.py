@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "4.5")
+APP_VERSION = os.getenv("APP_VERSION", "4.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23022,6 +23022,73 @@ def api_teammate_action_execute():
     except Exception:
         pass
     return jsonify({"ok": bool(res.get("ok")), "summary": res.get("summary", "")})
+
+
+@app.get("/api/agent/initiative")
+def api_agent_initiative():
+    """Agent initiative — a rules-based scan of the operator's CRM that surfaces
+    up to 3 proactive suggestions ('your team noticed...'), each with a ready-made
+    prompt the client hands to a teammate through the normal agentic chat, where
+    the tool loop takes over. Deterministic and LLM-free: costs nothing per load.
+    Dates are YYYY-MM-DD strings so plain string comparison orders correctly."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    try:
+        crm = _crm_load(uname)
+        clients = [c for c in (crm.get("clients") or {}).values() if isinstance(c, dict)]
+    except Exception:
+        clients = []
+    _now = datetime.utcnow()
+    today = _now.strftime("%Y-%m-%d")
+    stale_before = (_now - timedelta(days=14)).strftime("%Y-%m-%d")
+    items: List[Dict[str, Any]] = []
+
+    def _push(kind, c, title, detail, prompt):
+        items.append({"kind": kind, "client": c.get("name", ""), "title": title,
+                      "detail": detail, "teammate": "Sunshine", "prompt": prompt})
+
+    def _who(c):
+        nm = c.get("name") or "a contact"
+        return nm + (f" ({c.get('email')})" if c.get("email") else "")
+
+    overdue = sorted((c for c in clients if (c.get("next_followup") or "") and c["next_followup"] < today),
+                     key=lambda c: c.get("next_followup") or "")
+    for c in overdue[:2]:
+        _push("overdue", c,
+              f"{c.get('name') or 'A contact'} is overdue for follow-up",
+              f"Was due {c.get('next_followup')} · stage: {c.get('pipeline_stage') or 'Lead'}",
+              f"Draft a short, friendly follow-up email to {_who(c)} — their follow-up was due "
+              f"{c.get('next_followup')} and they're in the {c.get('pipeline_stage') or 'Lead'} stage. "
+              f"Then log the outreach on their CRM record.")
+
+    if len(items) < 3:
+        for c in (c for c in clients if (c.get("next_followup") or "") == today):
+            if len(items) >= 3:
+                break
+            _push("due_today", c,
+                  f"{c.get('name') or 'A contact'} is due for follow-up today",
+                  f"Stage: {c.get('pipeline_stage') or 'Lead'}",
+                  f"Draft a follow-up email to {_who(c)} — they're due for follow-up today. "
+                  f"Then log the outreach on their CRM record.")
+
+    if len(items) < 3:
+        quiet = sorted((c for c in clients
+                        if (c.get("pipeline_stage") or "Lead") != "Client"
+                        and not c.get("seq_replied")
+                        and not (c.get("next_followup") or "")
+                        and (c.get("last_contact") or "") and c["last_contact"] < stale_before),
+                       key=lambda c: c.get("last_contact") or "")
+        for c in quiet[: 3 - len(items)]:
+            _push("quiet", c,
+                  f"{c.get('name') or 'A contact'} has gone quiet",
+                  f"Last contact {c.get('last_contact')} · stage: {c.get('pipeline_stage') or 'Lead'}",
+                  f"Write a short re-engagement message for {_who(c)} — no contact since "
+                  f"{c.get('last_contact')}. Suggest one concrete reason to reconnect, then "
+                  f"log it on their CRM record.")
+
+    return jsonify({"ok": True, "items": items[:3], "date": today})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
