@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "4.4")
+APP_VERSION = os.getenv("APP_VERSION", "4.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -10095,7 +10095,7 @@ def _api_followup_impl(data):
         try:
             text, _tool_log = call_llm_with_tools(
                 sys, msgs, temperature=0.65, model=_resolved_model,
-                username=uname, u=current_user() or {}
+                username=uname, u=current_user() or {}, teammate=name
             )
         except Exception:
             text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
@@ -22420,20 +22420,25 @@ def call_llm_with_tools(
     model: Optional[str] = None,
     username: str = "anon",
     u: Optional[Dict[str, Any]] = None,
+    teammate: str = "Alex",
 ) -> Tuple[str, List[Dict[str, Any]]]:
-    """OpenAI call with tool support.  Returns (final_text, tool_log)."""
+    """OpenAI call with tool support.  Returns (final_text, tool_log).
+    Non-streaming path: only AUTO-risk tools are offered — confirm-risk actions
+    (send_email) are exclusive to the streaming path with its confirm cards."""
     use_model = (model or "").strip() or MODEL
     oai       = get_openai_client()
     timeout   = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
     sys_msg   = [{"role": "system", "content": system}]
     msgs      = sys_msg + list(messages)
     tool_log: List[Dict[str, Any]] = []
+    _external_used = False
+    _auto_tools = [t for t in _tools_openai_schema() if _tool_risk(t["function"]["name"]) == "auto"]
 
     for _round in range(4):          # max 4 tool-use rounds
         resp   = oai.chat.completions.create(
             model=use_model, messages=msgs,
             temperature=temperature, timeout=timeout,
-            tools=_TEAMMATE_TOOLS, tool_choice="auto",
+            tools=_auto_tools, tool_choice="auto",
         )
         choice = resp.choices[0]
 
@@ -22455,18 +22460,25 @@ def call_llm_with_tools(
             "tool_calls": tc_dicts,
         })
 
-        # Execute each tool and append results
+        # Execute each tool and append results. Same escalation guard as the
+        # streaming path: after untrusted external content is read, mutating
+        # tools are refused here (no confirm cards in this path).
         for tc in (choice.message.tool_calls or []):
             fn_name = tc.function.name
             try:
                 fn_args = json.loads(tc.function.arguments or "{}")
             except Exception:
                 fn_args = {}
-            result = _execute_teammate_tool(fn_name, fn_args, username, u or {})
-            tool_log.append({"tool": fn_name, "args": fn_args, "result": result[:300]})
+            if _effective_tool_risk(fn_name, _external_used) != "auto":
+                _res = {"ok": False, "summary": "This action needs operator confirmation — ask the operator to request it again in the chat."}
+            else:
+                _res = _execute_teammate_tool(fn_name, fn_args, username, teammate)
+                if fn_name in _EXTERNAL_CONTENT_TOOLS:
+                    _external_used = True
+            tool_log.append({"tool": fn_name, "args": fn_args, "result": (_res.get("summary") or "")[:300]})
             msgs.append({
                 "role": "tool", "tool_call_id": tc.id,
-                "name": fn_name, "content": result,
+                "name": fn_name, "content": json.dumps(_res)[:4000],
             })
 
     # Safety: one final call after max rounds
@@ -22685,7 +22697,10 @@ def api_webhook_receive(token: str):
 #  (propose to the operator, execute only on explicit confirm).
 # ══════════════════════════════════════════════════════════════════════════════
 
-SAAI_TOOLS_ENABLED = os.getenv("SAAI_TOOLS_ENABLED", "0") == "1"
+# Agentic tool use is ON by default (verified via tests/test_tool_engine.py +
+# test_tool_loop.py). Set SAAI_TOOLS_ENABLED=0 in the environment as the kill
+# switch to instantly revert every non-admin account to plain chat.
+SAAI_TOOLS_ENABLED = os.getenv("SAAI_TOOLS_ENABLED", "1") == "1"
 
 
 def _tool_generate_image(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
