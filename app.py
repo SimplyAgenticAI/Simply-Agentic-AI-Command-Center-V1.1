@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "4.6")
+APP_VERSION = os.getenv("APP_VERSION", "4.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -13753,6 +13753,13 @@ def login_post():
         pass  # session lifetime already set at startup in app.config
     _audit_log("login", {"remember": bool(remember)}, username=username)
 
+    # Refresh the teammates' business knowledge once per session start
+    # (debounced + background — never blocks the login redirect).
+    try:
+        _rag_autoingest_maybe(username)
+    except Exception:
+        pass
+
     # Safe same-origin ?next= redirect (prevents open redirect attacks)
     next_url = (request.args.get("next") or request.form.get("next") or "").strip()
     if next_url and next_url.startswith("/") and not next_url.startswith("//"):
@@ -15369,6 +15376,12 @@ def _crm_save(username: str, data: Dict[str, Any]) -> None:
     except Exception:
         pass
     save_json(_crm_path_for_user(username), data)
+    # Keep the teammates' business knowledge fresh: every CRM write schedules a
+    # debounced background re-index (no-op inside the gap window / without a key).
+    try:
+        _rag_autoingest_maybe(username)
+    except Exception:
+        pass
 
 def _crm_new_id(prefix: str) -> str:
     prefix = re.sub(r"[^a-zA-Z0-9_]+", "_", (prefix or "x"))
@@ -21271,6 +21284,30 @@ def _rag_autoingest_operator(username: str) -> int:
     except Exception:
         pass
     return total
+
+
+# Debounce state for automatic business re-indexing — at most one re-ingest per
+# user per gap window, so rapid CRM edits (drag-drop, activity logging) don't
+# hammer the embeddings API.
+_RAG_AUTOSYNC_TS: Dict[str, float] = {}
+_RAG_AUTOSYNC_LOCK = threading.Lock()
+_RAG_AUTOSYNC_MIN_GAP = int(os.getenv("SAAI_RAG_AUTOSYNC_GAP", "600"))  # seconds
+
+
+def _rag_autoingest_maybe(username: str) -> bool:
+    """Debounced, non-blocking re-index of the operator's business context.
+    Returns True if a re-ingest was started, False if inside the gap window."""
+    import time as _t
+    now = _t.time()
+    with _RAG_AUTOSYNC_LOCK:
+        if now - _RAG_AUTOSYNC_TS.get(username, 0.0) < _RAG_AUTOSYNC_MIN_GAP:
+            return False
+        _RAG_AUTOSYNC_TS[username] = now
+    try:
+        threading.Thread(target=_rag_autoingest_operator, args=(username,), daemon=True).start()
+        return True
+    except Exception:
+        return False
 
 
 @app.post("/api/rag/sync_business")
