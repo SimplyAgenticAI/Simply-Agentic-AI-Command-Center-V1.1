@@ -7677,6 +7677,10 @@ if (typeof window.showToast !== "function") {
 
     // ── Onboarding checklist (first-time users) ───────────────────
     (function(){
+      // GUIDED FLOW: this legacy 3-bullet panel is permanently retired — its
+      // steps are a subset of the Get Started checklist (#onboardingPanel).
+      // First login now shows ONE guide at a time: welcome modal → checklist.
+      return;
       const SK = 'sa_onboarding_v1';
       if(localStorage.getItem(SK + '_dismissed')) return;
 
@@ -29678,6 +29682,11 @@ window._saPlReset=function(){
   // ── Welcome overlay ───────────────────────────────────────────────
   function dismissWelcome(){
     localStorage.setItem('sa_welcomed','1');
+    // Guided flow step 2: after the welcome modal closes, open the single
+    // Get Started checklist — one guide at a time instead of a popup pile.
+    setTimeout(function(){
+      try{ if(typeof window.onboardingOpen === 'function') window.onboardingOpen(); }catch(_){}
+    }, 650);
     var ov = document.getElementById('welcomeOverlay');
     if(ov){ ov.style.opacity='0'; ov.style.transition='opacity .35s'; setTimeout(function(){ov.style.display='none';},350); }
   }
@@ -32020,6 +32029,9 @@ function sa5CheckWelcome(){
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(!d || !d.ok || d.dismissed || d.all_done) return;
+      // First visit: the welcome modal owns the screen and its Lets-go button
+      // opens the checklist — no banner or auto-open underneath it.
+      if(!localStorage.getItem('sa_welcomed')) return;
       var steps = d.steps || {};
       var done = Object.values(steps).filter(function(s){ return s && s.done; }).length;
       try{ sessionStorage.setItem('sa5_wb_shown','1'); }catch(_){}
