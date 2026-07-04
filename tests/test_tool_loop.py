@@ -130,3 +130,18 @@ def test_injection_escalation_blocks_silent_crm_write(monkeypatch, tclient):
     assert "[confirm_action]" in last  # crm_add escalated to confirm
     crm = app_module._crm_load(_TUSER)
     assert not any(c.get("name") == "Evil Injected" for c in (crm.get("clients") or {}).values())
+
+
+def test_toolish_gate_routes_correctly():
+    m = app_module._msg_may_need_tools
+    # Plausibly tool-worthy messages must pass the gate
+    assert m("Add Jamie Rivera to my CRM as a lead")
+    assert m("can you email john@acme.com a thank you note")
+    assert m("look up Sarah in my contacts")
+    assert m("research the best pricing for my niche")
+    assert m("what do you think of https://example.com")
+    assert m("Follow-up with the leads from yesterday")
+    # Plain conversation keeps true streaming
+    assert not m("what do you think about my pricing strategy?")
+    assert not m("give me three ideas for an Instagram caption")
+    assert not m("hello! how are you today")

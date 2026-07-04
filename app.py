@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "4.8")
+APP_VERSION = os.getenv("APP_VERSION", "4.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -10089,9 +10089,10 @@ def _api_followup_impl(data):
         _resolved_model = "gpt-4o-mini"
     _tool_log: List[Dict[str, Any]] = []
 
-    # Tool calling: skip for o1/o3/o4/claude (unsupported tools param)
+    # Tool calling: skip for o1/o3/o4/claude (unsupported tools param), and skip
+    # the tool schemas entirely for plain conversation (same gate as streaming).
     _supports_tools = not any(_resolved_model.startswith(p) for p in ("o1", "o3", "o4", "claude"))
-    if _supports_tools:
+    if _supports_tools and _msg_may_need_tools(msg2):
         try:
             text, _tool_log = call_llm_with_tools(
                 sys, msgs, temperature=0.65, model=_resolved_model,
@@ -22739,6 +22740,24 @@ def api_webhook_receive(token: str):
 # switch to instantly revert every non-admin account to plain chat.
 SAAI_TOOLS_ENABLED = os.getenv("SAAI_TOOLS_ENABLED", "1") == "1"
 
+# The tool loop generates the whole reply before replaying it, which kills the
+# live word-by-word stream. This cheap gate keeps TRUE streaming for plain
+# conversation and only routes messages that plausibly map to a tool (CRM,
+# email, research, URLs, scheduling...) through the tool loop. Deliberately
+# generous — a false positive only costs streaming feel; a false negative only
+# costs one turn of tool access (the teammate still answers normally).
+_TOOLISH_RE = re.compile(
+    r"\b(add|save|log|update|crm|contact|client|lead|email|send|draft|"
+    r"follow[- ]?up|look\s?up|lookup|find|search|research|read|scan|"
+    r"analy[sz]e|check|remember|schedule|book|reach out|outreach)\b"
+    r"|https?://|www\.",
+    re.I,
+)
+
+
+def _msg_may_need_tools(msg: str) -> bool:
+    return bool(_TOOLISH_RE.search(msg or ""))
+
 
 def _tool_generate_image(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Kick off an image generation job (reuses create_image_job)."""
@@ -23082,9 +23101,19 @@ def api_agent_initiative():
     stale_before = (_now - timedelta(days=14)).strftime("%Y-%m-%d")
     items: List[Dict[str, Any]] = []
 
+    # Prefer Sunshine (Sales) but fall back to any installed teammate — a user
+    # who dismissed Sunshine must not get a dead Do-it button.
+    _tm = "Sunshine"
+    try:
+        _installed = (load_registry(uname) or {}).get("installed") or {}
+        if _tm not in _installed:
+            _tm = next(iter(_installed), "Alex")
+    except Exception:
+        pass
+
     def _push(kind, c, title, detail, prompt):
         items.append({"kind": kind, "client": c.get("name", ""), "title": title,
-                      "detail": detail, "teammate": "Sunshine", "prompt": prompt})
+                      "detail": detail, "teammate": _tm, "prompt": prompt})
 
     def _who(c):
         nm = c.get("name") or "a contact"
@@ -23557,7 +23586,7 @@ def api_followup_stream():
             # It runs a short tool loop (auto tools execute; results fed back),
             # streaming tool-status + the final answer via the SAME token events
             # the client already renders — so no client changes are needed here.
-            if _tools_on and not _use_claude and oai_client is not None:
+            if _tools_on and not _use_claude and oai_client is not None and _msg_may_need_tools(msg2):
                 # Run the tool rounds WITHOUT yielding so that any failure can
                 # fall through cleanly to the normal streaming path below — tools
                 # become a pure enhancement that can never degrade the chat.
@@ -23657,7 +23686,7 @@ def api_followup_stream():
             # Same shape + fallback-safety as the OpenAI branch above: run the tool
             # rounds; on any failure or empty result, fall through to the normal
             # Claude streaming path below so the chat is never degraded.
-            if _tools_on and _use_claude:
+            if _tools_on and _use_claude and _msg_may_need_tools(msg2):
                 try:
                     _cc = _get_claude_client_for_user(current_user())
                 except Exception:
