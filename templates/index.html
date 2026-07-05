@@ -4256,6 +4256,7 @@ label {
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <!-- Push-to-talk toggle -->
+      <button id="whisperAutoToggle" title="Hands-free on startup: Whisper arms itself in standby every time the dashboard loads — just say a teammate's name to engage. Works best on Chrome/Edge desktop; some browsers still require one click per session." style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">AUTO</button>
       <button id="whisperPttToggle" title="Push-to-talk mode" style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">PTT</button>
       <button id="whisperClose" title="Stop Whisper" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#cbd5e1;font-size:14px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&times;</button>
     </div>
@@ -7776,6 +7777,13 @@ if (typeof window.showToast !== "function") {
     let alwaysOn = false;
     let alwaysMode = "dm"; // "dm" or "group"
     let alwaysRec = null;
+    // ── Hands-free standby ──────────────────────────────────────────────────
+    // true = mic armed but IGNORING all speech until a teammate's name is heard
+    // (say "Alex" to engage). false = classic hot Whisper behavior.
+    let _hfStandby = false;
+    let _hfDecayTimer = null;
+    const _HF_DECAY_MS = 90000;   // engaged but silent this long → back to standby
+    const _HF_STANDBY_RE = /\b(stand\s?by|stand\s?down|stop listening)\b/i;
     let alwaysBaseText = "";
     let alwaysFinalText = "";
     let alwaysInterimText = "";
@@ -11841,6 +11849,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     function stopAlwaysListening(){
       alwaysOn=false;
+      _hfStandby=false;
+      if(_hfDecayTimer){clearTimeout(_hfDecayTimer);_hfDecayTimer=null;}
       if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       _whisperHideCountdown();
       _whisperHideHud();
@@ -12078,7 +12088,22 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
 
     // ── Main engine ───────────────────────────────────────────────
-    async function startAlwaysListening(mode){
+    // ── Hands-free helpers ──────────────────────────────────────────────────
+    function _hfEnterStandby(){
+      _hfStandby=true;
+      _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+      if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+      if(_hfDecayTimer){clearTimeout(_hfDecayTimer);_hfDecayTimer=null;}
+      _whisperHideCountdown();
+      _whisperSetTranscript("","");
+      _whisperSetStatus("Standing by — say a teammate's name");
+    }
+    function _hfArmDecay(){
+      if(_hfDecayTimer)clearTimeout(_hfDecayTimer);
+      _hfDecayTimer=setTimeout(function(){ if(alwaysOn && !_hfStandby) _hfEnterStandby(); }, _HF_DECAY_MS);
+    }
+
+    async function startAlwaysListening(mode, opts){
       if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
 
       alwaysMode=mode||"dm";
@@ -12086,6 +12111,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       updateAlwaysButtons();
       resetAlwaysBuffers();
       _whisperUpdateTeammate();
+      // Entry state: auto-start always arms in STANDBY (a seat is auto-selected
+      // on load — a hot mic there would capture ambient speech). A manual click
+      // keeps today's behavior: hot when a seat is selected, standby when not.
+      // Group mode is inherently "speak to everyone" — never standby.
+      _hfStandby = (alwaysMode==="dm") && (!!(opts&&opts.standby) || !(window.selectedSeat||selectedSeat));
 
       // Request mic permission — also get the stream for Web Audio
       let micStream=null;
@@ -12100,7 +12130,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
 
       _whisperShowHud();
-      _whisperSetStatus("Listening...");
+      _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
       if(micStream)_whisperStartWaveform(micStream);
 
       const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -12148,6 +12178,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             _whisperUpdateTeammate();
             _whisperSetTranscript("","");
             _whisperSetStatus("Now talking to "+hit.name);
+            // Hands-free: hearing a name ENGAGES from standby
+            _hfStandby=false;
+            _hfArmDecay();
             _buf="";alwaysFinalText="";alwaysInterimText="";
             // Restart recognizer to flush any buffered old-session results
             try{ if(alwaysRec) alwaysRec.stop(); }catch(_){}
@@ -12155,6 +12188,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             return;
           }
         }
+
+        // ── Hands-free: spoken command drops back to standby ──────
+        if(!_hfStandby && newFinals && _HF_STANDBY_RE.test(newFinals)){
+          _hfEnterStandby();
+          return;
+        }
+        // ── Hands-free standby: armed but ignoring everything until a name ─
+        if(_hfStandby) return;
+        _hfArmDecay();
 
         // ── Update HUD transcript only — NEVER touch the textarea ─
         if(newFinals)_buf=(_buf+" "+newFinals).trim();
@@ -12228,6 +12270,35 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     (function(){
       const hClose=$("whisperClose");
       if(hClose)hClose.onclick=()=>stopAlwaysListening();
+
+      // Hands-free on startup (opt-in): AUTO pill toggles it; when enabled the
+      // mic arms itself in STANDBY on every dashboard load — nothing is heard
+      // as a message until a teammate's name is spoken.
+      const hAuto=$("whisperAutoToggle");
+      function _hfPaintAuto(){
+        if(!hAuto)return;
+        let on=false; try{on=localStorage.getItem("sa_handsfree_auto")==="1";}catch(_){}
+        hAuto.style.background=on?"rgba(124,58,237,.35)":"transparent";
+        hAuto.style.color=on?"#e9d5ff":"#a8b4c8";
+        hAuto.style.borderColor=on?"rgba(167,139,250,.7)":"rgba(100,116,139,.4)";
+      }
+      if(hAuto){
+        _hfPaintAuto();
+        hAuto.onclick=()=>{
+          let on=false; try{on=localStorage.getItem("sa_handsfree_auto")==="1";}catch(_){}
+          try{localStorage.setItem("sa_handsfree_auto",on?"0":"1");}catch(_){}
+          _hfPaintAuto();
+          showToast(on?"Hands-free on startup: OFF":"Hands-free on startup: ON — Whisper arms itself next load");
+        };
+      }
+      try{
+        if(localStorage.getItem("sa_handsfree_auto")==="1" && window.innerWidth>720 && speechSupported()){
+          setTimeout(function(){
+            if(alwaysOn) return;
+            startAlwaysListening("dm", {standby:true});
+          }, 2000);
+        }
+      }catch(_){}
 
       const hSend=$("whisperSendNow");
       if(hSend)hSend.onclick=()=>{
