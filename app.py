@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.1")
+APP_VERSION = os.getenv("APP_VERSION", "5.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -20372,11 +20372,16 @@ def api_os_next_actions():
         suggestions.append({"type": "objective", "title": "Advance the session objective", "detail": objective})
     if clients:
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
-        # Overdue follow-ups come first — most urgent
-        overdue = [c for c in clients if (c.get("next_followup") or "") and c.get("next_followup") <= today_str]
-        overdue.sort(key=lambda x: x.get("next_followup") or "")
+        # Overdue follow-ups come first — most urgent. Only strict ISO dates are
+        # considered: imported contacts can carry arbitrary formats, and the old
+        # raw strptime here 500'd the whole endpoint on the first odd date.
+        def _nf_iso(c):
+            s = str(c.get("next_followup") or "").strip()
+            return s if re.match(r"^\d{4}-\d{2}-\d{2}$", s) else ""
+        overdue = [c for c in clients if _nf_iso(c) and _nf_iso(c) <= today_str]
+        overdue.sort(key=lambda x: _nf_iso(x))
         for c in overdue[:3]:
-            days = (datetime.utcnow().date() - datetime.strptime(c["next_followup"], "%Y-%m-%d").date()).days
+            days = (datetime.utcnow().date() - datetime.strptime(_nf_iso(c), "%Y-%m-%d").date()).days
             label = "today" if days == 0 else f"{days}d overdue"
             suggestions.append({
                 "type": "client",
