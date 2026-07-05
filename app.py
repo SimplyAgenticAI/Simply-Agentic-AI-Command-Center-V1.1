@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.3")
+APP_VERSION = os.getenv("APP_VERSION", "5.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -6120,6 +6120,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "- crm_log_activity — record a note, call, or meeting on an existing contact.\n"
             "- research — search the operator's own indexed documents / knowledge base.\n"
             "- read_url — fetch and read a web page or link the operator shares.\n"
+            "- set_session_objective — change the team-wide session objective/goal shown at the top of the dashboard. When the operator says to change the objective, CALL this — don't just acknowledge.\n"
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
             "request and compose the full email yourself. The system shows the operator a Confirm card before "
             "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
@@ -22769,7 +22770,8 @@ SAAI_TOOLS_ENABLED = os.getenv("SAAI_TOOLS_ENABLED", "1") == "1"
 _TOOLISH_RE = re.compile(
     r"\b(add|save|log|update|crm|contact|client|lead|email|send|draft|"
     r"follow[- ]?up|look\s?up|lookup|find|search|research|read|scan|"
-    r"analy[sz]e|check|remember|schedule|book|reach out|outreach)\b"
+    r"analy[sz]e|check|remember|schedule|book|reach out|outreach|"
+    r"objective|goal|change|set)\b"
     r"|https?://|www\.",
     re.I,
 )
@@ -22947,6 +22949,31 @@ def _tool_send_email(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[st
         return {"ok": False, "summary": f"Send failed: {e}"}
 
 
+def _tool_set_session_objective(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Change the team-wide session objective (mirrors POST /api/os/session_objective).
+    Title is required; context is optional and preserved when not provided."""
+    title = (args.get("title") or "").strip()
+    if not title:
+        return {"ok": False, "summary": "Need the new objective text."}
+    try:
+        osd = _os_load(uname)
+        prev = osd.get("session_objective") or {}
+        osd["session_objective"] = {
+            "title": title[:300],
+            "context": (args.get("context") or prev.get("context") or "").strip(),
+            "updated_at": now_iso(),
+        }
+        _os_save(uname, osd)
+        _os_log(uname, "session_objective", {"title": title[:300], "by": teammate})
+        try:
+            _mark_onboarding_step(uname, "session_goal", True)
+        except Exception:
+            pass
+        return {"ok": True, "summary": f"Session objective updated to: {title[:120]}"}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not update the objective: {e}"}
+
+
 def _confirm_summary(name: str, args: Dict[str, Any]) -> str:
     """Human-readable one-liner describing a confirm-risk action for the card."""
     if name == "send_email":
@@ -22993,6 +23020,12 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "url": {"type": "string", "description": "The full URL to read."}},
          "required": ["url"]}},
+    {"name": "set_session_objective", "risk": "auto", "executor": _tool_set_session_objective,
+     "description": "Change the operator's team-wide session objective (the goal shown at the top of the dashboard). Use whenever the operator asks to change, set, or update the session objective / session goal / current goal.",
+     "parameters": {"type": "object", "properties": {
+         "title": {"type": "string", "description": "The new objective, short and action-oriented."},
+         "context": {"type": "string", "description": "Optional supporting context; omit to keep the existing context."}},
+         "required": ["title"]}},
     {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
      "description": "Email someone on the operator's behalf. Use this WHENEVER the operator asks to email, send, or message a person — compose the full email (to, subject, body) yourself from the conversation. The system ALWAYS shows the operator a confirmation card to review and approve before anything is actually sent, so this is safe and is the correct tool for any 'email X' / 'send this to X' request. Do not just describe the email in text — call this tool so the operator gets the Send button.",
      "parameters": {"type": "object", "properties": {

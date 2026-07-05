@@ -120,3 +120,19 @@ def test_injection_guard_escalates_mutating_tools_after_external_content():
     # Already-confirm tools stay confirm regardless.
     assert app_module._effective_tool_risk("send_email", True) == "confirm"
     assert app_module._effective_tool_risk("send_email", False) == "confirm"
+
+
+def test_set_session_objective_tool():
+    uname = "smoketest"
+    res = app_module._execute_teammate_tool(
+        "set_session_objective", {"title": "Dominate Q3 outreach"}, uname, "Sunshine")
+    assert res["ok"], res
+    osd = app_module._os_load(uname)
+    assert osd["session_objective"]["title"] == "Dominate Q3 outreach"
+    # auto-risk, present in the schemas, and reachable through the chat gate
+    assert app_module._tool_risk("set_session_objective") == "auto"
+    assert "set_session_objective" in [t["function"]["name"] for t in app_module._tools_openai_schema()]
+    assert app_module._msg_may_need_tools("Sunshine, change the session objective to launch the new funnel")
+    # empty title rejected cleanly
+    bad = app_module._execute_teammate_tool("set_session_objective", {}, uname, "Sunshine")
+    assert bad["ok"] is False

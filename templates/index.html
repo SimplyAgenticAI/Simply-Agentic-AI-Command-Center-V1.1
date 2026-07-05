@@ -12198,6 +12198,45 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(_hfStandby) return;
         _hfArmDecay();
 
+        // ── Voice flow commands (engaged only) ─────────────────────────────
+        // Anchored at the END of the utterance so the phrases can still appear
+        // inside a normal message ("...and send it to Jamie" won't trigger).
+        let _hfHold=false;
+        if(newFinals){
+          const _cmdl=newFinals.toLowerCase().replace(/[.,!?]+\s*$/,"").trim();
+          if(/(scratch that|never mind|start over|clear that)$/.test(_cmdl)){
+            _buf="";alwaysFinalText="";alwaysInterimText="";
+            if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+            _whisperHideCountdown();
+            _whisperSetTranscript("","");
+            _whisperSetStatus("Cleared — go ahead");
+            return;
+          }
+          if(/(send it|send now|send that|just send)$/.test(_cmdl)){
+            const _m=(_buf+" "+newFinals.replace(/\b(send it|send now|send that|just send)[.,!?]*\s*$/i,"")).replace(/\s+/g," ").trim();
+            _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+            if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+            _whisperHideCountdown();
+            if(_m){
+              if(alwaysMode==="dm"){
+                const seat=window.selectedSeat||selectedSeat||"";
+                if(seat)await _voiceSendDm(_m,seat);
+                else showToast("⚠️ Say a teammate name first to select them");
+              }else{
+                await _voiceSendGroup(_m);
+              }
+            }
+            return;
+          }
+          if(/(hold on|one second|give me a second|give me a minute)$/.test(_cmdl)){
+            newFinals=newFinals.replace(/\b(hold on|one second|give me a second|give me a minute)[.,!?]*\s*$/i,"").replace(/\s+/g," ").trim();
+            if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+            _whisperHideCountdown();
+            _whisperSetStatus("Holding — take your time");
+            _hfHold=true;   // buffer any remaining words, but don't arm the send
+          }
+        }
+
         // ── Update HUD transcript only — NEVER touch the textarea ─
         if(newFinals)_buf=(_buf+" "+newFinals).trim();
         alwaysFinalText=_buf;
@@ -12214,12 +12253,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           _whisperHideCountdown();
         }
         // Arm the send only when a phrase has SETTLED: a final landed and there
-        // is no trailing interim (i.e. the user has actually paused). The timer
-        // then fires after AUTO_SEND_MS of genuine silence, and resumed speech
-        // (a new interim above) cancels it.
-        if(newFinals && !interim){
+        // is no trailing interim (i.e. the user has actually paused). The delay
+        // ADAPTS to how much has been said: short commands send snappily (~1.8s),
+        // long dictation gets more thinking room (up to 5s). Resumed speech (a
+        // new interim above) cancels it, and "send it" skips the wait entirely.
+        if(newFinals && !interim && !_hfHold){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
-          _whisperShowCountdown(AUTO_SEND_MS);
+          const _words=_buf.split(/\s+/).filter(Boolean).length;
+          const _delay=Math.min(5000, Math.max(1800, 1300 + _words*110));
+          _whisperShowCountdown(_delay);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
             if(!alwaysOn)return;
             const msg=_buf.trim();
@@ -12233,7 +12275,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             }else{
               await _voiceSendGroup(msg);
             }
-          },AUTO_SEND_MS);
+          },_delay);
         }
       };
 
@@ -26871,6 +26913,15 @@ document.addEventListener("click", function(e) {
                 aBody._actCount = _acts.length;
                 const _act = _acts[_acts.length - 1].replace("🔧", "").trim();
                 if(_act && typeof window.saSeatAction === "function") window.saSeatAction(seat, _act);
+                // Live UI sync: when a teammate changes the session objective,
+                // update the topbar pill immediately — the operator should SEE
+                // the system change the moment the agent acts.
+                if(/session objective/i.test(_act)){
+                  fetch("/api/os/session_objective").then(function(r){return r.json();}).then(function(d){
+                    var p=document.getElementById("sessionObjectivePill");
+                    if(p&&d&&d.ok) p.innerText=((d.objective&&d.objective.title)||"").trim()||"No objective set";
+                  }).catch(function(){});
+                }
               }
             }catch(_){}
             // Detect if response is a visual — stop text rendering, switch to iframe
