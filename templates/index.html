@@ -10661,7 +10661,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               e.stopPropagation();
               if(speakBtn._saTtsStop){ speakBtn._saTtsStop(); return; }
               const voice = ((state && state.installed && state.installed[selectedSeat||""]) || {}).tts_voice || "alloy";
-              if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
+              if(typeof window.saSpeakAlive === "function") window.saSpeakAlive(raw, selectedSeat||"", voice, speakBtn);
+              else if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
             };
 
             // Save to Response Vault button
@@ -11549,7 +11550,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
       var voice = "alloy";
       try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
-      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
+      if(typeof window.saSpeakAlive==="function") window.saSpeakAlive(text, selectedSeat||"", voice, btn);
+      else if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
@@ -11573,7 +11575,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
       var voice = "alloy";
       try{ var tm=((state&&state.installed)||{})[selectedSeat||""]||{}; voice=tm.tts_voice||"alloy"; }catch(_){}
-      if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
+      if(typeof window.saSpeakAlive==="function") window.saSpeakAlive(text, selectedSeat||"", voice, btn);
+      else if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
 
     // ----- Direct Mode (ADD v1) -----
@@ -13493,7 +13496,8 @@ function _saJobNotify(seatName, status){
         const speakBtn = mk("🔊 Speak", "Read response aloud");
         speakBtn.onclick = function(){
           const voice = ((state && state.installed && state.installed[name]) || {}).tts_voice || "alloy";
-          if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
+          if(typeof window.saSpeakAlive === "function") window.saSpeakAlive(raw, name, voice, speakBtn);
+          else if(typeof window.saTtsSpeak === "function") window.saTtsSpeak(raw, voice, speakBtn);
         };
 
         // Save to Response Vault
@@ -26088,9 +26092,11 @@ document.addEventListener("click", function(e) {
     if(cur) chunks.push(cur);
     return chunks.length ? chunks : [t];
   }
-  function _ttsFetch(chunk, voice){
+  function _ttsFetch(chunk, voice, instructions){
+    var _body = {text:chunk, voice:voice||"alloy"};
+    if(instructions) _body.instructions = instructions;
     return fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({text:chunk,voice:voice||"alloy"})
+      body:JSON.stringify(_body)
     }).then(function(r){
       if(!r.ok) return r.json().catch(function(){return{};}).then(function(e){throw new Error(e.error||("HTTP "+r.status));});
       return r.arrayBuffer();
@@ -26107,7 +26113,7 @@ document.addEventListener("click", function(e) {
     });
   }
 
-  window.saTtsSpeak = async function saTtsSpeak(text, voice, btn){
+  window.saTtsSpeak = async function saTtsSpeak(text, voice, btn, instructions){
     if(!text) return;
 
     // Toggle stop if already playing
@@ -26134,15 +26140,15 @@ document.addEventListener("click", function(e) {
       var chunks = _ttsSplit(text);
       // Pre-fetch first two chunks immediately so sentence 2 is ready before sentence 1 ends
       var fetched = new Array(chunks.length);
-      fetched[0] = _ttsFetch(chunks[0], voice);
-      if(chunks.length > 1) fetched[1] = _ttsFetch(chunks[1], voice);
+      fetched[0] = _ttsFetch(chunks[0], voice, instructions);
+      if(chunks.length > 1) fetched[1] = _ttsFetch(chunks[1], voice, instructions);
 
       for(var i=0; i<chunks.length; i++){
         if(!window._saTtsPlaying) break;
-        if(!fetched[i]) fetched[i] = _ttsFetch(chunks[i], voice);
+        if(!fetched[i]) fetched[i] = _ttsFetch(chunks[i], voice, instructions);
         // Pre-fetch upcoming chunks while current plays
-        if(i+1 < chunks.length && !fetched[i+1]) fetched[i+1] = _ttsFetch(chunks[i+1], voice);
-        if(i+2 < chunks.length && !fetched[i+2]) fetched[i+2] = _ttsFetch(chunks[i+2], voice);
+        if(i+1 < chunks.length && !fetched[i+1]) fetched[i+1] = _ttsFetch(chunks[i+1], voice, instructions);
+        if(i+2 < chunks.length && !fetched[i+2]) fetched[i+2] = _ttsFetch(chunks[i+2], voice, instructions);
         var buf = await fetched[i];
         if(!window._saTtsPlaying) break;
         if(!buf || buf.byteLength < 50) continue;
@@ -26176,6 +26182,50 @@ document.addEventListener("click", function(e) {
     window._saTtsPlaying = false;
     window._saTtsAudio   = null;
     if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
+  };
+
+  /* ── ALIVE spoken delivery ─────────────────────────────────────────────────
+     Instead of reading the message verbatim, ask the server for a spoken
+     rendition in the teammate's own voice (persona + time-of-day greeting once
+     per session + colleague-style walkthrough), then speak THAT with the
+     teammate's delivery instructions. Every failure path falls back to the
+     plain verbatim read — Speak always produces audio. Cached per message. */
+  var _saSpeakCache = {};
+  window.saSpeakAlive = async function saSpeakAlive(rawText, teammateName, voice, btn){
+    if(!rawText) return;
+    // Already playing → delegate to saTtsSpeak's stop toggle
+    if(window._saTtsPlaying) return window.saTtsSpeak(rawText, voice, btn);
+    var key = (teammateName||"") + "|" + rawText.length + "|" + rawText.slice(0, 80);
+    var cached = _saSpeakCache[key];
+    if(cached) return window.saTtsSpeak(cached.spoken, voice, btn, cached.delivery);
+    var orig = btn ? btn.textContent : "";
+    if(btn){ btn.disabled = true; btn.textContent = "🎙 …"; }
+    var greeted = false;
+    try{ greeted = sessionStorage.getItem("sa_spoken_greeted") === "1"; }catch(_){}
+    var spoken = rawText, delivery = "";
+    try{
+      var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+      var tId = ctrl ? setTimeout(function(){ try{ ctrl.abort(); }catch(_){} }, 8000) : null;
+      var r = await fetch("/api/speak_prep", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          text: rawText, teammate: teammateName || "",
+          local_hour: (new Date()).getHours(), greeted: greeted
+        }),
+        signal: ctrl ? ctrl.signal : undefined
+      });
+      if(tId) clearTimeout(tId);
+      var d = await r.json();
+      if(d && d.ok && d.spoken){
+        spoken = d.spoken; delivery = d.delivery || "";
+        if(!d.fallback){
+          _saSpeakCache[key] = {spoken: spoken, delivery: delivery};
+          try{ sessionStorage.setItem("sa_spoken_greeted", "1"); }catch(_){}
+        }
+      }
+    }catch(_){ /* raw verbatim fallback */ }
+    if(btn){ btn.disabled = false; btn.textContent = orig; }
+    return window.saTtsSpeak(spoken, voice, btn, delivery);
   };
 
   /* Attach 📋 Copy + 🔊 Speak buttons to a streamed assistant message div */
@@ -26223,7 +26273,8 @@ document.addEventListener("click", function(e) {
     speakBtn.addEventListener("click", function(e){
       e.stopPropagation();
       if(speakBtn._saTtsStop){ speakBtn._saTtsStop(); return; }
-      saTtsSpeak(text, voice, speakBtn);
+      if(typeof window.saSpeakAlive === "function") window.saSpeakAlive(text, (typeof window.selectedSeat==="string"?window.selectedSeat:""), voice, speakBtn);
+      else saTtsSpeak(text, voice, speakBtn);
     });
 
     // Vault button
@@ -30790,7 +30841,8 @@ window._saPlReset=function(){
         var tm=((window.state&&window.state.installed)||{})[seat]||{};
         voice=tm.tts_voice||'alloy';
       }catch(_){}
-      if(typeof window.saTtsSpeak==='function') window.saTtsSpeak(raw.trim(),voice,btn);
+      if(typeof window.saSpeakAlive==='function') window.saSpeakAlive(raw.trim(),(window.selectedSeat||''),voice,btn);
+      else if(typeof window.saTtsSpeak==='function') window.saTtsSpeak(raw.trim(),voice,btn);
 
     } else if(lbl.indexOf('Save to Vault')!==-1||lbl.indexOf('Saving')!==-1){
       btn.textContent='⏳ Saving…';

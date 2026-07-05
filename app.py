@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.4")
+APP_VERSION = os.getenv("APP_VERSION", "5.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -24581,6 +24581,96 @@ def api_tts_debug():
 
 
 
+@app.post("/api/speak_prep")
+def api_speak_prep():
+    """ALIVE spoken delivery: convert a written teammate reply into how that
+    teammate would naturally SAY it out loud — persona-forward, time-of-day
+    aware, explanatory (a colleague walking you through it, not a reader).
+    Fallback contract: on ANY failure this returns ok:true with the raw text,
+    so the Speak button always produces audio."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
+    if _rl:
+        return _rl
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    p = request.get_json(silent=True) or {}
+    raw = (p.get("text") or "").strip()[:6000]
+    tm_name = (p.get("teammate") or "").strip() or "Alex"
+    greeted = bool(p.get("greeted"))
+    try:
+        hour = int(p.get("local_hour"))
+    except Exception:
+        hour = 12
+    if not raw:
+        return jsonify({"ok": False, "error": "Missing text"}), 400
+
+    defn = {}
+    try:
+        defn = (load_registry(uname).get("installed") or {}).get(tm_name) or {}
+    except Exception:
+        pass
+    job = (defn.get("job_title") or "teammate").strip()
+    style = (defn.get("thinking_style") or "").strip()
+
+    first = ""
+    try:
+        first = ((_load_operator_profile(uname) or {}).get("display_name") or "").strip().split(" ")[0]
+    except Exception:
+        pass
+    objective = ""
+    try:
+        objective = ((_os_load(uname).get("session_objective") or {}).get("title") or "").strip()
+    except Exception:
+        pass
+
+    daypart = ("morning" if 5 <= hour < 12 else
+               "afternoon" if 12 <= hour < 17 else
+               "evening" if 17 <= hour < 22 else "late night")
+    # Deterministic per-teammate delivery steering for gpt-4o-mini-tts (layer 2).
+    delivery = (f"You are {tm_name}, {job}. Speak warmly and naturally, like a close "
+                f"teammate talking across the desk — conversational pace, personality "
+                f"forward, never monotone or read-aloud.")
+
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    if not openai_key:
+        return jsonify({"ok": True, "spoken": raw, "delivery": delivery, "fallback": True})
+
+    sysp = (
+        f"You are {tm_name}, {job}, an AI teammate speaking OUT LOUD to your operator"
+        + (f" {first}" if first else "")
+        + f". It is {daypart}."
+        + (f" The team's current objective: {objective}." if objective else "")
+        + (f" Your style: {style}." if style else "")
+        + " Rewrite the written reply below as natural SPEECH — how you would actually"
+        " say it to them right now: "
+        + ("open with a brief, natural time-of-day greeting using their first name, then "
+           if not greeted else
+           "no greeting (you already greeted them this session) — a natural lead-in, then ")
+        + "walk them through the substance like a colleague would: what it is, the key "
+        "points, and why it matters. Plain spoken language. No markdown, no bullet "
+        "symbols, never read URLs aloud. Do not say you are an AI. Keep it under about "
+        "140 words unless the content truly demands more. Output ONLY the spoken words."
+    )
+    try:
+        oai = OpenAI(api_key=openai_key)
+        r = oai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": sysp},
+                      {"role": "user", "content": raw}],
+            temperature=0.8, max_tokens=320, timeout=15,
+        )
+        spoken = (r.choices[0].message.content or "").strip()
+        if not spoken:
+            return jsonify({"ok": True, "spoken": raw, "delivery": delivery, "fallback": True})
+        return jsonify({"ok": True, "spoken": spoken, "delivery": delivery, "fallback": False})
+    except Exception as e:
+        print(f"[SPEAK_PREP] fallback to raw text: {e}", flush=True)
+        return jsonify({"ok": True, "spoken": raw, "delivery": delivery, "fallback": True})
+
+
 @app.post("/api/tts")
 def api_tts():
     """Convert text to speech using OpenAI TTS-1.
@@ -24605,6 +24695,10 @@ def api_tts():
     voice = (payload.get("voice") or "alloy").strip()
     if voice not in ("alloy", "echo", "fable", "onyx", "nova", "shimmer"):
         voice = "alloy"
+    # ALIVE voice: optional per-teammate delivery steering. When present we try
+    # gpt-4o-mini-tts (supports tone/pace instructions); any failure falls back
+    # to the plain tts-1 call below.
+    instructions = (payload.get("instructions") or "").strip()[:500]
     if not text:
         return jsonify({"ok": False, "error": "Missing text"}), 400
 
@@ -24625,6 +24719,17 @@ def api_tts():
         oai = OpenAI(api_key=openai_key)
         print(f"[TTS] streaming tts-1 voice={voice} chars={len(text)}", flush=True)
         def _tts_stream():
+            if instructions:
+                try:
+                    with oai.audio.speech.with_streaming_response.create(
+                        model="gpt-4o-mini-tts", voice=voice, input=text,
+                        instructions=instructions,
+                    ) as stream:
+                        for chunk in stream.iter_bytes(chunk_size=4096):
+                            yield chunk
+                    return
+                except Exception as _exc2:
+                    print(f"[TTS] gpt-4o-mini-tts failed -> falling back to tts-1: {_exc2}", flush=True)
             with oai.audio.speech.with_streaming_response.create(
                 model="tts-1", voice=voice, input=text
             ) as stream:
