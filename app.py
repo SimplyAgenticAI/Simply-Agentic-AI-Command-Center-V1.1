@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.5")
+APP_VERSION = os.getenv("APP_VERSION", "5.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23312,13 +23312,33 @@ def _orchestrate_goal_events(uname: str, goal: str, max_steps: int = 4):
         prompt = f"GOAL: {goal}\n\nYOUR TASK: {task}"
         if context:
             prompt += f"\n\nWORK ALREADY DONE BY THE TEAM (build on it, don't repeat it):\n{context[-4000:]}"
+        # Specialists run with REAL tools (auto-risk only — CRM, research, images,
+        # session objective; never send_email) via the non-streaming tool loop.
+        # Any failure falls back to the plain text call, so a run never degrades
+        # below the pre-tools behavior.
+        actions: List[str] = []
+        out = ""
         try:
-            out = _call_teammate_prompt_for_user(uname, tm, prompt) or ""
-        except Exception as e:
-            out = f"(step failed: {e})"
+            defn_s = installed.get(tm) or {}
+            _sys_s = teammate_system_prompt(defn_s, tools_enabled=True)
+            _model_s = ((defn_s.get("preferred_model") or "").strip() or MODEL)
+            if not _user_has_own_key(uname):
+                _model_s = "gpt-4o-mini"
+            out, _tlog = call_llm_with_tools(
+                _sys_s, [{"role": "user", "content": prompt}],
+                temperature=0.65, model=_model_s, username=uname, u={}, teammate=tm)
+            actions = [str(t.get("result") or "") for t in (_tlog or []) if t.get("result")]
+            if not (out or "").strip():
+                raise RuntimeError("empty tool-loop output")
+        except Exception:
+            actions = []
+            try:
+                out = _call_teammate_prompt_for_user(uname, tm, prompt) or ""
+            except Exception as e:
+                out = f"(step failed: {e})"
         last_out = out
         context += f"\n\n[{tm} — {task}]\n{out}"
-        yield {"type": "step", "index": i, "teammate": tm, "task": task, "output": out}
+        yield {"type": "step", "index": i, "teammate": tm, "task": task, "output": out, "actions": actions}
 
     try:
         synthesis = call_llm(

@@ -1,4 +1,4 @@
-"""Tests for Phase 2 team orchestration (server-side engine)."""
+﻿"""Tests for Phase 2 team orchestration (server-side engine)."""
 import app as app_module
 
 
@@ -66,3 +66,37 @@ def test_orchestrate_no_teammates_errors(monkeypatch):
     monkeypatch.setattr(app_module, "load_registry", lambda u="": {"installed": {}})
     res = app_module._orchestrate_goal("u", "do something")
     assert res["ok"] is False
+
+
+def test_orchestrate_step_events_carry_actions(monkeypatch):
+    # Tool-capable steps: outputs + tool summaries propagate into step events.
+    _wire_fake_team(monkeypatch)
+    monkeypatch.setattr(app_module, "_user_has_own_key", lambda u: True)
+    monkeypatch.setattr(
+        app_module, "call_llm_with_tools",
+        lambda system, messages, temperature=0.65, model=None, username="anon", u=None, teammate="Alex":
+        (f"{teammate}-tool-output", [{"tool": "crm_add_client", "args": {}, "result": "Added Jamie to the CRM."}]))
+    # Production always runs inside a request context (the endpoint, and the SSE
+    # generator via stream_with_context); teammate_system_prompt depends on it.
+    with app_module.app.test_request_context():
+        events = list(app_module._orchestrate_goal_events("u", "launch"))
+    steps = [e for e in events if e["type"] == "step"]
+    assert len(steps) == 2
+    assert steps[0]["output"] == "Alex-tool-output"
+    assert steps[0]["actions"] == ["Added Jamie to the CRM."]
+
+
+def test_orchestrate_fallback_keeps_old_shape(monkeypatch):
+    # If the tool loop fails (no key, model error), steps fall back to the plain
+    # text runner and still carry an (empty) actions list - never degraded.
+    _wire_fake_team(monkeypatch)
+    def _boom(*a, **k):
+        raise RuntimeError("no key")
+    monkeypatch.setattr(app_module, "call_llm_with_tools", _boom)
+    with app_module.app.test_request_context():
+        events = list(app_module._orchestrate_goal_events("u", "launch"))
+    steps = [e for e in events if e["type"] == "step"]
+    assert steps[0]["output"] == "Alex-output"
+    assert steps[0]["actions"] == []
+
+

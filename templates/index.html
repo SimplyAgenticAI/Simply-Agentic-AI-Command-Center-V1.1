@@ -8647,7 +8647,12 @@ window.showModal = function showModal(title, body, imgUrl){
         ctx.clearRect(0, 0, rect.width, rect.height);
 
         const active = Array.from(wrap.querySelectorAll(".seat.liveThinking"));
-        if(!active.length){ window._saBeamRunning = false; return; }  // idle → stop the loop
+        // Handoff beams (orchestration): prune expired, then keep the loop alive
+        // while either center-beams or handoffs have work to draw.
+        const HANDOFF_MS = 2000;
+        const nowT = performance.now();
+        window._saHandoffs = (window._saHandoffs || []).filter(function(h){ return nowT - h.born < HANDOFF_MS; });
+        if(!active.length && !window._saHandoffs.length){ window._saBeamRunning = false; return; }
 
         const cx = rect.width / 2, cy = rect.height / 2;
         phase += 0.03;
@@ -8669,12 +8674,43 @@ window.showModal = function showModal(title, body, imgUrl){
           ctx.globalAlpha = 0.9; ctx.fillStyle = accent;
           ctx.beginPath(); ctx.arc(cx + (sx - cx) * t, cy + (sy - cy) * t, 2.6, 0, Math.PI * 2); ctx.fill();
         });
+        // ── Seat-to-seat handoff beams: a cyan line with a pulse traveling
+        // from the finishing teammate to the next one, fading over 2s.
+        (window._saHandoffs || []).forEach(function(h){
+          const fs = wrap.querySelector('.seat[data-name="' + _cssEscape(h.from) + '"]');
+          const ts = wrap.querySelector('.seat[data-name="' + _cssEscape(h.to) + '"]');
+          if(!fs || !ts) return;
+          const fr = fs.getBoundingClientRect(), tr2 = ts.getBoundingClientRect();
+          const x1 = fr.left - rect.left + fr.width / 2, y1 = fr.top - rect.top + fr.height / 2;
+          const x2 = tr2.left - rect.left + tr2.width / 2, y2 = tr2.top - rect.top + tr2.height / 2;
+          const p = Math.min(1, (nowT - h.born) / HANDOFF_MS);
+          ctx.globalAlpha = 0.55 * (1 - p);
+          ctx.strokeStyle = "rgba(103,232,249,.9)"; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          const px = x1 + (x2 - x1) * p, py = y1 + (y2 - y1) * p;
+          ctx.globalAlpha = 0.9 * (1 - p * 0.4);
+          ctx.fillStyle = "rgba(165,243,252,.95)";
+          ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI * 2); ctx.fill();
+        });
         ctx.globalAlpha = 1;
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
     }
     window._saEnsureBeams = _saEnsureBeams;
+
+    // ── Handoff beam trigger (orchestration): work passes seat → seat ──
+    function _saFireHandoff(fromName, toName){
+      try{
+        if(window.innerWidth <= 640) return;
+        if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        if(!fromName || !toName || fromName === toName) return;
+        window._saHandoffs = window._saHandoffs || [];
+        window._saHandoffs.push({from: fromName, to: toName, born: performance.now()});
+        _saEnsureBeams();
+      }catch(_){}
+    }
+    window._saFireHandoff = _saFireHandoff;
 
     function setEmailFrom(teammate){
       const smtpUser = (state && state.email && state.email.smtp_user) ? state.email.smtp_user : "";
@@ -10270,19 +10306,24 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     //    it, each specialist handles a step, and you get one synthesized result.
     window._saOpenTeamGoal = function(){
       const ov = document.createElement("div");
-      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow-y:auto;";
-      ov.innerHTML = '<div style="background:rgba(8,13,33,.98);border:1px solid rgba(110,231,183,.3);border-radius:18px;padding:22px 24px;max-width:640px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.7);">'
+      // Floating card — NO fullscreen dim: the round table stays visible so the
+      // operator WATCHES the team work (seats light in sequence, handoff beams,
+      // cyan action chips) while the run streams into this panel.
+      ov.style.cssText = "position:fixed;left:24px;top:90px;z-index:99990;width:min(400px,92vw);max-height:80vh;overflow-y:auto;background:rgba(8,13,33,.97);border:1px solid rgba(110,231,183,.35);border-radius:18px;padding:18px 20px;box-shadow:0 24px 80px rgba(0,0,0,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);";
+      ov.innerHTML = '<div>'
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
         + '<div style="font-size:17px;font-weight:800;color:#6ee7b7;">🧠 Team Goal</div>'
         + '<button id="_tgClose" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">✕</button></div>'
-        + '<div style="font-size:12.5px;color:#cbd5e1;opacity:.85;margin-bottom:12px;line-height:1.5;">Describe a goal. Your team plans it, each teammate handles their part, and you get one finished result.</div>'
+        + '<div style="font-size:12.5px;color:#cbd5e1;opacity:.85;margin-bottom:12px;line-height:1.5;">Describe a goal. Your team plans it, each teammate handles their part — watch the table while they work.</div>'
         + '<textarea id="_tgGoal" placeholder="e.g. Plan and write a 5-email welcome sequence for new coaching clients" style="width:100%;min-height:84px;resize:vertical;padding:11px 13px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6edff;font-size:13.5px;font-family:inherit;line-height:1.5;box-sizing:border-box;"></textarea>'
         + '<button id="_tgRun" class="btn btnPrimary" style="width:100%;margin-top:12px;">▶ Run the team</button>'
         + '<div id="_tgResults" style="margin-top:16px;"></div></div>';
       document.body.appendChild(ov);
-      const close = function(){ ov.remove(); };
+      const close = function(){
+        try{ if(typeof ov._tgResetSeats === "function") ov._tgResetSeats(); }catch(_){}
+        ov.remove();
+      };
       ov.querySelector("#_tgClose").onclick = close;
-      ov.onclick = function(e){ if(e.target===ov) close(); };
       const goalEl = ov.querySelector("#_tgGoal");
       const runBtn = ov.querySelector("#_tgRun");
       const resBox = ov.querySelector("#_tgResults");
@@ -10296,6 +10337,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const stepsWrap = document.createElement("div"); resBox.appendChild(stepsWrap);
         const synthWrap = document.createElement("div"); resBox.appendChild(synthWrap);
         const stepEls = [];
+        // ── Table choreography: the run is visible ON the round table ──
+        const touched = {};
+        let prevTm = null;
+        function seatState(nm, st){
+          try{ if(nm && typeof setSeatLive === "function"){ setSeatLive(nm, st); touched[nm] = 1; } }catch(_){}
+        }
+        function resetSeats(){
+          try{ Object.keys(touched).forEach(function(n){ setSeatLive(n, "idle"); }); }catch(_){}
+        }
+        ov._tgResetSeats = resetSeats;
         function renderStep(i, teammate, task, output, working){
           let el = stepEls[i];
           if(!el){ el = document.createElement("div"); el.style.cssText = "margin-bottom:10px;padding:11px 13px;border-radius:11px;border:1px solid rgba(124,58,237,.25);background:rgba(124,58,237,.06);"; stepsWrap.appendChild(el); stepEls[i] = el; }
@@ -10319,16 +10370,30 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
               for(const line of lines){
                 if(!line.startsWith("data:")) continue;
                 let ev; try{ ev = JSON.parse(line.slice(5).trim()); }catch(_e){ continue; }
-                if(ev.type === "error"){ synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+esc(ev.error||"Run failed")+'</div>'; }
+                if(ev.type === "error"){ synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">'+esc(ev.error||"Run failed")+'</div>'; resetSeats(); }
                 else if(ev.type === "plan"){ resBox.firstChild.textContent = "Your team is on it…"; (ev.steps||[]).forEach(function(s,i){ renderStep(i, s.teammate, s.task, null, false); }); }
-                else if(ev.type === "step_start"){ renderStep(ev.index, ev.teammate, ev.task, null, true); }
-                else if(ev.type === "step"){ renderStep(ev.index, ev.teammate, ev.task, ev.output, false); }
+                else if(ev.type === "step_start"){
+                  renderStep(ev.index, ev.teammate, ev.task, null, true);
+                  seatState(ev.teammate, "thinking");
+                  if(prevTm && typeof window._saFireHandoff === "function") window._saFireHandoff(prevTm, ev.teammate);
+                  prevTm = ev.teammate;
+                }
+                else if(ev.type === "step"){
+                  renderStep(ev.index, ev.teammate, ev.task, ev.output, false);
+                  seatState(ev.teammate, "done");
+                  // Real tool actions surface as cyan chips over the acting seat
+                  (ev.actions||[]).forEach(function(a, ai){
+                    setTimeout(function(){ try{ if(window.saSeatAction) window.saSeatAction(ev.teammate, a); }catch(_){} }, ai*1700);
+                  });
+                }
                 else if(ev.type === "synthesis"){ synthWrap.innerHTML = '<div style="margin-top:14px;padding:13px 15px;border-radius:12px;border:1px solid rgba(110,231,183,.4);background:rgba(110,231,183,.08);"><div style="font-size:13px;font-weight:800;color:#6ee7b7;margin-bottom:6px;">✓ Final result</div><div style="font-size:13.5px;color:#e6edff;white-space:pre-wrap;line-height:1.6;">'+esc(ev.text||"")+'</div></div>'; }
               }
               try{ synthWrap.scrollIntoView({block:"nearest"}); }catch(_e){}
             }
           }
         }catch(e){ synthWrap.innerHTML = '<div style="color:#fca5a5;font-size:13px;">Run failed: '+esc(e&&e.message?e.message:e)+'</div>'; }
+        // Let the last done-glow linger a beat, then settle the table back to idle
+        setTimeout(resetSeats, 2600);
         runBtn.disabled = false; runBtn.textContent = "▶ Run again";
       };
     };
