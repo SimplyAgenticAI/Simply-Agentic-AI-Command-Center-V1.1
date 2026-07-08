@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.6")
+APP_VERSION = os.getenv("APP_VERSION", "5.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23393,6 +23393,10 @@ def api_team_orchestrate():
 @app.post("/api/team/orchestrate/stream")
 def api_team_orchestrate_stream():
     """SSE version — emits plan/step/synthesis events live as the team works."""
+    # Flask response helpers are imported function-locally throughout this file;
+    # this endpoint was missing them entirely — every request 500'd on the
+    # NameError before the first event (launch-day bug, surfaced by first use).
+    from flask import Response, stream_with_context
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401

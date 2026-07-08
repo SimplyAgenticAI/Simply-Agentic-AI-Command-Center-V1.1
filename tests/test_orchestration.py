@@ -100,3 +100,22 @@ def test_orchestrate_fallback_keeps_old_shape(monkeypatch):
     assert steps[0]["actions"] == []
 
 
+
+
+def test_orchestrate_stream_endpoint_returns_sse_not_500(flask_app):
+    # Launch-day bug: this route referenced Response/stream_with_context without
+    # the function-local flask import, so EVERY request 500d before the first
+    # event. A real authenticated POST must return a 200 SSE stream (whose first
+    # event may legitimately be an in-band error in the key-less test env).
+    with flask_app.test_client() as c:
+        c.post("/register", data={"username": "smoketest", "email": "",
+                                  "password": "TestPass123!", "password2": "TestPass123!",
+                                  "tos_accepted": "on"}, follow_redirects=True)
+        c.post("/login", data={"username": "smoketest", "password": "TestPass123!"},
+               follow_redirects=True)
+        tok = c.get("/api/csrf_token").get_json()["csrf_token"]
+        r = c.post("/api/team/orchestrate/stream", json={"goal": "test the plumbing"},
+                   headers={"X-CSRF-Token": tok})
+        assert r.status_code == 200
+        assert "text/event-stream" in (r.content_type or "")
+        assert r.get_data(as_text=True).startswith("data:")
