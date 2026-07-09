@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.7")
+APP_VERSION = os.getenv("APP_VERSION", "5.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -22528,13 +22528,22 @@ def call_llm_with_tools(
                 fn_args = json.loads(tc.function.arguments or "{}")
             except Exception:
                 fn_args = {}
+            _pending_flag = False
             if _effective_tool_risk(fn_name, _external_used) != "auto":
-                _res = {"ok": False, "summary": "This action needs operator confirmation — ask the operator to request it again in the chat."}
+                # Escalated (mutating tool after untrusted external content was
+                # read). Don't dead-end: report it as PENDING so the caller can
+                # surface a one-click Approve to the operator.
+                _pending_flag = True
+                _res = {"ok": False, "pending": True,
+                        "summary": "This action needs the operator's one-click approval — an Approve "
+                                   "button is shown to them. Tell them it's ready for approval."}
             else:
                 _res = _execute_teammate_tool(fn_name, fn_args, username, teammate)
                 if fn_name in _EXTERNAL_CONTENT_TOOLS:
                     _external_used = True
-            tool_log.append({"tool": fn_name, "args": fn_args, "result": (_res.get("summary") or "")[:300]})
+            tool_log.append({"tool": fn_name, "args": fn_args,
+                             "result": (_res.get("summary") or "")[:300],
+                             "pending": _pending_flag})
             msgs.append({
                 "role": "tool", "tool_call_id": tc.id,
                 "name": fn_name, "content": json.dumps(_res)[:4000],
@@ -23119,8 +23128,12 @@ def api_teammate_action_execute():
         _neutralize_block("✗ cancelled")
         return jsonify({"ok": True, "cancelled": True, "summary": "Cancelled."})
 
-    if action not in _TOOL_BY_NAME or _tool_risk(action) != "confirm":
-        return jsonify({"ok": False, "error": "Unknown or non-confirmable action."}), 400
+    # Confirm-risk tools (send_email) AND auto-risk tools escalated by the
+    # external-content guard both land here — an explicit operator click is a
+    # strictly stronger authorization than auto-execution, so any registered
+    # tool may run on confirmation.
+    if action not in _TOOL_BY_NAME:
+        return jsonify({"ok": False, "error": "Unknown action."}), 400
     res = _execute_teammate_tool(action, args, uname, teammate)
     # Neutralize the pending card so it can't be replayed, then append the outcome.
     _neutralize_block("✓ done" if res.get("ok") else "✗ not sent")
@@ -23317,6 +23330,7 @@ def _orchestrate_goal_events(uname: str, goal: str, max_steps: int = 4):
         # Any failure falls back to the plain text call, so a run never degrades
         # below the pre-tools behavior.
         actions: List[str] = []
+        pending: List[Dict[str, Any]] = []
         out = ""
         try:
             defn_s = installed.get(tm) or {}
@@ -23327,18 +23341,30 @@ def _orchestrate_goal_events(uname: str, goal: str, max_steps: int = 4):
             out, _tlog = call_llm_with_tools(
                 _sys_s, [{"role": "user", "content": prompt}],
                 temperature=0.65, model=_model_s, username=uname, u={}, teammate=tm)
-            actions = [str(t.get("result") or "") for t in (_tlog or []) if t.get("result")]
+            actions = [str(t.get("result") or "") for t in (_tlog or [])
+                       if t.get("result") and not t.get("pending")]
+            # Escalated actions (guard: mutating write after untrusted external
+            # read) surface as one-click Approve items in the Team Goal panel.
+            for t in (_tlog or []):
+                if t.get("pending"):
+                    _pa = t.get("args") or {}
+                    _nm = str(_pa.get("name") or _pa.get("title") or _pa.get("query") or "").strip()
+                    pending.append({"action": t.get("tool") or "", "args": _pa,
+                                    "summary": (t.get("tool") or "action").replace("_", " ")
+                                               + (f": {_nm}" if _nm else "")})
             if not (out or "").strip():
                 raise RuntimeError("empty tool-loop output")
         except Exception:
             actions = []
+            pending = []
             try:
                 out = _call_teammate_prompt_for_user(uname, tm, prompt) or ""
             except Exception as e:
                 out = f"(step failed: {e})"
         last_out = out
         context += f"\n\n[{tm} — {task}]\n{out}"
-        yield {"type": "step", "index": i, "teammate": tm, "task": task, "output": out, "actions": actions}
+        yield {"type": "step", "index": i, "teammate": tm, "task": task, "output": out,
+               "actions": actions, "pending": pending}
 
     try:
         synthesis = call_llm(

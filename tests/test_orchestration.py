@@ -119,3 +119,26 @@ def test_orchestrate_stream_endpoint_returns_sse_not_500(flask_app):
         assert r.status_code == 200
         assert "text/event-stream" in (r.content_type or "")
         assert r.get_data(as_text=True).startswith("data:")
+
+
+def test_orchestrate_step_events_carry_pending_approvals(monkeypatch):
+    # Escalated tool calls (write-after-external-read guard) surface as pending
+    # approval items on the step event instead of dead-ending.
+    _wire_fake_team(monkeypatch)
+    monkeypatch.setattr(app_module, "_user_has_own_key", lambda u: True)
+    monkeypatch.setattr(
+        app_module, "call_llm_with_tools",
+        lambda system, messages, temperature=0.65, model=None, username="anon", u=None, teammate="Alex":
+        (f"{teammate}-out", [
+            {"tool": "research", "args": {"query": "niche"}, "result": "Pulled context.", "pending": False},
+            {"tool": "crm_add_client", "args": {"name": "Lead Larry"}, "result": "needs approval", "pending": True},
+        ]))
+    with app_module.app.test_request_context():
+        events = list(app_module._orchestrate_goal_events("u", "launch"))
+    steps = [e for e in events if e["type"] == "step"]
+    assert steps[0]["actions"] == ["Pulled context."]
+    assert len(steps[0]["pending"]) == 1
+    p = steps[0]["pending"][0]
+    assert p["action"] == "crm_add_client"
+    assert p["args"]["name"] == "Lead Larry"
+    assert "Lead Larry" in p["summary"]

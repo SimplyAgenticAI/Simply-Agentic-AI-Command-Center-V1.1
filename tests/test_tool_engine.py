@@ -1,4 +1,4 @@
-"""Tests for the Phase 1 teammate tool engine (additive — does not touch chat)."""
+﻿"""Tests for the Phase 1 teammate tool engine (additive â€” does not touch chat)."""
 import app as app_module
 
 
@@ -72,7 +72,7 @@ def test_unknown_tool_is_safe():
 
 
 def test_research_never_raises():
-    # Without an OpenAI key RAG can't embed — must still return a dict, not raise.
+    # Without an OpenAI key RAG can't embed â€” must still return a dict, not raise.
     res = app_module._execute_teammate_tool("research", {"query": "pricing"}, "tooltest_rag", "Ava")
     assert isinstance(res, dict) and "ok" in res
 
@@ -108,7 +108,7 @@ def test_read_url_is_auto_and_safe():
 
 
 def test_injection_guard_escalates_mutating_tools_after_external_content():
-    # No untrusted content read yet → auto stays auto.
+    # No untrusted content read yet â†’ auto stays auto.
     assert app_module._effective_tool_risk("crm_add_client", False) == "auto"
     # After reading untrusted external content, state-mutating auto tools escalate
     # to confirm so injected instructions can't silently write to the CRM.
@@ -136,3 +136,32 @@ def test_set_session_objective_tool():
     # empty title rejected cleanly
     bad = app_module._execute_teammate_tool("set_session_objective", {}, uname, "Sunshine")
     assert bad["ok"] is False
+
+
+def test_action_execute_accepts_operator_approved_auto_tool(flask_app):
+    # The confirm endpoint now runs ANY registered tool on explicit operator
+    # click - needed for escalated-auto approvals from Team Goal runs.
+    # Own register-or-login client: the shared fixture is first-registration-wins.
+    with flask_app.test_client() as c:
+        c.post("/register", data={"username": "smoketest", "email": "",
+                                  "password": "TestPass123!", "password2": "TestPass123!",
+                                  "tos_accepted": "on"}, follow_redirects=True)
+        c.post("/login", data={"username": "smoketest", "password": "TestPass123!"},
+               follow_redirects=True)
+        tok = c.get("/api/csrf_token").get_json()["csrf_token"]
+        r = c.post("/api/teammate/action/execute",
+                   json={"action": "crm_add_client",
+                         "args": {"name": "Approved Andy", "email": "andy@x.com"},
+                         "teammate": "Sunshine"},
+                   headers={"X-CSRF-Token": tok})
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        crm = app_module._crm_load("smoketest")
+        assert any(cl.get("name") == "Approved Andy" for cl in crm["clients"].values())
+
+        r2 = c.post("/api/teammate/action/execute",
+                    json={"action": "not_a_tool", "args": {}, "teammate": "Alex"},
+                    headers={"X-CSRF-Token": tok})
+        assert r2.status_code == 400
+

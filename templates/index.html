@@ -10385,6 +10385,41 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                   (ev.actions||[]).forEach(function(a, ai){
                     setTimeout(function(){ try{ if(window.saSeatAction) window.saSeatAction(ev.teammate, a); }catch(_){} }, ai*1700);
                   });
+                  // Escalated actions (security guard: write-after-external-read)
+                  // become one-click Approve rows under the step.
+                  (ev.pending||[]).forEach(function(pa){
+                    var row=document.createElement("div");
+                    row.style.cssText="margin-top:8px;padding:9px 11px;border-radius:10px;border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.08);display:flex;align-items:center;justify-content:space-between;gap:10px;";
+                    var lbl=document.createElement("div");
+                    lbl.style.cssText="font-size:12px;color:#fde68a;line-height:1.4;";
+                    lbl.textContent="⏸ Needs your approval — "+(pa.summary||pa.action);
+                    var b=document.createElement("button");
+                    b.className="btn btnMini";
+                    b.style.cssText="border-color:rgba(110,231,183,.5);color:#6ee7b7;flex-shrink:0;";
+                    b.textContent="✓ Approve";
+                    b.onclick=function(){
+                      b.disabled=true; b.textContent="…";
+                      fetch("/api/teammate/action/execute",{method:"POST",headers:{"Content-Type":"application/json"},
+                        body:JSON.stringify({action:pa.action,args:pa.args||{},teammate:ev.teammate})})
+                        .then(function(r){ return r.json(); })
+                        .then(function(d){
+                          if(d&&d.ok){
+                            b.textContent="✓ Done";
+                            lbl.textContent="✓ "+(d.summary||pa.summary||pa.action);
+                            lbl.style.color="#6ee7b7";
+                            row.style.borderColor="rgba(110,231,183,.45)";
+                            row.style.background="rgba(110,231,183,.08)";
+                            try{ if(window.saSeatAction) window.saSeatAction(ev.teammate, d.summary||pa.action); }catch(_){}
+                          } else {
+                            b.disabled=false; b.textContent="✓ Approve";
+                            lbl.textContent="⚠ "+((d&&(d.summary||d.error))||"Failed — try again");
+                          }
+                        })
+                        .catch(function(){ b.disabled=false; b.textContent="✓ Approve"; });
+                    };
+                    row.appendChild(lbl); row.appendChild(b);
+                    var el=stepEls[ev.index]; if(el) el.appendChild(row);
+                  });
                 }
                 else if(ev.type === "synthesis"){ synthWrap.innerHTML = '<div style="margin-top:14px;padding:13px 15px;border-radius:12px;border:1px solid rgba(110,231,183,.4);background:rgba(110,231,183,.08);"><div style="font-size:13px;font-weight:800;color:#6ee7b7;margin-bottom:6px;">✓ Final result</div><div style="font-size:13.5px;color:#e6edff;white-space:pre-wrap;line-height:1.6;">'+esc(ev.text||"")+'</div></div>'; }
               }
