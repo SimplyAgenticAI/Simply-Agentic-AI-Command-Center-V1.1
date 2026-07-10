@@ -4264,9 +4264,10 @@ label {
 <canvas id="saNeuralCanvas" aria-hidden="true"></canvas>
 
 <!-- ===== WHISPER HUD ===== -->
+<div id="whisperMini" title="Whisper is listening — say a teammate's name anytime. Click to expand (or to stop a teammate mid-speech).">🎙</div>
 <div id="whisperHud" role="dialog" aria-label="Whisper voice mode">
-  <!-- Header row -->
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+  <!-- Header row (drag handle) -->
+  <div id="whisperHeadRow" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;cursor:grab;touch-action:none;">
     <div style="display:flex;align-items:center;gap:8px;">
       <span id="whisperDot" style="width:8px;height:8px;border-radius:50%;background:#7c3aed;display:inline-block;box-shadow:0 0 8px #7c3aed;animation:whisperPulse 1.4s ease-in-out infinite;"></span>
       <span style="font-size:11px;font-weight:800;letter-spacing:.12em;color:#a78bfa;text-transform:uppercase;">Whisper</span>
@@ -11860,11 +11861,33 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // ── HUD helpers ──────────────────────────────────────────────
     function _whisperHud(){ return $("whisperHud"); }
 
+    // Apply the operator's saved drag position (clamped to the viewport). The
+    // slide-in animation pins transform via fill:both, so a repositioned HUD
+    // must clear both transform and animation.
+    function _whisperApplyPos(){
+      try{
+        const raw=localStorage.getItem("sa_whisper_pos"); if(!raw) return;
+        const p=JSON.parse(raw); const h=_whisperHud();
+        if(!h||typeof p.l!=="number"||typeof p.t!=="number") return;
+        const l=Math.max(6,Math.min(window.innerWidth-220,p.l));
+        const t=Math.max(6,Math.min(window.innerHeight-80,p.t));
+        h.style.left=l+"px"; h.style.top=t+"px";
+        h.style.bottom="auto"; h.style.right="auto";
+        h.style.transform="none"; h.style.animation="none";
+      }catch(_){}
+    }
     function _whisperShowHud(){
       const h=_whisperHud(); if(!h)return;
+      h.style.display="";   // clear any stale inline hide (pre-V6.2 minimize bug)
       h.classList.add("active");
       h.classList.add("listening");
+      _whisperApplyPos();
+      try{ const p=document.getElementById("whisperMini"); if(p)p.style.display="none"; }catch(_){}
+      window._whisperMinimized=false;
     }
+    // Let code outside this IIFE (e.g. the alive-speech pipeline) surface
+    // status text in the whisper HUD.
+    window.saWhisperStatus = function(txt){ try{ if(alwaysOn)_whisperSetStatus(txt); }catch(_){} };
     function _whisperHideHud(){
       const h=_whisperHud(); if(!h)return;
       h.classList.remove("active","listening");
@@ -12539,28 +12562,54 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const hClose=$("whisperClose");
       if(hClose)hClose.onclick=()=>stopAlwaysListening();
 
-      // Minimize: hide the HUD but KEEP LISTENING — a pulsing mic pill remains.
+      // Minimize: hide the HUD (class-based — inline display would permanently
+      // defeat the .active show and break reopening) but KEEP LISTENING; the
+      // static pulsing mic pill remains and restores the HUD on click.
       const hMin=$("whisperMin");
+      const hPill=document.getElementById("whisperMini");
       if(hMin){
         hMin.onclick=()=>{
           const hud=_whisperHud(); if(!hud) return;
-          hud.style.display="none";
-          let pill=document.getElementById("whisperMini");
-          if(!pill){
-            pill=document.createElement("div");
-            pill.id="whisperMini";
-            pill.title="Whisper is listening — say a teammate's name anytime. Click to expand (or to stop a teammate mid-speech).";
-            pill.textContent="🎙";
-            document.body.appendChild(pill);
-            pill.onclick=()=>{
-              // While a teammate is speaking, the pill doubles as tap-to-stop
-              if(window._saTtsPlaying){ try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){} return; }
-              pill.style.display="none";
-              const h=_whisperHud(); if(h) h.style.display="";
-            };
-          }
-          pill.style.display="flex";
+          hud.classList.remove("active");
+          window._whisperMinimized=true;
+          if(hPill)hPill.style.display="flex";
         };
+      }
+      if(hPill){
+        hPill.onclick=()=>{
+          // While a teammate is speaking, the pill doubles as tap-to-stop
+          if(window._saTtsPlaying){ try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){} return; }
+          _whisperShowHud();
+        };
+      }
+
+      // Drag the HUD by its header — position persists across sessions.
+      const hHead=$("whisperHeadRow");
+      if(hHead){
+        hHead.addEventListener("pointerdown",function(e){
+          if(e.target && e.target.tagName==="BUTTON") return;   // buttons still click
+          const h=_whisperHud(); if(!h) return;
+          e.preventDefault();
+          const r=h.getBoundingClientRect();
+          const ox=e.clientX-r.left, oy=e.clientY-r.top;
+          function mv(ev){
+            const l=Math.max(6,Math.min(window.innerWidth-r.width-6,ev.clientX-ox));
+            const t=Math.max(6,Math.min(window.innerHeight-60,ev.clientY-oy));
+            h.style.left=l+"px"; h.style.top=t+"px";
+            h.style.bottom="auto"; h.style.right="auto";
+            h.style.transform="none"; h.style.animation="none";
+          }
+          function up(){
+            document.removeEventListener("pointermove",mv);
+            document.removeEventListener("pointerup",up);
+            try{
+              const r2=h.getBoundingClientRect();
+              localStorage.setItem("sa_whisper_pos",JSON.stringify({l:Math.round(r2.left),t:Math.round(r2.top)}));
+            }catch(_){}
+          }
+          document.addEventListener("pointermove",mv);
+          document.addEventListener("pointerup",up);
+        });
       }
       // Tap the status line to stop a teammate mid-speech
       const hStat=$("whisperStatusLabel");
@@ -26522,8 +26571,18 @@ document.addEventListener("click", function(e) {
     var key = mode + "|" + (teammateName||"") + "|" + rawText.length + "|" + rawText.slice(0, 80);
     var cached = _saSpeakCache[key];
     if(cached) return window.saTtsSpeak(cached.spoken, voice, btn, cached.delivery);
+    // LATENCY FAST-PATH: short replies are already conversational — skip the
+    // rendition LLM round-trip entirely and speak them directly; the TTS
+    // delivery instructions carry the persona warmth. Time-to-first-word
+    // drops from ~3s to ~1s for most conversational turns.
+    if(rawText.length < 220){
+      var _fastDelivery = "You are " + (teammateName || "a teammate")
+        + ". Speak warmly and naturally, like a close teammate mid-conversation — quick, personable, never monotone or read-aloud.";
+      return window.saTtsSpeak(rawText, voice, btn, _fastDelivery);
+    }
     var orig = btn ? btn.textContent : "";
     if(btn){ btn.disabled = true; btn.textContent = "🎙 …"; }
+    try{ window.saWhisperStatus && window.saWhisperStatus("✨ thinking of what to say…"); }catch(_){}
     var greeted = false;
     try{ greeted = sessionStorage.getItem("sa_spoken_greeted") === "1"; }catch(_){}
     var spoken = rawText, delivery = "";
