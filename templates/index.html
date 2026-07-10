@@ -7161,6 +7161,7 @@ input[type="range"]::-moz-range-progress {
                   <div id="gcToolsDrop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:190px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
                     <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
                     <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
+                    <button id="handsFreeToggleBtn" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice: the mic arms itself in standby every visit — just say a teammate's name to talk. No Whisper click needed." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
                     <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
                     <button id="screenGroupBtn"     class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share screen</button>
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
@@ -7345,6 +7346,7 @@ input[type="range"]::-moz-range-progress {
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="talkDmBtn"          style="display:none;position:absolute;left:-9999px;"></button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
+                <button id="handsFreeToggleBtn2" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice: the mic arms itself in standby every visit — just say a teammate's name to talk. No Whisper click needed." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
                 <button id="passSeatWeb"        class="saMoreItem" style="display:none;color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
@@ -11669,16 +11671,21 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     $("talkDmBtn").onclick = function() {
       var btn = $("talkDmBtn");
       if(btn && btn._saTtsStop){ btn._saTtsStop(); return; }
-      // Toggle stream-TTS mode: speak first sentence as it arrives
-      window._streamTtsEnabled = !window._streamTtsEnabled;
-      if(window._streamTtsEnabled){
+      // Toggle ALIVE voice replies: teammates automatically SPEAK every reply
+      // in persona (greeting/context/opinion — the speak_prep rendition), not
+      // a verbatim read. Supersedes the old first-sentence stream-TTS mode.
+      window._aliveVoice = !window._aliveVoice;
+      try{ localStorage.setItem("sa_alive_voice", window._aliveVoice ? "1" : "0"); }catch(_){}
+      window._streamTtsEnabled = false;
+      if(window._aliveVoice){
         btn.classList.add("btnPrimary");
-        btn.textContent = "🔊 Auto-Speak: ON";
-        if(typeof showToast==="function") showToast("🔊 Auto-Speak on — teammates will speak as they respond");
+        btn.textContent = "🗣 Voice replies: ON";
+        if(typeof showToast==="function") showToast("🗣 Voice replies on — teammates speak every reply in their own voice");
         return;
       } else {
         btn.classList.remove("btnPrimary");
         btn.textContent = "🔊 Speak";
+        if(typeof showToast==="function") showToast("Voice replies off");
         // Fall through to speak current text manually
       }
       var text = lastSeatAssistantText || window.lastSeatAssistantText || "";
@@ -11691,6 +11698,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(typeof window.saSpeakAlive==="function") window.saSpeakAlive(text, selectedSeat||"", voice, btn);
       else if(typeof window.saTtsSpeak==="function") window.saTtsSpeak(text, voice, btn);
     };
+    // Restore the alive-voice preference across sessions
+    try{
+      if(localStorage.getItem("sa_alive_voice") === "1"){
+        window._aliveVoice = true;
+        var _avBtn = $("talkDmBtn");
+        if(_avBtn){ _avBtn.classList.add("btnPrimary"); _avBtn.textContent = "🗣 Voice replies: ON"; }
+      }
+    }catch(_){}
 
     // ----- Direct Mode (ADD v1) -----
     // Direct Mode means: no pushback, no clarifying questions, deliver exactly what the user asked.
@@ -12121,6 +12136,17 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 window._saUserRequestedEmailDraft = false;
                 try{setSeatLive(seat,"done");}catch(_){}
                 try{setOpStatus("Done");}catch(_){}
+                // Voice conversation: the teammate SPEAKS the reply in persona —
+                // that's what talking WITH them means. The mic is held while the
+                // audio plays (saMicHold), then listening resumes automatically.
+                try{
+                  var _vvText = ev.response || fullText || "";
+                  if(_vvText.trim() && !ev.job_id && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
+                    var _vvTm = {};
+                    try{ _vvTm = ((state&&state.installed)||{})[seat] || {}; }catch(_){}
+                    window.saSpeakAlive(_vvText, seat, _vvTm.tts_voice || "alloy", null);
+                  }
+                }catch(_){}
                 if(ev.job_id){try{pollImageJob(ev.job_id,seat);}catch(_){}}
                 try{if(typeof saWireThreadClicks==="function")setTimeout(saWireThreadClicks,50);}catch(_){}
               }
@@ -12218,6 +12244,49 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_hfDecayTimer)clearTimeout(_hfDecayTimer);
       _hfDecayTimer=setTimeout(function(){ if(alwaysOn && !_hfStandby) _hfEnterStandby(); }, _HF_DECAY_MS);
     }
+
+    // ── Mic hold: pause recognition while a teammate SPEAKS (TTS), so the mic
+    // never hears the teammate's own voice — prevents feedback transcripts and
+    // spurious name-switches when a spoken reply mentions a teammate.
+    window.saMicHold = function(hold){
+      try{
+        window._saMicHeld = !!hold;
+        if(hold){
+          if(alwaysRec){ try{ alwaysRec.stop(); }catch(_){} }
+          if(alwaysOn) _whisperSetStatus("Speaking…");
+        } else if(alwaysOn && alwaysRec){
+          try{ alwaysRec.start(); }catch(_){}
+          _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
+        }
+      }catch(_){}
+    };
+
+    // ── Hands-free master toggle — exposed for the Tools/+ menus so users can
+    // enable always-on voice WITHOUT first opening Whisper (the AUTO pill in
+    // the HUD was undiscoverable). Arms/disarms immediately AND persists.
+    window._saPaintHandsFree = function(){
+      let on=false; try{ on = localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
+      ["handsFreeToggleBtn","handsFreeToggleBtn2"].forEach(function(id){
+        const b=document.getElementById(id); if(!b) return;
+        b.textContent = on ? "🎙 Hands-free voice: ON" : "🎙 Hands-free voice";
+        b.style.color = on ? "#6ee7b7" : "#67e8f9";
+      });
+    };
+    window.saToggleHandsFree = function(){
+      let on=false; try{ on = localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
+      const next = !on;
+      try{ localStorage.setItem("sa_handsfree_auto", next ? "1" : "0"); }catch(_){}
+      if(next){
+        if(!alwaysOn) startAlwaysListening("dm", {standby:true});
+        if(typeof showToast==="function") showToast("🎙 Hands-free ON — say a teammate's name anytime. Re-arms every visit.");
+      } else {
+        if(alwaysOn) stopAlwaysListening();
+        if(typeof showToast==="function") showToast("Hands-free off — use 🎙 Whisper when you want voice.");
+      }
+      try{ window._saPaintHandsFree(); }catch(_){}
+      return next;
+    };
+    try{ window._saPaintHandsFree(); }catch(_){}
 
     async function startAlwaysListening(mode, opts){
       if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
@@ -12410,6 +12479,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
+        if(window._saMicHeld)return;   // a teammate is speaking — stay muted
         // Don't snapshot from textarea (we never wrote there) — buf is the truth
         _whisperSetStatus("Listening...");
         try{rec.start();}catch(e){
@@ -26276,11 +26346,14 @@ document.addEventListener("click", function(e) {
       window._streamTtsFired = false;
       try{ window._saTtsAudio && window._saTtsAudio.pause(); }catch(_){}
       try{ speechSynthesis.cancel(); }catch(_){}
+      try{ window.saMicHold && window.saMicHold(false); }catch(_){}
       if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
       return;
     }
 
     window._saTtsPlaying = true;
+    // Mute the whisper mic while the teammate talks (released on every exit path)
+    try{ window.saMicHold && window.saMicHold(true); }catch(_){}
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
     /* ── Primary: sentence-by-sentence for fast first-word latency ── */
@@ -26321,8 +26394,8 @@ document.addEventListener("click", function(e) {
           if(pick) utt.voice = pick;
           window._saTtsPlaying = true;
           if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
-          utt.onend  = function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
-          utt.onerror= function(){ window._saTtsPlaying=false; if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
+          utt.onend  = function(){ window._saTtsPlaying=false; try{ window.saMicHold && window.saMicHold(false); }catch(_){} if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
+          utt.onerror= function(){ window._saTtsPlaying=false; try{ window.saMicHold && window.saMicHold(false); }catch(_){} if(btn){btn.classList.remove("sa-playing");btn.textContent="🔊 Speak";} };
           speechSynthesis.speak(utt);
           if(typeof showToast==="function") showToast("🤖 Browser voice (OpenAI TTS unavailable)","error");
           return;
@@ -26334,6 +26407,7 @@ document.addEventListener("click", function(e) {
 
     window._saTtsPlaying = false;
     window._saTtsAudio   = null;
+    try{ window.saMicHold && window.saMicHold(false); }catch(_){}
     if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
   };
 
@@ -27222,6 +27296,12 @@ document.addEventListener("click", function(e) {
             if(typeof renderAttachList==="function") renderAttachList("dmAttachList",[]);
             const tm = _tm(seat);
             if(_visIdx === -1) addTtsButton(aDiv, _epText, tm.tts_voice||"alloy");
+            // ALIVE voice replies: with the 🗣 toggle on, the teammate SPEAKS
+            // this reply automatically — persona rendition, not a verbatim read.
+            if(window._aliveVoice && _visIdx === -1 && (_epText||"").trim()
+               && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
+              try{ window.saSpeakAlive(_epText, seat, tm.tts_voice||"alloy", null); }catch(_){}
+            }
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}
           }
