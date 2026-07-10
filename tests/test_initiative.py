@@ -91,3 +91,30 @@ def test_initiative_normalizes_odd_date_formats(auth_client):
     titles = " | ".join(i["title"] for i in d["items"])
     assert "USDate Uma" in titles          # normalized and flagged overdue
     assert "Fuzzy Fred" not in titles      # garbage date never false-flags
+
+
+def test_initiative_surfaces_todays_calendar_tasks(auth_client):
+    import datetime as _dt
+    uname = "smoketest"
+    today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+    res = app_module._execute_teammate_tool(
+        "create_calendar_task",
+        {"title": "Record demo video", "date": today, "start": "10:00"}, uname, "Alex")
+    assert res["ok"], res
+    d = auth_client.get("/api/agent/initiative").get_json()
+    assert d["ok"]
+    titles = " | ".join(i["title"] for i in d["items"])
+    assert "Record demo video" in titles
+
+
+def test_quick_add_contract(auth_client, monkeypatch):
+    # No key -> friendly 400, never a crash; empty text -> 400.
+    monkeypatch.setattr(app_module, "OPENAI_API_KEY", "")
+    r = auth_client.post("/api/calendar/quick_add",
+                         json={"text": "lunch with Jamie tomorrow 1pm", "local_date": "2099-01-01"},
+                         headers={"X-CSRF-Token": auth_client.csrf_token})
+    assert r.status_code == 400
+    assert "key" in (r.get_json().get("error") or "").lower()
+    r2 = auth_client.post("/api/calendar/quick_add", json={"text": ""},
+                          headers={"X-CSRF-Token": auth_client.csrf_token})
+    assert r2.status_code == 400

@@ -165,3 +165,21 @@ def test_action_execute_accepts_operator_approved_auto_tool(flask_app):
                     headers={"X-CSRF-Token": tok})
         assert r2.status_code == 400
 
+
+
+def test_create_calendar_task_tool():
+    uname = "smoketest"
+    res = app_module._execute_teammate_tool(
+        "create_calendar_task",
+        {"title": "Follow up with Jamie", "date": "2099-01-15", "start": "14:00", "priority": "high"},
+        uname, "Sunshine")
+    assert res["ok"], res
+    tasks = app_module._load_cal_tasks(uname)
+    t = next(x for x in tasks if x["title"] == "Follow up with Jamie")
+    assert t["date"] == "2099-01-15" and t["start"] == "14:00" and t["priority"] == "high"
+    assert app_module._tool_risk("create_calendar_task") == "auto"
+    assert "create_calendar_task" in [x["function"]["name"] for x in app_module._tools_openai_schema()]
+    # invalid date rejected cleanly
+    bad = app_module._execute_teammate_tool("create_calendar_task",
+                                            {"title": "X", "date": "whenever"}, uname, "Alex")
+    assert bad["ok"] is False

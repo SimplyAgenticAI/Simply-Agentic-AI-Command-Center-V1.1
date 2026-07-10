@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "5.8")
+APP_VERSION = os.getenv("APP_VERSION", "5.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -6121,6 +6121,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "- research — search the operator's own indexed documents / knowledge base.\n"
             "- read_url — fetch and read a web page or link the operator shares.\n"
             "- set_session_objective — change the team-wide session objective/goal shown at the top of the dashboard. When the operator says to change the objective, CALL this — don't just acknowledge.\n"
+            "- create_calendar_task — put a task on the operator's calendar. When they say schedule/book/plan something for a day or time, CALL this with the concrete YYYY-MM-DD date and HH:MM start.\n"
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
             "request and compose the full email yourself. The system shows the operator a Confirm card before "
             "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
@@ -10968,6 +10969,62 @@ def api_cal_tasks_create():
     tasks.append(task)
     _save_cal_tasks(u.get("username", ""), tasks)
     return jsonify({"ok": True, "task": task})
+
+
+@app.post("/api/calendar/quick_add")
+def api_calendar_quick_add():
+    """Natural-language quick add: 'lunch with Jamie tomorrow 1pm' → real task.
+    One small LLM parse (user key or platform key); on any failure returns a
+    friendly 400 asking to rephrase — never creates a half-parsed task."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _rl = _check_rate_limit("chat", RATE_LIMIT_CHAT)
+    if _rl:
+        return _rl
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    p = request.get_json(silent=True) or {}
+    text = (p.get("text") or "").strip()[:300]
+    local_date = str(p.get("local_date") or "").strip()[:10]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", local_date):
+        local_date = datetime.utcnow().strftime("%Y-%m-%d")
+    if not text:
+        return jsonify({"ok": False, "error": "Type what to schedule first."}), 400
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    if not openai_key:
+        return jsonify({"ok": False, "error": "Quick add needs an AI key — add your OpenAI key in Settings."}), 400
+    sysp = (
+        f"Today is {local_date} (the operator's local date). Parse their scheduling "
+        "request into ONLY this JSON, no prose:\n"
+        '{"title":"...","date":"YYYY-MM-DD","start":"HH:MM","duration":30}\n'
+        "Resolve relative dates (tomorrow, Friday, next week) against today. 24h time; "
+        "default start 09:00 and duration 30 when unstated. Title = concise, no date words."
+    )
+    try:
+        oai = OpenAI(api_key=openai_key)
+        r = oai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": sysp},
+                      {"role": "user", "content": text}],
+            temperature=0.1, max_tokens=140, timeout=15,
+        )
+        d = _parse_plan_json((r.choices[0].message.content or ""))
+        title = (d.get("title") or "").strip()
+        date_s = str(d.get("date") or "").strip()[:10]
+        if not title or not re.match(r"^\d{4}-\d{2}-\d{2}$", date_s):
+            raise ValueError("unparseable")
+        res = _tool_create_calendar_task(uname, "QuickAdd", {
+            "title": title, "date": date_s,
+            "start": str(d.get("start") or "09:00"),
+            "duration": d.get("duration") or 30,
+        })
+        if not res.get("ok"):
+            raise ValueError(res.get("summary") or "could not create")
+        return jsonify({"ok": True, "summary": res.get("summary", ""), "task_id": res.get("task_id")})
+    except Exception:
+        return jsonify({"ok": False, "error": "Couldn't parse that — try something like: lunch with Jamie tomorrow 1pm"}), 400
+
 
 @app.post("/api/cal/tasks/<task_id>")
 def api_cal_tasks_update(task_id: str):
@@ -22983,6 +23040,62 @@ def _tool_set_session_objective(uname: str, teammate: str, args: Dict[str, Any])
         return {"ok": False, "summary": f"Could not update the objective: {e}"}
 
 
+def _tool_create_calendar_task(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Put a task on the operator's calendar (same shape as api_cal_tasks_create)."""
+    title = (args.get("title") or "").strip()
+    if not title:
+        return {"ok": False, "summary": "Need a task title to schedule."}
+    date_s = str(args.get("date") or "").strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}", date_s):
+        date_s = date_s[:10]
+    else:
+        parsed = ""
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%d %b %Y"):
+            try:
+                parsed = datetime.strptime(date_s, fmt).strftime("%Y-%m-%d")
+                break
+            except Exception:
+                continue
+        date_s = parsed
+    if not date_s:
+        return {"ok": False, "summary": "Need a valid date (YYYY-MM-DD) for the task."}
+    start = str(args.get("start") or "09:00").strip()
+    if not re.match(r"^\d{1,2}:\d{2}$", start):
+        start = "09:00"
+    try:
+        duration = max(5, min(600, int(args.get("duration") or 30)))
+    except Exception:
+        duration = 30
+    priority = (args.get("priority") or "medium").strip().lower()
+    if priority not in ("high", "medium", "low"):
+        priority = "medium"
+    try:
+        task = {
+            "id": str(uuid.uuid4()),
+            "title": title[:200],
+            "date": date_s,
+            "start": start,
+            "duration": duration,
+            "priority": priority,
+            "description": (args.get("description") or "").strip()[:1000],
+            "recurring": "none",
+            "recur_days": [],
+            "on_complete_teammate": "",
+            "on_complete_client_email": "",
+            "on_complete_client_name": "",
+            "done": False,
+            "completed_at": None,
+            "created_at": now_iso(),
+        }
+        tasks = _load_cal_tasks(uname)
+        tasks.append(task)
+        _save_cal_tasks(uname, tasks)
+        return {"ok": True, "task_id": task["id"],
+                "summary": f"Scheduled: {title[:80]} on {date_s} at {start}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not schedule the task: {e}"}
+
+
 def _confirm_summary(name: str, args: Dict[str, Any]) -> str:
     """Human-readable one-liner describing a confirm-risk action for the card."""
     if name == "send_email":
@@ -23035,6 +23148,16 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "title": {"type": "string", "description": "The new objective, short and action-oriented."},
          "context": {"type": "string", "description": "Optional supporting context; omit to keep the existing context."}},
          "required": ["title"]}},
+    {"name": "create_calendar_task", "risk": "auto", "executor": _tool_create_calendar_task,
+     "description": "Schedule a task on the operator's calendar. Use whenever the operator asks to schedule, book, plan, or put something on the calendar. Compute the concrete date (YYYY-MM-DD) yourself from what they say.",
+     "parameters": {"type": "object", "properties": {
+         "title": {"type": "string", "description": "Short task title."},
+         "date": {"type": "string", "description": "YYYY-MM-DD."},
+         "start": {"type": "string", "description": "HH:MM 24h start time; default 09:00."},
+         "duration": {"type": "integer", "description": "Minutes; default 30."},
+         "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+         "description": {"type": "string"}},
+         "required": ["title", "date"]}},
     {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
      "description": "Email someone on the operator's behalf. Use this WHENEVER the operator asks to email, send, or message a person — compose the full email (to, subject, body) yourself from the conversation. The system ALWAYS shows the operator a confirmation card to review and approve before anything is actually sent, so this is safe and is the correct tool for any 'email X' / 'send this to X' request. Do not just describe the email in text — call this tool so the operator gets the Send button.",
      "parameters": {"type": "object", "properties": {
@@ -23214,6 +23337,25 @@ def api_agent_initiative():
               f"Draft a short, friendly follow-up email to {_who(c)} — their follow-up was due "
               f"{_nf[id(c)]} and they're in the {c.get('pipeline_stage') or 'Lead'} stage. "
               f"Then log the outreach on their CRM record.")
+
+    # Today's calendar — not-done tasks scheduled for today slot in right after
+    # overdue follow-ups, so the strip covers the operator's whole day at a glance.
+    if len(items) < 3:
+        try:
+            _cal_today = sorted((t for t in _load_cal_tasks(uname)
+                                 if isinstance(t, dict) and not t.get("done")
+                                 and str(t.get("date") or "")[:10] == today),
+                                key=lambda t: str(t.get("start") or "09:00"))
+        except Exception:
+            _cal_today = []
+        for t in _cal_today[: 3 - len(items)]:
+            _title = str(t.get("title") or "Task")[:80]
+            _push("cal_today", {"name": _title},
+                  f"On today's calendar: {_title}",
+                  f"At {t.get('start') or '09:00'} · priority: {t.get('priority') or 'medium'}",
+                  f"Help me knock out today's calendar task: {_title}. Draft whatever's "
+                  f"needed to get it done, and log any client outreach on the CRM record "
+                  f"if one applies.")
 
     if len(items) < 3:
         for c in (c for c in clients if _nf[id(c)] == today):
