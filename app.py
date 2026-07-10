@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "6.0")
+APP_VERSION = os.getenv("APP_VERSION", "6.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -24791,6 +24791,11 @@ def api_speak_prep():
     raw = (p.get("text") or "").strip()[:6000]
     tm_name = (p.get("teammate") or "").strip() or "Alex"
     greeted = bool(p.get("greeted"))
+    # conversation = mid-dialogue turn (short, answer-first); briefing = the
+    # operator pressed Speak on a message and wants the fuller walkthrough.
+    mode = (p.get("mode") or "briefing").strip().lower()
+    if mode not in ("conversation", "briefing"):
+        mode = "briefing"
     try:
         hour = int(p.get("local_hour"))
     except Exception:
@@ -24841,10 +24846,17 @@ def api_speak_prep():
         + ("open with a brief, natural time-of-day greeting using their first name, then "
            if not greeted else
            "no greeting (you already greeted them this session) — a natural lead-in, then ")
-        + "walk them through the substance like a colleague would: what it is, the key "
-        "points, and why it matters. Plain spoken language. No markdown, no bullet "
-        "symbols, never read URLs aloud. Do not say you are an AI. Keep it under about "
-        "140 words unless the content truly demands more. Output ONLY the spoken words."
+        + ("give ONLY the conversational essence: AT MOST 55 words, 2–4 short spoken "
+           "sentences, your answer or opinion in the FIRST sentence. Never recap the "
+           "whole written reply and never list things; if there's a lot more detail, "
+           "give the headline plus the single most important point and offer to go "
+           "deeper. It must feel like a quick turn in a conversation, not a briefing. "
+           if mode == "conversation" else
+           "walk them through the substance like a colleague would: what it is, the key "
+           "points, and why it matters. Keep it under about 140 words unless the "
+           "content truly demands more. ")
+        + "Plain spoken language. No markdown, no bullet symbols, never read URLs "
+        "aloud. Do not say you are an AI. Output ONLY the spoken words."
     )
     try:
         oai = OpenAI(api_key=openai_key)
@@ -24852,7 +24864,7 @@ def api_speak_prep():
             model="gpt-4o-mini",
             messages=[{"role": "system", "content": sysp},
                       {"role": "user", "content": raw}],
-            temperature=0.8, max_tokens=320, timeout=15,
+            temperature=0.8, max_tokens=(140 if mode == "conversation" else 320), timeout=15,
         )
         spoken = (r.choices[0].message.content or "").strip()
         if not spoken:

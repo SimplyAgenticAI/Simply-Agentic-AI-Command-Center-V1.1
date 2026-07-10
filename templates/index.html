@@ -640,6 +640,19 @@
     }
     .saActionChip.show{ opacity:1; transform:translate(-50%,-115%) scale(1); }
 
+    /* Minimized whisper: a small pulsing mic pill — listening continues.
+       Click to restore the HUD (or to stop speech while a teammate talks). */
+    #whisperMini{
+      position:fixed; right:18px; bottom:76px; z-index:99991;
+      width:46px; height:46px; border-radius:50%;
+      display:none; align-items:center; justify-content:center;
+      font-size:20px; cursor:pointer; user-select:none;
+      background:rgba(20,16,50,.94); border:1px solid rgba(167,139,250,.65);
+      box-shadow:0 0 18px rgba(124,58,237,.5), 0 6px 24px rgba(0,0,0,.5);
+      animation:whisperPulse 1.6s ease-in-out infinite;
+    }
+    #whisperMini:hover{ border-color:rgba(196,181,253,.9); }
+
     /* ── AGENT INITIATIVE: "your team noticed" strip above the round table.
        Rules-based CRM scan; each row's button hands the action to a teammate. ── */
     #saInitiative{
@@ -4263,6 +4276,7 @@ label {
       <!-- Push-to-talk toggle -->
       <button id="whisperAutoToggle" title="Hands-free on startup: Whisper arms itself in standby every time the dashboard loads — just say a teammate's name to engage. Works best on Chrome/Edge desktop; some browsers still require one click per session." style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">AUTO</button>
       <button id="whisperPttToggle" title="Push-to-talk mode" style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">PTT</button>
+      <button id="whisperMin" title="Minimize — keeps listening in the background" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#cbd5e1;font-size:13px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&#8211;</button>
       <button id="whisperClose" title="Stop Whisper" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#cbd5e1;font-size:14px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&times;</button>
     </div>
   </div>
@@ -11981,6 +11995,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     function stopAlwaysListening(){
       alwaysOn=false;
       _hfStandby=false;
+      try{ const _wp=document.getElementById("whisperMini"); if(_wp)_wp.style.display="none"; }catch(_){}
       if(_hfDecayTimer){clearTimeout(_hfDecayTimer);_hfDecayTimer=null;}
       if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       _whisperHideCountdown();
@@ -12144,7 +12159,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                   if(_vvText.trim() && !ev.job_id && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
                     var _vvTm = {};
                     try{ _vvTm = ((state&&state.installed)||{})[seat] || {}; }catch(_){}
-                    window.saSpeakAlive(_vvText, seat, _vvTm.tts_voice || "alloy", null);
+                    window.saSpeakAlive(_vvText, seat, _vvTm.tts_voice || "alloy", null, "conversation");
                   }
                 }catch(_){}
                 if(ev.job_id){try{pollImageJob(ev.job_id,seat);}catch(_){}}
@@ -12245,18 +12260,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _hfDecayTimer=setTimeout(function(){ if(alwaysOn && !_hfStandby) _hfEnterStandby(); }, _HF_DECAY_MS);
     }
 
-    // ── Mic hold: pause recognition while a teammate SPEAKS (TTS), so the mic
-    // never hears the teammate's own voice — prevents feedback transcripts and
-    // spurious name-switches when a spoken reply mentions a teammate.
+    // ── Mic interrupt-mode: while a teammate SPEAKS (TTS) the mic stays HOT so
+    // the operator can barge in ("stop", or a teammate name) — but onresult
+    // buffers NOTHING in this mode, which is also the TTS-bleed shield: the
+    // teammate's own audio can't become a transcript or trigger switches.
     window.saMicHold = function(hold){
       try{
         window._saMicHeld = !!hold;
         if(hold){
-          if(alwaysRec){ try{ alwaysRec.stop(); }catch(_){} }
-          if(alwaysOn) _whisperSetStatus("Speaking…");
-        } else if(alwaysOn && alwaysRec){
-          try{ alwaysRec.start(); }catch(_){}
-          _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
+          if(alwaysOn) _whisperSetStatus('Speaking — say "stop" to interrupt');
+        } else {
+          window._saTtsEndedAt = Date.now();   // bleed-tail guard reference
+          if(alwaysOn) _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
         }
       }catch(_){}
     };
@@ -12339,6 +12354,32 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
         newFinals=newFinals.trim();
         interim=interim.trim();
+
+        // ── Barge-in: a teammate is speaking. Buffer NOTHING — only a stop
+        // command or a teammate name acts (everything else is discarded, which
+        // is also the shield against the TTS audio transcribing itself).
+        if(window._saMicHeld){
+          const _bi=(newFinals+" "+interim).toLowerCase().replace(/[.,!?]+/g," ").replace(/\s+/g," ").trim();
+          if(/(^|\s)(stop|okay stop|ok stop|that's enough|thats enough|enough|be quiet|shut up|pause)$/.test(_bi)){
+            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+            _buf="";alwaysFinalText="";alwaysInterimText="";
+            _whisperSetTranscript("","");
+            _whisperSetStatus("Stopped — go ahead");
+            return;
+          }
+          const _biHit=findFirstNameMention(newFinals)||findFirstNameMention(interim);
+          if(_biHit){
+            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+            // fall through: the normal name-switch flow below handles the rest
+          } else {
+            return;
+          }
+        }
+        // ── Bleed tail: a final landing just after speech ended is usually the
+        // tail of the teammate's own audio — never the operator's message.
+        if(window._saTtsEndedAt && (Date.now()-window._saTtsEndedAt)<900 && newFinals && !interim){
+          return;
+        }
 
         // ── Name detection ─────────────────────────────────────
         // Grace period: suppress newFinals detection for 1.5s after a switch.
@@ -12479,9 +12520,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
-        if(window._saMicHeld)return;   // a teammate is speaking — stay muted
         // Don't snapshot from textarea (we never wrote there) — buf is the truth
-        _whisperSetStatus("Listening...");
+        if(!window._saMicHeld)_whisperSetStatus("Listening...");
         try{rec.start();}catch(e){
           // Back-off retry on repeated failures
           setTimeout(()=>{ if(alwaysOn)try{rec.start();}catch(_){stopAlwaysListening();} },400);
@@ -12498,6 +12538,36 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     (function(){
       const hClose=$("whisperClose");
       if(hClose)hClose.onclick=()=>stopAlwaysListening();
+
+      // Minimize: hide the HUD but KEEP LISTENING — a pulsing mic pill remains.
+      const hMin=$("whisperMin");
+      if(hMin){
+        hMin.onclick=()=>{
+          const hud=_whisperHud(); if(!hud) return;
+          hud.style.display="none";
+          let pill=document.getElementById("whisperMini");
+          if(!pill){
+            pill=document.createElement("div");
+            pill.id="whisperMini";
+            pill.title="Whisper is listening — say a teammate's name anytime. Click to expand (or to stop a teammate mid-speech).";
+            pill.textContent="🎙";
+            document.body.appendChild(pill);
+            pill.onclick=()=>{
+              // While a teammate is speaking, the pill doubles as tap-to-stop
+              if(window._saTtsPlaying){ try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){} return; }
+              pill.style.display="none";
+              const h=_whisperHud(); if(h) h.style.display="";
+            };
+          }
+          pill.style.display="flex";
+        };
+      }
+      // Tap the status line to stop a teammate mid-speech
+      const hStat=$("whisperStatusLabel");
+      if(hStat){
+        hStat.style.cursor="pointer";
+        hStat.addEventListener("click",()=>{ if(window._saTtsPlaying){ try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){} } });
+      }
 
       // Hands-free on startup (opt-in): AUTO pill toggles it; when enabled the
       // mic arms itself in STANDBY on every dashboard load — nothing is heard
@@ -12605,7 +12675,17 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     // Release mic when app hidden (prevents "mic already in use" on mobile)
     document.addEventListener("visibilitychange",()=>{
-      if(document.hidden&&alwaysOn)stopAlwaysListening();
+      // Browsers throttle background speech recognition, so stop on hide — but
+      // remember to RE-ARM in standby when the operator returns (hands-free
+      // users previously came back to a dead mic until a full reload).
+      if(document.hidden&&alwaysOn){ stopAlwaysListening(); window._hfResumeOnReturn=true; return; }
+      if(!document.hidden){
+        let _hf=false; try{ _hf=localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
+        if(_hf&&(window._hfResumeOnReturn||!alwaysOn)&&!alwaysOn){
+          window._hfResumeOnReturn=false;
+          setTimeout(()=>{ if(!alwaysOn&&!document.hidden) startAlwaysListening("dm",{standby:true}); },600);
+        }
+      }
     });
     // Update teammate chip when seat changes
     const _origSelectSeat=window.selectSeat||(()=>{});
@@ -26352,7 +26432,9 @@ document.addEventListener("click", function(e) {
     }
 
     window._saTtsPlaying = true;
-    // Mute the whisper mic while the teammate talks (released on every exit path)
+    window._saTtsLastBtn = btn || null;
+    // Put the whisper mic in interrupt-only mode while the teammate talks
+    // (released on every exit path). The operator can barge in with "stop".
     try{ window.saMicHold && window.saMicHold(true); }catch(_){}
     if(btn){ btn.classList.add("sa-playing"); btn.textContent="⏹ Stop"; }
 
@@ -26411,6 +26493,20 @@ document.addEventListener("click", function(e) {
     if(btn){ btn.classList.remove("sa-playing"); btn.textContent="🔊 Speak"; }
   };
 
+  /* Barge-in target: stop any teammate speech immediately, from anywhere
+     (spoken "stop", the whisper HUD, or the minimized mic pill). */
+  window.saTtsStopAll = function(){
+    window._saTtsPlaying = false;
+    window._streamTtsFired = false;
+    try{ window._saTtsAudio && window._saTtsAudio.pause(); }catch(_){}
+    try{ speechSynthesis.cancel(); }catch(_){}
+    try{ window.saMicHold && window.saMicHold(false); }catch(_){}
+    try{
+      var _b = window._saTtsLastBtn;
+      if(_b){ _b.classList.remove("sa-playing"); _b.textContent = "🔊 Speak"; }
+    }catch(_){}
+  };
+
   /* ── ALIVE spoken delivery ─────────────────────────────────────────────────
      Instead of reading the message verbatim, ask the server for a spoken
      rendition in the teammate's own voice (persona + time-of-day greeting once
@@ -26418,11 +26514,12 @@ document.addEventListener("click", function(e) {
      teammate's delivery instructions. Every failure path falls back to the
      plain verbatim read — Speak always produces audio. Cached per message. */
   var _saSpeakCache = {};
-  window.saSpeakAlive = async function saSpeakAlive(rawText, teammateName, voice, btn){
+  window.saSpeakAlive = async function saSpeakAlive(rawText, teammateName, voice, btn, mode){
     if(!rawText) return;
+    mode = (mode === "conversation") ? "conversation" : "briefing";
     // Already playing → delegate to saTtsSpeak's stop toggle
     if(window._saTtsPlaying) return window.saTtsSpeak(rawText, voice, btn);
-    var key = (teammateName||"") + "|" + rawText.length + "|" + rawText.slice(0, 80);
+    var key = mode + "|" + (teammateName||"") + "|" + rawText.length + "|" + rawText.slice(0, 80);
     var cached = _saSpeakCache[key];
     if(cached) return window.saTtsSpeak(cached.spoken, voice, btn, cached.delivery);
     var orig = btn ? btn.textContent : "";
@@ -26437,7 +26534,7 @@ document.addEventListener("click", function(e) {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           text: rawText, teammate: teammateName || "",
-          local_hour: (new Date()).getHours(), greeted: greeted
+          local_hour: (new Date()).getHours(), greeted: greeted, mode: mode
         }),
         signal: ctrl ? ctrl.signal : undefined
       });
@@ -27300,7 +27397,7 @@ document.addEventListener("click", function(e) {
             // this reply automatically — persona rendition, not a verbatim read.
             if(window._aliveVoice && _visIdx === -1 && (_epText||"").trim()
                && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
-              try{ window.saSpeakAlive(_epText, seat, tm.tts_voice||"alloy", null); }catch(_){}
+              try{ window.saSpeakAlive(_epText, seat, tm.tts_voice||"alloy", null, "conversation"); }catch(_){}
             }
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
             try{ if(window.onboardingRefresh) await window.onboardingRefresh(); }catch(_){}

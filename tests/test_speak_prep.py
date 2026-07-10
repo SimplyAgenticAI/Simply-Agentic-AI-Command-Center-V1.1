@@ -55,3 +55,18 @@ def test_tts_with_instructions_still_requires_key(auth_client, monkeypatch):
                          json={"text": "hello", "voice": "alloy", "instructions": "warm"},
                          headers={"X-CSRF-Token": auth_client.csrf_token})
     assert r.status_code == 400
+
+
+def test_speak_prep_conversation_mode_keeps_fallback_contract(auth_client, monkeypatch):
+    # mode=conversation is accepted and the no-key fallback contract holds;
+    # bogus modes are coerced, never an error.
+    monkeypatch.setattr(app_module, "OPENAI_API_KEY", "")
+    for m in ("conversation", "briefing", "bogus"):
+        r = auth_client.post("/api/speak_prep",
+                             json={"text": "Quick take?", "teammate": "Alex",
+                                   "local_hour": 9, "mode": m},
+                             headers={"X-CSRF-Token": auth_client.csrf_token})
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True and d["fallback"] is True
+        assert d["spoken"] == "Quick take?"
