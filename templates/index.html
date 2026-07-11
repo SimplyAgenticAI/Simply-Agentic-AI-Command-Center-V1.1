@@ -2736,7 +2736,18 @@ input.saPersSlider, #modalWin input.saPersSlider, .sa-float-win input.saPersSlid
   padding:0 !important; margin:8px 0 4px !important;
   border:none !important; border-radius:999px !important;
   background:rgba(42,58,106,.6) !important;  /* JS overrides with the fill gradient */
+  /* CRITICAL: other rules stretch input backgrounds to 200% (aurora shimmer),
+     which renders every gradient stop at HALF its position — the fill lagged
+     the thumb by exactly 2x. Pin the background geometry. */
+  background-size:100% 100% !important;
+  background-position:0 0 !important;
+  background-repeat:no-repeat !important;
+  animation:none !important;
   box-shadow:none !important; outline:none !important; cursor:pointer;
+}
+input.saPersSlider:focus, #modalWin input.saPersSlider:focus{
+  border:none !important; outline:none !important;
+  box-shadow:0 0 0 2px rgba(124,58,237,.25) !important;
 }
 input.saPersSlider::-webkit-slider-thumb{
   -webkit-appearance:none; appearance:none;
@@ -14510,11 +14521,16 @@ $("draftWithSelected").onclick = async () => {
           const v=+r.value;
           dv.textContent = v<20?descs[0] : v<40?descs[1] : v<=60?descs[2] : v<=80?descs[3] : descs[4];
           dv.style.color = (v>=40&&v<=60) ? "rgba(148,163,184,.8)" : "#67e8f9";
-          // Progress fill follows the thumb (inline !important beats the
-          // stylesheet reset that neutralizes the global modal-input styles)
-          r.style.setProperty("background",
+          // Progress fill follows the thumb. Explicit LONGHANDS with inline
+          // !important: shorthand setProperty does not reliably propagate
+          // importance to implied values (background-size) in Chrome, which is
+          // how the fill ended up rendering at exactly half the thumb position.
+          r.style.setProperty("background-image",
             "linear-gradient(90deg,#7c3aed 0%,#7c3aed "+v+"%,rgba(42,58,106,.6) "+v+"%,rgba(42,58,106,.6) 100%)",
             "important");
+          r.style.setProperty("background-size", "100% 100%", "important");
+          r.style.setProperty("background-position", "0 0", "important");
+          r.style.setProperty("background-repeat", "no-repeat", "important");
         }
         r.addEventListener("input", paint); paint();
         r._paint=paint; persInputs[key]=r;
