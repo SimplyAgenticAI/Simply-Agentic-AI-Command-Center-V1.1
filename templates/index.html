@@ -14461,6 +14461,51 @@ $("draftWithSelected").onclick = async () => {
       const c4 = mkCard("🤖", "Voice & Model");
       c4.appendChild(grid(isMobile?"1fr":"1fr 1fr", wrap("AI Model", fModel), wrap("TTS Voice", fVoice)));
 
+      // ── 🎛 Character Dials — draggable personality sliders ──────────────────
+      // 0–100, 50 = the teammate's natural default (emits nothing server-side).
+      const PERS_TRAITS = [
+        ["directness","🎯 Directness",["Ultra diplomatic","Diplomatic","Balanced","Direct","Straight shooter"]],
+        ["humor","😄 Humor",["Strictly serious","Mostly serious","Balanced","Witty","Playful & sarcastic"]],
+        ["warmth","💜 Warmth",["Matter-of-fact","Reserved","Balanced","Warm","Deeply personal"]],
+        ["energy","⚡ Energy",["Zen calm","Low-key","Balanced","Energetic","Full hype"]],
+        ["detail","🔍 Detail",["Headline only","Concise","Balanced","Thorough","Deep diver"]],
+        ["pushback","🥊 Pushback",["Always supportive","Agreeable","Balanced","Challenges ideas","Devil's advocate"]]
+      ];
+      const persInputs = {};
+      function mkSlider(key, label, descs){
+        const w=document.createElement("div"); w.style.cssText="margin-bottom:13px;";
+        const top=document.createElement("div"); top.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;";
+        const l=document.createElement("span"); l.style.cssText="font-size:12px;font-weight:700;color:#c6d0e0;"; l.textContent=label;
+        const dv=document.createElement("span"); dv.style.cssText="font-size:11px;font-weight:600;";
+        top.appendChild(l); top.appendChild(dv);
+        const r=document.createElement("input");
+        r.type="range"; r.min=0; r.max=100; r.value=50;
+        r.style.cssText="width:100%;accent-color:#7c3aed;cursor:pointer;display:block;";
+        function paint(){
+          const v=+r.value;
+          dv.textContent = v<20?descs[0] : v<40?descs[1] : v<=60?descs[2] : v<=80?descs[3] : descs[4];
+          dv.style.color = (v>=40&&v<=60) ? "rgba(148,163,184,.8)" : "#67e8f9";
+        }
+        r.addEventListener("input", paint); paint();
+        r._paint=paint; persInputs[key]=r;
+        w.appendChild(top); w.appendChild(r);
+        return w;
+      }
+      const c5 = mkCard("🎛", "Character Dials");
+      const persHint=document.createElement("div");
+      persHint.style.cssText="font-size:11.5px;color:rgba(170,184,204,.85);margin:-4px 0 12px;line-height:1.5;";
+      persHint.textContent="Drag to tune how this teammate communicates — written AND spoken. Middle = their natural default. Applies from the very next message.";
+      c5.appendChild(persHint);
+      PERS_TRAITS.forEach(function(t){ c5.appendChild(mkSlider(t[0],t[1],t[2])); });
+      const persReset=document.createElement("button");
+      persReset.className="btn btnMini";
+      persReset.textContent="↺ Reset to defaults";
+      persReset.addEventListener("click", function(e){
+        e.preventDefault();
+        PERS_TRAITS.forEach(function(t){ persInputs[t[0]].value=50; persInputs[t[0]]._paint(); });
+      });
+      c5.appendChild(persReset);
+
       if(isWide && !isMobile){
         // Two-column card grid using full horizontal space
         const colGrid = document.createElement("div");
@@ -14473,12 +14518,12 @@ $("draftWithSelected").onclick = async () => {
         // height so its bottom aligns with the Behavior card (even columns).
         const colR = document.createElement("div"); colR.style.cssText="display:flex;flex-direction:column;gap:14px;flex:1;";
         c4.style.flex="1";
-        colR.appendChild(c2); colR.appendChild(c4);
+        colR.appendChild(c2); colR.appendChild(c5); colR.appendChild(c4);
         colGrid.appendChild(colL); colGrid.appendChild(colR);
         right.appendChild(colGrid);
       } else {
         // Single column on smaller screens
-        [c1,c2,c3,c4].forEach(c=>right.appendChild(c));
+        [c1,c2,c5,c3,c4].forEach(c=>right.appendChild(c));
       }
 
       // Save footer — sticky at bottom of right panel
@@ -14521,6 +14566,13 @@ $("draftWithSelected").onclick = async () => {
         fWnd.value   = Array.isArray(t.will_not_do)      ? t.will_not_do.join("\n")      : (t.will_not_do||"");
         fModel.value = t.preferred_model || "";
         fVoice.value = t.tts_voice || "alloy";
+        // Character dials — saved positions, or the neutral middle
+        const pv = t.personality_dials || {};
+        PERS_TRAITS.forEach(function(tr){
+          const r = persInputs[tr[0]];
+          r.value = (typeof pv[tr[0]] === "number") ? pv[tr[0]] : 50;
+          r._paint();
+        });
         statusEl.textContent = "";
         right.scrollTop = 0;
       }
@@ -14537,7 +14589,12 @@ $("draftWithSelected").onclick = async () => {
               job_title:fJob.value, version:fVer.value, mission:fMiss.value,
               goal:fGoal.value, thinking_style:fThink.value,
               responsibilities:fResp.value, will_not_do:fWnd.value,
-              preferred_model:fModel.value, tts_voice:fVoice.value||"alloy"
+              preferred_model:fModel.value, tts_voice:fVoice.value||"alloy",
+              personality_dials:(function(){
+                const o={};
+                PERS_TRAITS.forEach(function(tr){ o[tr[0]] = +persInputs[tr[0]].value; });
+                return o;
+              })()
             })
           });
           const d = await res.json();

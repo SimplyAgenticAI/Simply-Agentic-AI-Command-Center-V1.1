@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "6.3")
+APP_VERSION = os.getenv("APP_VERSION", "6.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -4661,6 +4661,71 @@ def _normalize_lines_to_list(val: Any) -> List[str]:
     return [ln for ln in lines if ln]
 
 
+# ── Personality dials ─────────────────────────────────────────────────────────
+# Operator-tunable character sliders (0–100, 50 = neutral/default). The 40–60
+# band emits NOTHING, so existing teammates behave exactly as before until a
+# dial is actually moved. Bands: 0–19 strong-low, 20–39 low, 61–80 high,
+# 81–100 strong-high.
+PERSONALITY_TRAITS = ["directness", "humor", "warmth", "energy", "detail", "pushback"]
+
+_PERSONALITY_BANDS: Dict[str, Dict[str, str]] = {
+    "directness": {
+        "ll": "Be extremely gentle and diplomatic — cushion every critique, lead with positives.",
+        "l":  "Soften your delivery — be tactful and diplomatic when giving hard feedback.",
+        "h":  "Be direct and candid — get to the point and don't over-cushion feedback.",
+        "hh": "Be very direct — lead with the hard truth first, skip the cushioning entirely.",
+    },
+    "humor": {
+        "ll": "Stay strictly professional — no jokes, no playfulness.",
+        "l":  "Keep humor rare and subtle.",
+        "h":  "Weave in wit and playful humor where it fits naturally.",
+        "hh": "Be genuinely funny — wit, wordplay and light sarcasm are welcome (never mean).",
+    },
+    "warmth": {
+        "ll": "Keep the tone neutral and matter-of-fact — no emotional language.",
+        "l":  "Stay professional and measured; light on encouragement.",
+        "h":  "Be warm and encouraging — acknowledge effort, celebrate wins.",
+        "hh": "Be deeply warm and personal — like a close friend who's genuinely invested in them.",
+    },
+    "energy": {
+        "ll": "Speak with complete calm — slow, steady, zen.",
+        "l":  "Keep the energy low-key and composed.",
+        "h":  "Bring real energy and enthusiasm to your replies.",
+        "hh": "Bring BIG energy — hype, momentum, exclamation where earned.",
+    },
+    "detail": {
+        "ll": "Give only the headline — one or two sentences, no elaboration unless asked.",
+        "l":  "Stay concise and high-level; details only on request.",
+        "h":  "Be thorough — include the supporting details and reasoning.",
+        "hh": "Go deep — full breakdowns, edge cases, and step-by-step reasoning by default.",
+    },
+    "pushback": {
+        "ll": "Support the operator's direction — build on their ideas rather than questioning them.",
+        "l":  "Lean agreeable; raise concerns only when something is clearly wrong.",
+        "h":  "Challenge weak points before agreeing — offer the counterargument.",
+        "hh": "Play devil's advocate by default — stress-test every idea for holes before endorsing it.",
+    },
+}
+
+
+def _personality_lines(defn: Dict[str, Any]) -> List[str]:
+    """Translate a teammate's personality dials into prompt instruction lines.
+    Neutral (40–60) traits emit nothing."""
+    pers = defn.get("personality_dials") if isinstance(defn, dict) else None
+    if not isinstance(pers, dict):
+        return []
+    lines: List[str] = []
+    for trait in PERSONALITY_TRAITS:
+        try:
+            v = int(pers.get(trait, 50))
+        except Exception:
+            continue
+        band = "ll" if v < 20 else "l" if v < 40 else "h" if 60 < v <= 80 else "hh" if v > 80 else ""
+        if band:
+            lines.append(_PERSONALITY_BANDS[trait][band])
+    return lines
+
+
 def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
     allowed_str_fields = ["job_title", "version", "mission", "thinking_style", "goal", "preferred_model", "tts_voice"]
     allowed_list_fields = ["responsibilities", "will_not_do"]
@@ -4677,6 +4742,20 @@ def _sanitize_teammate_update(payload: Dict[str, Any], current: Dict[str, Any]) 
     for k in allowed_list_fields:
         if k in payload:
             updated[k] = _normalize_lines_to_list(payload.get(k))
+
+    # Personality dials — six known traits, ints clamped 0–100; junk dropped.
+    # 50 = neutral (emits no prompt text), so untouched teammates behave as today.
+    # NOTE: stored as personality_dials — "personality" is already a STRING field
+    # consumed by the voice-injection block in teammate_system_prompt.
+    if "personality_dials" in payload and isinstance(payload.get("personality_dials"), dict):
+        _pers: Dict[str, int] = {}
+        for trait in PERSONALITY_TRAITS:
+            if trait in payload["personality_dials"]:
+                try:
+                    _pers[trait] = max(0, min(100, int(payload["personality_dials"][trait])))
+                except Exception:
+                    continue
+        updated["personality_dials"] = _pers
 
     updated["name"] = current.get("name", "")
     updated["avatar"] = dict(current.get("avatar") or {})
@@ -6087,6 +6166,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     else:
         _voice_block = ""
 
+    # ── Personality dials (operator-tuned sliders in Edit Teammates) ─────────
+    _pers_lines = _personality_lines(defn)
+    if _pers_lines:
+        _personality_block = (
+            "PERSONALITY DIALS (operator-tuned — these OVERRIDE your default tone):\n"
+            + "\n".join("- " + ln for ln in _pers_lines) + "\n"
+        )
+    else:
+        _personality_block = ""
+
     # ── Phase 3: Platform tools awareness block ───────────────────────────────
     _tools_block = (
         "PLATFORM TOOLS YOU CAN REFERENCE\n"
@@ -6346,6 +6435,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{image_history_block}"
         f"{brand_context_block}"
         f"{_voice_block}"
+        f"{_personality_block}"
         f"{_lens_directive}"
         f"{behavior_rules}\n"
         f"{format_rules}\n"
@@ -9379,6 +9469,9 @@ def api_update_teammate(n: str):
     installed[name] = updated
     reg["installed"] = installed
     save_registry(reg, uname)
+    # Edits (incl. personality dials) must apply on the very NEXT message — the
+    # system prompt cache (30s TTL) would otherwise serve the stale persona.
+    _invalidate_sys_prompt_cache(uname, name)
     append_log("teammate_updated", {
         "name": name, "updated_at": now_iso(), "updated_fields": list(payload.keys()),
         "snapshot": {"name": updated.get("name",""), "job_title": updated.get("job_title",""),
@@ -24826,9 +24919,12 @@ def api_speak_prep():
                "afternoon" if 12 <= hour < 17 else
                "evening" if 17 <= hour < 22 else "late night")
     # Deterministic per-teammate delivery steering for gpt-4o-mini-tts (layer 2).
+    # Operator personality dials steer the VOICE too, not just the words.
+    _pl = _personality_lines(defn)
+    _pers_txt = (" " + " ".join(_pl)) if _pl else ""
     delivery = (f"You are {tm_name}, {job}. Speak warmly and naturally, like a close "
                 f"teammate talking across the desk — conversational pace, personality "
-                f"forward, never monotone or read-aloud.")
+                f"forward, never monotone or read-aloud." + _pers_txt)
 
     user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
     openai_key = user_key or (OPENAI_API_KEY or "").strip()
@@ -24841,6 +24937,7 @@ def api_speak_prep():
         + f". It is {daypart}."
         + (f" The team's current objective: {objective}." if objective else "")
         + (f" Your style: {style}." if style else "")
+        + (f" Your operator-tuned personality: {' '.join(_pl)}" if _pl else "")
         + " Rewrite the written reply below as natural SPEECH — how you would actually"
         " say it to them right now: "
         + ("open with a brief, natural time-of-day greeting using their first name, then "
