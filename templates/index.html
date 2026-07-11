@@ -33987,63 +33987,112 @@ window.addEventListener('focus', function(){
 </script>
 
 <script>
-/* Cosmic neural-web background */
+/* Neural constellation background — a calm, living mind behind the dashboard.
+   Design rules (from operator feedback): NO dense webbing, no streaks. Sparse
+   glowing nodes drift slowly; each links ONLY to its two nearest neighbors
+   (clean constellation), and cyan thought-pulses travel the links. Everything
+   dims near the round-table zone so the UI always reads first. */
 (function(){
   var cv=document.getElementById('saNeuralCanvas');
   if(!cv)return;
   var cx=cv.getContext('2d');
   var W,H;
-  var COLS=[[6,182,212],[124,58,237],[79,70,229],[167,139,250],[255,255,255],[99,102,241]];
-  var N=80, MAXD=185;
-  var pts=[];
+  var N=42;
+  var pts=[],pulses=[],lastPulse=0;
+  var REDUCED=false;
+  try{REDUCED=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;}catch(_){}
 
   function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
 
-  function mkPt(){
-    var a=Math.random()*Math.PI*2, sp=Math.random()*0.22+0.06;
-    var c=COLS[Math.floor(Math.random()*COLS.length)];
-    return{x:Math.random()*W,y:Math.random()*H,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,
-           r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.38+0.32,
-           tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
+  // Quiet-center falloff: the mind thinks at the edges of the screen and stays
+  // soft behind the table/console area.
+  function quiet(x,y){
+    var dx=(x-W/2)/(W*0.28), dy=(y-H*0.44)/(H*0.30);
+    var d=Math.sqrt(dx*dx+dy*dy);
+    return Math.max(0.3,Math.min(1,(d-0.55)/0.8+0.3));
   }
 
-  function init(){resize();pts=[];for(var i=0;i<N;i++)pts.push(mkPt());}
+  function mkPt(){
+    var deep=Math.random()<0.45;   // two depth tiers — reads as space, not a flat pattern
+    return{x:Math.random()*W,y:Math.random()*H,
+           a:Math.random()*Math.PI*2,va:(Math.random()-0.5)*0.004,
+           sp:(deep?0.05:0.09)+Math.random()*0.05,
+           z:deep?0.55:1,
+           r:deep?1.2:1.9,
+           cy:Math.random()<0.14,   // rare cyan accent star
+           tp:Math.random()*Math.PI*2,ts:0.004+Math.random()*0.005};
+  }
+  function init(){resize();pts=[];pulses=[];for(var i=0;i<N;i++)pts.push(mkPt());}
 
-  function frame(){
+  function frame(now){
     cx.clearRect(0,0,W,H);
-    var i,j,p,dx,dy,d,la;
+    var i,j,p;
+    // Slow wandering drift with soft screen-wrap (no bouncing)
     for(i=0;i<N;i++){
       p=pts[i];
-      p.x+=p.vx;p.y+=p.vy;
-      if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
-      if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
-      p.tp+=p.ts;
+      p.a+=p.va; p.x+=Math.cos(p.a)*p.sp; p.y+=Math.sin(p.a)*p.sp; p.tp+=p.ts;
+      if(p.x<-30)p.x=W+28; if(p.x>W+30)p.x=-28;
+      if(p.y<-30)p.y=H+28; if(p.y>H+30)p.y=-28;
     }
+    // Links: two nearest neighbors per node, deduped, length-capped
+    var edges=[],seen={};
     for(i=0;i<N;i++){
-      for(j=i+1;j<N;j++){
-        dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;
-        d=Math.sqrt(dx*dx+dy*dy);
-        if(d<MAXD){
-          la=0.28*(1-d/MAXD);
-          var ci=pts[i].c;
-          cx.beginPath();
-          cx.strokeStyle='rgba('+ci[0]+','+ci[1]+','+ci[2]+','+la+')';
-          cx.lineWidth=0.8;
-          cx.moveTo(pts[i].x,pts[i].y);
-          cx.lineTo(pts[j].x,pts[j].y);
-          cx.stroke();
-        }
+      var b1=-1,b2=-1,d1=1e18,d2=1e18;
+      for(j=0;j<N;j++){
+        if(i===j)continue;
+        var dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=dx*dx+dy*dy;
+        if(d<d1){d2=d1;b2=b1;d1=d;b1=j;}
+        else if(d<d2){d2=d;b2=j;}
+      }
+      var nbs=[[b1,d1],[b2,d2]];
+      for(var q=0;q<2;q++){
+        var k=nbs[q][0];
+        if(k<0||nbs[q][1]>90000)continue;   // no links longer than ~300px
+        var key=i<k?i+'_'+k:k+'_'+i;
+        if(seen[key])continue; seen[key]=1;
+        edges.push([pts[i],pts[k],Math.sqrt(nbs[q][1])]);
       }
     }
+    for(i=0;i<edges.length;i++){
+      var e=edges[i],qm=quiet((e[0].x+e[1].x)/2,(e[0].y+e[1].y)/2);
+      var la=0.16*(1-e[2]/300)*e[0].z*e[1].z*qm+0.02;
+      cx.strokeStyle='rgba(139,102,246,'+la.toFixed(3)+')';
+      cx.lineWidth=1;
+      cx.beginPath();cx.moveTo(e[0].x,e[0].y);cx.lineTo(e[1].x,e[1].y);cx.stroke();
+    }
+    // Thought-pulses: cyan light traveling a real link, soft ring on arrival
+    if(!REDUCED&&now-lastPulse>700&&pulses.length<5&&edges.length){
+      lastPulse=now;
+      var e2=edges[(Math.random()*edges.length)|0];
+      pulses.push({a:e2[0],b:e2[1],p:0,sp:0.007+Math.random()*0.007});
+    }
+    for(i=pulses.length-1;i>=0;i--){
+      var pu=pulses[i];pu.p+=pu.sp;
+      if(pu.p>=1){
+        var qq=quiet(pu.b.x,pu.b.y);
+        cx.strokeStyle='rgba(34,211,238,'+(0.35*qq).toFixed(3)+')';cx.lineWidth=1.2;
+        cx.beginPath();cx.arc(pu.b.x,pu.b.y,6,0,Math.PI*2);cx.stroke();
+        pulses.splice(i,1);continue;
+      }
+      var px=pu.a.x+(pu.b.x-pu.a.x)*pu.p,py=pu.a.y+(pu.b.y-pu.a.y)*pu.p;
+      var tp2=Math.max(0,pu.p-0.10),tx=pu.a.x+(pu.b.x-pu.a.x)*tp2,ty=pu.a.y+(pu.b.y-pu.a.y)*tp2;
+      var q3=quiet(px,py);
+      cx.strokeStyle='rgba(34,211,238,'+(0.35*q3).toFixed(3)+')';cx.lineWidth=1.4;
+      cx.beginPath();cx.moveTo(tx,ty);cx.lineTo(px,py);cx.stroke();
+      cx.fillStyle='rgba(165,243,252,'+(0.75*q3).toFixed(3)+')';
+      cx.beginPath();cx.arc(px,py,2,0,Math.PI*2);cx.fill();
+    }
+    // Nodes: soft outer glow + bright core, gentle breathing
     for(i=0;i<N;i++){
       p=pts[i];
-      var tw=p.al*(0.70+0.30*Math.sin(p.tp));
-      cx.beginPath();
-      cx.arc(p.x,p.y,p.r,0,Math.PI*2);
-      cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+tw+')';
-      cx.fill();
+      var q2=quiet(p.x,p.y),tw=(0.45+0.20*Math.sin(p.tp))*p.z*q2;
+      var col=p.cy?'34,211,238':'167,139,250';
+      cx.fillStyle='rgba('+col+','+(tw*0.22).toFixed(3)+')';
+      cx.beginPath();cx.arc(p.x,p.y,p.r*3.2,0,Math.PI*2);cx.fill();
+      cx.fillStyle='rgba('+col+','+tw.toFixed(3)+')';
+      cx.beginPath();cx.arc(p.x,p.y,p.r,0,Math.PI*2);cx.fill();
     }
-    requestAnimationFrame(frame);
+    if(!REDUCED)requestAnimationFrame(frame);
   }
 
   window.addEventListener('resize',function(){
