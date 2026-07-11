@@ -2726,6 +2726,30 @@ body.modal-open { overflow:hidden !important; }
 #communityPanel input, #communityPanel textarea, #communityPanel select {
   background: rgba(6,9,22,.97) !important;
 }
+/* ── Personality dial sliders: the global modal-input rules above (opaque
+   background + 12px padding, !important) turn range inputs into padded text
+   boxes — thumb moves but no track/fill renders. These higher-specificity
+   rules restore a real slider; JS paints the progress fill inline. ── */
+input.saPersSlider, #modalWin input.saPersSlider, .sa-float-win input.saPersSlider{
+  -webkit-appearance:none !important; appearance:none !important;
+  height:6px !important; min-height:0 !important;
+  padding:0 !important; margin:8px 0 4px !important;
+  border:none !important; border-radius:999px !important;
+  background:rgba(42,58,106,.6) !important;  /* JS overrides with the fill gradient */
+  box-shadow:none !important; outline:none !important; cursor:pointer;
+}
+input.saPersSlider::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:17px; height:17px; border-radius:50%;
+  background:#e9d5ff; border:2px solid #7c3aed;
+  box-shadow:0 0 9px rgba(124,58,237,.65);
+  cursor:grab; margin-top:0;
+}
+input.saPersSlider::-moz-range-thumb{
+  width:15px; height:15px; border-radius:50%;
+  background:#e9d5ff; border:2px solid #7c3aed; cursor:grab;
+}
+input.saPersSlider::-moz-range-track{ height:6px; border-radius:999px; background:transparent; }
 /* Bigger form fields in modals on mobile */
 #modalWin input, #modalWin textarea, #modalWin select{
   font-size:16px !important; padding:12px 14px !important;
@@ -14480,11 +14504,17 @@ $("draftWithSelected").onclick = async () => {
         top.appendChild(l); top.appendChild(dv);
         const r=document.createElement("input");
         r.type="range"; r.min=0; r.max=100; r.value=50;
-        r.style.cssText="width:100%;accent-color:#7c3aed;cursor:pointer;display:block;";
+        r.className="saPersSlider";
+        r.style.cssText="width:100%;display:block;";
         function paint(){
           const v=+r.value;
           dv.textContent = v<20?descs[0] : v<40?descs[1] : v<=60?descs[2] : v<=80?descs[3] : descs[4];
           dv.style.color = (v>=40&&v<=60) ? "rgba(148,163,184,.8)" : "#67e8f9";
+          // Progress fill follows the thumb (inline !important beats the
+          // stylesheet reset that neutralizes the global modal-input styles)
+          r.style.setProperty("background",
+            "linear-gradient(90deg,#7c3aed 0%,#7c3aed "+v+"%,rgba(42,58,106,.6) "+v+"%,rgba(42,58,106,.6) 100%)",
+            "important");
         }
         r.addEventListener("input", paint); paint();
         r._paint=paint; persInputs[key]=r;
