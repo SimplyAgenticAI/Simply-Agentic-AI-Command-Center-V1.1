@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "6.6")
+APP_VERSION = os.getenv("APP_VERSION", "6.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23705,6 +23705,10 @@ def api_followup_stream():
     file_ids      = data.get("file_ids") or []
     lighting_mode = bool(data.get("lighting_mode"))
     from_suggestion = bool(data.get("from_suggestion"))
+    # Voice-originated message (whisper/hands-free): the reply will be spoken
+    # aloud, so it must be SHORT at the source — which also makes it FAST
+    # (short generation + the <220-char direct-TTS fast path, no rendition call).
+    voice_mode = bool(data.get("voice"))
 
     if not name or not msg:
         return jsonify({"ok": False, "error": "Missing name or message"}), 400
@@ -23810,6 +23814,17 @@ def api_followup_stream():
         _tools_on = SAAI_TOOLS_ENABLED
 
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s, tools_enabled=_tools_on)
+    if voice_mode:
+        sys_prompt += (
+            "\n\nVOICE CONVERSATION MODE (this message was SPOKEN and your reply will be "
+            "heard aloud):\n"
+            "- Reply in 1–3 short sentences — answer or opinion FIRST. No lists, no "
+            "markdown, no headings.\n"
+            "- Offer depth instead of dumping it ('want the full breakdown?').\n"
+            "- The transcript may contain small speech-recognition errors — infer the "
+            "operator's intent instead of taking odd words literally; never comment on "
+            "the errors.\n"
+        )
 
     # ── Image request: bypass LLM, kick off background image job ─────────────
     if _is_img_req_s:

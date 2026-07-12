@@ -12114,7 +12114,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const res=await fetch("/api/followup/stream",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({name:seat,message:msg,
+          body:JSON.stringify({name:seat,message:msg,voice:true,
             file_ids:(typeof dmFileIds!=="undefined"?dmFileIds:[]),
             lighting_mode:!!(typeof lightingModeOn!=="undefined"&&lightingModeOn)}),
           signal:ctrl.signal
@@ -12379,7 +12379,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       let micStream=null;
       try{
         if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
-          micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+          // Explicit processing constraints: echo cancellation kills TTS bleed,
+          // noise suppression + AGC give the recognizer a much cleaner signal —
+          // directly improves transcription accuracy.
+          micStream=await navigator.mediaDevices.getUserMedia({audio:{
+            echoCancellation:true, noiseSuppression:true, autoGainControl:true
+          }});
           _whisperStream=micStream;
         }
       }catch(e){
@@ -12433,9 +12438,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             return;
           }
         }
-        // ── Bleed tail: a final landing just after speech ended is usually the
-        // tail of the teammate's own audio — never the operator's message.
-        if(window._saTtsEndedAt && (Date.now()-window._saTtsEndedAt)<900 && newFinals && !interim){
+        // ── Bleed tail: a SHORT final landing right after speech ended is the
+        // tail of the teammate's own audio. Long finals are the operator jumping
+        // in — dropping those was swallowing the start of real replies.
+        if(window._saTtsEndedAt && (Date.now()-window._saTtsEndedAt)<500
+           && newFinals && !interim && newFinals.split(/\s+/).length<=3){
           return;
         }
 
@@ -12544,7 +12551,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(newFinals && !interim && !_hfHold){
           if(window._alwaysAutoSendTimer)clearTimeout(window._alwaysAutoSendTimer);
           const _words=_buf.split(/\s+/).filter(Boolean).length;
-          const _delay=Math.min(5000, Math.max(1800, 1300 + _words*110));
+          let _delay=Math.min(4600, Math.max(1500, 1150 + _words*100));
+          // Linguistic endpointing: a phrase ending on a connector/filler word
+          // means the operator is mid-thought — give them real thinking room
+          // instead of firing early. Complete-sounding phrases stay snappy.
+          if(/\b(and|but|or|so|because|with|for|to|of|the|a|an|if|then|also|plus|about|like|um|uh)$/i.test(_buf)){
+            _delay += 2400;
+          }
           _whisperShowCountdown(_delay);
           window._alwaysAutoSendTimer=setTimeout(async()=>{
             if(!alwaysOn)return;
