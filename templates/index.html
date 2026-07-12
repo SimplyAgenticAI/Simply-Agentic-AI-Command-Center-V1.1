@@ -12357,9 +12357,24 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       try{
         window._saMicHeld = !!hold;
         if(hold){
-          if(alwaysOn) _whisperSetStatus('Speaking — say "stop" to interrupt');
+          // HARD mute: physically stop the recognizer while the teammate talks.
+          // Echo cancellation does NOT cover WebAudio playback, so on speakers
+          // the mic hears the teammate at full strength — any transcript-level
+          // or energy-level filtering eventually leaks and loops their own
+          // words back as the operator's next message. Deaf mic cannot leak.
+          _buf="";alwaysFinalText="";alwaysInterimText="";
+          _whisperSetTranscript("","");
+          if(alwaysRec){ try{ alwaysRec.stop(); }catch(_){} }
+          if(alwaysOn) _whisperSetStatus("Speaking — tap here to interrupt");
         } else {
-          window._saTtsEndedAt = Date.now();   // bleed-tail guard reference
+          window._saTtsEndedAt = Date.now();
+          // Restart AFTER the room goes quiet (~400ms) so the recognizer never
+          // opens on the tail of the teammate's audio.
+          setTimeout(function(){
+            if(alwaysOn && !window._saMicHeld && alwaysRec){
+              try{ alwaysRec.start(); }catch(_){}
+            }
+          }, 400);
           if(alwaysOn) _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
         }
       }catch(_){}
@@ -12453,27 +12468,13 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         // command or a teammate name acts (everything else is discarded, which
         // is also the shield against the TTS audio transcribing itself).
         if(window._saMicHeld){
-          // A transcript during playback is only actionable if the mic ALSO
-          // heard confirmed human energy (echo-cancelled) in the last 1.2s.
-          // Without this, the teammate's OWN spoken words could stop playback
-          // or — worse — say another teammate's name and trigger a switch.
-          const _humanNow = (Date.now()-_hfHeldVoiceTs) < 1200;
-          if(!_humanNow) return;
-          const _bi=(newFinals+" "+interim).toLowerCase().replace(/[.,!?]+/g," ").replace(/\s+/g," ").trim();
-          if(/(^|\s)(stop|okay stop|ok stop|that's enough|thats enough|enough|be quiet|shut up|pause)$/.test(_bi)){
-            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
-            _buf="";alwaysFinalText="";alwaysInterimText="";
-            _whisperSetTranscript("","");
-            _whisperSetStatus("Stopped — go ahead");
-            return;
-          }
-          const _biHit=findFirstNameMention(newFinals)||findFirstNameMention(interim);
-          if(_biHit){
-            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
-            // fall through: the normal name-switch flow below handles the rest
-          } else {
-            return;
-          }
+          // Teammate is talking: the recognizer is hard-stopped, so anything
+          // arriving here is a late in-flight result that may contain the
+          // teammate's own audio — discard ALL of it, no exceptions. (Voice
+          // barge-in was removed: WebAudio playback bypasses echo cancellation,
+          // so on speakers the teammate's own words could pass any filter and
+          // loop back as operator input. Interrupt = tap the status line/pill.)
+          return;
         }
         // ── Post-playback gate: a final is only the OPERATOR'S if real human
         // voice was detected AFTER the teammate finished talking. The tail of
@@ -12656,8 +12657,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       rec.onend=()=>{
         if(!alwaysOn)return;
+        if(window._saMicHeld)return;   // teammate talking — stay deaf; saMicHold restarts us
         // Don't snapshot from textarea (we never wrote there) — buf is the truth
-        if(!window._saMicHeld)_whisperSetStatus("Listening...");
+        _whisperSetStatus("Listening...");
         try{rec.start();}catch(e){
           // Back-off retry on repeated failures
           setTimeout(()=>{ if(alwaysOn)try{rec.start();}catch(_){stopAlwaysListening();} },400);
