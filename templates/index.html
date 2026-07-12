@@ -7847,7 +7847,8 @@ if (typeof window.showToast !== "function") {
     // (say "Alex" to engage). false = classic hot Whisper behavior.
     let _hfStandby = false;
     let _hfDecayTimer = null;
-    let _hfLastVoiceTs = 0;   // last moment REAL voice energy was on the mic (VAD)
+    let _hfLastVoiceTs = 0;   // last REAL operator voice energy (teammate NOT talking)
+    let _hfHeldVoiceTs = 0;   // voice energy WHILE teammate talks (barge-in confirmation)
     const _HF_DECAY_MS = 90000;   // engaged but silent this long → back to standby
     const _HF_STANDBY_RE = /\b(stand\s?by|stand\s?down|stop listening)\b/i;
     let alwaysBaseText = "";
@@ -11988,7 +11989,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           // send can never fire while the operator is AUDIBLY talking — the
           // recognizer's dead gaps (no interims) used to allow mid-sentence fires.
           let _vsum=0; for(let _vk=0;_vk<dataArr.length;_vk++)_vsum+=dataArr[_vk];
-          if((_vsum/dataArr.length)>26 && !window._saMicHeld) _hfLastVoiceTs=Date.now();
+          const _vavg=_vsum/dataArr.length;
+          if(window._saMicHeld){
+            // Teammate is talking: with echo cancellation active, energy here is
+            // mostly the OPERATOR barging in — higher bar to confirm it's human.
+            if(_vavg>32) _hfHeldVoiceTs=Date.now();
+          } else if(_vavg>26 && (!window._saTtsEndedAt || Date.now()-window._saTtsEndedAt>350)){
+            // 350ms grace after playback so residual speaker audio can't stamp
+            _hfLastVoiceTs=Date.now();
+          }
           bars.forEach((b,i)=>{
             const idx=Math.floor((i/_bars_count)*dataArr.length*(2/3));
             const val=(dataArr[idx]||0)/255;
@@ -12444,6 +12453,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         // command or a teammate name acts (everything else is discarded, which
         // is also the shield against the TTS audio transcribing itself).
         if(window._saMicHeld){
+          // A transcript during playback is only actionable if the mic ALSO
+          // heard confirmed human energy (echo-cancelled) in the last 1.2s.
+          // Without this, the teammate's OWN spoken words could stop playback
+          // or — worse — say another teammate's name and trigger a switch.
+          const _humanNow = (Date.now()-_hfHeldVoiceTs) < 1200;
+          if(!_humanNow) return;
           const _bi=(newFinals+" "+interim).toLowerCase().replace(/[.,!?]+/g," ").replace(/\s+/g," ").trim();
           if(/(^|\s)(stop|okay stop|ok stop|that's enough|thats enough|enough|be quiet|shut up|pause)$/.test(_bi)){
             try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
@@ -12460,11 +12475,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             return;
           }
         }
-        // ── Bleed tail: a SHORT final landing right after speech ended is the
-        // tail of the teammate's own audio. Long finals are the operator jumping
-        // in — dropping those was swallowing the start of real replies.
-        if(window._saTtsEndedAt && (Date.now()-window._saTtsEndedAt)<500
-           && newFinals && !interim && newFinals.split(/\s+/).length<=3){
+        // ── Post-playback gate: a final is only the OPERATOR'S if real human
+        // voice was detected AFTER the teammate finished talking. The tail of
+        // the teammate's own reply audio has no post-playback voice energy —
+        // this is what broke the added-lead-to-CRM feedback loop, where the
+        // teammate's spoken reply became the next user message and re-ran the
+        // CRM tool over and over.
+        if(window._saTtsEndedAt && newFinals
+           && (Date.now()-window._saTtsEndedAt) < 4000
+           && _hfLastVoiceTs <= window._saTtsEndedAt){
           return;
         }
 
@@ -12599,6 +12618,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             }
             const msg=_buf.trim();
             if(!msg)return;
+            // Last-line defense: never send the IDENTICAL message twice in a
+            // row within 15s — even an unforeseen echo path can't loop a CRM
+            // action ("added lead... added lead...") through this.
+            if(msg===window._saLastVoiceMsg && (Date.now()-(window._saLastVoiceMsgTs||0))<15000){
+              _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+              _whisperHideCountdown();
+              return;
+            }
+            window._saLastVoiceMsg=msg; window._saLastVoiceMsgTs=Date.now();
             _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
             _whisperHideCountdown();
             if(alwaysMode==="dm"){
