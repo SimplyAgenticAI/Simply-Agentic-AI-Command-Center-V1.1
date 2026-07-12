@@ -7847,6 +7847,7 @@ if (typeof window.showToast !== "function") {
     // (say "Alex" to engage). false = classic hot Whisper behavior.
     let _hfStandby = false;
     let _hfDecayTimer = null;
+    let _hfLastVoiceTs = 0;   // last moment REAL voice energy was on the mic (VAD)
     const _HF_DECAY_MS = 90000;   // engaged but silent this long → back to standby
     const _HF_STANDBY_RE = /\b(stand\s?by|stand\s?down|stop listening)\b/i;
     let alwaysBaseText = "";
@@ -9765,6 +9766,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
 
     async function selectSeat(name){
+      // Switching to a DIFFERENT teammate ends the previous audible turn: stop
+      // any speech and abort an in-flight voice reply so the old teammate can
+      // never keep talking over the new one. Guarded on actual change so
+      // background re-renders (resize refit etc.) never cut speech off.
+      if(selectedSeat && name !== selectedSeat){
+        try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+        try{ if(window._saVoiceCtrl) window._saVoiceCtrl.abort(); }catch(_){}
+        window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
+      }
       selectedSeat = name;
       window.selectedSeat = name;  // keep window in sync
       markActiveSeat();
@@ -11974,6 +11984,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         function draw(){
           if(!_whisperAnalyser){return;}
           _whisperAnalyser.getByteFrequencyData(dataArr);
+          // VAD: stamp real voice energy. The auto-send gate checks this, so a
+          // send can never fire while the operator is AUDIBLY talking — the
+          // recognizer's dead gaps (no interims) used to allow mid-sentence fires.
+          let _vsum=0; for(let _vk=0;_vk<dataArr.length;_vk++)_vsum+=dataArr[_vk];
+          if((_vsum/dataArr.length)>26 && !window._saMicHeld) _hfLastVoiceTs=Date.now();
           bars.forEach((b,i)=>{
             const idx=Math.floor((i/_bars_count)*dataArr.length*(2/3));
             const val=(dataArr[idx]||0)/255;
@@ -12111,6 +12126,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       try{
         const ctrl=new AbortController();
         const to=setTimeout(()=>ctrl.abort(),120000);
+        // Registered globally so a teammate switch can abort this reply;
+        // the epoch stamp lets late events know they're from a dead turn.
+        window._saVoiceCtrl=ctrl;
+        window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
+        const _myEpoch=window._saVoiceEpoch;
         const res=await fetch("/api/followup/stream",{
           method:"POST",
           headers:{"Content-Type":"application/json"},
@@ -12214,7 +12234,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 // audio plays (saMicHold), then listening resumes automatically.
                 try{
                   var _vvText = ev.response || fullText || "";
-                  if(_vvText.trim() && !ev.job_id && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
+                  if(_vvText.trim() && !ev.job_id && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying
+                     && _myEpoch === window._saVoiceEpoch
+                     && seat === (window.selectedSeat || selectedSeat)){
                     var _vvTm = {};
                     try{ _vvTm = ((state&&state.installed)||{})[seat] || {}; }catch(_){}
                     window.saSpeakAlive(_vvText, seat, _vvTm.tts_voice || "alloy", null, "conversation");
@@ -12463,6 +12485,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             _buf="";
             alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
             if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+            // Switching teammates ENDS the previous conversation turn: silence
+            // any speech, abort the in-flight reply, and invalidate its epoch so
+            // a late-arriving reply can never speak over the new teammate.
+            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+            try{ if(window._saVoiceCtrl) window._saVoiceCtrl.abort(); }catch(_){}
+            window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
             _whisperHideCountdown();
             try{await selectSeat(hit.name);}catch(_){}
             try{forceSeatSelectUI(hit.name);}catch(_){}
@@ -12559,8 +12587,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             _delay += 2400;
           }
           _whisperShowCountdown(_delay);
-          window._alwaysAutoSendTimer=setTimeout(async()=>{
+          const _fireSend=async()=>{
             if(!alwaysOn)return;
+            // VAD gate: if the operator's voice was audible in the last 800ms
+            // they are STILL TALKING — defer and re-check. This is what makes
+            // mid-sentence half-sends physically impossible, even when the
+            // recognizer is in a dead gap and produces no interim events.
+            if(Date.now()-_hfLastVoiceTs<800){
+              window._alwaysAutoSendTimer=setTimeout(_fireSend,450);
+              return;
+            }
             const msg=_buf.trim();
             if(!msg)return;
             _buf="";alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
@@ -12572,7 +12608,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             }else{
               await _voiceSendGroup(msg);
             }
-          },_delay);
+          };
+          window._alwaysAutoSendTimer=setTimeout(_fireSend,_delay);
         }
       };
 
@@ -27571,7 +27608,8 @@ document.addEventListener("click", function(e) {
             // ALIVE voice replies: with the 🗣 toggle on, the teammate SPEAKS
             // this reply automatically — persona rendition, not a verbatim read.
             if(window._aliveVoice && _visIdx === -1 && (_epText||"").trim()
-               && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
+               && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying
+               && (!window.selectedSeat || window.selectedSeat === seat)){
               try{ window.saSpeakAlive(_epText, seat, tm.tts_voice||"alloy", null, "conversation"); }catch(_){}
             }
             if(typeof saWireThreadClicks==="function") setTimeout(saWireThreadClicks,50);
