@@ -11994,7 +11994,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             // Teammate is talking: with echo cancellation active, energy here is
             // mostly the OPERATOR barging in — higher bar to confirm it's human.
             if(_vavg>32) _hfHeldVoiceTs=Date.now();
-          } else if(_vavg>26 && (!window._saTtsEndedAt || Date.now()-window._saTtsEndedAt>350)){
+          } else if(_vavg>20 && (!window._saTtsEndedAt || Date.now()-window._saTtsEndedAt>350)){
             // 350ms grace after playback so residual speaker audio can't stamp
             _hfLastVoiceTs=Date.now();
           }
@@ -12588,6 +12588,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         // (The Web Speech API finalizes phrase-by-phrase at tiny pauses, which
         // is why arming purely on "final" sent in little bursts.)
         if(interim){
+          // An interim IS voice activity — the recognizer literally hears
+          // speech. Stamping here makes the VAD gate work even on quiet mics
+          // where raw energy never crosses the threshold.
+          _hfLastVoiceTs=Date.now();
           if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
           _whisperHideCountdown();
         }
@@ -12613,7 +12617,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             // they are STILL TALKING — defer and re-check. This is what makes
             // mid-sentence half-sends physically impossible, even when the
             // recognizer is in a dead gap and produces no interim events.
-            if(Date.now()-_hfLastVoiceTs<800){
+            if(alwaysInterimText || Date.now()-_hfLastVoiceTs<800){
               window._alwaysAutoSendTimer=setTimeout(_fireSend,450);
               return;
             }
@@ -12658,7 +12662,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       rec.onend=()=>{
         if(!alwaysOn)return;
         if(window._saMicHeld)return;   // teammate talking — stay deaf; saMicHold restarts us
-        // Don't snapshot from textarea (we never wrote there) — buf is the truth
+        // Chrome routinely ends the session MID-UTTERANCE. Whatever interim
+        // text was in flight would be silently discarded — that's the words
+        // going missing and the transcript "restarting". Promote it to the
+        // buffer: it's the best transcription that audio will ever get.
+        if(alwaysInterimText && alwaysInterimText.trim() && !_hfStandby){
+          _buf=(_buf+" "+alwaysInterimText.trim()).trim();
+          alwaysFinalText=_buf;
+          alwaysInterimText="";
+          _whisperSetTranscript(_buf,"");
+        }
         _whisperSetStatus("Listening...");
         try{rec.start();}catch(e){
           // Back-off retry on repeated failures
