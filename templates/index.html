@@ -19052,7 +19052,7 @@ async function wcalFetchRange(start, end){
       const evId = ev.id||ev.summary||'';
       const metaEntry = (cal.gcalMeta||{})[evId]||{};
       const metaType = metaEntry.gcal_item_type||'';
-      ev._gcalType = metaType || (ev.is_motion_task ? 'task' : 'task');
+      ev._gcalType = metaType || ((ev.is_motion_task || ev.is_google_task) ? 'task' : 'event');
       if(metaEntry.priority) _evPriority[evId] = metaEntry.priority;
       const s=(ev.start||'').slice(0,10); if(!s) return;
       map[s]=map[s]||[]; map[s].push(ev);

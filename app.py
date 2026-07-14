@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.3")
+APP_VERSION = os.getenv("APP_VERSION", "7.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -5543,6 +5543,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
                 "location":         it.get("location", ""),
                 "attendees":        attendee_emails,
                 "is_motion_task":   is_motion_task,
+                "is_google_task":   False,  # overridden True for items from the Tasks calendar
             })
         return out
 
@@ -5553,6 +5554,7 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     # ── 2. Google Tasks calendar ─────────────────────────────────────────────
     #    Tasks created in Google Tasks / the Calendar task sidebar live here.
     for ev in _parse_items(_fetch_cal("tasks@group.v.calendar.google.com")):
+        ev["is_google_task"] = True  # genuine Google Tasks — render as tasks, not events
         if ev["id"] not in seen:
             seen.add(ev["id"])
             out.append(ev)
