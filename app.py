@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.2")
+APP_VERSION = os.getenv("APP_VERSION", "7.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -6210,7 +6210,18 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "- research — search the operator's own indexed documents / knowledge base.\n"
             "- read_url — fetch and read a web page or link the operator shares.\n"
             "- set_session_objective — change the team-wide session objective/goal shown at the top of the dashboard. When the operator says to change the objective, CALL this — don't just acknowledge.\n"
-            "- create_calendar_task — put a task on the operator's calendar. When they say schedule/book/plan something for a day or time, CALL this with the concrete YYYY-MM-DD date and HH:MM start.\n"
+            "- create_calendar_task — put a simple to-do/reminder on the operator's calendar for a day/time.\n"
+            "- book_meeting — book a REAL Google Calendar event with a Google Meet link (and optional attendee "
+            "invites). When they say book/set up/schedule a meeting, call, or Google Meet, CALL this with the "
+            "concrete YYYY-MM-DD date and HH:MM start. A Confirm card is shown before anything is booked, so it's safe.\n"
+            "- research_prospect — deep-research a specific company/lead (name or URL): pain points + outreach angle.\n"
+            "- scan_market — scan a whole niche/market: top players, pricing, gaps, best channels.\n"
+            "- find_intent_signals — find where warm buyers for an offer are gathering and the language they use.\n"
+            "- build_offer — write a complete ready-to-use offer package (statement, promise, bullets, CTA, DM, post).\n"
+            "- build_growth_playbook — generate and save a step-by-step growth playbook for a goal + timeline.\n"
+            "- create_social_content — write ready-to-post content (content pack, week plan, DM pack, comments, launch).\n"
+            "- draft_social_post — save a specific post as a DRAFT in the Content Planner (never publishes; the operator publishes).\n"
+            "- save_to_vault — save a great reply/template/draft to the Response Vault for reuse.\n"
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
             "request and compose the full email yourself. The system shows the operator a Confirm card before "
             "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
@@ -23189,12 +23200,335 @@ def _tool_create_calendar_task(uname: str, teammate: str, args: Dict[str, Any]) 
         return {"ok": False, "summary": f"Could not schedule the task: {e}"}
 
 
+# ── Deep-research tools (auto-risk; real web search + LLM synthesis, read-only) ──
+def _tool_research_prospect(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a prospect intelligence brief for a company name or URL (Prospect Dossier)."""
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "summary": "Need a company name or URL to research."}
+    try:
+        op = _load_operator_profile(uname) or {}
+        op_context = (f"\nOperator business: {op.get('business','')} | Offer: {op.get('offers','')} "
+                      f"| Audience: {op.get('audience','')}") if op else ""
+        snippets: List[str] = []
+        try:
+            rows = _crm_ddg_search(f"{query} company overview", max_results=6)
+            snippets = [f"{r.get('title','')}: {r.get('snippet','')}" for r in rows if r.get("snippet")]
+        except Exception:
+            pass
+        web = "\n".join(snippets[:5]) if snippets else "No web results found."
+        site = ""
+        if query.startswith("http"):
+            try:
+                content, _ = _fetch_url_content(query, max_chars=4000)
+                if content:
+                    site = f"\nWebsite content:\n{content[:3000]}"
+            except Exception:
+                pass
+        system = ("You are an expert B2B sales researcher. Build a concise, specific prospect brief "
+                  "from the information provided. Respond ONLY with valid JSON, no markdown fences.")
+        prompt = (f"Prospect: {query}{op_context}\n\nWeb research:\n{web}{site}\n\n"
+                  'Return JSON: {"company_name":"","description":"","industry":"","estimated_size":"",'
+                  '"pain_points":[],"outreach_angle":"","talking_points":[]}')
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.3)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        brief = json.loads(raw)
+        name = brief.get("company_name") or query
+        return {"ok": True, "brief": brief,
+                "summary": f"Researched {name}: {(brief.get('description') or '')[:100]}"}
+    except json.JSONDecodeError:
+        return {"ok": False, "summary": "Couldn't parse the research result — try again."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Prospect research failed: {e}"}
+
+
+def _tool_scan_market(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Scan a niche/market for competitive intelligence (Market Scanner)."""
+    niche = (args.get("niche") or "").strip()
+    if not niche:
+        return {"ok": False, "summary": "Need a niche or market to scan."}
+    try:
+        snippets: List[str] = []
+        for q in (f"top {niche} companies", f"{niche} pricing cost",
+                  f"{niche} reviews complaints", f"{niche} trends", f"best {niche} tools"):
+            try:
+                rows = _crm_ddg_search(q, max_results=4)
+                for r in rows:
+                    if r.get("snippet"):
+                        snippets.append(f"{r.get('title','')}: {r.get('snippet','')}")
+            except Exception:
+                pass
+        web = "\n".join(snippets[:20])
+        system = ("You are a world-class market intelligence analyst. Be SPECIFIC — name real companies, "
+                  "real price ranges, real platforms. Respond ONLY with valid JSON, no markdown fences.")
+        prompt = (f"Market intelligence scan for: {niche}\n\nWeb research (use this plus your expert "
+                  f"knowledge):\n{web or '(use your expert knowledge)'}\n\n"
+                  'Return JSON: {"summary":"","top_players":[],"pricing_landscape":"","customer_loves":[],'
+                  '"customer_hates":[],"market_gaps":[],"best_channels":[],"positioning_advice":""}')
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        market = json.loads(raw)
+        return {"ok": True, "market": market,
+                "summary": f"Scanned the {niche} market: {(market.get('summary') or '')[:100]}"}
+    except json.JSONDecodeError:
+        return {"ok": False, "summary": "Couldn't parse the market scan — try again."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Market scan failed: {e}"}
+
+
+def _tool_find_intent_signals(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Find active buyer-intent signals for an offer (Intent Signals)."""
+    offer = (args.get("offer") or "").strip()
+    if not offer:
+        return {"ok": False, "summary": "Need an offer or niche to find intent signals for."}
+    try:
+        snippets: List[str] = []
+        for q in (f"{offer} help", f"{offer} recommendations", f"best {offer}",
+                  f"{offer} frustration problem", f"{offer} alternatives", f"looking to hire {offer}"):
+            try:
+                rows = _crm_ddg_search(q, max_results=4)
+                for r in rows:
+                    if r.get("snippet"):
+                        snippets.append(f"[{r.get('title','')}] {r.get('snippet','')}")
+            except Exception:
+                pass
+        web = "\n".join(snippets[:20])
+        system = ("You are an elite demand-generation strategist who finds high-intent buyer signals. "
+                  "Deliver 5 specific, actionable signals naming real platforms/communities. "
+                  "Respond ONLY with valid JSON, no markdown fences.")
+        prompt = (f"Find active buyer-intent signals for: {offer}\n\nWeb research:\n{web or '(use your knowledge)'}\n\n"
+                  'Return JSON: {"summary":"","signals":[{"signal":"","source":"","why":""}],'
+                  '"trigger_keywords":[],"where_to_look":[],"outreach_hook":""}')
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.4)
+        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+        signals = json.loads(raw)
+        n = len(signals.get("signals") or [])
+        return {"ok": True, "signals": signals,
+                "summary": f"Found {n} buyer-intent signal(s) for '{offer[:50]}'."}
+    except json.JSONDecodeError:
+        return {"ok": False, "summary": "Couldn't parse the intent signals — try again."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Intent-signal search failed: {e}"}
+
+
+# ── Content-generation tools (auto-risk; LLM copy, saved where the UI expects it) ──
+def _tool_build_offer(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Write a complete, ready-to-use offer package (Offer Builder)."""
+    audience = (args.get("audience") or "").strip()
+    result = (args.get("result") or "").strip()
+    method = (args.get("method") or "").strip()
+    if not (audience and result and method):
+        return {"ok": False, "summary": "Need audience, desired result, and method to build an offer."}
+    try:
+        system = ("You are an expert copywriter and offer strategist. Write REAL, ready-to-use copy — "
+                  "no [placeholder] text. Use clear named sections; write every word.")
+        prompt = (f"Audience: {audience}\nResult they want: {result}\nMethod/approach: {method}\n\n"
+                  "Write a complete offer package: 1. Offer Statement 2. Promise 3. Benefit Bullets "
+                  "4. Call to Action 5. DM Pitch 6. Facebook Post. Fully written, no placeholders.")
+        fallback = (f"We help {audience} {result} using a simple, guided system built around {method}.")
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        return {"ok": True, "offer": output, "summary": f"Built an offer for {audience}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Offer builder failed: {e}"}
+
+
+def _tool_build_growth_playbook(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate a step-by-step growth playbook and save it to the operator's library."""
+    goal = (args.get("goal") or "get_clients").strip()
+    timeline = (args.get("timeline") or "30 days").strip()
+    context = (args.get("context") or "").strip()
+    try:
+        system = ("You are an expert business growth strategist. Generate a clear, structured growth "
+                  "playbook. Use numbered steps as headings ('1. **Step Title**') with '**Why this "
+                  "matters:**', '**Action:**', '**Success signal:**' sub-sections. No fluff, no placeholders.")
+        prompt = (f"Goal: {goal.replace('_',' ')}\nTimeline: {timeline}\n"
+                  f"Context: {context or 'Small business operator looking to grow.'}\n\n"
+                  "Generate a complete step-by-step growth playbook.")
+        fallback = (f"Playbook for {goal.replace('_',' ')}: clarify your offer and audience, publish "
+                    f"authority posts on the core problem, start daily conversations, capture leads into "
+                    f"your pipeline, follow up with value + a clear CTA, then review and repeat for {timeline}.")
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        # Persist so it shows up in the operator's Growth Playbooks list (mirrors api_playbooks_save).
+        try:
+            p = DATA / f"saved_playbooks_{uname}.json"
+            existing = load_json(p, []) or []
+            if not isinstance(existing, list):
+                existing = []
+            title = f"{goal.replace('_',' ').title()} — {timeline}"[:200]
+            existing.insert(0, {"id": str(uuid.uuid4()), "title": title,
+                                "content": output, "created_at": now_iso()})
+            save_json(p, existing[:100])
+        except Exception:
+            pass
+        return {"ok": True, "playbook": output,
+                "summary": f"Built + saved a growth playbook: {goal.replace('_',' ')} over {timeline}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Playbook generation failed: {e}"}
+
+
+def _tool_create_social_content(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Write ready-to-post social content (Social Studio)."""
+    platform = (args.get("platform") or "Facebook").strip()
+    asset_type = (args.get("asset_type") or "content_pack").strip()
+    audience = (args.get("audience") or "entrepreneurs").strip()
+    offer = (args.get("offer") or "").strip()
+    if not offer:
+        return {"ok": False, "summary": "Need the offer or angle to write social content."}
+    try:
+        labels = {"content_pack": "a 6-post content pack", "full_week_plan": "a 7-day content plan",
+                  "dm_pack": "6 ready-to-send DMs", "comment_pack": "8 ready-to-post comments",
+                  "launch_pack": "a 7-piece launch sequence"}
+        want = labels.get(asset_type, "a 6-post content pack")
+        system = ("You are an expert social media copywriter. Write REAL, ready-to-post content — no "
+                  "placeholders, no visual directions. Numbered sections. Write the actual words.")
+        prompt = (f"Platform: {platform}\nAudience: {audience}\nOffer/angle: {offer}\n\n"
+                  f"Write {want} for {platform}. Every piece fully written and ready to copy-paste.")
+        fallback = (f"Content ideas for {platform} about {offer}: a scroll-stopping hook post, a value/"
+                    f"teaching post, a story post, an engagement question, a social-proof post, and a clear CTA.")
+        output = _crm_llm_or_fallback(system, prompt, fallback)
+        return {"ok": True, "content": output, "summary": f"Wrote {want} for {platform}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Social content generation failed: {e}"}
+
+
+def _tool_draft_social_post(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Save a social post as a DRAFT in the Content Planner (never publishes)."""
+    caption = (args.get("caption") or "").strip()
+    if not caption:
+        return {"ok": False, "summary": "Need caption text to draft a social post."}
+    platforms = args.get("platforms") or []
+    if isinstance(platforms, str):
+        platforms = [p.strip() for p in platforms.split(",") if p.strip()]
+    try:
+        posts = _load_sp_posts(uname)
+        post = {
+            "id": str(_uuid_mod.uuid4())[:8],
+            "caption": caption,
+            "platforms": platforms,
+            "media_url": (args.get("media_url") or "").strip(),
+            "scheduled_at": (args.get("scheduled_at") or "").strip(),
+            "status": "draft",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+            "published_ids": {},
+            "error": "",
+        }
+        posts.append(post)
+        _save_sp_posts(uname, posts)
+        where = ", ".join(platforms) if platforms else "your planner"
+        return {"ok": True, "post_id": post["id"],
+                "summary": f"Drafted a social post for {where} (saved as draft — not published)."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not draft the post: {e}"}
+
+
+def _tool_save_to_vault(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Save a piece of text to the operator's Response Vault for reuse."""
+    text = (args.get("text") or "").strip()
+    if not text:
+        return {"ok": False, "summary": "Need text to save to the vault."}
+    label = (args.get("label") or "").strip()[:120]
+    try:
+        if len(text) > 100_000:
+            text = text[:100_000]
+        entry = {
+            "id": "vault_" + secrets.token_hex(8),
+            "label": label or ((teammate + " — " if teammate else "") + datetime.utcnow().strftime("%Y-%m-%d")),
+            "text": text,
+            "teammate": teammate or "",
+            "saved_at": now_iso(),
+        }
+        entries = _vault_load(uname)
+        entries.insert(0, entry)
+        _vault_save(uname, entries)
+        return {"ok": True, "id": entry["id"],
+                "summary": f"Saved to your Response Vault{(' as “' + label + '”') if label else ''}."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Could not save to vault: {e}"}
+
+
+def _tool_book_meeting(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Book a real Google Calendar event (with a Meet link by default). CONFIRM-risk —
+    only runs after the operator clicks Confirm on the action card."""
+    title = (args.get("title") or "Meeting").strip()
+    date_s = str(args.get("date") or "").strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}", date_s):
+        date_s = date_s[:10]
+    else:
+        parsed = ""
+        for fmt in ("%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%d %b %Y"):
+            try:
+                parsed = datetime.strptime(date_s, fmt).strftime("%Y-%m-%d")
+                break
+            except Exception:
+                continue
+        date_s = parsed
+    if not date_s:
+        return {"ok": False, "summary": "Need a valid date (YYYY-MM-DD) for the meeting."}
+    start = str(args.get("start") or "09:00").strip()
+    if not re.match(r"^\d{1,2}:\d{2}$", start):
+        start = "09:00"
+    try:
+        duration = max(5, min(600, int(args.get("duration") or 30)))
+    except Exception:
+        duration = 30
+    attendees = args.get("attendees") or []
+    if isinstance(attendees, str):
+        attendees = [a.strip() for a in attendees.split(",") if a.strip()]
+    description = (args.get("description") or "").strip()
+    location = (args.get("location") or "").strip()
+    _um = args.get("use_meet")
+    use_meet = True if _um is None else bool(_um)  # default: attach a Google Meet link
+    timezone = (args.get("timezone") or "America/New_York").strip()
+    try:
+        u = (load_users().get("users") or {}).get(uname) or {}
+        access_token, reason = _calendar_creds_for_user(u)
+        if not access_token:
+            return {"ok": False, "summary": reason or "Google Calendar isn't connected. Connect it in Settings first."}
+        try:
+            start_dt = datetime.strptime(f"{date_s} {start}", "%Y-%m-%d %H:%M")
+        except Exception:
+            return {"ok": False, "summary": "Couldn't read the meeting time."}
+        end_dt = start_dt + timedelta(minutes=duration)
+        start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        created = _calendar_create_event(
+            access_token, title=title, start_iso=start_iso, end_iso=end_iso, timezone=timezone,
+            attendees=attendees, description=description, location=location, use_meet=use_meet)
+        meet = created.get("hangoutLink") or ""
+        try:
+            append_log("calendar_event_created", {"user": uname, "title": title, "start": start_iso, "at": now_iso()})
+            _award_points(uname, "Booked a calendar event", 15)
+        except Exception:
+            pass
+        who = (" with " + ", ".join(attendees)) if attendees else ""
+        meetnote = f" Meet link: {meet}" if meet else ""
+        return {"ok": True, "event_id": created.get("id", ""), "meet_link": meet,
+                "summary": f"Booked “{title}”{who} on {date_s} at {start}.{meetnote}"}
+    except Exception as e:
+        msg = str(e)
+        if "invalid_grant" in msg.lower():
+            return {"ok": False, "summary": "Your Google Calendar connection expired — reconnect it in Settings."}
+        return {"ok": False, "summary": f"Couldn't book the meeting: {msg[:200]}"}
+
+
 def _confirm_summary(name: str, args: Dict[str, Any]) -> str:
     """Human-readable one-liner describing a confirm-risk action for the card."""
     if name == "send_email":
         to = (args.get("to") or "the recipient")
         subj = (args.get("subject") or "").strip()
         return f"Send this email to {to}" + (f" — “{subj}”" if subj else "") + "?"
+    if name == "book_meeting":
+        title = (args.get("title") or "the meeting")
+        date_s = (args.get("date") or "").strip()
+        start = (args.get("start") or "").strip()
+        when = (f" on {date_s}" + (f" at {start}" if start else "")) if date_s else ""
+        att = args.get("attendees") or []
+        if isinstance(att, str):
+            att = [a for a in att.split(",") if a.strip()]
+        who = (" with " + ", ".join(a.strip() for a in att)) if att else ""
+        with_meet = " (with a Google Meet link)" if (args.get("use_meet") in (None, True, "true", 1)) else ""
+        return f"Book “{title}”{who}{when} on your Google Calendar{with_meet}?"
     return f"Run {name}?"
 
 
@@ -23251,12 +23585,75 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "priority": {"type": "string", "enum": ["high", "medium", "low"]},
          "description": {"type": "string"}},
          "required": ["title", "date"]}},
+    {"name": "research_prospect", "risk": "auto", "executor": _tool_research_prospect,
+     "description": "Deep-research a specific company or prospect (by name or URL): what they do, likely pain points, and the best outreach angle. Real web search + synthesis. Use when the operator asks you to research/look into/dig up a company or lead.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Company name or a URL to research."}},
+         "required": ["query"]}},
+    {"name": "scan_market", "risk": "auto", "executor": _tool_scan_market,
+     "description": "Scan a whole niche/market: top players, pricing, what customers love/hate, gaps, and best channels. Real web search + synthesis. Use when the operator asks about a market, industry, or competitive landscape.",
+     "parameters": {"type": "object", "properties": {
+         "niche": {"type": "string", "description": "The niche or market to scan, e.g. 'NJ real estate agents' or 'meal-prep delivery'."}},
+         "required": ["niche"]}},
+    {"name": "find_intent_signals", "risk": "auto", "executor": _tool_find_intent_signals,
+     "description": "Find active buyer-intent signals for an offer: where warm buyers gather, the phrases they use, and a hook. Real web search + synthesis. Use when the operator wants to know where/how to find ready-to-buy prospects.",
+     "parameters": {"type": "object", "properties": {
+         "offer": {"type": "string", "description": "The offer or service to find buyers for."}},
+         "required": ["offer"]}},
+    {"name": "build_offer", "risk": "auto", "executor": _tool_build_offer,
+     "description": "Write a complete, ready-to-use offer package (offer statement, promise, bullets, CTA, DM pitch, FB post). Use when the operator asks you to build/craft/write an offer.",
+     "parameters": {"type": "object", "properties": {
+         "audience": {"type": "string", "description": "Who the offer is for."},
+         "result": {"type": "string", "description": "The result/outcome they want."},
+         "method": {"type": "string", "description": "How you deliver it / your approach."}},
+         "required": ["audience", "result", "method"]}},
+    {"name": "build_growth_playbook", "risk": "auto", "executor": _tool_build_growth_playbook,
+     "description": "Generate a step-by-step growth playbook and save it to the operator's library. Use when the operator asks for a plan, playbook, or roadmap to hit a growth goal.",
+     "parameters": {"type": "object", "properties": {
+         "goal": {"type": "string", "description": "The growth goal, e.g. 'get_clients', 'grow_audience', 'launch_offer'."},
+         "timeline": {"type": "string", "description": "Timeframe, e.g. '30 days'. Default 30 days."},
+         "context": {"type": "string", "description": "Optional business context to tailor the plan."}},
+         "required": ["goal"]}},
+    {"name": "create_social_content", "risk": "auto", "executor": _tool_create_social_content,
+     "description": "Write ready-to-post social content (content pack, week plan, DM pack, comment pack, or launch pack). Use when the operator asks for posts/captions/DMs/content for a platform.",
+     "parameters": {"type": "object", "properties": {
+         "platform": {"type": "string", "description": "e.g. Facebook, Instagram, LinkedIn, X."},
+         "asset_type": {"type": "string", "enum": ["content_pack", "full_week_plan", "dm_pack", "comment_pack", "launch_pack"], "description": "What to produce. Default content_pack."},
+         "audience": {"type": "string", "description": "Target audience."},
+         "offer": {"type": "string", "description": "The offer or angle the content is about."}},
+         "required": ["offer"]}},
+    {"name": "draft_social_post", "risk": "auto", "executor": _tool_draft_social_post,
+     "description": "Save a social post as a DRAFT in the operator's Content Planner (this never publishes — the operator publishes themselves). Use when the operator asks you to draft/schedule/queue a specific post.",
+     "parameters": {"type": "object", "properties": {
+         "caption": {"type": "string", "description": "Full post caption text."},
+         "platforms": {"type": "array", "items": {"type": "string"}, "description": "Platforms, e.g. ['facebook','instagram']."},
+         "media_url": {"type": "string", "description": "Optional image/video URL."},
+         "scheduled_at": {"type": "string", "description": "Optional ISO datetime to schedule for."}},
+         "required": ["caption"]}},
+    {"name": "save_to_vault", "risk": "auto", "executor": _tool_save_to_vault,
+     "description": "Save a useful piece of text (a great reply, template, or draft) to the operator's Response Vault for reuse. Use when the operator says to save/keep/store something.",
+     "parameters": {"type": "object", "properties": {
+         "text": {"type": "string", "description": "The text to save."},
+         "label": {"type": "string", "description": "Optional short label."}},
+         "required": ["text"]}},
     {"name": "send_email", "risk": "confirm", "executor": _tool_send_email,
      "description": "Email someone on the operator's behalf. Use this WHENEVER the operator asks to email, send, or message a person — compose the full email (to, subject, body) yourself from the conversation. The system ALWAYS shows the operator a confirmation card to review and approve before anything is actually sent, so this is safe and is the correct tool for any 'email X' / 'send this to X' request. Do not just describe the email in text — call this tool so the operator gets the Send button.",
      "parameters": {"type": "object", "properties": {
          "to": {"type": "string", "description": "Recipient email address."},
          "subject": {"type": "string"}, "body": {"type": "string", "description": "Full email body, signed off appropriately."}},
          "required": ["to", "body"]}},
+    {"name": "book_meeting", "risk": "confirm", "executor": _tool_book_meeting,
+     "description": "Book a REAL Google Calendar event, with a Google Meet video link by default and optional attendee invites. Use WHENEVER the operator asks to book/set up/schedule a meeting, call, or Google Meet. Compute the concrete date (YYYY-MM-DD) and start time (HH:MM) yourself from what they say. The system shows the operator a Confirm card before anything is booked, so this is safe — don't just describe the meeting, call this tool so they get the Confirm button.",
+     "parameters": {"type": "object", "properties": {
+         "title": {"type": "string", "description": "Meeting title."},
+         "date": {"type": "string", "description": "YYYY-MM-DD."},
+         "start": {"type": "string", "description": "HH:MM 24h start time; default 09:00."},
+         "duration": {"type": "integer", "description": "Minutes; default 30."},
+         "attendees": {"type": "array", "items": {"type": "string"}, "description": "Attendee email addresses to invite."},
+         "description": {"type": "string", "description": "Optional agenda/notes."},
+         "location": {"type": "string", "description": "Optional physical location."},
+         "use_meet": {"type": "boolean", "description": "Attach a Google Meet link. Default true."}},
+         "required": ["title", "date", "start"]}},
 ]
 
 _TOOL_BY_NAME: Dict[str, Dict[str, Any]] = {t["name"]: t for t in _TEAMMATE_TOOL_DEFS}
@@ -23272,8 +23669,8 @@ def _tool_risk(name: str) -> str:
 # changing "auto" tool is escalated to "confirm" — so prompt injection inside a
 # web page / document can't silently trigger a CRM write. (send_email is already
 # confirm-risk.)
-_EXTERNAL_CONTENT_TOOLS = {"read_url", "research"}
-_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity"}
+_EXTERNAL_CONTENT_TOOLS = {"read_url", "research", "research_prospect", "scan_market", "find_intent_signals"}
+_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook"}
 
 
 def _effective_tool_risk(name: str, external_used: bool) -> str:
