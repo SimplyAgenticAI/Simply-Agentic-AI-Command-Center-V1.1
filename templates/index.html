@@ -640,6 +640,16 @@
     }
     .saActionChip.show{ opacity:1; transform:translate(-50%,-115%) scale(1); }
 
+    /* ALIVE #2: tool-call light packet arrival — the nav icon for the tool
+       group a teammate just used flashes once the travelling packet lands. */
+    @keyframes saToolArrivePulse{
+      0%{ box-shadow:0 0 0 rgba(103,232,249,0); }
+      40%{ box-shadow:0 0 18px rgba(103,232,249,.85), 0 0 34px rgba(103,232,249,.35); }
+      100%{ box-shadow:0 0 0 rgba(103,232,249,0); }
+    }
+    .saToolArrive{ animation: saToolArrivePulse .65s ease-out; }
+    @media (prefers-reduced-motion: reduce){ .saToolArrive{ animation:none; } }
+
     /* Minimized whisper: a small pulsing mic pill — listening continues.
        Click to restore the HUD (or to stop speech while a teammate talks). */
     #whisperMini{
@@ -8675,8 +8685,101 @@ window.showModal = function showModal(title, body, imgUrl){
           clearTimeout(chip._hideT);
           chip._hideT = setTimeout(function(){ chip.classList.remove("show"); }, 3400);
         }
+        _saFireToolPacket(name, text);
       }catch(_){}
     };
+
+    // ── ALIVE #2: tool-call light packets — a small pulse travels from the
+    // acting teammate's seat to the nav icon that owns the tool group just
+    // used (Manage for CRM/email, Research for research/read_url, Create for
+    // image gen, the objective pill for session-objective changes), then
+    // flashes that icon on arrival. Keyword-matched against the tool summary
+    // text since that's all the stream gives us (see the session-objective
+    // check just above this function) — there's no structured tool id here.
+    // Runs on a dedicated fixed full-viewport canvas (not the table's
+    // beamCanvas) because nav icons live outside #tableWrap.
+    const _SA_TOOL_TARGET_RE = [
+      [/session objective/i,  "sessionObjectivePill"],
+      [/\bimage\b/i,          "saCreateDropBtn"],
+      [/\bclient|\bcrm\b/i,   "saManageDropBtn"],
+      [/\bemail\b/i,          "saManageDropBtn"],
+      [/knowledge base|the page at|couldn't read that page/i, "saResearchDropBtn"]
+    ];
+    function _saToolTargetId(text){
+      const t = String(text || "");
+      for(let i = 0; i < _SA_TOOL_TARGET_RE.length; i++){
+        if(_SA_TOOL_TARGET_RE[i][0].test(t)) return _SA_TOOL_TARGET_RE[i][1];
+      }
+      return null;
+    }
+
+    function _saFireToolPacket(seatName, text){
+      try{
+        if(window.innerWidth <= 720) return; // nav dropdowns collapse into the mobile drawer below this
+        if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const targetId = _saToolTargetId(text);
+        if(!targetId) return;
+        const seatEl = document.querySelector('.seat[data-name="' + _cssEscape(seatName) + '"]');
+        const targetEl = document.getElementById(targetId);
+        if(!seatEl || !targetEl || targetEl.offsetParent === null) return;
+        window._saToolPackets = window._saToolPackets || [];
+        window._saToolPackets.push({ seatEl: seatEl, targetEl: targetEl, born: performance.now() });
+        _saRunToolPackets();
+      }catch(_){}
+    }
+
+    function _saRunToolPackets(){
+      if(window._saToolPacketsRunning) return;
+      window._saToolPacketsRunning = true;
+      let cv = document.getElementById("toolPacketCanvas");
+      if(!cv){
+        cv = document.createElement("canvas");
+        cv.id = "toolPacketCanvas";
+        cv.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;z-index:9990;pointer-events:none;";
+        document.body.appendChild(cv);
+      }
+      const ctx = cv.getContext("2d");
+      const DUR = 900;
+      function frame(){
+        if(document.hidden){ window._saToolPacketsRunning = false; return; }
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const wPx = Math.round(window.innerWidth * dpr), hPx = Math.round(window.innerHeight * dpr);
+        if(cv.width !== wPx || cv.height !== hPx){ cv.width = wPx; cv.height = hPx; }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+        const now = performance.now();
+        window._saToolPackets = (window._saToolPackets || []).filter(function(p){
+          const age = now - p.born;
+          if(age > DUR + 60) return false; // grace frame so prog:1 (the arrival flash) always runs
+          const sr = p.seatEl.getBoundingClientRect(), tr = p.targetEl.getBoundingClientRect();
+          const x1 = sr.left + sr.width / 2, y1 = sr.top + sr.height / 2;
+          const x2 = tr.left + tr.width / 2, y2 = tr.top + tr.height / 2;
+          const prog = Math.min(1, age / DUR);
+          const eased = 1 - Math.pow(1 - prog, 3);
+          ctx.globalAlpha = 0.22 * (1 - prog);
+          ctx.strokeStyle = "rgba(103,232,249,.9)"; ctx.lineWidth = 1.4;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          const px = x1 + (x2 - x1) * eased, py = y1 + (y2 - y1) * eased;
+          ctx.globalAlpha = 0.95; ctx.fillStyle = "#67e8f9";
+          ctx.shadowColor = "rgba(103,232,249,.9)"; ctx.shadowBlur = 8;
+          ctx.beginPath(); ctx.arc(px, py, 3.2, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
+          if(prog >= 1 && !p._flashed){
+            p._flashed = true;
+            p.targetEl.classList.remove("saToolArrive");
+            void p.targetEl.offsetWidth;
+            p.targetEl.classList.add("saToolArrive");
+            setTimeout(function(){ p.targetEl.classList.remove("saToolArrive"); }, 650);
+          }
+          return true;
+        });
+        ctx.globalAlpha = 1;
+        if(window._saToolPackets.length){ requestAnimationFrame(frame); }
+        else { window._saToolPacketsRunning = false; }
+      }
+      requestAnimationFrame(frame);
+    }
 
     // ── #2 Connection beams ──────────────────────────────────────────────────
     // Draws animated accent-colored light beams from the table centre out to any
