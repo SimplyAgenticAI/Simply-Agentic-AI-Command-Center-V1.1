@@ -12185,6 +12185,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
       _whisperHideCountdown();
       _whisperHideHud();
+      try{ window._saWhisperStop && window._saWhisperStop(); }catch(_){}
       if(_whisperStream){try{_whisperStream.getTracks().forEach(t=>t.stop());}catch(_){}; _whisperStream=null;}
       try{
         if(alwaysRec){
@@ -12510,6 +12511,166 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     };
     try{ window._saPaintHandsFree(); }catch(_){}
 
+    // ══════════════════════════════════════════════════════════════════════
+    // WHISPER CAPTURE ENGINE — MediaRecorder → OpenAI Whisper (accurate).
+    // Replaces the browser's choppy SpeechRecognition as the primary capture.
+    // Segments utterances with the EXISTING analyser VAD (`_hfLastVoiceTs`,
+    // stamped by _whisperStartWaveform's draw loop), transcribes each via
+    // /api/voice/transcribe, then routes the text through handleWhisperUtterance
+    // — which reuses every downstream guard and the same _voiceSendDm/Group path.
+    // Auto-falls back to the browser engine if there's no key / no MediaRecorder
+    // / repeated failures. Force the browser engine any time via
+    // window._saVoiceEngine="browser".
+    // ══════════════════════════════════════════════════════════════════════
+    async function _voiceHasKey(){
+      if(window._saVoiceHasKey!==undefined) return window._saVoiceHasKey;
+      try{ const r=await fetch("/api/voice/has_key"); const d=await r.json(); window._saVoiceHasKey=!!(d&&d.has_key); }
+      catch(e){ window._saVoiceHasKey=false; }
+      return window._saVoiceHasKey;
+    }
+
+    // Process ONE finalized utterance (Whisper returns the whole thing at once,
+    // so there is no interim and none of the half-send race conditions). Mirrors
+    // the final-handling logic of rec.onresult but without the streaming machinery.
+    async function handleWhisperUtterance(text){
+      if(!alwaysOn || _switching) return;
+      text=(text||"").replace(/\s+/g," ").trim();
+      if(!text) return;
+
+      // ── Feedback-loop guards (cardinal rule — must never regress) ──
+      if(window._saMicHeld) return;                              // teammate speaking → ignore
+      if(window._saTtsEndedAt && (Date.now()-window._saTtsEndedAt)<4000
+         && _hfLastVoiceTs<=window._saTtsEndedAt) return;        // no human voice since TTS ended
+
+      // ── Name detection / wake-word (engages from standby) ──
+      const hit=findFirstNameMention(text);
+      if(hit && (Date.now()-_nameDebounce>600)){
+        _nameDebounce=Date.now();
+        _switching=true; _buf="";
+        alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
+        if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+        try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+        try{ if(window._saVoiceCtrl) window._saVoiceCtrl.abort(); }catch(_){}
+        window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
+        _whisperHideCountdown();
+        try{await selectSeat(hit.name);}catch(_){}
+        try{forceSeatSelectUI(hit.name);}catch(_){}
+        _whisperUpdateTeammate();
+        _whisperSetTranscript("","");
+        _whisperSetStatus("Now talking to "+hit.name);
+        _hfStandby=false; _hfArmDecay();
+        _switching=false;
+        return;
+      }
+      if(_hfStandby) return;                                     // standby: only a name engages
+      _hfArmDecay();
+
+      // ── Spoken control commands ──
+      const _cmdl=text.toLowerCase().replace(/[.,!?]+\s*$/,"").trim();
+      if(_HF_STANDBY_RE.test(text)){ _hfEnterStandby(); return; }
+      if(/(scratch that|never mind|start over|clear that)$/.test(_cmdl)){
+        _buf=""; _whisperSetTranscript("",""); _whisperSetStatus("Cleared — go ahead"); return;
+      }
+      if(/(hold on|one second|give me a second|give me a minute)$/.test(_cmdl)){
+        _whisperSetStatus("Holding — take your time"); return;
+      }
+      // "send it / send now …" — Whisper already sends on endpoint, so just strip the phrase
+      let msg=text.replace(/\b(send it|send now|send that|just send)[.,!?]*\s*$/i,"").replace(/\s+/g," ").trim();
+      if(!msg) msg=text;
+
+      // ── Duplicate-send suppressor (blocks any echo loop) ──
+      if(msg===window._saLastVoiceMsg && (Date.now()-(window._saLastVoiceMsgTs||0))<15000) return;
+      window._saLastVoiceMsg=msg; window._saLastVoiceMsgTs=Date.now();
+
+      if(alwaysMode==="dm"){
+        const seat=window.selectedSeat||selectedSeat||"";
+        if(seat) await _voiceSendDm(msg,seat);
+        else showToast("⚠️ Say a teammate name first to select them");
+      }else{
+        await _voiceSendGroup(msg);
+      }
+    }
+
+    function startWhisperCapture(stream){
+      let recorder=null, chunks=[], speaking=false, startedAt=0, pollTimer=null;
+      const SILENCE_MS=900, VOICE_FRESH_MS=350, MIN_BYTES=3500, MAX_UTTER_MS=20000;
+      const mimes=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg"];
+      const mime=mimes.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"";
+      const ext=(mime.indexOf("mp4")>=0)?"mp4":(mime.indexOf("ogg")>=0?"ogg":"webm");
+      window._saVoiceWhisperFails=0;
+
+      function fallbackToBrowser(reason){
+        stop();
+        window._saVoiceEngine="browser";
+        try{ if(typeof showToast==="function") showToast("🎤 Voice: switched to browser recognition ("+reason+")"); }catch(_){}
+        if(alwaysOn){ const m=alwaysMode, sb=_hfStandby; stopAlwaysListening(); setTimeout(()=>{ if(typeof startAlwaysListening==="function") startAlwaysListening(m,{standby:sb}); },250); }
+      }
+      async function sendSegment(blob){
+        if(window._saMicHeld) return;                            // captured during teammate TTS → drop
+        try{
+          const fd=new FormData(); fd.append("audio", blob, "voice."+ext);
+          _whisperSetStatus("Transcribing…");
+          const r=await fetch("/api/voice/transcribe",{method:"POST",headers:{"X-CSRF-Token":(window._csrf||"")},body:fd});
+          const d=await r.json();
+          if(!d.ok){
+            if(d.no_key){ fallbackToBrowser("no OpenAI key"); return; }
+            window._saVoiceWhisperFails++;
+            if(window._saVoiceWhisperFails>=2){ fallbackToBrowser("transcription errors"); return; }
+            _whisperSetStatus(_hfStandby?"Standing by — say a teammate's name":"Listening…"); return;
+          }
+          window._saVoiceWhisperFails=0;
+          _whisperSetStatus(_hfStandby?"Standing by — say a teammate's name":"Listening…");
+          if(d.transcript) handleWhisperUtterance(d.transcript);
+        }catch(e){
+          window._saVoiceWhisperFails++;
+          if(window._saVoiceWhisperFails>=2) fallbackToBrowser("network error");
+          else _whisperSetStatus("Listening…");
+        }
+      }
+      function newRecorder(){
+        try{ recorder = mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
+        catch(e){ return null; }
+        chunks=[];
+        recorder.ondataavailable=e=>{ if(e.data&&e.data.size)chunks.push(e.data); };
+        recorder.onstop=()=>{
+          const blob=new Blob(chunks,{type:mime||"audio/webm"}); chunks=[];
+          if(blob.size>=MIN_BYTES) sendSegment(blob);
+        };
+        return recorder;
+      }
+      function poll(){
+        if(!alwaysOn){ stop(); return; }
+        const now=Date.now();
+        if(window._saMicHeld){
+          // Teammate talking — never capture; abandon any in-progress segment.
+          if(speaking && recorder && recorder.state==="recording"){ chunks=[]; try{recorder.stop();}catch(_){}
+            recorder=null; }
+          speaking=false;
+          pollTimer=setTimeout(poll,140); return;
+        }
+        const voiceFresh=(now-_hfLastVoiceTs)<VOICE_FRESH_MS;
+        if(!speaking && voiceFresh){
+          speaking=true; startedAt=now;
+          recorder=newRecorder();
+          if(!recorder){ fallbackToBrowser("recorder unavailable"); return; }
+          try{ recorder.start(); }catch(e){ fallbackToBrowser("recorder start failed"); return; }
+        } else if(speaking){
+          if((now-_hfLastVoiceTs)>SILENCE_MS || (now-startedAt)>MAX_UTTER_MS){
+            speaking=false;
+            try{ if(recorder&&recorder.state==="recording") recorder.stop(); }catch(_){}
+          }
+        }
+        pollTimer=setTimeout(poll,140);
+      }
+      function stop(){
+        if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
+        try{ if(recorder&&recorder.state==="recording") recorder.stop(); }catch(_){}
+        recorder=null;
+      }
+      window._saWhisperStop=stop;
+      poll();
+    }
+
     async function startAlwaysListening(mode, opts){
       if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
 
@@ -12544,6 +12705,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _whisperShowHud();
       _whisperSetStatus(_hfStandby ? "Standing by — say a teammate's name" : "Listening...");
       if(micStream)_whisperStartWaveform(micStream);
+
+      // ── Engine select: Whisper (MediaRecorder → OpenAI) is primary; the
+      // SpeechRecognition path below is the automatic fallback. Uses Whisper
+      // unless forced to "browser", MediaRecorder is missing, or no API key.
+      if(micStream && window._saVoiceEngine!=="browser"
+         && typeof MediaRecorder!=="undefined" && await _voiceHasKey()){
+        try{ startWhisperCapture(micStream); return; }
+        catch(e){ /* fall through to the browser recognizer */ }
+      }
 
       const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
       const rec=new SR();
