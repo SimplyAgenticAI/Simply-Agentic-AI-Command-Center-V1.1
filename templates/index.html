@@ -27655,6 +27655,11 @@ document.addEventListener("click", function(e) {
                     if(p&&d&&d.ok) p.innerText=((d.objective&&d.objective.title)||"").trim()||"No objective set";
                   }).catch(function(){});
                 }
+                // Live UI sync: when a teammate opens the Notepad via the
+                // read_notepad tool, actually open the Notepad on screen.
+                if(/opened your notepad/i.test(_act)){
+                  try{ if(typeof showNotepadModal === "function") showNotepadModal(); }catch(_){}
+                }
               }
             }catch(_){}
             // Detect if response is a visual — stop text rendering, switch to iframe

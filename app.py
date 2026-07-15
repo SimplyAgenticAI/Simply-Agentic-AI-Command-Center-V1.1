@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.4")
+APP_VERSION = os.getenv("APP_VERSION", "7.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -6224,6 +6224,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "- create_social_content — write ready-to-post content (content pack, week plan, DM pack, comments, launch).\n"
             "- draft_social_post — save a specific post as a DRAFT in the Content Planner (never publishes; the operator publishes).\n"
             "- save_to_vault — save a great reply/template/draft to the Response Vault for reuse.\n"
+            "- read_notepad — open and read the operator's Notepad. When they say open/show/check my notepad, CALL this (it also opens the Notepad on their screen).\n"
+            "- add_to_notepad — jot a note into the operator's Notepad when they ask you to note something down.\n"
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
             "request and compose the full email yourself. The system shows the operator a Confirm card before "
             "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
@@ -23449,6 +23451,46 @@ def _tool_save_to_vault(uname: str, teammate: str, args: Dict[str, Any]) -> Dict
         return {"ok": False, "summary": f"Could not save to vault: {e}"}
 
 
+def _tool_read_notepad(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Read the operator's Notepad (read-only). The client opens the Notepad
+    modal when it sees this tool's streamed note."""
+    try:
+        notes = _load_notes(uname)
+        if not notes:
+            return {"ok": True, "notes_text": "",
+                    "summary": "Opened your Notepad — it's empty so far."}
+        lines = []
+        for n in notes[:20]:
+            title = (n.get("title") or "").strip() or "(untitled)"
+            content = (n.get("content") or "").strip().replace("\n", " ")
+            lines.append(f"- {title}: {content[:300]}")
+        return {"ok": True, "notes_text": "\n".join(lines)[:6000],
+                "summary": f"Opened your Notepad — {len(notes)} note(s)."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Couldn't read the Notepad: {e}"}
+
+
+def _tool_add_to_notepad(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Add a new note to the operator's Notepad (same shape the Notepad UI writes)."""
+    content = (args.get("content") or "").strip()
+    if not content:
+        return {"ok": False, "summary": "Need note content to add to the Notepad."}
+    title = (args.get("title") or "").strip()[:120]
+    try:
+        notes = _load_notes(uname)
+        notes.insert(0, {
+            "id": int(time.time() * 1000),          # matches the UI's Date.now() ids
+            "title": title,
+            "content": content[:20000],
+            "updated": now_iso(),
+        })
+        _save_notes(uname, notes[:200])
+        label = f" “{title}”" if title else ""
+        return {"ok": True, "summary": f"Added a note{label} to your Notepad."}
+    except Exception as e:
+        return {"ok": False, "summary": f"Couldn't save the note: {e}"}
+
+
 def _tool_book_meeting(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Book a real Google Calendar event (with a Meet link by default). CONFIRM-risk —
     only runs after the operator clicks Confirm on the action card."""
@@ -23632,6 +23674,15 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "media_url": {"type": "string", "description": "Optional image/video URL."},
          "scheduled_at": {"type": "string", "description": "Optional ISO datetime to schedule for."}},
          "required": ["caption"]}},
+    {"name": "read_notepad", "risk": "auto", "executor": _tool_read_notepad,
+     "description": "Open and read the operator's Notepad. Use whenever the operator asks to open, show, check, or read their notepad/notes — the Notepad also opens on their screen when you call this.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "add_to_notepad", "risk": "auto", "executor": _tool_add_to_notepad,
+     "description": "Add a new note to the operator's Notepad. Use when the operator asks you to jot down, note, or save something to their notepad.",
+     "parameters": {"type": "object", "properties": {
+         "content": {"type": "string", "description": "The note text."},
+         "title": {"type": "string", "description": "Optional short title."}},
+         "required": ["content"]}},
     {"name": "save_to_vault", "risk": "auto", "executor": _tool_save_to_vault,
      "description": "Save a useful piece of text (a great reply, template, or draft) to the operator's Response Vault for reuse. Use when the operator says to save/keep/store something.",
      "parameters": {"type": "object", "properties": {
@@ -23672,7 +23723,7 @@ def _tool_risk(name: str) -> str:
 # web page / document can't silently trigger a CRM write. (send_email is already
 # confirm-risk.)
 _EXTERNAL_CONTENT_TOOLS = {"read_url", "research", "research_prospect", "scan_market", "find_intent_signals"}
-_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook"}
+_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook", "add_to_notepad"}
 
 
 def _effective_tool_risk(name: str, external_used: bool) -> str:
