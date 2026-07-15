@@ -336,7 +336,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.5")
+APP_VERSION = os.getenv("APP_VERSION", "7.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -25542,6 +25542,61 @@ def api_transcribe_chunk():
     meta = {"total_chunks": total_chunks, "filename": filename}
     (chunk_dir / "meta.json").write_text(_jc.dumps(meta))
     return jsonify({"ok": True, "chunk": chunk_index})
+
+
+@app.get("/api/voice/has_key")
+def api_voice_has_key():
+    """Cheap probe: does this operator have an OpenAI key available for Whisper
+    voice capture? The live voice HUD calls this once to decide whether to use
+    the Whisper engine or fall back to the browser's built-in recognizer."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "has_key": False}), 401
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    return jsonify({"ok": True, "has_key": bool(user_key or (OPENAI_API_KEY or "").strip())})
+
+
+@app.post("/api/voice/transcribe")
+def api_voice_transcribe():
+    """Low-latency single-utterance transcription for the live voice HUD.
+
+    One short audio blob (webm/opus from MediaRecorder) -> one whisper-1 call ->
+    plain JSON {ok, transcript}. Deliberately lightweight: NO chunk assembly, NO
+    ffmpeg, NO heartbeat streaming — that's /api/transcribe, which is built for
+    large video files. Voice utterances are tiny (well under a megabyte) and
+    Whisper accepts webm directly, so none of that machinery is needed here."""
+    import io as _io
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
+    openai_key = user_key or (OPENAI_API_KEY or "").strip()
+    if not openai_key:
+        return jsonify({"ok": False, "no_key": True,
+                        "error": "Voice needs an OpenAI API key — add one in Settings → API Keys."}), 400
+    f = request.files.get("audio")
+    if not f:
+        return jsonify({"ok": False, "error": "No audio"}), 400
+    try:
+        data = f.read()
+    except Exception:
+        return jsonify({"ok": False, "error": "Could not read audio"}), 400
+    if not data:
+        return jsonify({"ok": True, "transcript": ""})          # empty clip — nothing said
+    if len(data) > 10 * 1024 * 1024:                            # 10 MB guard; voice clips are tiny
+        return jsonify({"ok": False, "error": "Audio too large"}), 413
+    try:
+        fname = f.filename or "voice.webm"
+        ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else "webm"
+        if ext not in ("webm", "ogg", "mp4", "m4a", "wav", "mp3"):
+            ext = "webm"
+        buf = _io.BytesIO(data)
+        buf.name = f"voice.{ext}"
+        oai = OpenAI(api_key=openai_key.strip())
+        result = oai.audio.transcriptions.create(model="whisper-1", file=buf)
+        return jsonify({"ok": True, "transcript": (result.text or "").strip()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Transcription failed: {e}"}), 500
 
 
 @app.post("/api/transcribe")
