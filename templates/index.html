@@ -12592,58 +12592,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     }
 
     function startWhisperCapture(stream){
-      let recorder=null, speaking=false, startedAt=0, pollTimer=null, lastVoiceAt=0;
-      const SILENCE_MS=900, MIN_BYTES=3500, MAX_UTTER_MS=20000;
+      let recorder=null, chunks=[], speaking=false, startedAt=0, pollTimer=null;
+      const SILENCE_MS=900, VOICE_FRESH_MS=350, MIN_BYTES=3500, MAX_UTTER_MS=20000;
       const mimes=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg"];
       const mime=mimes.find(m=>{try{return MediaRecorder.isTypeSupported(m);}catch(e){return false;}})||"";
       const ext=(mime.indexOf("mp4")>=0)?"mp4":(mime.indexOf("ogg")>=0?"ogg":"webm");
       window._saVoiceWhisperFails=0;
-
-      // ── Dedicated VAD for the Whisper path ──────────────────────────────────
-      // Do NOT reuse the shared `_hfLastVoiceTs` energy gate for onset detection:
-      // that only stamps when the average across ALL 32 FFT bins exceeds a fixed
-      // 20, which (per the draw() loop's own comment) frequently never crosses on
-      // a quiet mic — the old path got away with it because SpeechRecognition
-      // interims stamped the same timestamp as a backup. Whisper has no interims,
-      // so a fixed frequency-average threshold leaves us deaf and nothing is ever
-      // recorded. Instead: time-domain RMS (a real amplitude measure) against an
-      // ADAPTIVE noise floor that calibrates to the room. We also stamp
-      // `_hfLastVoiceTs` ourselves so the post-TTS human-voice gate still works.
-      let _vadCtx=null,_vadAnalyser=null,_vadBuf=null,_noiseFloor=0,_vadReady=false;
-      try{
-        _vadCtx=new(window.AudioContext||window.webkitAudioContext)();
-        const _src=_vadCtx.createMediaStreamSource(stream);
-        _vadAnalyser=_vadCtx.createAnalyser();
-        _vadAnalyser.fftSize=1024;                       // time-domain window
-        _src.connect(_vadAnalyser);
-        _vadBuf=new Uint8Array(_vadAnalyser.fftSize);
-        _vadReady=true;
-      }catch(e){ _vadReady=false; }
-
-      function rms(){
-        if(!_vadReady) return 0;
-        _vadAnalyser.getByteTimeDomainData(_vadBuf);
-        let s=0;
-        for(let i=0;i<_vadBuf.length;i++){ const d=(_vadBuf[i]-128)/128; s+=d*d; }
-        return Math.sqrt(s/_vadBuf.length);            // 0..1
-      }
-      // Speech = clearly above the ambient floor, with an absolute minimum so a
-      // silent room can't make the threshold collapse to zero.
-      function isVoice(level){
-        const thresh=Math.max(_noiseFloor*2.2+0.004, 0.012);
-        return level>thresh;
-      }
-      // Track the ambient floor UNCONDITIONALLY, asymmetrically: fall fast toward
-      // the true room level, rise very slowly so a long utterance can't drag the
-      // floor up over itself. Gating this on "not currently voiced" deadlocks —
-      // any room hum above the absolute minimum reads as voice forever, the floor
-      // never learns, and the mic appears to hear speech nonstop.
-      function trackFloor(level){
-        if(!_noiseFloor){ _noiseFloor=level; return; }
-        _noiseFloor = (level < _noiseFloor)
-          ? (_noiseFloor*0.90  + level*0.10)    // fall fast to the true ambient
-          : (_noiseFloor*0.998 + level*0.002);  // rise very slowly — a long sentence must not raise the bar over itself
-      }
 
       function fallbackToBrowser(reason){
         stop();
@@ -12674,72 +12628,46 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
       }
       function newRecorder(){
-        let r=null;
-        try{ r = mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
+        try{ recorder = mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream); }
         catch(e){ return null; }
-        // Per-recorder chunk buffer: a shared array would be cleared by the NEXT
-        // utterance before this recorder's async onstop had built its blob.
-        const myChunks=[];
-        let dropped=false;
-        r.ondataavailable=e=>{ if(e.data&&e.data.size)myChunks.push(e.data); };
-        r.onstop=()=>{
-          if(dropped) return;
-          const blob=new Blob(myChunks,{type:mime||"audio/webm"});
+        chunks=[];
+        recorder.ondataavailable=e=>{ if(e.data&&e.data.size)chunks.push(e.data); };
+        recorder.onstop=()=>{
+          const blob=new Blob(chunks,{type:mime||"audio/webm"}); chunks=[];
           if(blob.size>=MIN_BYTES) sendSegment(blob);
         };
-        r.__drop=()=>{ dropped=true; };
-        return r;
+        return recorder;
       }
       function poll(){
         if(!alwaysOn){ stop(); return; }
         const now=Date.now();
         if(window._saMicHeld){
-          // Teammate talking — never capture; abandon any in-progress segment so
-          // their own audio can never be transcribed back in as our next message.
-          if(recorder){
-            try{ recorder.__drop && recorder.__drop(); }catch(_){}
-            try{ if(recorder.state==="recording") recorder.stop(); }catch(_){}
-            recorder=null;
-          }
+          // Teammate talking — never capture; abandon any in-progress segment.
+          if(speaking && recorder && recorder.state==="recording"){ chunks=[]; try{recorder.stop();}catch(_){}
+            recorder=null; }
           speaking=false;
-          pollTimer=setTimeout(poll,120); return;
+          pollTimer=setTimeout(poll,140); return;
         }
-        const level=rms();
-        trackFloor(level);
-        const voiced=isVoice(level);
-        if(voiced){
-          lastVoiceAt=now;
-          // Stamp the SHARED signal too: the post-TTS gate in handleWhisperUtterance
-          // (and the rest of the stack) tests `_hfLastVoiceTs > _saTtsEndedAt` to
-          // prove a human spoke after the teammate finished. Without this, quiet
-          // mics would be blocked there even once capture works.
-          if(!window._saTtsEndedAt || (now-window._saTtsEndedAt)>350) _hfLastVoiceTs=now;
-        }
-        if(!speaking && voiced){
-          speaking=true; startedAt=now; lastVoiceAt=now;
+        const voiceFresh=(now-_hfLastVoiceTs)<VOICE_FRESH_MS;
+        if(!speaking && voiceFresh){
+          speaking=true; startedAt=now;
           recorder=newRecorder();
           if(!recorder){ fallbackToBrowser("recorder unavailable"); return; }
           try{ recorder.start(); }catch(e){ fallbackToBrowser("recorder start failed"); return; }
         } else if(speaking){
-          if((now-lastVoiceAt)>SILENCE_MS || (now-startedAt)>MAX_UTTER_MS){
+          if((now-_hfLastVoiceTs)>SILENCE_MS || (now-startedAt)>MAX_UTTER_MS){
             speaking=false;
             try{ if(recorder&&recorder.state==="recording") recorder.stop(); }catch(_){}
-            recorder=null;
           }
         }
-        pollTimer=setTimeout(poll,120);
+        pollTimer=setTimeout(poll,140);
       }
       function stop(){
         if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}
-        try{ if(recorder){ recorder.__drop && recorder.__drop(); if(recorder.state==="recording") recorder.stop(); } }catch(_){}
+        try{ if(recorder&&recorder.state==="recording") recorder.stop(); }catch(_){}
         recorder=null;
-        // Close the VAD tap — otherwise every stop/start leaks an AudioContext.
-        try{ if(_vadAnalyser) _vadAnalyser.disconnect(); }catch(_){}
-        try{ if(_vadCtx) _vadCtx.close(); }catch(_){}
-        _vadAnalyser=null; _vadCtx=null; _vadReady=false;
       }
       window._saWhisperStop=stop;
-      if(!_vadReady){ fallbackToBrowser("audio analysis unavailable"); return; }
       poll();
     }
 
