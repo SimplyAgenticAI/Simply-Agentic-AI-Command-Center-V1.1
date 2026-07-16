@@ -11939,17 +11939,45 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return dp[m];
     }
 
-    function _resolveWord(raw){
+    // Everyday speech a FUZZY match must never claim as a name. "will" is two
+    // edits from "Willow", "tuna" is one from "Luna" \u2014 without this, opening a
+    // sentence with "Will you..." yanks the operator onto another teammate.
+    // Exact names and exact aliases are checked before this, so a teammate
+    // actually called Will still resolves.
+    const _NAME_STOP = new Set(("a an and the to of in on at it is am are was were be been being do does did done "+
+      "for with from by as if then than that this these those i you he she we they me him her them us "+
+      "my your our their his its will would can could should shall may might must have has had not no yes "+
+      "ok okay so or but also just like well what when where why how who which there here now next new "+
+      "all any some more most other into over under about after before back down out up off only very "+
+      "really little look looks looking tell tells told call calls called send sends sent make makes made "+
+      "take takes took get gets got give gives gave go goes went know knows knew think thinks thought "+
+      "want wants wanted need needs needed say says said see sees saw let lets still last list least less "+
+      "lost close open even ever every each else own same such both few many much yeah yep nope "+
+      "window lunch email report deal lead leads number numbers minute second thing things").split(" "));
+
+    // strict = exact name / exact alias only, no fuzzy. Used where the fuzzy
+    // fallback is too dangerous (e.g. two words glued together).
+    function _resolveWord(raw,strict){
       const w=(raw||"").toLowerCase().replace(/[''\u2018\u2019,;:.!?]+$/,"").trim();
       if(!w||w.length<2)return null;
       const inst=(state&&state.installed)?state.installed:{};
       for(const k of Object.keys(inst)){if(k.toLowerCase()===w)return k;}
       const al=_ALIASES[w]; if(al&&inst[al])return al;
-      for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_lev(w,kl)<=(kl.length<=4?1:2))return k;}
-      for(const[alias,canon]of Object.entries(_ALIASES)){
-        if(!inst[canon])continue;
-        if(_lev(w,alias)<=(alias.length<=4?1:2))return canon;
-      }
+      if(strict||_NAME_STOP.has(w))return null;
+      // Tolerance is capped by the SPOKEN word's length as well as the name's:
+      // a 4-letter word may never be 2 edits from a 6-letter name, which is
+      // what let "will" become "Willow".
+      const _tol=(target)=>Math.min(target.length<=4?1:2, Math.max(1,Math.floor(w.length/3)));
+      // Fuzzy must agree on the first letter. Recognizers garble vowels and
+      // endings, almost never the leading consonant, and every first-letter
+      // variant worth having ("otlis", "altas") is already an explicit alias.
+      // Without this, "tuna" is one edit from Luna.
+      const _near=(target)=>w[0]===target[0]&&_lev(w,target)<=_tol(target);
+      // Only real names are fuzzed. _ALIASES is already the table of known
+      // mishearings, so fuzzing it stacks a guess on a guess — that is how
+      // "lunch" reached Luna (one edit from the alias "lunah") and "police"
+      // reached Atlis (two from "alice"). Aliases stay exact, checked above.
+      for(const k of Object.keys(inst)){const kl=k.toLowerCase();if(_near(kl))return k;}
       return null;
     }
 
@@ -11965,12 +11993,36 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const hit=_resolveWord(w);
         if(hit&&(!best||wi<best.idx))best={name:hit,idx:wi};
         if(i+1<words.length){
-          const ph=_resolveWord(w+words[i+1]);
+          // Glued pair ("at lis" → "atlis"): the recognizer splitting a name.
+          // STRICT — fuzzy here matched "at last" to Atlis.
+          const ph=_resolveWord(w+words[i+1],true);
           if(ph&&(!best||wi<best.idx))best={name:ph,idx:wi};
         }
         if(wi>=0)pos=wi+w.length;
       }
       return best;
+    }
+
+    // A name only means "talk to this teammate" when it ADDRESSES them — i.e. it
+    // opens the utterance, optionally after a greeting or filler. A name in the
+    // middle of a sentence ("send that to Willow") is a mention, not a command,
+    // and must never pull the seat out from under the operator mid-thought.
+    // Greetings and true fillers only. Conjunctions ("and", "so", "well") are
+    // deliberately absent: "And Willow said..." opens a sentence but mentions
+    // her, it does not address her.
+    const _ADDR_LEAD = /^(?:(?:hey|hi|hello|yo|ok|okay|alright|um|uh|there)\b[\s,]*){0,2}/i;
+    function findAddressedName(text){
+      if(!text)return null;
+      const t=String(text).trim().replace(_ADDR_LEAD,"");
+      const m=t.match(/^([a-z''‘’-]{2,})(?:\s+([a-z''‘’-]{2,}))?/i);
+      if(!m)return null;
+      const one=_resolveWord(m[1]);
+      if(one)return {name:one,idx:0};
+      if(m[2]){
+        const two=_resolveWord(m[1]+m[2],true);
+        if(two)return {name:two,idx:0};
+      }
+      return null;
     }
 
     // Strip the canonical name AND all aliases that map to it from text.
@@ -12592,43 +12644,58 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
 
         // ── Name detection ─────────────────────────────────────
-        // Grace period: suppress newFinals detection for 1.5s after a switch.
-        // This prevents the finalized transcript of the OLD utterance (which may
-        // contain the PREVIOUS teammate's name earlier in the phrase) from
-        // triggering a switch-back right after we just switched away.
+        // A seat switch is a deliberate act, so it is only ever read from the
+        // START of a turn. Two situations qualify:
+        //   • standing by (or nobody selected) — any name wakes us, anywhere in
+        //     the phrase, because that IS the wake word.
+        //   • engaged with an empty buffer — nothing said yet this turn, so a
+        //     name that opens the utterance is addressing someone new.
+        // Once _buf holds words the operator is mid-message: names there are
+        // just words ("...loop Willow in on that") and are left alone. This is
+        // what stopped the seat flapping between teammates mid-sentence.
         const _nowMs = Date.now();
-        const _inGrace = (_nowMs - _nameDebounce) < 1500;
-        const hit = findFirstNameMention(interim)
-                 || (!_inGrace && findFirstNameMention(newFinals))
-                 || (!_inGrace && findFirstNameMention((_buf+" "+newFinals).trim()));
-        if(hit){
-          if(_nowMs-_nameDebounce>600){
-            _nameDebounce=_nowMs;
-            _switching=true;
-            _buf="";
-            alwaysFinalText="";alwaysInterimText="";alwaysBaseText="";
-            if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
-            // Switching teammates ENDS the previous conversation turn: silence
-            // any speech, abort the in-flight reply, and invalidate its epoch so
-            // a late-arriving reply can never speak over the new teammate.
-            try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
-            try{ if(window._saVoiceCtrl) window._saVoiceCtrl.abort(); }catch(_){}
-            window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
-            _whisperHideCountdown();
-            try{await selectSeat(hit.name);}catch(_){}
-            try{forceSeatSelectUI(hit.name);}catch(_){}
-            _whisperUpdateTeammate();
-            _whisperSetTranscript("","");
-            _whisperSetStatus("Now talking to "+hit.name);
-            // Hands-free: hearing a name ENGAGES from standby
-            _hfStandby=false;
-            _hfArmDecay();
-            _buf="";alwaysFinalText="";alwaysInterimText="";
-            // Restart recognizer to flush any buffered old-session results
-            try{ if(alwaysRec) alwaysRec.stop(); }catch(_){}
-            _switching=false;
-            return;
+        const _inGrace = (_nowMs - _nameDebounce) < 2000;
+        const _seatNow = (window.selectedSeat||selectedSeat||"");
+        let hit = null;
+        if(!_inGrace){
+          if(_hfStandby || !_seatNow){
+            hit = findFirstNameMention(interim) || findFirstNameMention(newFinals);
+          }else if(!_buf){
+            hit = findAddressedName(interim) || findAddressedName(newFinals);
           }
+        }
+        // Already talking to them — that is just how people address someone, not
+        // a switch. Falling through keeps the words instead of wiping the turn.
+        if(hit && hit.name===_seatNow && !_hfStandby) hit = null;
+        if(hit){
+          _nameDebounce=_nowMs;
+          _switching=true;
+          if(window._alwaysAutoSendTimer){clearTimeout(window._alwaysAutoSendTimer);window._alwaysAutoSendTimer=null;}
+          // Switching teammates ENDS the previous conversation turn: silence
+          // any speech, abort the in-flight reply, and invalidate its epoch so
+          // a late-arriving reply can never speak over the new teammate.
+          try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){}
+          try{ if(window._saVoiceCtrl) window._saVoiceCtrl.abort(); }catch(_){}
+          window._saVoiceEpoch=(window._saVoiceEpoch||0)+1;
+          _whisperHideCountdown();
+          // NOT awaited: selectSeat refreshes the thread over the network, and
+          // _switching drops every recognizer result until it resolves — that
+          // await was swallowing the rest of the sentence. The synchronous UI
+          // part still runs before the first await inside it.
+          try{ selectSeat(hit.name); }catch(_){}
+          try{ forceSeatSelectUI(hit.name); }catch(_){}
+          _whisperUpdateTeammate();
+          _whisperSetStatus("Now talking to "+hit.name);
+          // Hands-free: hearing a name ENGAGES from standby
+          _hfStandby=false;
+          _hfArmDecay();
+          _switching=false;
+          // The recognizer is deliberately NOT restarted and the buffer is NOT
+          // wiped: the switch only happens at a turn boundary, so there are no
+          // stale results to flush, and the rest of the sentence ("Willow, check
+          // the pipeline") is still in flight. Killing the session here is what
+          // cut people off mid-word.
+          return;
         }
 
         // ── Hands-free: spoken command drops back to standby ──────
