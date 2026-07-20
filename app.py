@@ -1,3 +1,17 @@
+import sys as _sys
+
+# Force UTF-8 on the console before anything prints. The startup banner and the
+# log helpers emit ✅/⚠️/—, and on a Windows cp1252 console print() raises
+# UnicodeEncodeError — at import time, which killed the process outright. That
+# took validate_js.py with it, so the pre-push JS guard silently never ran.
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        # Not a TextIOWrapper (pytest capture, a pipe wrapper, redirected IO) —
+        # those handle unicode themselves, so there is nothing to fix.
+        pass
+
 import os
 import json
 import copy
@@ -25,6 +39,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
 from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 import requests
 
 from prompts import (
@@ -339,7 +354,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.8")
+APP_VERSION = os.getenv("APP_VERSION", "7.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -3235,25 +3250,48 @@ def now_iso() -> str:
 
 
 # Per-path threading locks so concurrent threads don't race on the same file.
-_JSON_FILE_LOCKS: Dict[str, threading.Lock] = {}
+# Each entry is [Lock, users] where `users` counts threads holding the lock or
+# queued to acquire it.
+_JSON_FILE_LOCKS: Dict[str, List[Any]] = {}
 _JSON_FILE_LOCKS_LOCK = threading.Lock()
+_JSON_FILE_LOCKS_MAX = 500
 
-def _json_file_lock(path: Path) -> threading.Lock:
+@contextmanager
+def _json_file_lock(path: Path):
+    """Hold the per-path lock for `path` for the duration of the block.
+
+    Entries are reference-counted and only reclaimed at zero. The previous
+    version popped the oldest entry whenever the cap was hit, whether or not a
+    thread was using it — the next caller for that path then built a *fresh*
+    Lock, so two threads could sit in the critical section for the same file
+    and the mutual exclusion vanished silently. The cap is a memory guard, so
+    when every entry is in use we grow past it rather than pay in correctness.
+    """
     key = str(path.resolve())
     with _JSON_FILE_LOCKS_LOCK:
-        if key not in _JSON_FILE_LOCKS:
-            if len(_JSON_FILE_LOCKS) >= 500:  # prevent unbounded growth; evict an idle entry
-                _JSON_FILE_LOCKS.pop(next(iter(_JSON_FILE_LOCKS)), None)
-            _JSON_FILE_LOCKS[key] = threading.Lock()
-        return _JSON_FILE_LOCKS[key]
+        entry = _JSON_FILE_LOCKS.get(key)
+        if entry is None:
+            entry = [threading.Lock(), 0]
+            _JSON_FILE_LOCKS[key] = entry
+        entry[1] += 1
+        lock = entry[0]
+    try:
+        with lock:
+            yield
+    finally:
+        with _JSON_FILE_LOCKS_LOCK:
+            entry = _JSON_FILE_LOCKS.get(key)
+            if entry is not None:
+                entry[1] -= 1
+                if entry[1] <= 0 and len(_JSON_FILE_LOCKS) > _JSON_FILE_LOCKS_MAX:
+                    _JSON_FILE_LOCKS.pop(key, None)
 
 def load_json(path: Path, default: Any) -> Any:
     """Thread-safe JSON read. Holds the per-path lock so reads don't race
     with concurrent atomic writes (tmp → rename)."""
     if not path.exists():
         return default
-    lock = _json_file_lock(path)
-    with lock:
+    with _json_file_lock(path):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
@@ -3264,8 +3302,7 @@ def save_json(path: Path, payload: Any) -> None:
     Uses a per-path threading.Lock for in-process safety, then writes to a
     .tmp file and renames — so a crash mid-write never corrupts the target.
     """
-    lock = _json_file_lock(path)
-    with lock:
+    with _json_file_lock(path):
         try:
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -3287,8 +3324,7 @@ def update_json(path: Path, default: Any, mutate_fn) -> Any:
     in place and/or return a replacement value; the (possibly replaced) data
     is what gets written back and returned.
     """
-    lock = _json_file_lock(path)
-    with lock:
+    with _json_file_lock(path):
         try:
             data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else copy.deepcopy(default)
         except Exception:
@@ -4070,8 +4106,7 @@ def save_core_framework(text: str) -> None:
     # Snapshot the current version to history before overwriting (keep last 10)
     try:
         _fw_hist_path = DATA / "core_framework_history.json"
-        _fw_lock = _json_file_lock(_fw_hist_path)
-        with _fw_lock:
+        with _json_file_lock(_fw_hist_path):
             try:
                 _hist = json.loads(_fw_hist_path.read_text(encoding="utf-8")) if _fw_hist_path.exists() else []
                 if not isinstance(_hist, list):
