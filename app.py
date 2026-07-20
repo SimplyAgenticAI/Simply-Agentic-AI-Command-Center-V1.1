@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.1")
+APP_VERSION = os.getenv("APP_VERSION", "8.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -23874,6 +23874,60 @@ def _tools_anthropic_schema() -> List[Dict[str, Any]]:
             for t in _TEAMMATE_TOOL_DEFS]
 
 
+def _consume_pending_confirm(teammate: str, uname: str, token: str, expected_action: str) -> Optional[Dict[str, Any]]:
+    """Atomically find, verify and neutralize the pending [confirm_action] card
+    matching `token`, holding the thread's file lock across the whole read →
+    verify → consume → write so a double-submit can't run it twice.
+
+    Returns the parsed card dict if a still-pending card with that exact token
+    AND action existed (and marks it consumed), else None. This binds a
+    confirm-risk execution — sending an email as the operator — to a proposal
+    the agent actually made and the operator actually saw. Without it the
+    endpoint would send whatever action+args the client posted, so any script
+    holding the session (e.g. an XSS) could send arbitrary mail.
+
+    Uses raw file I/O rather than load_thread/save_thread: those re-acquire the
+    same per-path lock, and it is a plain (non-reentrant) Lock — calling them
+    here would deadlock."""
+    if not token:
+        return None
+    path = thread_path(teammate, uname)
+    with _json_file_lock(path):
+        try:
+            thr = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        except Exception:
+            return None
+        if not isinstance(thr, list):
+            return None
+        for _m in reversed(thr):
+            if not isinstance(_m, dict) or _m.get("role") != "assistant":
+                continue
+            content = _m.get("content") or ""
+            _mt = re.search(r"\[confirm_action\]([\s\S]*?)\[/confirm_action\]", content)
+            if not _mt:
+                continue
+            try:
+                card = json.loads(_mt.group(1))
+            except Exception:
+                continue
+            if (card.get("token") or "") != token:
+                continue
+            # Token matches a real pending card. Bind the action so a token
+            # lifted from, say, a crm_add card can't be used to run send_email.
+            if expected_action and (card.get("action") or "") != expected_action:
+                return None
+            _m["content"] = re.sub(r"\[confirm_action\][\s\S]*?\[/confirm_action\]",
+                                   "(✓ confirmed)", content)
+            try:
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(thr, indent=2), encoding="utf-8")
+                tmp.replace(path)
+            except Exception:
+                return None
+            return card
+        return None
+
+
 @app.post("/api/teammate/action/execute")
 def api_teammate_action_execute():
     """Execute a confirm-risk tool action AFTER the operator clicks Confirm on the
@@ -23913,12 +23967,31 @@ def api_teammate_action_execute():
         _neutralize_block("✗ cancelled")
         return jsonify({"ok": True, "cancelled": True, "summary": "Cancelled."})
 
-    # Confirm-risk tools (send_email) AND auto-risk tools escalated by the
-    # external-content guard both land here — an explicit operator click is a
-    # strictly stronger authorization than auto-execution, so any registered
-    # tool may run on confirmation.
     if action not in _TOOL_BY_NAME:
         return jsonify({"ok": False, "error": "Unknown action."}), 400
+
+    # Base-confirm-risk tools (send_email, book_meeting) act on the outside
+    # world as the operator, so bind them to a genuine pending card: consume it
+    # atomically by token and verify the action. A script holding the session
+    # can no longer send mail the agent never proposed. The args still come from
+    # the client so the operator's edit-before-send tweaks are honoured.
+    # Escalated *auto* tools (the tokenless "Approve" flow) are lower-harm and
+    # have no card by design, so they keep the direct path below.
+    if _tool_risk(action) == "confirm":
+        card = _consume_pending_confirm(teammate, uname, token, action)
+        if not card:
+            return jsonify({"ok": False, "error": "No pending action to confirm — it may have expired or already run. Ask the teammate again."}), 409
+        res = _execute_teammate_tool(action, args, uname, teammate)
+        try:
+            thr = load_thread(teammate, uname)
+            thr.append({"role": "assistant", "content": "🔧 " + (res.get("summary") or action)})
+            save_thread(teammate, thr, uname)
+        except Exception:
+            pass
+        return jsonify({"ok": bool(res.get("ok")), "summary": res.get("summary", "")})
+
+    # Escalated auto-risk tool (external-content guard) — an explicit operator
+    # click is stronger authorization than auto-execution, so it may run.
     res = _execute_teammate_tool(action, args, uname, teammate)
     # Neutralize the pending card so it can't be replayed, then append the outcome.
     _neutralize_block("✓ done" if res.get("ok") else "✗ not sent")
