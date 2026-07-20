@@ -165,6 +165,37 @@ def _error_log_path() -> "Path":
     except Exception:
         return Path("error_log.json")
 
+_REDACT_SENSITIVE_KEYS = (
+    "password", "passwd", "pass", "token", "secret",
+    "openai_key", "claude_key", "api_key", "access_token",
+    "refresh_token", "card", "cvv", "ssn",
+)
+
+def _redact_sensitive(value: Any, _depth: int = 0):
+    """Recursively redact secret-looking values before they hit a log.
+
+    Handles dicts (by key name), lists/tuples (element-wise) and long strings
+    (truncated). Lists used to pass through untouched, so a secret nested in a
+    list of dicts survived; query args were not redacted at all. `t` is matched
+    exactly so the reset link's ?t=<token> is caught without nuking every key
+    that merely contains the letter t."""
+    if _depth > 6:
+        return "***"
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            kl = str(k).lower()
+            if kl == "t" or any(s in kl for s in _REDACT_SENSITIVE_KEYS):
+                out[k] = "***redacted***"
+            else:
+                out[k] = _redact_sensitive(v, _depth + 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_redact_sensitive(v, _depth + 1) for v in value]
+    if isinstance(value, str) and len(value) > 500:
+        return value[:500] + "…"
+    return value
+
 def _capture_error(exc: Exception, context: str = "") -> None:
     """Append a structured error entry to the error log. Never raises."""
     try:
@@ -192,24 +223,17 @@ def _capture_error(exc: Exception, context: str = "") -> None:
             if request.method in ("POST", "PUT", "PATCH"):
                 _raw = request.get_json(silent=True)
                 if isinstance(_raw, dict):
-                    _SENSITIVE = ("password", "passwd", "pass", "token", "secret",
-                                  "openai_key", "claude_key", "api_key", "access_token",
-                                  "refresh_token", "card", "cvv", "ssn")
-                    def _redact(d):
-                        out = {}
-                        for k, v in d.items():
-                            if any(s in str(k).lower() for s in _SENSITIVE):
-                                out[k] = "***redacted***"
-                            elif isinstance(v, dict):
-                                out[k] = _redact(v)
-                            else:
-                                out[k] = (v[:500] + "…") if isinstance(v, str) and len(v) > 500 else v
-                        return out
-                    entry["body"] = _redact(_raw)
+                    entry["body"] = _redact_sensitive(_raw)
                 else:
                     entry["body"] = (request.get_data(as_text=True) or "")[:500]
             if request.args:
-                entry["args"] = {k: v for k, v in request.args.items()}
+                # Redact query args too — the reset link carries the live reset
+                # token as ?t=<token>, and this log is admin-viewable. A raw
+                # copy here wrote that token to disk in cleartext on any error
+                # during /reset/confirm.
+                entry["args"] = _redact_sensitive(
+                    {k: v for k, v in request.args.items()}
+                )
         except Exception:
             pass
 
@@ -371,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.0")
+APP_VERSION = os.getenv("APP_VERSION", "8.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
