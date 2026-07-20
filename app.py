@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.2")
+APP_VERSION = os.getenv("APP_VERSION", "8.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -10774,6 +10774,7 @@ def gmail_callback():
     if not ok:
         return make_response(f"Gmail OAuth not ready: {reason}", 400)
 
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
     state = request.args.get("state", "")
     # Primary check: session-based state (works when cookies persist across redirect)
     # Fallback: file-based store (works on hosted platforms where session cookies can be lost)
@@ -10781,7 +10782,11 @@ def gmail_callback():
     if not state_ok:
         try:
             rec = _consume_oauth_state(state)
-            if rec:
+            # The file store is global, so a bare "rec exists" check let ANY
+            # user's valid state authorize THIS callback — OAuth account-linking
+            # CSRF: an attacker's state + code would bind their Gmail to the
+            # victim's account. Bind the state to the logged-in user.
+            if rec and (rec.get("username") or "") == uname:
                 state_ok = True
         except Exception:
             pass
@@ -10876,14 +10881,17 @@ def calendar_callback():
     if not ok:
         return make_response(f"Google Calendar OAuth not ready: {reason}", 400)
 
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
     state = request.args.get("state", "")
     expected = session.get("calendar_oauth_state", "")
     state_ok = bool(state and expected and state == expected)
     if not state_ok:
         # Fallback: check file-based store (handles platforms where session cookies are lost on redirect)
+        # Bind to the logged-in user — the store is global, so an unbound match
+        # is OAuth account-linking CSRF (see gmail_callback).
         try:
             rec = _consume_oauth_state("cal_" + state)
-            if rec:
+            if rec and (rec.get("username") or "") == uname:
                 state_ok = True
         except Exception:
             pass
