@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.3")
+APP_VERSION = os.getenv("APP_VERSION", "8.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -10322,9 +10322,14 @@ def _api_followup_impl(data):
     _supports_tools = not any(_resolved_model.startswith(p) for p in ("o1", "o3", "o4", "claude"))
     if _supports_tools and _msg_may_need_tools(msg2):
         try:
+            # If _inject_url_content fetched a URL into this message, its content
+            # is untrusted external data — arm the escalation guard so injection
+            # inside it can't silently trigger a mutating tool.
+            _ext_present = "BEGIN FETCHED-WEB-CONTENT" in (msg2 or "")
             text, _tool_log = call_llm_with_tools(
                 sys, msgs, temperature=0.65, model=_resolved_model,
-                username=uname, u=current_user() or {}, teammate=name
+                username=uname, u=current_user() or {}, teammate=name,
+                external_content_present=_ext_present,
             )
         except Exception:
             text = call_llm(sys, msgs, temperature=0.65, model=_resolved_model)
@@ -22772,17 +22777,24 @@ def call_llm_with_tools(
     username: str = "anon",
     u: Optional[Dict[str, Any]] = None,
     teammate: str = "Alex",
+    external_content_present: bool = False,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """OpenAI call with tool support.  Returns (final_text, tool_log).
     Non-streaming path: only AUTO-risk tools are offered — confirm-risk actions
-    (send_email) are exclusive to the streaming path with its confirm cards."""
+    (send_email) are exclusive to the streaming path with its confirm cards.
+
+    external_content_present: set True when the incoming messages ALREADY carry
+    fetched web content (e.g. _inject_url_content ran on the user's message).
+    That content is untrusted just like a read_url result, so the escalation
+    guard must start armed — otherwise injection in a pasted link could silently
+    drive a mutating tool, which is exactly what the guard is meant to prevent."""
     use_model = (model or "").strip() or MODEL
     oai       = get_openai_client()
     timeout   = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
     sys_msg   = [{"role": "system", "content": system}]
     msgs      = sys_msg + list(messages)
     tool_log: List[Dict[str, Any]] = []
-    _external_used = False
+    _external_used = bool(external_content_present)
     _auto_tools = [t for t in _tools_openai_schema() if _tool_risk(t["function"]["name"]) == "auto"]
 
     for _round in range(4):          # max 4 tool-use rounds
