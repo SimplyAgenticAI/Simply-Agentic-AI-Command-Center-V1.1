@@ -16,8 +16,10 @@ import tempfile
 import gzip
 import zlib
 import io
-import html
 import mimetypes
+# Bound as a name, not via the module: `html` is used as a local variable in a
+# dozen functions here and would shadow the module at the point of use.
+from html import escape as _html_escape
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional, Union
@@ -337,7 +339,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.7")
+APP_VERSION = os.getenv("APP_VERSION", "7.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -2693,7 +2695,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/api/extension/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -2715,6 +2717,12 @@ def _csrf_valid() -> bool:
     for prefix in _CSRF_EXEMPT_PREFIXES:
         if path.startswith(prefix):
             return True
+    # Extension endpoints are exempt only when the caller actually is the
+    # extension — i.e. it presents its API key. A blanket prefix exemption also
+    # covered the session-authenticated routes under /api/extension/ (notably
+    # rotate_key), leaving them open to a drive-by cross-origin POST.
+    if path.startswith("/api/extension/") and (request.headers.get("X-SA-Extension-Key") or "").strip():
+        return True
     if path in _CSRF_EXEMPT_PATHS:
         return True
     expected = session.get("_csrf_token", "")
@@ -3153,6 +3161,11 @@ def _auth_guard() -> Optional[Any]:
         _au = current_user()
         if not _au or not _is_admin_user(_au):
             return redirect(url_for("login"))
+        # Fall through to the CSRF check below rather than returning here —
+        # returning early left the highest-privilege routes as the only ones
+        # in the app with no CSRF protection at all.
+        if not _csrf_valid():
+            return "Forbidden — invalid CSRF token", 403
         return None
 
     # allow setup if no users exist
@@ -14547,7 +14560,7 @@ def admin_users_page():
             for code, seat in (seats_data.get("seats") or {}).items():
                 if seat.get("claimed_by") == uname:
                     pname = seat.get("plan_name") or seat.get("plan") or "Unknown"
-                    plan_badge = f"<span style=\"background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:2px 8px;border-radius:999px;font-size:11px;\">{html.escape(str(pname))}</span>"
+                    plan_badge = f"<span style=\"background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:2px 8px;border-radius:999px;font-size:11px;\">{_html_escape(str(pname))}</span>"
                     break
             if not plan_badge and is_you:
                 plan_badge = "<span style=\"background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:#fcd34d;padding:2px 8px;border-radius:999px;font-size:11px;\">Admin</span>"
@@ -14563,8 +14576,8 @@ def admin_users_page():
 
         rows += (
             f"<tr style=\"border-bottom:1px solid rgba(255,255,255,.06);\">"
-            f"<td style=\"padding:10px 12px;font-size:13px;font-weight:600;color:#e2e8f0;\">{html.escape(uname)}</td>"
-            f"<td style=\"padding:10px 12px;font-size:12px;color:#cbd5e1;\">{html.escape(rec.get('email') or '—')}</td>"
+            f"<td style=\"padding:10px 12px;font-size:13px;font-weight:600;color:#e2e8f0;\">{_html_escape(uname)}</td>"
+            f"<td style=\"padding:10px 12px;font-size:12px;color:#cbd5e1;\">{_html_escape(rec.get('email') or '—')}</td>"
             f"<td style=\"padding:10px 12px;\">{plan_badge}</td>"
             f"<td style=\"padding:10px 12px;font-size:12px;color:#64748b;\">{(rec.get('created_at') or '')[:10]}</td>"
             f"<td style=\"padding:10px 12px;\">{action}</td>"
@@ -18900,7 +18913,8 @@ def admin_error_log():
           <pre style="margin:10px 0 0;font-size:11px;white-space:pre-wrap;color:#94a3b8;overflow-x:auto;">{tb}</pre>
         </details>"""
 
-    clear_btn = """<form method="post" action="/admin/errors/clear" style="display:inline;">
+    clear_btn = f"""<form method="post" action="/admin/errors/clear" style="display:inline;">
+        <input type="hidden" name="_csrf_token" value="{_html_escape(_csrf_token_for_session())}"/>
         <button style="background:rgba(220,38,38,.25);color:#fecaca;border:1px solid rgba(248,113,113,.5);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;">
         Clear all</button></form>"""
 
