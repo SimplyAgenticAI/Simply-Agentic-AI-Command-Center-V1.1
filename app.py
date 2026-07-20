@@ -35,7 +35,7 @@ import mimetypes
 # dozen functions here and would shadow the module at the point of use.
 from html import escape as _html_escape
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Tuple, Optional, Union
 from urllib.parse import urlparse, urljoin, unquote, quote_plus
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -58,6 +58,23 @@ from email.mime.image import MIMEImage
 from email.mime.application import MIMEApplication
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now — exactly what the deprecated utcnow() returned.
+
+    Deliberately still naive. Roughly 75 call sites subtract, compare and
+    format these against each other, and now_iso() appends its own "Z"; an
+    aware datetime would render "+00:00Z" and would raise the moment it met a
+    naive one in arithmetic. Migrating to aware datetimes is a real change
+    with real risk — this only removes the deprecation.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _utcfromtimestamp(ts: float) -> datetime:
+    """Naive UTC from an epoch seconds value — replaces datetime.utcfromtimestamp."""
+    return datetime.fromtimestamp(ts, timezone.utc).replace(tzinfo=None)
 
 try:
     from bs4 import BeautifulSoup
@@ -137,7 +154,7 @@ def _log(level: str, msg: str, **ctx) -> None:
     numeric = _LOG_LEVELS.get(level.upper(), 20)
     if numeric < _LOG_MIN_LEVEL:
         return
-    ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    ts = _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     extra = (" " + " ".join(f"{k}={v!r}" for k, v in ctx.items())) if ctx else ""
     print(f"[{ts}] [{level.upper()}] {msg}{extra}", flush=True)
 
@@ -153,7 +170,7 @@ def _capture_error(exc: Exception, context: str = "") -> None:
     try:
         entry = {
             "id":        uuid.uuid4().hex[:12],
-            "at":        datetime.utcnow().isoformat() + "Z",
+            "at":        _utcnow().isoformat() + "Z",
             "context":   context or "",
             "type":      type(exc).__name__,
             "message":   str(exc),
@@ -266,7 +283,7 @@ def _broadcast_job_load(job_id: str) -> Optional[Dict[str, Any]]:
 def _broadcast_jobs_evict_old(max_age_hours: int = 4) -> None:
     """Evict completed broadcast jobs to prevent unbounded memory growth."""
     try:
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff = _utcnow() - timedelta(hours=max_age_hours)
         with _BROADCAST_JOBS_LOCK:
             stale = [
                 jid for jid, job in _BROADCAST_JOBS.items()
@@ -282,7 +299,7 @@ def _broadcast_jobs_evict_old(max_age_hours: int = 4) -> None:
             if d.exists():
                 for f in d.glob("*.json"):
                     try:
-                        age = datetime.utcnow() - datetime.fromisoformat(
+                        age = _utcnow() - datetime.fromisoformat(
                             json.loads(f.read_text(encoding="utf-8")).get("finished_at", "").replace("Z", "") or "2000-01-01")
                         if age.total_seconds() > max_age_hours * 3600:
                             f.unlink(missing_ok=True)
@@ -354,7 +371,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.9")
+APP_VERSION = os.getenv("APP_VERSION", "8.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -570,7 +587,7 @@ def _msg_usage_path(username: str) -> Path:
 
 def _get_msg_usage(username: str) -> Dict[str, Any]:
     """Return {month, count, image_count} for current calendar month. Auto-resets on new month."""
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = _utcnow().strftime("%Y-%m")
     try:
         path = _msg_usage_path(username)
         if path.exists():
@@ -583,7 +600,7 @@ def _get_msg_usage(username: str) -> Dict[str, Any]:
 
 def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, Any]:
     """Thread-safe increment of message or image counter. Returns updated usage dict."""
-    month = datetime.utcnow().strftime("%Y-%m")
+    month = _utcnow().strftime("%Y-%m")
     with _MSG_USAGE_LOCK:
         try:
             path = _msg_usage_path(username)
@@ -676,7 +693,7 @@ def _ll_usage_path(username: str) -> Path:
 
 def _get_ll_usage(username: str) -> Dict[str, Any]:
     """Return {date, count} for today UTC. Resets automatically at midnight."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = _utcnow().strftime("%Y-%m-%d")
     try:
         path = _ll_usage_path(username)
         if path.exists():
@@ -689,7 +706,7 @@ def _get_ll_usage(username: str) -> Dict[str, Any]:
 
 def _increment_ll_usage(username: str) -> int:
     """Thread-safe daily increment. Returns new count."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = _utcnow().strftime("%Y-%m-%d")
     with _LEAD_LAB_USAGE_LOCK:
         try:
             path = _ll_usage_path(username)
@@ -948,7 +965,7 @@ def _get_user_trial_info(username: str) -> Dict[str, Any]:
                 trial_end_dt = datetime.fromisoformat(trial_end_str.replace("Z", ""))
             except Exception:
                 return default
-            now_dt = datetime.utcnow()
+            now_dt = _utcnow()
             # Ceiling, not floor: with ~18h left a user should see "1 day", not
             # a confusing "0 days remaining" while the trial is still active.
             import math as _math
@@ -1007,7 +1024,7 @@ GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 def _now_epoch() -> int:
     try:
-        return int(datetime.utcnow().timestamp())
+        return int(_utcnow().timestamp())
     except Exception:
         return 0
 
@@ -1410,7 +1427,7 @@ def _migrate_global_registry_once() -> None:
             changed = True
 
     if changed:
-        existing["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        existing["updated_at"] = _utcnow().isoformat() + "Z"
         admin_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
 
 # =========================
@@ -1469,7 +1486,7 @@ def _load_persisted_jobs() -> None:
     """On startup: load recent job files from disk into memory so status polls work after restart."""
     try:
         jd = _jobs_dir()
-        cutoff = datetime.utcnow() - timedelta(hours=4)
+        cutoff = _utcnow() - timedelta(hours=4)
         for p in jd.glob("img_*.json"):
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
@@ -1497,8 +1514,8 @@ def _image_jobs_evict_old(max_age_hours: int = 2) -> None:
     """Remove completed/errored image jobs older than max_age_hours, plus any orphaned
     queued/running jobs older than 1 hour (client disconnected mid-generation)."""
     try:
-        cutoff_done = datetime.utcnow() - timedelta(hours=max_age_hours)
-        cutoff_orphan = datetime.utcnow() - timedelta(hours=1)
+        cutoff_done = _utcnow() - timedelta(hours=max_age_hours)
+        cutoff_orphan = _utcnow() - timedelta(hours=1)
         with IMAGE_JOBS_LOCK:
             stale = []
             for jid, job in IMAGE_JOBS.items():
@@ -1906,7 +1923,7 @@ def _load_stripe_sessions() -> Dict[str, Any]:
 def _save_stripe_sessions(data: Dict[str, Any]) -> None:
     # Prune entries older than 90 days to prevent unbounded growth
     try:
-        cutoff = (datetime.utcnow() - timedelta(days=90)).isoformat()
+        cutoff = (_utcnow() - timedelta(days=90)).isoformat()
         data = {k: v for k, v in data.items() if (v.get("created_at") or "") > cutoff}
     except Exception:
         pass
@@ -1931,7 +1948,7 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
     # Calculate trial end date
     _trial_end = None
     if FREE_TRIAL_DAYS > 0:
-        _trial_end = (datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)).isoformat() + "Z"
+        _trial_end = (_utcnow() + timedelta(days=FREE_TRIAL_DAYS)).isoformat() + "Z"
 
     seats[code] = {
         "seat_num":          next_num,
@@ -2068,8 +2085,8 @@ def _check_login_allowed(username: str) -> Tuple[bool, str]:
         if locked_until_str:
             try:
                 locked_until = datetime.fromisoformat(str(locked_until_str).replace("Z", ""))
-                if datetime.utcnow() < locked_until:
-                    remaining = int((locked_until - datetime.utcnow()).total_seconds() / 60) + 1
+                if _utcnow() < locked_until:
+                    remaining = int((locked_until - _utcnow()).total_seconds() / 60) + 1
                     return False, f"Too many failed attempts. Account locked for {remaining} more minute(s). Try again later."
             except Exception:
                 pass
@@ -2083,13 +2100,13 @@ def _record_login_failure(username: str) -> None:
         locked_str = rec.get("locked_until")
         if locked_str:
             try:
-                if datetime.utcnow() >= datetime.fromisoformat(str(locked_str).replace("Z", "")):
+                if _utcnow() >= datetime.fromisoformat(str(locked_str).replace("Z", "")):
                     rec = {"count": 0, "locked_until": None}
             except Exception:
                 rec = {"count": 0, "locked_until": None}
         rec["count"] = rec.get("count", 0) + 1
         if rec["count"] >= _MAX_LOGIN_ATTEMPTS:
-            rec["locked_until"] = (datetime.utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)).isoformat() + "Z"
+            rec["locked_until"] = (_utcnow() + timedelta(minutes=_LOCKOUT_MINUTES)).isoformat() + "Z"
         _LOGIN_ATTEMPTS[key] = rec
         _persist_login_attempts()
 
@@ -2146,7 +2163,7 @@ def _rl_flush_to_disk() -> None:
     with _RATE_LIMITS_LOCK:
         if not _RL_MEM_DIRTY:
             return
-        now_ts = datetime.utcnow().timestamp()
+        now_ts = _utcnow().timestamp()
         cleaned = _rl_cleanup(dict(_RL_MEM), now_ts)
         _RL_MEM.clear()
         _RL_MEM.update(cleaned)
@@ -2177,7 +2194,7 @@ threading.Thread(target=_rl_background_flusher, daemon=True, name="rl-flusher").
 def _rate_limit_check(key: str, limit: int) -> Tuple[bool, str]:
     """Returns (allowed, error_message). Pure in-memory — no disk I/O per call."""
     global _RL_MEM_DIRTY
-    now_ts = datetime.utcnow().timestamp()
+    now_ts = _utcnow().timestamp()
     with _RATE_LIMITS_LOCK:
         rec = _RL_MEM.get(key)
         if rec is None or (now_ts - rec.get("window_start", 0)) > RATE_LIMIT_WINDOW_SEC:
@@ -3245,7 +3262,7 @@ EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body|email-num|email_num)\s*:\s*(
 
 
 def now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return _utcnow().isoformat() + "Z"
 
 
 
@@ -3346,7 +3363,7 @@ def update_json(path: Path, default: Any, mutate_fn) -> Any:
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
-    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    stamp = _utcnow().strftime("%Y%m%d_%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", name)
     save_json(LOGS_DIR / f"{safe}_{stamp}.json", payload)
 
@@ -3419,7 +3436,7 @@ def _run_backup() -> None:
     _BACKUP_EXCLUDE = {"uploads", "backups", "img_jobs"}
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        stamp = _utcnow().strftime("%Y%m%d_%H%M%S")
         dest  = BACKUP_DIR / f"data_{stamp}.tar.gz"
         with tarfile.open(dest, "w:gz") as tar:
             for child in DATA.iterdir():
@@ -3962,7 +3979,7 @@ def _user_now_local(username: str) -> datetime:
         tz_str = (_load_operator_profile(username) or {}).get("timezone") or "UTC"
         return datetime.now(ZoneInfo(tz_str)).replace(tzinfo=None)
     except Exception:
-        return datetime.utcnow()
+        return _utcnow()
 
 def _run_due_schedules_once() -> None:
     if not ACTION_STACK_SCHEDULES_DIR.exists():
@@ -4029,7 +4046,7 @@ def _resume_due_runs_once() -> None:
     """Resume any waiting runs that are due."""
     if not ACTION_STACK_RUNS_DIR.exists():
         return
-    now_utc = datetime.utcnow()
+    now_utc = _utcnow()
     for user_dir in ACTION_STACK_RUNS_DIR.iterdir():
         if not user_dir.is_dir():
             continue
@@ -4602,7 +4619,7 @@ def save_thread(teammate_name: str, msgs: List[Dict[str, str]], username: str = 
             _stale = True
             if _prev:
                 try:
-                    if (datetime.utcnow() - datetime.fromisoformat(_prev.replace("Z", ""))).total_seconds() < 300:
+                    if (_utcnow() - datetime.fromisoformat(_prev.replace("Z", ""))).total_seconds() < 300:
                         _stale = False
                 except Exception:
                     _stale = True
@@ -5905,7 +5922,7 @@ _SYS_CTX_TTL   = 5  # seconds
 
 def _get_cached_sys_context(username: str) -> Dict[str, Any]:
     """Return cached operator/session context, refreshing if stale."""
-    now = datetime.utcnow().timestamp()
+    now = _utcnow().timestamp()
     with _SYS_CTX_LOCK:
         hit = _SYS_CTX_CACHE.get(username)
         if hit and (now - hit["ts"]) < _SYS_CTX_TTL:
@@ -6132,7 +6149,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             _overdue_note = ""
             try:
                 _nf = (_active.get("next_followup") or "").strip()
-                if _nf and _nf < datetime.utcnow().strftime("%Y-%m-%d"):
+                if _nf and _nf < _utcnow().strftime("%Y-%m-%d"):
                     _overdue_note = f"\n⚠ OVERDUE FOLLOW-UP: {(_active.get('name') or 'This client')} had a follow-up due on {_nf}. Mention this proactively if relevant.\n"
             except Exception:
                 _overdue_note = ""
@@ -7651,7 +7668,7 @@ def _image_prompt_soften(raw: str) -> str:
 
 def _purge_old_generated_images(keep_days: int = 7) -> int:
     """Delete AI-generated images older than keep_days to free disk space. Returns count deleted."""
-    cutoff = datetime.utcnow().timestamp() - keep_days * 86400
+    cutoff = _utcnow().timestamp() - keep_days * 86400
     deleted = 0
     try:
         for day_dir in sorted(UPLOADS_DIR.iterdir()):
@@ -7676,7 +7693,7 @@ def _purge_old_generated_images(keep_days: int = 7) -> int:
 def _save_generated_image_bytes(image_bytes: bytes, teammate: str, username: str) -> Dict[str, Any]:
     # Save into uploads like any other file and index it.
     file_id = uuid.uuid4().hex
-    subdir = datetime.utcnow().strftime("%Y%m%d")
+    subdir = _utcnow().strftime("%Y%m%d")
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
     filename = f"{_safe_name(teammate or 'teammate')}_image.png"
     out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
@@ -8810,7 +8827,7 @@ def api_account_export():
 
     resp = make_response(json.dumps(export, indent=2, ensure_ascii=False))
     resp.headers["Content-Type"] = "application/json"
-    resp.headers["Content-Disposition"] = f'attachment; filename="simply_agentic_export_{uname}_{datetime.utcnow().strftime("%Y%m%d")}.json"'
+    resp.headers["Content-Disposition"] = f'attachment; filename="simply_agentic_export_{uname}_{_utcnow().strftime("%Y%m%d")}.json"'
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -9617,7 +9634,7 @@ def api_upload():
         return jsonify({"ok": False, "error": f"File too large. Maximum {MAX_UPLOAD_MB} MB allowed."}), 413
 
     file_id = uuid.uuid4().hex
-    subdir = datetime.utcnow().strftime("%Y%m%d")
+    subdir = _utcnow().strftime("%Y%m%d")
     (UPLOADS_DIR / subdir).mkdir(parents=True, exist_ok=True)
 
     out_path = UPLOADS_DIR / subdir / f"{file_id}_{filename}"
@@ -9745,7 +9762,7 @@ def api_visuals_save():
             "prompt": prompt[:120],
             "html": html,
             "teammate": teammate,
-            "saved_at": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+            "saved_at": __import__("datetime")._utcnow().strftime("%Y-%m-%d %H:%M"),
             "preview": html[:200],
         }
         visuals.insert(0, entry)
@@ -11172,7 +11189,7 @@ def api_calendar_quick_add():
     text = (p.get("text") or "").strip()[:300]
     local_date = str(p.get("local_date") or "").strip()[:10]
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", local_date):
-        local_date = datetime.utcnow().strftime("%Y-%m-%d")
+        local_date = _utcnow().strftime("%Y-%m-%d")
     if not text:
         return jsonify({"ok": False, "error": "Type what to schedule first."}), 400
     user_key = _decrypt_field(((u.get("settings") or {}).get("openai_key") or "").strip())
@@ -14366,7 +14383,7 @@ If you ever need help, just reply to this email.
     # Admin signup alert — notify the platform owner whenever a new user joins
     _admin_notify_email = SMTP_USER
     if _admin_notify_email and not is_first_user:
-        _signup_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        _signup_time = _utcnow().strftime("%Y-%m-%d %H:%M UTC")
         _base2 = (PUBLIC_BASE_URL or "").rstrip("/")
         threading.Thread(target=_send_platform_email, args=(
             _admin_notify_email,
@@ -14392,7 +14409,7 @@ def _load_pending_verifications() -> Dict[str, Any]:
 
 def _save_pending_verifications(data: Dict[str, Any]) -> None:
     # Prune any entries older than 60 minutes
-    cutoff = (datetime.utcnow() - timedelta(minutes=60)).isoformat() + "Z"
+    cutoff = (_utcnow() - timedelta(minutes=60)).isoformat() + "Z"
     data = {t: r for t, r in data.items() if (r.get("created_at") or "") >= cutoff}
     save_json(_PENDING_VERIFICATIONS_PATH, data)
 
@@ -14812,7 +14829,7 @@ def stripe_webhook():
     # already processed this event id so handlers run exactly once.
     _evt_id = (event.get("id") or "").strip()
     if _evt_id:
-        _now_ts = datetime.utcnow().timestamp()
+        _now_ts = _utcnow().timestamp()
         _already = {"hit": False}
         def _mark(seen):
             if not isinstance(seen, dict):
@@ -15186,7 +15203,7 @@ def reset_confirm():
             if th and hmac.compare_digest(_hash_token(token), th):
                 created = ((u.get("reset") or {}).get("created_at")) or ""
                 try:
-                    if created and datetime.utcnow() <= datetime.fromisoformat(created.replace("Z", "")) + timedelta(hours=1):
+                    if created and _utcnow() <= datetime.fromisoformat(created.replace("Z", "")) + timedelta(hours=1):
                         valid = True
                 except Exception:
                     valid = False
@@ -15230,7 +15247,7 @@ def reset_password_post():
     if token_created:
         try:
             created_dt = datetime.fromisoformat(token_created.replace("Z", ""))
-            if datetime.utcnow() > created_dt + timedelta(hours=1):
+            if _utcnow() > created_dt + timedelta(hours=1):
                 u["reset"]["token_hash"] = ""
                 u["reset"]["created_at"] = None
                 data["users"][username] = u
@@ -15494,7 +15511,7 @@ def api_clients_create():
     if not name:
         return jsonify({"ok": False, "error": "Name is required"}), 400
     cid = _new_client_id()
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _utcnow().isoformat() + "Z"
     client = {
         "id": cid,
         "name": name,
@@ -15529,7 +15546,7 @@ def api_clients_update(client_id):
         for k in ["name","company","email","tags","notes","last_summary"]:
             if k in payload:
                 c[k] = (payload.get(k) or "").strip()
-        c["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        c["updated_at"] = _utcnow().isoformat() + "Z"
         clients[client_id] = c
         data["clients"] = clients
         _result[0] = dict(c)
@@ -15747,7 +15764,7 @@ def _crm_tick_once() -> None:
     # Called by /api/action_stack_schedules/tick
     max_sends = 40  # hard cap per tick across all users
     sends_done = 0
-    now_utc = datetime.utcnow()
+    now_utc = _utcnow()
 
     for user_path in CRM_DIR.glob("*.json"):
         if sends_done >= max_sends:
@@ -16357,7 +16374,7 @@ def api_crm_draft_outreach(client_id: str):
     first   = name.split()[0] if name else "there"
     last_contact   = (client.get("last_contact")   or "").strip()
     next_followup  = (client.get("next_followup")  or "").strip()
-    today_str      = datetime.utcnow().strftime("%Y-%m-%d")
+    today_str      = _utcnow().strftime("%Y-%m-%d")
 
     context_lines = [
         f"Client name: {name}"                                         if name         else None,
@@ -16864,7 +16881,7 @@ def api_crm_enroll_client():
     if seq_id not in (crm.get("sequences") or {}):
         return jsonify({"ok": False, "error": "Sequence not found"}), 404
     eid = _crm_new_id("enr")
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _utcnow().isoformat() + "Z"
     enrollment = {
         "id": eid,
         "client_id": client_id,
@@ -16894,7 +16911,7 @@ def api_crm_enroll_status(eid: str):
     if not enr:
         return jsonify({"ok": False, "error": "Enrollment not found"}), 404
     enr["status"] = new_status
-    enr["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    enr["updated_at"] = _utcnow().isoformat() + "Z"
     _crm_save(uname, crm)
     return jsonify({"ok": True, "enrollment": enr})
 
@@ -17037,7 +17054,7 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
         OPERATOR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
-    now = datetime.utcnow().isoformat() + "Z"
+    now = _utcnow().isoformat() + "Z"
     profile = dict(profile or {})
     profile["updated_at"] = now
     path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
@@ -17666,7 +17683,7 @@ def _crm_detect_business_type(html: str, name: str, company: str) -> str:
 def _crm_detect_activity(html: str, snippet: str) -> str:
     """Return 'active', 'moderate', or 'dormant' based on recency signals."""
     combined = ((html or "") + " " + (snippet or "")).lower()
-    current_year = datetime.utcnow().year
+    current_year = _utcnow().year
     recent_years = [str(current_year), str(current_year - 1)]
     if any(y in combined for y in recent_years):
         return "active"
@@ -18904,7 +18921,7 @@ def admin_error_log():
         log = []
 
     # At-a-glance counts so an admin can spot a spike without reading every entry.
-    _now_dt = datetime.utcnow()
+    _now_dt = _utcnow()
     _cnt_24h = _cnt_1h = 0
     for _e in log:
         try:
@@ -19045,7 +19062,7 @@ def api_admin_backups():
             backups.append({
                 "name": p.name,
                 "size_bytes": st.st_size,
-                "created_at": datetime.utcfromtimestamp(st.st_mtime).isoformat() + "Z",
+                "created_at": _utcfromtimestamp(st.st_mtime).isoformat() + "Z",
             })
     except Exception:
         pass
@@ -20246,7 +20263,7 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
     try:
         if (run.get("status") == "waiting") and run.get("wait_until"):
             w_dt = datetime.fromisoformat(str(run.get("wait_until")).replace("Z", ""))
-            if w_dt and datetime.utcnow() < w_dt:
+            if w_dt and _utcnow() < w_dt:
                 _persist_run(run)
                 return run
             run["status"] = "running"
@@ -20325,7 +20342,7 @@ def _run_action_stack_engine(run: Dict[str, Any]) -> Dict[str, Any]:
                 secs = max(0, min(3600, int(step.get("seconds") or 0)))
                 run["status"] = "waiting"
                 run["cursor"] = cursor
-                run["wait_until"] = (datetime.utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
+                run["wait_until"] = (_utcnow() + timedelta(seconds=secs)).isoformat() + "Z"
                 _stack_task_log(cursor + 1, "wait", "", {"seconds": secs})
                 _append_run_log(run, "wait", {"step": cursor + 1, "seconds": secs})
                 _persist_run(run)
@@ -20615,7 +20632,7 @@ def api_os_next_actions():
     if objective:
         suggestions.append({"type": "objective", "title": "Advance the session objective", "detail": objective})
     if clients:
-        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        today_str = _utcnow().strftime("%Y-%m-%d")
         # Overdue follow-ups come first — most urgent. Only strict ISO dates are
         # considered: imported contacts can carry arbitrary formats, and the old
         # raw strptime here 500'd the whole endpoint on the first odd date.
@@ -20625,7 +20642,7 @@ def api_os_next_actions():
         overdue = [c for c in clients if _nf_iso(c) and _nf_iso(c) <= today_str]
         overdue.sort(key=lambda x: _nf_iso(x))
         for c in overdue[:3]:
-            days = (datetime.utcnow().date() - datetime.strptime(_nf_iso(c), "%Y-%m-%d").date()).days
+            days = (_utcnow().date() - datetime.strptime(_nf_iso(c), "%Y-%m-%d").date()).days
             label = "today" if days == 0 else f"{days}d overdue"
             suggestions.append({
                 "type": "client",
@@ -21049,7 +21066,7 @@ def _oauth_state_fresh(rec) -> bool:
         at = datetime.fromisoformat(str(rec.get("at") or "").replace("Z", ""))
     except Exception:
         return False
-    return (datetime.utcnow() - at).total_seconds() <= _OAUTH_STATE_TTL_SEC
+    return (_utcnow() - at).total_seconds() <= _OAUTH_STATE_TTL_SEC
 
 def _evict_stale_oauth_states(data: dict) -> dict:
     """Drop expired entries so the store can't grow unbounded."""
@@ -21106,7 +21123,7 @@ def api_vault_save():
         text = text[:100_000]
     entry = {
         "id":        "vault_" + secrets.token_hex(8),
-        "label":     label or (teammate + " — " if teammate else "") + datetime.utcnow().strftime("%Y-%m-%d"),
+        "label":     label or (teammate + " — " if teammate else "") + _utcnow().strftime("%Y-%m-%d"),
         "text":      text,
         "teammate":  teammate,
         "saved_at":  now_iso(),
@@ -22355,7 +22372,7 @@ def api_dashboard():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     # Return cached stats if fresh (avoids re-reading 200 task log entries on every poll)
-    _now_ts = datetime.utcnow().timestamp()
+    _now_ts = _utcnow().timestamp()
     with _DASHBOARD_CACHE_LOCK:
         _hit = _DASHBOARD_CACHE.get(uname)
         if _hit and (_now_ts - _hit["ts"]) < _DASHBOARD_CACHE_TTL:
@@ -22381,7 +22398,7 @@ def api_dashboard():
         stages: Dict[str, int] = {}
         stage_values: Dict[str, float] = {}
         total_pipeline_value = 0.0
-        week_ago = (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
+        week_ago = (_utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")
         leads_this_week = 0
         for c in clients:
             if isinstance(c, dict):
@@ -22463,7 +22480,7 @@ def api_dashboard():
 
     _payload = {"ok": True, "stats": stats, "generated_at": now_iso()}
     with _DASHBOARD_CACHE_LOCK:
-        _DASHBOARD_CACHE[uname] = {"ts": datetime.utcnow().timestamp(), "payload": _payload}
+        _DASHBOARD_CACHE[uname] = {"ts": _utcnow().timestamp(), "payload": _payload}
     return jsonify(_payload)
 
 
@@ -22672,7 +22689,7 @@ def _execute_teammate_tool(
             if not cal_token:
                 return f"Calendar not connected: {reason}"
             _req = requests
-            now_dt   = datetime.utcnow()
+            now_dt   = _utcnow()
             time_min = now_dt.isoformat() + "Z"
             time_max = (now_dt + timedelta(days=days)).isoformat() + "Z"
             resp = _req.get(
@@ -22945,7 +22962,7 @@ def api_webhook_receive(token: str):
         # Timestamp replay protection is mandatory for signed webhooks.
         _wh_ts_header = (request.headers.get("X-Timestamp") or "").strip()
         try:
-            _age = abs(datetime.utcnow().timestamp() - float(_wh_ts_header))
+            _age = abs(_utcnow().timestamp() - float(_wh_ts_header))
         except Exception:
             return jsonify({"ok": False, "error": "Missing or invalid X-Timestamp."}), 400
         if _age > 300:
@@ -22955,7 +22972,7 @@ def api_webhook_receive(token: str):
         _wh_ts_header = request.headers.get("X-Timestamp") or ""
         if _wh_ts_header:
             try:
-                if abs(datetime.utcnow().timestamp() - float(_wh_ts_header)) > 300:
+                if abs(_utcnow().timestamp() - float(_wh_ts_header)) > 300:
                     return jsonify({"ok": False, "error": "Webhook timestamp too old — possible replay attack."}), 400
             except Exception:
                 pass
@@ -23515,7 +23532,7 @@ def _tool_save_to_vault(uname: str, teammate: str, args: Dict[str, Any]) -> Dict
             text = text[:100_000]
         entry = {
             "id": "vault_" + secrets.token_hex(8),
-            "label": label or ((teammate + " — " if teammate else "") + datetime.utcnow().strftime("%Y-%m-%d")),
+            "label": label or ((teammate + " — " if teammate else "") + _utcnow().strftime("%Y-%m-%d")),
             "text": text,
             "teammate": teammate or "",
             "saved_at": now_iso(),
@@ -23906,7 +23923,7 @@ def api_agent_initiative():
         clients = [c for c in (crm.get("clients") or {}).values() if isinstance(c, dict)]
     except Exception:
         clients = []
-    _now = datetime.utcnow()
+    _now = _utcnow()
     today = _now.strftime("%Y-%m-%d")
     stale_before = (_now - timedelta(days=14)).strftime("%Y-%m-%d")
     items: List[Dict[str, Any]] = []
@@ -24821,7 +24838,7 @@ def _create_team_invite(owner_username: str, invitee_email: str) -> Tuple[bool, 
     invites[token] = {
         "owner":      owner_username,
         "email":      invitee_email,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": _utcnow().isoformat(),
         "used":       False,
         "used_by":    None,
     }
@@ -25122,7 +25139,7 @@ def api_user_export():
         buf,
         mimetype="application/zip",
         as_attachment=True,
-        download_name=f"simply_agentic_export_{uname}_{datetime.utcnow().strftime('%Y%m%d')}.zip",
+        download_name=f"simply_agentic_export_{uname}_{_utcnow().strftime('%Y%m%d')}.zip",
     )
 
 @app.get("/api/team")
@@ -26275,7 +26292,7 @@ def _check_rank_up_and_notify(username: str, old_total: int, new_total: int) -> 
 
 def _community_week_key() -> str:
     from datetime import datetime
-    now = datetime.utcnow()
+    now = _utcnow()
     return f"{now.year}-W{now.isocalendar()[1]:02d}"
 
 def _community_load_points() -> dict:
@@ -26292,7 +26309,7 @@ def _award_points(username: str, event: str, amount: int) -> int:
             return 0
         data = _community_load_points()
         week = _community_week_key()
-        today = datetime.utcnow().strftime("%Y-%m-%d")
+        today = _utcnow().strftime("%Y-%m-%d")
         if username not in data:
             data[username] = {"total": 0, "weeks": {}, "history": [], "daily_chat": {}}
         u = data[username]
@@ -26307,7 +26324,7 @@ def _award_points(username: str, event: str, amount: int) -> int:
             daily[today] = today_count + 1
             # Prune old days (keep last 7)
             u["daily_chat"] = {d: v for d, v in daily.items()
-                               if d >= (datetime.utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")}
+                               if d >= (_utcnow() - timedelta(days=7)).strftime("%Y-%m-%d")}
 
         old_total = u.get("total", 0)
         u["total"] = old_total + amount
@@ -27418,7 +27435,7 @@ def api_crm_drip_create():
         "start_date": body.get("start_date", ""),
         "steps": body.get("steps", []),
         "enrollments": {},   # contact_id -> {step_idx, next_send_at, done}
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": _utcnow().isoformat(),
     }
     _drip_save(uname, campaigns)
     return jsonify({"ok": True, "id": cid})
@@ -27543,13 +27560,13 @@ def _drip_enroll_contacts(uname, cid, campaigns):
                 return ckey in selected_ids
             return True
 
-        start = c.get("start_date") or datetime.utcnow().strftime("%Y-%m-%d")
+        start = c.get("start_date") or _utcnow().strftime("%Y-%m-%d")
         send_time = c.get("send_time") or "09:00"
         try:
             h, m = (send_time.split(":") + ["0"])[:2]
             next_send = datetime.strptime(start, "%Y-%m-%d").replace(hour=int(h), minute=int(m))
         except Exception:
-            next_send = datetime.utcnow()
+            next_send = _utcnow()
 
         enrollments = c.get("enrollments") or {}
         for contact in contacts:
@@ -27575,7 +27592,7 @@ def _drip_tick(uname):
     try:
         campaigns = _drip_load(uname)
         changed = False
-        now = datetime.utcnow()
+        now = _utcnow()
         crm_data = _crm_load(uname)
         gmail_token = ((crm_data.get("settings") or {}).get("gmail_access_token") or "")
         from_name = (crm_data.get("settings") or {}).get("from_name") or uname
@@ -27957,7 +27974,7 @@ def api_extension_draft_message():
         return resp, 401
 
     # Server-side daily message cap
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = _utcnow().strftime("%Y-%m-%d")
     _ud = load_users()
     _urec = (_ud.get("users") or {}).get(uname, {})
     daily_msgs = (_urec.get("settings") or {}).get("ext_daily_msgs", {})
@@ -28080,7 +28097,7 @@ def api_extension_rate_limits():
         resp = jsonify({"ok": False, "error": "Not authenticated"})
         resp.headers["Access-Control-Allow-Origin"] = "*"
         return resp, 401
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = _utcnow().strftime("%Y-%m-%d")
     users_data = load_users()
     urec = (users_data.get("users") or {}).get(uname, {})
     daily_msgs = (urec.get("settings") or {}).get("ext_daily_msgs", {})

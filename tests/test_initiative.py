@@ -94,9 +94,10 @@ def test_initiative_normalizes_odd_date_formats(auth_client):
 
 
 def test_initiative_surfaces_todays_calendar_tasks(auth_client):
-    import datetime as _dt
     uname = "smoketest"
-    today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+    # Match the app's own clock helper so this test and the code under test
+    # can never disagree about which day it is.
+    today = app_module._utcnow().strftime("%Y-%m-%d")
     res = app_module._execute_teammate_tool(
         "create_calendar_task",
         {"title": "Record demo video", "date": today, "start": "10:00"}, uname, "Alex")
