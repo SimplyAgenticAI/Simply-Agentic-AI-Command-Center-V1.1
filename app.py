@@ -16,6 +16,7 @@ import tempfile
 import gzip
 import zlib
 import io
+import html
 import mimetypes
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -336,7 +337,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "7.6")
+APP_VERSION = os.getenv("APP_VERSION", "7.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -1175,6 +1176,47 @@ def og_image():
     return svg, 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400"}
 
 
+def _resolve_upload_path(relpath: str) -> Optional[Path]:
+    """Resolve relpath under UPLOADS_DIR. Returns None if it escapes the base.
+
+    Uses Path.relative_to rather than a string prefix test — `startswith` would
+    also accept a sibling directory whose name merely starts with "uploads".
+    """
+    fp = (UPLOADS_DIR / str(relpath or "").replace("\\", "/")).resolve()
+    try:
+        fp.relative_to(UPLOADS_DIR.resolve())
+    except ValueError:
+        return None
+    return fp
+
+
+def _upload_access_ok(fp: Path, u: Optional[Dict[str, Any]]) -> bool:
+    """Fail-closed ownership check for one file under UPLOADS_DIR.
+
+    Uploads are stored as `{file_id}_{filename}`, so the owner is found by
+    looking file_id up in the index. Deny unless that lookup succeeds and the
+    record belongs to the caller. Two cases this deliberately rejects:
+      - no parseable file_id (e.g. the shared `_index.json`, whose stem splits
+        to an empty string) — previously this skipped the check entirely
+      - a file on disk with no index entry — previously the email attachment
+        path read the owner off a missing record as "" and allowed it
+    Indexed records with a blank owner are still allowed: those predate owner
+    tracking, and denying them would lock users out of their own old files.
+    """
+    if _is_admin_user(u):
+        return True
+    stem = fp.stem
+    file_id = stem.split("_")[0] if "_" in stem else ""
+    if not file_id:
+        return False
+    rec = get_upload_record(file_id)
+    if rec is None:
+        return False
+    owner = (rec.get("owner") or "").strip()
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    return (not owner) or owner == uname
+
+
 @app.get("/uploads/<path:relpath>")
 def serve_upload(relpath):
     """Serve files saved under DATA/uploads. Requires login; enforces ownership."""
@@ -1183,28 +1225,14 @@ def serve_upload(relpath):
     if not u:
         return abort(401)
     try:
-        # Prevent path traversal via resolved path check
-        relpath = relpath.replace("\\", "/")
-        fp = (UPLOADS_DIR / relpath).resolve()
-        base = UPLOADS_DIR.resolve()
-        if not str(fp).startswith(str(base)):
+        fp = _resolve_upload_path(relpath)
+        if fp is None:
             return abort(400)
         if not fp.exists():
             return abort(404)
-        # Ownership check: deny-by-default if file is not in index (unless admin).
-        file_id = fp.stem.split("_")[0] if "_" in fp.stem else ""
-        if file_id:
-            rec = get_upload_record(file_id)
-            if rec is None:
-                # File exists on disk but has no index entry — deny non-admins
-                if not _is_admin_user(u):
-                    return abort(403)
-            else:
-                owner = (rec.get("owner") or "").strip()
-                uname = (u.get("username") if isinstance(u, dict) else None) or ""
-                if owner and owner != uname and not _is_admin_user(u):
-                    return abort(403)
-        return send_from_directory(str(UPLOADS_DIR), str(fp.relative_to(base)))
+        if not _upload_access_ok(fp, u):
+            return abort(403)
+        return send_from_directory(str(UPLOADS_DIR), str(fp.relative_to(UPLOADS_DIR.resolve())))
     except Exception:
         return abort(404)
 
@@ -3179,7 +3207,11 @@ def get_openai_client() -> "OpenAI":
     c = getattr(g, "openai_client", None)
     return c or _get_global_openai_client()
 
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Character allowlist, not just "no @ or whitespace" — the old pattern accepted
+# things like "<svg/onload=alert(1)>@x.co", which then rendered into the admin
+# user list. Covers every address shape real users have; exotic RFC-5322 local
+# parts (quoted strings, !#$&'*/=?^`{|}~) are rejected on purpose.
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 EMAIL_DRAFT_BLOCK_RE = re.compile(r"```email\s*([\s\S]*?)```", re.IGNORECASE)
 EMAIL_HEADER_RE = re.compile(r"^\s*(to|subject|body|email-num|email_num)\s*:\s*(.*)\s*$", re.IGNORECASE)
 
@@ -5647,9 +5679,6 @@ def _resolve_email_attachments(u: Optional[Dict[str, Any]], items: List[Dict[str
     if len(items) > MAX_EMAIL_ATTACHMENTS:
         raise ValueError(f"Too many attachments (max {MAX_EMAIL_ATTACHMENTS}).")
 
-    uname = (u.get("username") if isinstance(u, dict) else None) or ""
-    is_admin = _is_admin_user(u)
-    base = UPLOADS_DIR.resolve()
     resolved: List[Tuple[Path, str, str]] = []
     total = 0
     for item in items:
@@ -5658,14 +5687,14 @@ def _resolve_email_attachments(u: Optional[Dict[str, Any]], items: List[Dict[str
             relpath = relpath[len("uploads/"):]
         if not relpath:
             continue
-        fp = (UPLOADS_DIR / relpath).resolve()
-        if not str(fp).startswith(str(base)) or not fp.exists() or not fp.is_file():
+        fp = _resolve_upload_path(relpath)
+        if fp is None or not fp.exists() or not fp.is_file():
             raise ValueError(f"Attachment not found: {relpath}")
+        # Fail closed — an unindexed file used to read back owner "" and pass.
+        if not _upload_access_ok(fp, u):
+            raise ValueError("You don't have permission to attach that file.")
         file_id = fp.stem.split("_")[0] if "_" in fp.stem else ""
         rec = get_upload_record(file_id) if file_id else None
-        owner = (rec or {}).get("owner") or ""
-        if owner and owner != uname and not is_admin:
-            raise ValueError("You don't have permission to attach that file.")
         size = fp.stat().st_size
         total += size
         if total > MAX_EMAIL_ATTACHMENT_BYTES:
@@ -14518,7 +14547,7 @@ def admin_users_page():
             for code, seat in (seats_data.get("seats") or {}).items():
                 if seat.get("claimed_by") == uname:
                     pname = seat.get("plan_name") or seat.get("plan") or "Unknown"
-                    plan_badge = f"<span style=\"background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:2px 8px;border-radius:999px;font-size:11px;\">{pname}</span>"
+                    plan_badge = f"<span style=\"background:rgba(124,58,237,.2);border:1px solid rgba(124,58,237,.4);color:#c4b5fd;padding:2px 8px;border-radius:999px;font-size:11px;\">{html.escape(str(pname))}</span>"
                     break
             if not plan_badge and is_you:
                 plan_badge = "<span style=\"background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.4);color:#fcd34d;padding:2px 8px;border-radius:999px;font-size:11px;\">Admin</span>"
@@ -14534,8 +14563,8 @@ def admin_users_page():
 
         rows += (
             f"<tr style=\"border-bottom:1px solid rgba(255,255,255,.06);\">"
-            f"<td style=\"padding:10px 12px;font-size:13px;font-weight:600;color:#e2e8f0;\">{uname}</td>"
-            f"<td style=\"padding:10px 12px;font-size:12px;color:#cbd5e1;\">{rec.get('email') or '—'}</td>"
+            f"<td style=\"padding:10px 12px;font-size:13px;font-weight:600;color:#e2e8f0;\">{html.escape(uname)}</td>"
+            f"<td style=\"padding:10px 12px;font-size:12px;color:#cbd5e1;\">{html.escape(rec.get('email') or '—')}</td>"
             f"<td style=\"padding:10px 12px;\">{plan_badge}</td>"
             f"<td style=\"padding:10px 12px;font-size:12px;color:#64748b;\">{(rec.get('created_at') or '')[:10]}</td>"
             f"<td style=\"padding:10px 12px;\">{action}</td>"
