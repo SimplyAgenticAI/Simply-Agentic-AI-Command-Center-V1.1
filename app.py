@@ -4926,7 +4926,11 @@ def _sanitize_svg(raw: str) -> str:
     if not m:
         return ""
     svg = m.group(0)
-    svg = _re.sub(r'\son\w+\s*=\s*(?:"[^"]*"|\'[^\']*\')', '', svg, flags=_re.IGNORECASE)
+    # Strip event-handler attributes. The value alternation MUST include the
+    # unquoted form (`onclick=alert(1)`) — without it, an unquoted handler on a
+    # whitelisted element (circle, path, …) survived the tag allowlist below and
+    # stayed live once the SVG was inserted via innerHTML.
+    svg = _re.sub(r'\son\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]+)', '', svg, flags=_re.IGNORECASE)
     svg = _re.sub(r'javascript\s*:', '', svg, flags=_re.IGNORECASE)
     SAFE = r'(?:svg|circle|ellipse|line|path|polygon|polyline|rect|g|defs|stop|linearGradient|radialGradient)'
     svg = _re.sub(r'<(?!\/?(?:' + SAFE + r')\b)[^>]+>', '', svg, flags=_re.IGNORECASE)
