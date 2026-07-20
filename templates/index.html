@@ -13034,6 +13034,27 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         }
       }
     });
+    // ── "w" toggles Whisper voice · release mic the instant focus leaves ──
+    // Exposed on window so the central hotkey handler (saHotkeyHandler, a
+    // different scope) can drive it — alwaysOn/startAlwaysListening are
+    // let-scoped to here. Returns the new on/off state for the toast.
+    window.saToggleWhisper=function(){
+      try{
+        if(alwaysOn){ stopAlwaysListening(); return false; }
+        startAlwaysListening(alwaysMode||"dm"); return true;
+      }catch(_){ return false; }
+    };
+    // Release the mic whenever the window loses focus — switching to another
+    // tab, window, or app must never leave it live in the background. Guarded
+    // on _whisperStream: during the first-run getUserMedia permission prompt
+    // the window blurs but the stream isn't granted yet, so we must not stop
+    // then (that would kill the session before it ever started). The existing
+    // visibilitychange handler above still covers tab-hidden + hands-free
+    // resume; this adds the app/window-switch case it can't see.
+    window.addEventListener("blur",function(){
+      if(alwaysOn && _whisperStream){ try{ stopAlwaysListening(); }catch(_){} }
+    });
+
     // Update teammate chip when seat changes
     const _origSelectSeat=window.selectSeat||(()=>{});
     window._whisperSeatHook=function(name){
@@ -22882,7 +22903,7 @@ $("saveFramework").onclick = async () => {
       box.appendChild(title);
       const groups = [
         { label:'Teammates', rows:[['1 – 7','Activate teammate by seat number'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
-        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
+        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)'],['W','Whisper voice on / off']] },
         { label:'Navigation', rows:[['Esc','Close modal / deselect seat'],['?','Show this cheat sheet'],['Ctrl+/','Show this cheat sheet']] },
       ];
       groups.forEach(g => {
@@ -22982,6 +23003,13 @@ $("saveFramework").onclick = async () => {
         case 'k':
           e.preventDefault();
           toggleTool('knowledge',function(){ if(typeof saOpenRag==='function') saOpenRag(); hkToast('⌨ Knowledge Base'); });
+          break;
+        case 'w':
+          e.preventDefault();
+          if(typeof window.saToggleWhisper==='function'){
+            const _on=window.saToggleWhisper();
+            hkToast('⌨ Whisper '+(_on?'on':'off'));
+          }
           break;
         case '?':
         case '/':
