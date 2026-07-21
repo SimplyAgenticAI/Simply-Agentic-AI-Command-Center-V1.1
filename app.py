@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.7")
+APP_VERSION = os.getenv("APP_VERSION", "8.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -18949,6 +18949,143 @@ def _admin_audit(admin_username: str, action: str, target: str = "", metadata: O
     except Exception:
         pass
 
+@app.get("/admin/economics")
+def admin_economics_page():
+    """Admin-only: real per-message cost + per-plan margin from live usage logs.
+
+    Answers 'am I actually hitting my target margin?' with MEASURED data. Reads
+    every user's token-usage log + message counter for the current month, so
+    cost/message includes the agentic tool-loop multiplier (now that every round
+    is logged). Read-only; no writes, no behaviour change."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return redirect(url_for("login"))
+
+    month = _utcnow().strftime("%Y-%m")
+
+    # Measured spend this month across ALL users, split by feature kind.
+    total_cost = 0.0
+    cost_by_kind: Dict[str, float] = {}
+    n_calls = 0
+    try:
+        for p in LOGS_DIR.glob("usage_*.json"):
+            try:
+                entries = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for e in (entries or []):
+                if not str(e.get("ts", "")).startswith(month):
+                    continue
+                c = float(e.get("cost_usd", 0) or 0)
+                total_cost += c
+                k = e.get("kind", "chat") or "chat"
+                cost_by_kind[k] = cost_by_kind.get(k, 0.0) + c
+                n_calls += 1
+    except Exception:
+        pass
+
+    # Billed message + image counts this month across ALL users.
+    total_msgs = total_imgs = active_users = 0
+    try:
+        for p in Path(DATA_DIR).glob("msg_usage_*.json"):
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(d, dict) or d.get("month") != month:
+                continue
+            mc = int(d.get("count", 0)); ic = int(d.get("image_count", 0))
+            total_msgs += mc; total_imgs += ic
+            if mc or ic:
+                active_users += 1
+    except Exception:
+        pass
+
+    chat_cost  = cost_by_kind.get("chat", 0.0)
+    image_cost = cost_by_kind.get("image", 0.0) + cost_by_kind.get("visual", 0.0)
+    measured_cpm = (chat_cost / total_msgs) if total_msgs else 0.0
+    measured_cpi = (image_cost / total_imgs) if total_imgs else 0.0
+    calls_per_msg = (n_calls / total_msgs) if total_msgs else 0.0
+    has_data = total_msgs > 0
+
+    # Estimate fallback when a fresh month has no traffic yet.
+    cpm = measured_cpm or 0.03
+    cpi = measured_cpi or 0.07
+    STRIPE_PCT, STRIPE_FLAT, TARGET = 0.029, 0.30, 0.85
+    denom = (1 - TARGET) - STRIPE_PCT  # 0.121
+
+    def _plan_econ(key):
+        pl = PLANS.get(key) or {}
+        price = float(pl.get("price", 0) or 0)
+        msgs  = MSG_LIMITS.get(key, 0)
+        imgs  = IMAGE_LIMITS.get(key, 0)
+        max_cost = msgs * cpm + imgs * cpi + (STRIPE_PCT * price + STRIPE_FLAT)
+        margin   = ((price - max_cost) / price * 100) if price else 0.0
+        min_price = (msgs * cpm + imgs * cpi + STRIPE_FLAT) / denom if denom > 0 else 0
+        max_msgs  = ((denom * price - STRIPE_FLAT - imgs * cpi) / cpm) if cpm > 0 else 0
+        return {"name": pl.get("name", key), "price": price, "msgs": msgs, "imgs": imgs,
+                "max_cost": max_cost, "margin": margin,
+                "min_price": max(price, min_price), "max_msgs": max(0, int(max_msgs))}
+
+    def _stat(label, val):
+        return (f"<div style='flex:1;min-width:140px;background:rgba(14,22,48,.7);"
+                f"border:1px solid rgba(42,58,106,.5);border-radius:12px;padding:12px 14px;'>"
+                f"<div style='font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;'>{label}</div>"
+                f"<div style='font-size:20px;font-weight:800;color:#e2e8f0;margin-top:4px;'>{val}</div></div>")
+
+    rows_html = ""
+    for key in ("founder", "solo", "teams"):
+        r = _plan_econ(key)
+        mcol = "#6ee7b7" if r["margin"] >= 85 else ("#fbbf24" if r["margin"] >= 60 else "#f87171")
+        rows_html += (
+            "<tr style='border-bottom:1px solid rgba(255,255,255,.06);'>"
+            f"<td style='padding:10px 12px;font-weight:700;color:#e2e8f0;'>{_html_escape(str(r['name']))}</td>"
+            f"<td style='padding:10px 12px;color:#cbd5e1;'>${r['price']:.0f}</td>"
+            f"<td style='padding:10px 12px;color:#94a3b8;'>{r['msgs']} msg / {r['imgs']} img</td>"
+            f"<td style='padding:10px 12px;color:#cbd5e1;'>${r['max_cost']:.2f}</td>"
+            f"<td style='padding:10px 12px;font-weight:800;color:{mcol};'>{r['margin']:.0f}%</td>"
+            f"<td style='padding:10px 12px;color:#a78bfa;'>${r['min_price']:.0f}</td>"
+            f"<td style='padding:10px 12px;color:#a78bfa;'>{r['max_msgs']} msg</td>"
+            "</tr>")
+
+    src = ("Measured from this month's usage logs."
+           if has_data else
+           "⚠ No usage recorded this month yet — showing conservative estimates "
+           "($0.03/msg, $0.07/img). Numbers become real once the app logs live traffic.")
+
+    html = f"""<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Economics — {_html_escape(APP_TITLE)}</title></head>
+<body style="margin:0;background:#0a0e1f;color:#e2e8f0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;">
+<div style="max-width:940px;margin:0 auto;">
+<h1 style="font-size:20px;margin:0 0 4px;">💰 Plan economics · {month}</h1>
+<p style="color:#64748b;font-size:13px;margin:0 0 18px;">{src}</p>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;">
+  {_stat('Cost / message', ('$%.4f' % cpm) + ('' if has_data else ' (est)'))}
+  {_stat('Cost / image', ('$%.4f' % cpi) + ('' if has_data else ' (est)'))}
+  {_stat('API calls / msg', '%.1f' % calls_per_msg)}
+  {_stat('Messages (mo)', format(total_msgs, ','))}
+  {_stat('Active users', format(active_users, ','))}
+  {_stat('Total spend (mo)', '$%.2f' % total_cost)}
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:13px;background:rgba(14,22,48,.6);border:1px solid rgba(42,58,106,.5);border-radius:12px;overflow:hidden;">
+<thead><tr style="background:rgba(124,58,237,.14);text-align:left;color:#c4b5fd;">
+<th style="padding:10px 12px;">Plan</th><th style="padding:10px 12px;">Price</th>
+<th style="padding:10px 12px;">Caps</th><th style="padding:10px 12px;">Cost @ max</th>
+<th style="padding:10px 12px;">Margin @ max</th>
+<th style="padding:10px 12px;">Price for 85%</th><th style="padding:10px 12px;">Msgs for 85%</th>
+</tr></thead><tbody>{rows_html}</tbody></table>
+<p style="color:#64748b;font-size:12px;margin-top:14px;line-height:1.7;">
+<b>Cost @ max</b> = spend if a user hits every cap this month (worst case), Stripe fee included.
+<b>Margin @ max</b> — green ≥85%, amber ≥60%, red below.
+<b>Price for 85%</b> = charge this to hit 85% at the current caps.
+<b>Msgs for 85%</b> = cap that holds 85% at the current price.
+Biggest lever: route the tool-loop rounds to a cheaper model to cut cost/message and move every row toward 85% without raising prices.</p>
+<p style="margin-top:20px;"><a href="/" style="color:#c4b5fd;">← Back to app</a></p>
+</div></body></html>"""
+    return make_response(html)
+
+
 @app.get("/admin/errors")
 def admin_error_log():
     """Admin-only: view the self-hosted error log."""
@@ -22807,6 +22944,14 @@ def call_llm_with_tools(
             temperature=temperature, timeout=timeout,
             tools=_auto_tools, tool_choice="auto",
         )
+        try:
+            _u = getattr(resp, "usage", None)
+            if _u:
+                _log_token_usage(username, use_model,
+                                 getattr(_u, "prompt_tokens", 0) or 0,
+                                 getattr(_u, "completion_tokens", 0) or 0,
+                                 teammate=teammate, kind="chat")
+        except Exception: pass
         choice = resp.choices[0]
 
         # No tool calls → return the text
@@ -24646,6 +24791,17 @@ def api_followup_stream():
                             model=preferred_model, messages=_tmsgs,
                             tools=_tools_openai_schema(), tool_choice="auto",
                             temperature=0.65, timeout=90)
+                        # Log token spend for EVERY tool-loop round — this is the
+                        # cost multiplier (N calls per user message) and was
+                        # previously unmeasured, so the usage dashboard undercounted.
+                        try:
+                            _ru = getattr(_r, "usage", None)
+                            if _ru:
+                                _log_token_usage(uname, preferred_model,
+                                                 getattr(_ru, "prompt_tokens", 0) or 0,
+                                                 getattr(_ru, "completion_tokens", 0) or 0,
+                                                 teammate=name, kind="chat")
+                        except Exception: pass
                         _m = _r.choices[0].message
                         _calls = getattr(_m, "tool_calls", None)
                         if not _calls:
@@ -24752,6 +24908,14 @@ def api_followup_stream():
                             _resp = _cc.messages.create(
                                 model=preferred_model, max_tokens=4096, system=sys_prompt,
                                 messages=_cmsgs, tools=_tools_anthropic_schema())
+                            try:
+                                _cu = getattr(_resp, "usage", None)
+                                if _cu:
+                                    _log_token_usage(uname, preferred_model,
+                                                     getattr(_cu, "input_tokens", 0) or 0,
+                                                     getattr(_cu, "output_tokens", 0) or 0,
+                                                     teammate=name, kind="chat")
+                            except Exception: pass
                             _text_parts, _tool_uses, _asst_content = [], [], []
                             for _block in _resp.content:
                                 _bt = getattr(_block, "type", "")
