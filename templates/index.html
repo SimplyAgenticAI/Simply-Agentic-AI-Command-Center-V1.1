@@ -17947,6 +17947,13 @@ Challenge weak assumptions. Surface risks.`;
           await crmFetchState();
           await crmFetchClients();
           crmRenderClients();
+          // Pipeline view needs its stage columns rendered explicitly. The
+          // Pipeline tab click does this; on open we only showed the (empty)
+          // view, so CRM appeared blank until you clicked Pipeline. Load it
+          // here so it opens straight to a populated pipeline.
+          if((defaultViewId || 'crmViewPipeline') === 'crmViewPipeline'){
+            try{ await crmLoadPipelineIntoBox(); }catch(_e){}
+          }
           crmSetStatus('Ready');
         }catch(e){
           crmSetStatus('Load failed');
