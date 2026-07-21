@@ -4501,6 +4501,7 @@ label {
             <button id="openApiKeyHelpBtn" class="saMoreItem" style="color:#e2e8f0;">🔑 API Keys</button>
             <button id="teamBtn" class="saMoreItem" style="color:#e2e8f0;">👥 My Team</button>
             <a id="seatManagerLink" href="/admin/seats" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🗝 Seat Manager</a>
+            <a id="economicsLink" href="/admin/economics" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">💰 Plan Economics</a>
             <a id="errorLogLink" href="/admin/errors" class="saMoreItem" style="text-decoration:none;color:#e2e8f0;display:none;">🩺 Error Log</a>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:4px 0;"></div>
             <!-- Help & Resources accordion -->
@@ -22735,6 +22736,8 @@ $("settingsBtn").onclick = () => showSettingsModal();
           if(lnk) lnk.style.display = "";
           const elog = document.getElementById("errorLogLink");
           if(elog) elog.style.display = "";
+          const econ = document.getElementById("economicsLink");
+          if(econ) econ.style.display = "";
         }
       }catch(e){}
     }
