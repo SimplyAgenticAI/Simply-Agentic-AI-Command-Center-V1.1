@@ -395,10 +395,17 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "8.9")
+APP_VERSION = os.getenv("APP_VERSION", "9.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
+# Optional cheaper model for OpenAI agentic tool-loop rounds AFTER the first
+# (default "" = OFF = no behaviour change). Set to e.g. "gpt-4o-mini" to roughly
+# halve cost/message: the FIRST call — which answers plain chat and decides which
+# tools to run — always stays on the strong model, so only the tool-result
+# synthesis on tool-using messages runs on the cheaper one. Enable this and the
+# per-plan message caps can be raised well above their current values at 85%.
+TOOL_LOOP_MODEL = (os.getenv("TOOL_LOOP_MODEL", "") or "").strip()
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
@@ -545,7 +552,7 @@ PLANS: Dict[str, Any] = {
         "crm_contacts":     500,
         "broadcast_recipients": 250,
         "team_seats":       1,
-        "msg_limit":        600,
+        "msg_limit":        350,
         "features": [
             "All 7 built-in AI teammates — AI included, no API key needed",
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
@@ -558,7 +565,7 @@ PLANS: Dict[str, Any] = {
             "Website & landing page analyzer (scored 1–100)",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
-            "600 AI messages per month included",
+            "350 AI messages per month included",
         ],
     },
     "teams": {
@@ -571,14 +578,14 @@ PLANS: Dict[str, Any] = {
         "crm_contacts":     2500,
         "broadcast_recipients": 1000,
         "team_seats":       3,
-        "msg_limit":        2000,
+        "msg_limit":        1000,
         "features": [
             "Everything in Solo — plus team features",
             "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
             "3 team seats — run with a crew",
-            "2,000 AI messages per month included",
+            "1,000 AI messages per month included",
             "Advanced pipeline automation",
             "Priority support",
         ],
@@ -593,8 +600,13 @@ def _normalize_plan_key(key: str) -> str:
     return _PLAN_KEY_ALIASES.get(k, k) if k not in PLANS else k
 
 # ── Per-plan usage limits ────────────────────────────────────────────────────
-MSG_LIMITS      = {"founder": 1000, "solo": 600,  "teams": 2000}
-IMAGE_LIMITS    = {"founder": 20,   "solo": 15,   "teams": 40}
+# Sized so a max-usage user yields ~85% gross margin at the MEASURED cost
+# (~$0.0117/message incl. the tool-loop multiplier, $0.07/medium image) plus the
+# Stripe fee. Enabling model routing (TOOL_LOOP_MODEL=gpt-4o-mini) roughly halves
+# cost/message, letting these caps be raised well above these numbers at the same
+# 85%. Teams is an ACCOUNT-WIDE shared pool (see _team_usage_scope).
+MSG_LIMITS      = {"founder": 150, "solo": 350, "teams": 1000}
+IMAGE_LIMITS    = {"founder": 15,  "solo": 15,  "teams": 40}
 LEAD_LAB_LIMITS = {"founder": 5,    "solo": 3,    "teams": 10}   # daily runs
 
 _MSG_USAGE_LOCK      = threading.Lock()
@@ -685,27 +697,38 @@ def _user_has_own_key(username: str) -> bool:
     except Exception:
         return False
 
+def _team_pooled_usage(username: str, plan_key: str) -> tuple:
+    """Return (msg_used, image_used, msg_limit, image_limit) for `username`,
+    pooling a whole team's usage against the OWNER's plan limit. A solo/founder
+    single user behaves exactly as before (their own counter vs their own plan).
+    This is what makes the Teams cap a real ACCOUNT-WIDE shared pool instead of a
+    per-seat limit that a 3-seat account could multiply past."""
+    root    = _team_account_root(username)
+    members = _team_account_users(root)
+    acct_k  = _normalize_plan_key(_get_user_plan(root)) if len(members) > 1 else _normalize_plan_key(plan_key)
+    limit   = MSG_LIMITS.get(acct_k, 350)
+    ilimit  = IMAGE_LIMITS.get(acct_k, 15)
+    if len(members) > 1:
+        used  = sum(_get_msg_usage(m)["count"] for m in members)
+        iused = sum(_get_msg_usage(m)["image_count"] for m in members)
+    else:
+        u = _get_msg_usage(username)
+        used, iused = u["count"], u["image_count"]
+    return used, iused, limit, ilimit
+
 def _check_msg_limit(username: str, plan_key: str) -> tuple:
     """Return (allowed, used, limit, image_used, image_limit, has_own_key).
     allowed=True if the user can send another message."""
     if _user_has_own_key(username):
         return (True, 0, 0, 0, 0, True)
-    k      = _normalize_plan_key(plan_key)
-    limit  = MSG_LIMITS.get(k, 600)
-    ilimit = IMAGE_LIMITS.get(k, 20)
-    usage  = _get_msg_usage(username)
-    used   = usage["count"]
-    iused  = usage["image_count"]
+    used, iused, limit, ilimit = _team_pooled_usage(username, plan_key)
     return (used < limit, used, limit, iused, ilimit, False)
 
 def _check_image_limit(username: str, plan_key: str) -> tuple:
     """Return (allowed, used, limit, has_own_key)."""
     if _user_has_own_key(username):
         return (True, 0, 0, True)
-    k      = _normalize_plan_key(plan_key)
-    ilimit = IMAGE_LIMITS.get(k, 20)
-    usage  = _get_msg_usage(username)
-    iused  = usage["image_count"]
+    _used, iused, _limit, ilimit = _team_pooled_usage(username, plan_key)
     return (iused < ilimit, iused, ilimit, False)
 
 
@@ -847,6 +870,26 @@ def _get_team_members(owner_username: str) -> List[str]:
 def _get_team_seats_used(owner_username: str) -> int:
     """Seats used = owner (1) + number of active team members."""
     return 1 + len(_get_team_members(owner_username))
+
+def _team_account_root(username: str) -> str:
+    """The billing-root user whose plan + shared usage pool govern `username`.
+    Returns the team owner if `username` is a member, else `username` itself."""
+    try:
+        return _get_team_owner(username) or username
+    except Exception:
+        return username
+
+def _team_account_users(root: str) -> List[str]:
+    """Everyone drawing from the account's shared pool: root + its members.
+    De-duplicated so a stray self-reference can't double-count."""
+    try:
+        seen = [root]
+        for m in _get_team_members(root):
+            if m and m not in seen:
+                seen.append(m)
+        return seen
+    except Exception:
+        return [root]
 
 _TEAM_SEAT_LOCK = threading.Lock()
 
@@ -7632,12 +7675,26 @@ def _pick_image_size(prompt: str = "") -> str:
     # Default: square — works best for general graphics, social media, logos
     return "1024x1024"
 
+# Default image quality — env-tunable. Medium ($0.07) instead of high ($0.19) is
+# the single biggest per-user cost lever: ~63% cheaper per image and visually
+# near-indistinguishable for typical marketing/social use. Set IMAGE_QUALITY=high
+# to restore the old default, or =low to cut cost further ($0.02).
+_IMAGE_QUALITY_DEFAULT = (os.getenv("IMAGE_QUALITY", "medium") or "medium").strip().lower()
+if _IMAGE_QUALITY_DEFAULT not in ("low", "medium", "high"):
+    _IMAGE_QUALITY_DEFAULT = "medium"
+
 def _pick_image_quality(prompt: str = "") -> str:
-    """High quality unless prompt suggests a quick draft."""
+    """Return the image quality tier. Uses the env default (IMAGE_QUALITY, default
+    'medium'); drops a step for quick drafts; bumps to 'high' only when the
+    operator explicitly asks for it."""
     p = (prompt or "").lower()
+    if any(x in p for x in ["high quality", "high-quality", "high res", "high-res",
+                            "hi-res", "hi res", "ultra", "premium", "print quality",
+                            "maximum quality", "highest quality"]):
+        return "high"
     if any(x in p for x in ["quick", "draft", "rough", "sketch idea", "concept"]):
-        return "medium"
-    return "high"
+        return "low" if _IMAGE_QUALITY_DEFAULT != "high" else "medium"
+    return _IMAGE_QUALITY_DEFAULT
 
 def _image_prompt_refine(raw: str, lighting_mode: bool = False, prior_description: str = "") -> str:
     sys = (
@@ -22939,15 +22996,16 @@ def call_llm_with_tools(
     _auto_tools = [t for t in _tools_openai_schema() if _tool_risk(t["function"]["name"]) == "auto"]
 
     for _round in range(4):          # max 4 tool-use rounds
+        _round_model = TOOL_LOOP_MODEL if (_round > 0 and TOOL_LOOP_MODEL) else use_model
         resp   = oai.chat.completions.create(
-            model=use_model, messages=msgs,
+            model=_round_model, messages=msgs,
             temperature=temperature, timeout=timeout,
             tools=_auto_tools, tool_choice="auto",
         )
         try:
             _u = getattr(resp, "usage", None)
             if _u:
-                _log_token_usage(username, use_model,
+                _log_token_usage(username, _round_model,
                                  getattr(_u, "prompt_tokens", 0) or 0,
                                  getattr(_u, "completion_tokens", 0) or 0,
                                  teammate=teammate, kind="chat")
@@ -24787,8 +24845,12 @@ def api_followup_stream():
                     for _round in range(5):
                         if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
                             break
+                        # First round stays on the strong model (plain chat +
+                        # tool selection); later rounds may use the cheaper
+                        # TOOL_LOOP_MODEL when configured. Default: no change.
+                        _loop_model = TOOL_LOOP_MODEL if (_round > 0 and TOOL_LOOP_MODEL) else preferred_model
                         _r = oai_client.chat.completions.create(
-                            model=preferred_model, messages=_tmsgs,
+                            model=_loop_model, messages=_tmsgs,
                             tools=_tools_openai_schema(), tool_choice="auto",
                             temperature=0.65, timeout=90)
                         # Log token spend for EVERY tool-loop round — this is the
@@ -24797,7 +24859,7 @@ def api_followup_stream():
                         try:
                             _ru = getattr(_r, "usage", None)
                             if _ru:
-                                _log_token_usage(uname, preferred_model,
+                                _log_token_usage(uname, _loop_model,
                                                  getattr(_ru, "prompt_tokens", 0) or 0,
                                                  getattr(_ru, "completion_tokens", 0) or 0,
                                                  teammate=name, kind="chat")
