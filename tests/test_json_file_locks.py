@@ -84,6 +84,10 @@ def test_mutual_exclusion_holds_under_cap_pressure(monkeypatch):
 
 def test_registry_reclaims_unused_entries(monkeypatch):
     """The cap must still do its job once entries fall out of use."""
+    # Start from a clean registry — other tests in the suite leave idle entries
+    # in this global dict, and this test asserts on its absolute size.
+    with app_module._JSON_FILE_LOCKS_LOCK:
+        app_module._JSON_FILE_LOCKS.clear()
     monkeypatch.setattr(app_module, "_JSON_FILE_LOCKS_MAX", 5)
     for i in range(60):
         with app_module._json_file_lock(app_module.DATA / f"reclaim_{i}.json"):

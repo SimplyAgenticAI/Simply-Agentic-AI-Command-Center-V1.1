@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.1")
+APP_VERSION = os.getenv("APP_VERSION", "9.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -27934,15 +27934,28 @@ def _drip_enroll_contacts(uname, cid, campaigns):
         pass
 
 
+_DRIP_MAX_SENDS_PER_TICK = 20  # spread a large enrollment across ticks, not one burst
+
 def _drip_tick(uname):
-    """Send any due drip emails for this user. Called by the background scheduler."""
+    """Send any due drip emails for this user. Called by the background scheduler
+    every ~60s. Sends through the unified _crm_send_email_to path so it works with
+    Gmail (access token auto-refreshed) OR SMTP — whichever the user configured.
+
+    The previous version read crm settings.gmail_access_token, which is NEVER
+    written anywhere, so no drip email ever actually sent. It also advanced the
+    enrollment step even when the send failed, silently skipping emails."""
     try:
         campaigns = _drip_load(uname)
+        if not campaigns:
+            return
         changed = False
         now = _utcnow()
-        crm_data = _crm_load(uname)
-        gmail_token = ((crm_data.get("settings") or {}).get("gmail_access_token") or "")
-        from_name = (crm_data.get("settings") or {}).get("from_name") or uname
+        u = (load_users().get("users") or {}).get(uname) or {}
+        crm_settings = (_crm_load(uname).get("settings") or {})
+        from_name = (crm_settings.get("from_name")
+                     or ((u.get("settings") or {}).get("smtp") or {}).get("from_name")
+                     or uname)
+        sends_left = _DRIP_MAX_SENDS_PER_TICK
 
         for cid, c in campaigns.items():
             if c.get("status") != "active": continue
@@ -27959,34 +27972,50 @@ def _drip_tick(uname):
 
             for contact_key, enr in list(enrollments.items()):
                 if enr.get("done"): continue
+                if sends_left <= 0: break
                 step_idx = enr.get("step_idx", 0)
                 if step_idx >= len(steps):
                     enr["done"] = True
                     changed = True
                     continue
-                next_send_str = enr.get("next_send_at", "")
                 try:
-                    next_send = datetime.fromisoformat(next_send_str)
+                    next_send = datetime.fromisoformat(enr.get("next_send_at", ""))
                 except Exception:
                     next_send = now
                 if now < next_send: continue
-                # Send the email
-                step = steps[step_idx]
-                subject = (step.get("subject") or "").replace("[First Name]", enr.get("contact_name", "").split()[0] if enr.get("contact_name") else "there")
-                body_text = (step.get("body") or "").replace("[First Name]", enr.get("contact_name", "").split()[0] if enr.get("contact_name") else "there").replace("[Your Name]", from_name)
-                to_addr = enr.get("contact_email", "")
-                if to_addr and gmail_token:
-                    try:
-                        _gmail_send_message(gmail_token, to_addr, subject, body_text, from_name)
-                    except Exception:
-                        pass  # log silently; don't abort the loop
-                # Advance
-                enr["step_idx"] = step_idx + 1
-                if enr["step_idx"] >= len(steps):
+
+                to_addr = (enr.get("contact_email") or "").strip()
+                if not to_addr:
+                    # Contact has no email — nothing to send, ever. Retire it.
                     enr["done"] = True
+                    changed = True
+                    continue
+
+                step = steps[step_idx]
+                _first = enr.get("contact_name", "").split()[0] if enr.get("contact_name") else "there"
+                subject   = (step.get("subject") or "").replace("[First Name]", _first)
+                body_text = (step.get("body") or "").replace("[First Name]", _first).replace("[Your Name]", from_name)
+
+                sent = False
+                try:
+                    ok, _prov, _err = _crm_send_email_to(u, to_addr, subject, body_text, from_name)
+                    sent = bool(ok)
+                except Exception:
+                    sent = False
+
+                if sent:
+                    sends_left -= 1
+                    enr["step_idx"] = step_idx + 1
+                    if enr["step_idx"] >= len(steps):
+                        enr["done"] = True
+                    else:
+                        next_dt = (now + timedelta(days=interval_days)).replace(
+                            hour=_send_hour, minute=_send_min, second=0, microsecond=0)
+                        enr["next_send_at"] = next_dt.isoformat()
                 else:
-                    next_dt = (now + timedelta(days=interval_days)).replace(hour=_send_hour, minute=_send_min, second=0, microsecond=0)
-                    enr["next_send_at"] = next_dt.isoformat()
+                    # Send failed (email not connected yet, or transient). Retry in
+                    # ~1h instead of every 60s, and DON'T advance so nothing is lost.
+                    enr["next_send_at"] = (now + timedelta(hours=1)).isoformat()
                 changed = True
             campaigns[cid]["enrollments"] = enrollments
 
