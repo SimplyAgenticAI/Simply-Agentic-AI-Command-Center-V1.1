@@ -99,10 +99,14 @@
   <title>{{app_title}}</title>
   <style>
     :root{
+      /* Forest canvas + light cards. The GREEN ground is what makes the cream
+         cards pop (8.4x separation) — a light ground put them at 1.07x, i.e.
+         invisible. Text: ink on cards, cream on the canvas. */
       --text:#2d2d2d; --muted:#5c635e; --surface:#ffffff; --card:#ffffff;
+      --on-canvas:#f6f4ec; --on-canvas-muted:#cfe0d5;
       --border:rgba(35,79,61,.14); --border-soft:rgba(35,79,61,.09);
-      --shadow-sm:0 6px 18px rgba(35,49,40,.10); --shadow:0 14px 34px rgba(35,49,40,.13);
-      --bg-deep:#f1efe7; --bg-base:#f8f7f3;
+      --shadow-sm:0 6px 18px rgba(20,40,30,.18); --shadow:0 16px 38px rgba(15,32,24,.26);
+      --bg-deep:#1a3b2d; --bg-base:#2a5c47;
       --accent-violet:#234f3d; --accent-cyan:#c79a3b;
     }
     *{box-sizing:border-box}
@@ -116,7 +120,8 @@
     body{
       margin:0;
       font-family: 'Inter', sans-serif;
-      background: linear-gradient(180deg,#f8f7f3 0%,#f4f2ea 100%);
+      background: linear-gradient(150deg,#2f6a4f 0%,#26543f 45%,#1a3b2d 100%);
+      background-attachment: fixed;
       background-size: 100% 100%;
       
       color:var(--text);
@@ -189,11 +194,11 @@
   .card form{ max-width: 640px; }
     .btnPrimary{
       border:1px solid rgba(35,79,61,.85);
-      background: linear-gradient(160deg, rgba(35,79,61,.55) 0%, rgba(59,130,246,.30) 100%);
+      background: linear-gradient(160deg, #d4ac52 0%, #c79a3b 100%);
       box-shadow:0 6px 18px rgba(35,49,40,.10);
     }
     .btnPrimary:hover{
-      background: linear-gradient(160deg, rgba(35,79,61,.68) 0%, rgba(96,165,250,.40) 100%);
+      background: linear-gradient(160deg, #e0b862 0%, #d4ac52 100%);
       box-shadow:0 6px 18px rgba(35,49,40,.10);
     }
     .btnMini{
@@ -245,9 +250,12 @@
       height: 40%;
       border-radius: 50%;
       background:
-        radial-gradient(ellipse at 50% 35%, rgba(35,79,61,.05) 0%, #ffffff 50%, #f4f2ea 100%);
-      border: 1px solid rgba(35,79,61,.30);
-      box-shadow:0 0 0 1px rgba(35,79,61,.22) inset;
+        radial-gradient(ellipse at 50% 32%, #2c6249 0%, #1e4634 55%, #163326 100%);
+      /* thin gold rim — the one premium accent, like a clearing edge caught in light */
+      border: 1px solid rgba(199,154,59,.45);
+      box-shadow:
+        0 0 0 1px rgba(199,154,59,.16) inset,
+        0 18px 42px rgba(12,28,20,.34);
       overflow:hidden;
     }
     .table:before{
@@ -273,7 +281,7 @@
       width: 34%;
       min-width: 300px;
       max-width: 420px;
-      background: rgba(22,34,72,.82);
+      background: rgba(248,247,243,.92);
       border:1px solid rgba(35,79,61,.9);
       border-radius: 18px;
       padding: 12px;
@@ -425,7 +433,7 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: .08em;
-      color:#6f766d;
+      color:var(--on-canvas-muted);
       padding: 4px 4px 8px;
     }
 
@@ -476,7 +484,7 @@
       position:absolute;
       top:7px; right:8px;
       font-size:9px; font-weight:800;
-      color:rgba(247,211,106,.55);
+      color:#96701f;
       letter-spacing:.04em;
       font-variant-numeric:tabular-nums;
       pointer-events:none;
@@ -812,12 +820,12 @@
     .saNavRight{flex-shrink:0;}
     .saModelTag{font-size:12px;color:rgba(138,143,136,.6);white-space:nowrap;}
     .saDropWrap{position:relative;}
-    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(255,255,255,.09);backdrop-filter: blur(6px);-webkit-backdrop-filter: blur(6px);border:1px solid rgba(255,255,255,.18);border-radius:10px;color:rgba(226,232,240,.97);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 0 0 1px rgba(35,79,61,.08);transition:all .2s;}
-    .saNavBtn:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.30);box-shadow:inset 0 1px 0 rgba(255,255,255,.26);}
+    .saNavBtn{display:flex;align-items:center;gap:5px;padding:7px 14px;background:rgba(35,79,61,.06);backdrop-filter: blur(6px);-webkit-backdrop-filter: blur(6px);border:1px solid rgba(35,79,61,.16);border-radius:10px;color:#2d2d2d;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.5);transition:all .2s;}
+    .saNavBtn:hover{background:rgba(35,79,61,.12);border-color:rgba(35,79,61,.30);box-shadow:inset 0 1px 0 rgba(255,255,255,.6);}
     .saChevron{font-size:9px;opacity:.7;}
-    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(255,255,255,.90);backdrop-filter: blur(6px) saturate(140%);-webkit-backdrop-filter: blur(6px) saturate(140%);border:1px solid rgba(255,255,255,.16);border-top:1px solid rgba(255,255,255,.22);border-radius:14px;padding:6px;z-index:9999;box-shadow:0 16px 56px rgba(35,49,40,0.14),inset 0 1px 0 rgba(255,255,255,.14);}
+    .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(255,255,255,.98);backdrop-filter: blur(6px) saturate(140%);-webkit-backdrop-filter: blur(6px) saturate(140%);border:1px solid rgba(35,79,61,.16);border-top:1px solid rgba(35,79,61,.20);border-radius:14px;padding:6px;z-index:9999;box-shadow:0 16px 56px rgba(35,49,40,0.14),inset 0 1px 0 rgba(255,255,255,.14);}
     .saDrop.open{display:block;}
-    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.88);font-size:13px;cursor:pointer;transition:all .15s;}
+    .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:#2d2d2d;font-size:13px;cursor:pointer;transition:all .15s;}
     .saDropItem:hover{background:rgba(35,79,61,.22);color:#3a6b54;box-shadow:inset 0 0 0 1px rgba(35,79,61,.22);}
 
 
@@ -3018,7 +3026,7 @@ label         { font-size: 14px !important; }
 .wcText{font-size:13px;color:#5c635e;line-height:1.5;}
 .wcText strong{color:#2d2d2d;font-weight:600;}
 .wcPrimary{
-  background:linear-gradient(135deg,rgba(35,79,61,.6),rgba(59,130,246,.3));
+  background:linear-gradient(135deg,#d4ac52,#c79a3b);
   border:1px solid rgba(35,79,61,.65);
   color:#2d2d2d;padding:11px 28px;border-radius:12px;
   font-size:14px;font-weight:700;cursor:pointer;
@@ -3234,7 +3242,7 @@ body, button, input, textarea, select, .btn, .btnMini,
 /* Calm paper ground — no coloured light wash. Depth on this theme comes from
    1px borders + directional shadows (how macrandleacres.com is built), not glow. */
 body {
-  background: linear-gradient(180deg, #f8f7f3 0%, #f4f2ea 100%) !important;
+  background: linear-gradient(150deg,#2f6a4f 0%,#26543f 45%,#1a3b2d 100%) !important;
   background-attachment: fixed !important;
 }
 
@@ -6672,9 +6680,9 @@ input[type="range"]::-moz-range-progress {
 .wcal-upcoming-item { padding:4px 0; border-bottom:1px solid rgba(35,79,61,.25); cursor:pointer; }
 .wcal-upcoming-item:hover { color:#3a6b54; }
 .wcal-upcoming-item.overdue .wcal-upcoming-title { color:#2d2d2d; }
-.wcal-upcoming-item.overdue .wcal-upcoming-time { color:rgba(226,232,240,.7); }
-.wcal-upcoming-time { font-size:11px; color:rgba(148,168,210,.8); }
-.wcal-upcoming-title { color:rgba(226,232,240,.9); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.wcal-upcoming-item.overdue .wcal-upcoming-time { color:#5c635e; }
+.wcal-upcoming-time { font-size:11px; color:#8a8f88; }
+.wcal-upcoming-title { color:#2d2d2d; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .wcal-overdue-badge { position:absolute; top:2px; right:3px; font-size:9px; font-weight:700; color:#5c635e; line-height:1; pointer-events:none; }
 .wcal-event[data-etype="task"].task-overdue:not(.is-done) { border-left-color:#f87171 !important; }
 /* Detail Panel (Motion-style right sidebar) */
@@ -6817,7 +6825,7 @@ input[type="range"]::-moz-range-progress {
 #wcalCtxMenu .ctx-item {
   padding: 9px 16px;
   font-size: 13px;
-  color: rgba(226,232,240,.88);
+  color: #2d2d2d;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -31839,7 +31847,7 @@ window._saPlReset=function(){
   <div id="saPreviewBody">
     <iframe id="saPreviewFrame" sandbox="allow-scripts allow-forms allow-modals" style="display:none;width:100%;height:100%;border:none;background:#fff;border-radius:0 0 12px 0;"></iframe>
     <pre id="saPreviewCode" style="display:none;"></pre>
-    <div id="saPreviewEmpty" style="display:flex;align-items:center;justify-content:center;height:100%;color:#e5e2d8;font-size:13px;">No preview loaded</div>
+    <div id="saPreviewEmpty" style="display:flex;align-items:center;justify-content:center;height:100%;color:#5c635e;font-size:13px;">No preview loaded</div>
   </div>
 </div>
 

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "simply-agentic-ai",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["C:\\Users\\Jrizz\\Documents\\Simply Agentic AI\\app.py"],
+      "port": 5000
+    }
+  ]
+}
