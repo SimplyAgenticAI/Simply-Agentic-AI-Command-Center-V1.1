@@ -99,9 +99,9 @@
   <title>{{app_title}}</title>
   <style>
     :root{
-      --text:#edf2ec; --muted:#b4c3b8; --surface:#16281e; --card:#182c22;
+      --text:#eef4ec; --muted:#adbfb3; --surface:#1a3324; --card:#244430;
       --border:rgba(127,199,158,.35);
-      --bg-deep:#0a1510; --bg-base:#0f1e17;
+      --bg-deep:#071310; --bg-base:#0c1c15;
       --accent-violet:#7fc79e; --accent-cyan:#e0b862;
     }
     *{box-sizing:border-box}
@@ -121,7 +121,7 @@
         radial-gradient(ellipse 90% 65% at 20% 10%, rgba(127,199,158,.20), transparent 54%),
         radial-gradient(ellipse 70% 55% at 80% 90%, rgba(224,184,98,.14), transparent 52%),
         radial-gradient(ellipse 55% 45% at 55% 55%, rgba(95,169,130,.10), transparent 64%),
-        linear-gradient(160deg, #08130e 0%, #0f1e17 45%, #142b20 100%);
+        linear-gradient(160deg, #061109 0%, #0c1c15 45%, #16301f 100%);
       background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
       animation: auroraShift 20s ease-in-out infinite;
       color:var(--text);
@@ -584,7 +584,7 @@
     .seat:nth-child(3){ --seat-accent: rgba(251,191,36,.85); }
     .seat:nth-child(4){ --seat-accent: rgba(52,211,153,.85); }
     .seat:nth-child(5){ --seat-accent: rgba(249,115,22,.85); }
-    .seat:nth-child(6){ --seat-accent: rgba(236,72,153,.85); }
+    .seat:nth-child(6){ --seat-accent: rgba(199,154,59,.85); }
     .seat:nth-child(7){ --seat-accent: rgba(127,199,158,.85); }
     .seat:nth-child(8){ --seat-accent: rgba(20,184,166,.85); }
 
@@ -853,7 +853,7 @@
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(24,44,34,.90);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);border:1px solid rgba(255,255,255,.16);border-top:1px solid rgba(255,255,255,.22);border-radius:14px;padding:6px;z-index:9999;box-shadow:0 16px 56px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.14);}
     .saDrop.open{display:block;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.88);font-size:13px;cursor:pointer;transition:all .15s;}
-    .saDropItem:hover{background:rgba(127,199,158,.22);color:#d4bbff;box-shadow:inset 0 0 0 1px rgba(127,199,158,.22),0 0 14px rgba(127,199,158,.14);}
+    .saDropItem:hover{background:rgba(127,199,158,.22);color:#a8d8bd;box-shadow:inset 0 0 0 1px rgba(127,199,158,.22),0 0 14px rgba(127,199,158,.14);}
 
 
     .saObjectivePill{font-size:14px;font-weight:600;color:#ffffff;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.01em;opacity:0.92;}
@@ -889,8 +889,8 @@
 
     /* ── #3 Chat message visual hierarchy ── */
     .msg.user .msg-body{
-      background:linear-gradient(135deg,rgba(110,65,255,.92),rgba(127,199,158,.85)) !important;
-      box-shadow:0 4px 20px rgba(99,60,255,.4),0 0 0 1px rgba(127,199,158,.2),inset 0 1px 0 rgba(255,255,255,.12) !important;
+      background:linear-gradient(135deg,rgba(127,199,158,.92),rgba(127,199,158,.85)) !important;
+      box-shadow:0 4px 20px rgba(127,199,158,.4),0 0 0 1px rgba(127,199,158,.2),inset 0 1px 0 rgba(255,255,255,.12) !important;
       font-weight:450;
     }
     .msg.assistant .msg-body{
@@ -1054,11 +1054,11 @@
     .msg.user .msg-body{
       align-self: flex-end;
       max-width: 72%;
-      background: linear-gradient(135deg, rgba(110,65,255,.95), rgba(127,199,158,.88));
+      background: linear-gradient(135deg, rgba(127,199,158,.95), rgba(127,199,158,.88));
       color: #eef0ff;
       padding: 10px 15px;
       border-radius: 16px 16px 4px 16px;
-      box-shadow: 0 4px 24px rgba(99,60,255,.45), 0 0 0 1px rgba(127,199,158,.25), inset 0 1px 0 rgba(255,255,255,.15);
+      box-shadow: 0 4px 24px rgba(127,199,158,.45), 0 0 0 1px rgba(127,199,158,.25), inset 0 1px 0 rgba(255,255,255,.15);
       font-size: 14px;
       line-height: 1.55;
       white-space: pre-wrap;
@@ -3355,7 +3355,7 @@ body {
 .msg.user .msg-body {
   background: linear-gradient(135deg, rgba(127,199,158,.94) 0%, rgba(127,199,158,.86) 100%) !important;
   box-shadow:
-    0 4px 22px rgba(99,60,255,.32),
+    0 4px 22px rgba(127,199,158,.32),
     0 0 0 1px rgba(168,216,189,.18),
     inset 0 1px 0 rgba(255,255,255,.14) !important;
   border-radius: 18px 18px 4px 18px !important;
@@ -3643,7 +3643,7 @@ input:focus, textarea:focus, select:focus {
 }
 .saDropItem:hover {
   background: rgba(127,199,158,.20) !important;
-  color: #d4bbff !important;
+  color: #a8d8bd !important;
   padding-left: 20px !important;
   box-shadow: inset 3px 0 0 rgba(127,199,158,.80), inset 0 0 0 1px rgba(127,199,158,.22) !important;
 }
@@ -3752,10 +3752,10 @@ label {
     sunshine: '#fbbf24',
     relay:    '#9ad7b4',
     rex:      '#f87171',
-    nova:     '#f472b6',
+    nova:     '#e0b862',
     sage:     '#4ade80',
     river:    '#38bdf8',
-    luna:     '#c084fc',
+    luna:     '#9ad7b4',
     blaze:    '#fb923c',
   };
   function colorFor(name){
@@ -3809,10 +3809,10 @@ label {
 #prospectDossierForm { --tool-accent:#60a5fa; }
 #intentSignalsForm   { --tool-accent:#f59e0b; }
 #emailConsoleForm    { --tool-accent:#9ad7b4; }
-#crmForm             { --tool-accent:#f472b6; }
+#crmForm             { --tool-accent:#e0b862; }
 #leadHandoffForm     { --tool-accent:#9ad7b4; }
 #calendarForm        { --tool-accent:#4ade80; }
-#teamForm            { --tool-accent:#c084fc; }
+#teamForm            { --tool-accent:#9ad7b4; }
 
 /* 10. Tool panels sit directly on the modal background — no additional layering */
 #siteAnalyzerForm, #marketScannerForm, #prospectDossierForm,
@@ -5460,7 +5460,7 @@ label {
               <div class="modalForm" id="teamForm" style="display:none;">
                 <div class="modalInner">
                   <div style="text-align:center;margin-bottom:18px;">
-                    <div id="teamPlanBadge" style="display:inline-block;background:linear-gradient(135deg,rgba(127,199,158,.25),rgba(109,40,217,.18));border:1px solid rgba(154,215,180,.4);border-radius:999px;padding:5px 18px;font-size:12px;font-weight:700;color:#d6e6dc;margin-bottom:10px;"></div>
+                    <div id="teamPlanBadge" style="display:inline-block;background:linear-gradient(135deg,rgba(127,199,158,.25),rgba(95,169,130,.18));border:1px solid rgba(154,215,180,.4);border-radius:999px;padding:5px 18px;font-size:12px;font-weight:700;color:#d6e6dc;margin-bottom:10px;"></div>
                     <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:4px;">
                       <div style="font-size:13px;color:#b4c3b8;">Seats used: <strong id="teamSeatsUsed" style="color:#a8d8bd;"></strong> / <strong id="teamSeatsLimit" style="color:#a8d8bd;"></strong></div>
                     </div>
@@ -6794,7 +6794,7 @@ input[type="range"]::-moz-range-progress {
 /* ── TASKS (local app tasks) — purple ── */
 .wcal-event[data-etype="task"] {
   /* SOLID violet — was 18% alpha + blur, which read as murk over the grid */
-  background: rgba(109,40,217,.88) !important;
+  background: rgba(95,169,130,.88) !important;
   color: #f5f3ff !important;
   border-left: 3px solid rgba(168,216,189,.9) !important;
   border-radius: 4px 6px 6px 4px;
@@ -17429,12 +17429,12 @@ Challenge weak assumptions. Surface risks.`;
         var id=c.id||c.email; if(!id) return;
         var checked=!!_dripSelectedContacts[id];
         var row=document.createElement('label');
-        row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:12px;color:#edf2ec;background:'+(checked?'rgba(244,114,182,.12)':'transparent');
-        row.innerHTML='<input type="checkbox" '+(checked?'checked':'')+' style="accent-color:#f472b6;width:14px;height:14px;" />'
+        row.style.cssText='display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:12px;color:#edf2ec;background:'+(checked?'rgba(224,184,98,.12)':'transparent');
+        row.innerHTML='<input type="checkbox" '+(checked?'checked':'')+' style="accent-color:#e0b862;width:14px;height:14px;" />'
           +'<span style="flex:1;">'+_esc(c.name||'Unknown')+'</span>'
           +'<span style="opacity:.5;font-size:11px;">'+_esc(c.email||'')+'</span>';
         row.querySelector('input').onchange=function(){
-          if(this.checked){ _dripSelectedContacts[id]={name:c.name||'',email:c.email||''}; row.style.background='rgba(244,114,182,.12)'; }
+          if(this.checked){ _dripSelectedContacts[id]={name:c.name||'',email:c.email||''}; row.style.background='rgba(224,184,98,.12)'; }
           else{ delete _dripSelectedContacts[id]; row.style.background='transparent'; }
           dripUpdatePickerCount();
         };
@@ -19126,7 +19126,7 @@ function wcalMonday(d){
 const EVENT_COLORS = [
   {bg:'rgba(37,99,235,.92)',  text:'#eff6ff'},
 ];
-const TASK_COLOR = {bg:'rgba(109,40,217,.9)', text:'#f5f3ff'};
+const TASK_COLOR = {bg:'rgba(95,169,130,.9)', text:'#f5f3ff'};
 const TASK_DONE_COLOR = {bg:'rgba(24,44,34,.65)', text:'rgba(135,152,140,.6)'};
 function eventColor(ev){
   // All events default to purple; priority overrides (high/medium/low) apply on top via _evPriority
@@ -30824,7 +30824,7 @@ window._saPlReset=function(){
   gap:6px;
   transition:background .15s;
 }
-#saSheetSendBtn:hover{background:rgba(99,88,255,.95);}
+#saSheetSendBtn:hover{background:rgba(127,199,158,.95);}
 .sa-sheet-mic{
   font-size:11px;color:rgba(111,128,115,.6);
   margin-top:4px;text-align:left;
@@ -31982,7 +31982,7 @@ window._saPlReset=function(){
     display:flex!important; align-items:center!important; justify-content:center!important;
     cursor:pointer!important;
   }
-  #mobStripSend:active{ background:rgba(99,60,255,.95)!important; transform:scale(.93)!important; }
+  #mobStripSend:active{ background:rgba(127,199,158,.95)!important; transform:scale(.93)!important; }
 
   /* ── 2. Kill ghost panels ── */
   .side,.sideCard,.stage>.side,
@@ -32621,7 +32621,7 @@ var _saSelectedInjectBtn = null;
 function _saSelectInjectSeat(name, btn, row){
   _saInjectSeat = name;
   row.querySelectorAll('button').forEach(function(b){ b.style.background='rgba(255,255,255,.06)'; b.style.color='#edf2ec'; });
-  btn.style.background='rgba(127,199,158,.28)'; btn.style.color='#d4bbff';
+  btn.style.background='rgba(127,199,158,.28)'; btn.style.color='#a8d8bd';
   document.getElementById('saInjectChat').style.display = 'block';
 }
 
@@ -33339,7 +33339,7 @@ window.toggleNotifPanel = function(){
     var b = document.createElement('div');
     b.id = '_pwaBanner';
     b.style.cssText = 'position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));left:12px;right:12px;z-index:9999990;'
-      +'background:linear-gradient(135deg,#7fc79e,#4338ca);border-radius:18px;'
+      +'background:linear-gradient(135deg,#7fc79e,#2f6a4f);border-radius:18px;'
       +'padding:14px 14px 14px 16px;display:flex;align-items:center;gap:12px;'
       +'box-shadow:0 8px 32px rgba(127,199,158,.7);animation:_pwaBannerIn .35s ease;';
     b.innerHTML = '<style>@keyframes _pwaBannerIn{from{transform:translateY(120px);opacity:0}to{transform:translateY(0);opacity:1}}</style>'
@@ -33573,12 +33573,12 @@ function saUseGlyph(){
   box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 0 18px rgba(127,199,158,.22);
 }
 .cp-btn-primary {
-  background: linear-gradient(135deg, rgba(127,199,158,.85), rgba(91,33,182,.85));
+  background: linear-gradient(135deg, rgba(127,199,158,.85), rgba(63,122,90,.85));
   border-color: rgba(127,199,158,.6); color: #fff;
   box-shadow: 0 0 20px rgba(127,199,158,.35), inset 0 1px 0 rgba(255,255,255,.20);
 }
 .cp-btn-primary:hover {
-  background: linear-gradient(135deg, rgba(139,68,255,.95), rgba(109,40,217,.95));
+  background: linear-gradient(135deg, rgba(127,199,158,.95), rgba(95,169,130,.95));
   box-shadow: 0 0 30px rgba(127,199,158,.55), inset 0 1px 0 rgba(255,255,255,.28);
 }
 .cp-btn-blue {
@@ -33738,7 +33738,7 @@ function saUseGlyph(){
             </select>
             <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" class="cp-btn cp-btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap;">Draft</button>
           </div>
-          <div id="cpAiStatus" style="font-size:11px;color:#7c6aaa;margin-top:5px;min-height:14px;"></div>
+          <div id="cpAiStatus" style="font-size:11px;color:#6f8f7c;margin-top:5px;min-height:14px;"></div>
         </div>
 
         <!-- Platforms -->
@@ -34468,7 +34468,7 @@ window.addEventListener('focus', function(){
     for(i=0;i<edges.length;i++){
       var e=edges[i],qm=quiet((e[0].x+e[1].x)/2,(e[0].y+e[1].y)/2);
       var la=0.16*(1-e[2]/300)*e[0].z*e[1].z*qm+0.02;
-      cx.strokeStyle='rgba(139,102,246,'+la.toFixed(3)+')';
+      cx.strokeStyle='rgba(127,199,158,'+la.toFixed(3)+')';
       cx.lineWidth=1;
       cx.beginPath();cx.moveTo(e[0].x,e[0].y);cx.lineTo(e[1].x,e[1].y);cx.stroke();
     }
@@ -34601,8 +34601,9 @@ window.addEventListener('focus', function(){
 
 <!-- ===== SHARED COSMIC BACKGROUND ENGINE =====
      Any full-screen window with class "sa-cosmic-win" and a child
-     <canvas class="sa-cosmic-canvas"> gets the teal/purple neural-web
+     <canvas class="sa-cosmic-canvas"> gets the sage/gold firefly-web
      animation automatically via MutationObserver on display changes.
+     (Class names kept for compatibility; the palette is forest.)
 -->
 <script>
 (function(){
