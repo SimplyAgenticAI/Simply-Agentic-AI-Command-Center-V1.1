@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.3")
+APP_VERSION = os.getenv("APP_VERSION", "9.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -3280,6 +3280,17 @@ def _auth_guard() -> Optional[Any]:
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "Invalid or missing CSRF token. Refresh the page and try again."}), 403
         return "Forbidden — invalid CSRF token", 403
+
+    # Extension endpoints authenticate via their own X-SA-Extension-Key header,
+    # not the session cookie — a keyed request never has session["user"], so
+    # the blanket API 401 check below would reject it before its view function
+    # ever runs. Let it through here; each /api/extension/ route resolves the
+    # user from the key itself via _ext_authenticate() and 401s on its own if
+    # the key is missing/invalid. my_key/rotate_key are the two exceptions —
+    # they're called from the logged-in web UI over the session and send no
+    # key, so they fall through unaffected and stay session-gated below.
+    if request.path.startswith("/api/extension/") and (request.headers.get("X-SA-Extension-Key") or "").strip():
+        return None
 
     # Clear stale sessions so the login gate shows cleanly instead of half-auth states.
     if session.get("user") and not current_user():
@@ -28567,8 +28578,11 @@ def api_resolve_bug(report_id: str):
 @app.post("/api/extension/ping")
 def api_extension_ping():
     """Simple connectivity test from the browser extension."""
-    _require_extension_key()
-    uname = _get_current_username()
+    uname = _ext_authenticate(request)
+    if not uname:
+        resp = jsonify({"ok": False, "error": "Invalid or missing extension key"})
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        return resp, 401
     resp = jsonify({"ok": True, "user": uname, "ts": __import__("time").time()})
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
