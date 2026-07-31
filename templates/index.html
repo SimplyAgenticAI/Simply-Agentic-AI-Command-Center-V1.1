@@ -4320,7 +4320,6 @@ label {
     </div>
     <div style="display:flex;align-items:center;gap:8px;">
       <!-- Push-to-talk toggle -->
-      <button id="whisperAutoToggle" title="Hands-free on startup: Whisper arms itself in standby every time the dashboard loads — just say a teammate's name to engage. Works best on Chrome/Edge desktop; some browsers still require one click per session." style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">AUTO</button>
       <button id="whisperPttToggle" title="Push-to-talk mode" style="padding:2px 8px;border-radius:6px;border:1px solid rgba(100,116,139,.4);background:transparent;color:#a8b4c8;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;">PTT</button>
       <button id="whisperMin" title="Minimize — keeps listening in the background" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#cbd5e1;font-size:13px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&#8211;</button>
       <button id="whisperClose" title="Stop Whisper" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.05);color:#cbd5e1;font-size:14px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center;">&times;</button>
@@ -12570,7 +12569,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       try{ localStorage.setItem("sa_handsfree_auto", next ? "1" : "0"); }catch(_){}
       if(next){
         if(!alwaysOn) startAlwaysListening("dm", {standby:true});
-        if(typeof showToast==="function") showToast("🎙 Hands-free ON — say a teammate's name anytime. Re-arms every visit.");
+        if(typeof showToast==="function") showToast("🎙 Hands-free ON — say a teammate's name anytime.");
       } else {
         if(alwaysOn) stopAlwaysListening();
         if(typeof showToast==="function") showToast("Hands-free off — use 🎙 Whisper when you want voice.");
@@ -12934,34 +12933,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         hStat.addEventListener("click",()=>{ if(window._saTtsPlaying){ try{ window.saTtsStopAll && window.saTtsStopAll(); }catch(_){} } });
       }
 
-      // Hands-free on startup (opt-in): AUTO pill toggles it; when enabled the
-      // mic arms itself in STANDBY on every dashboard load — nothing is heard
-      // as a message until a teammate's name is spoken.
-      const hAuto=$("whisperAutoToggle");
-      function _hfPaintAuto(){
-        if(!hAuto)return;
-        let on=false; try{on=localStorage.getItem("sa_handsfree_auto")==="1";}catch(_){}
-        hAuto.style.background=on?"rgba(124,58,237,.35)":"transparent";
-        hAuto.style.color=on?"#e9d5ff":"#a8b4c8";
-        hAuto.style.borderColor=on?"rgba(167,139,250,.7)":"rgba(100,116,139,.4)";
-      }
-      if(hAuto){
-        _hfPaintAuto();
-        hAuto.onclick=()=>{
-          let on=false; try{on=localStorage.getItem("sa_handsfree_auto")==="1";}catch(_){}
-          try{localStorage.setItem("sa_handsfree_auto",on?"0":"1");}catch(_){}
-          _hfPaintAuto();
-          showToast(on?"Hands-free on startup: OFF":"Hands-free on startup: ON — Whisper arms itself next load");
-        };
-      }
-      try{
-        if(localStorage.getItem("sa_handsfree_auto")==="1" && window.innerWidth>720 && speechSupported()){
-          setTimeout(function(){
-            if(alwaysOn) return;
-            startAlwaysListening("dm", {standby:true});
-          }, 2000);
-        }
-      }catch(_){}
+      // Hands-free no longer arms itself on page load — the operator found
+      // it re-arming on every visit "annoying." It's opt-in per session only
+      // now: click the hands-free toggle (or hit "w") when you actually want
+      // it. The visibilitychange handler below still re-arms it if you
+      // switch tabs and come back WHILE it was already on this session —
+      // that's resuming your own live action, not surprising you on load.
 
       const hSend=$("whisperSendNow");
       if(hSend)hSend.onclick=()=>{
