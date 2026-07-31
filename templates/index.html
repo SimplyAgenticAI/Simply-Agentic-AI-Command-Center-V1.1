@@ -6643,10 +6643,24 @@ input[type="range"]::-moz-range-progress {
 .wcal-col-header .wd { font-size:12px; color:rgba(180,200,240,.85); text-transform:uppercase; letter-spacing:.06em; }
 .wcal-col-header .dd { font-size:19px; font-weight:700; color:rgba(230,238,255,.95); line-height:1.1; }
 .wcal-col-header .dd.today-num { background:rgba(124,58,237,.8); color:#fff; border-radius:50%; width:30px; height:30px; display:flex; align-items:center; justify-content:center; margin:0 auto; }
-.wcal-event { position:absolute; left:3px; right:3px; border-radius:6px; padding:3px 6px 3px 4px; font-size:12px; font-weight:600; cursor:grab; z-index:3; transition:filter 0.15s, box-shadow 0.15s, opacity 0.15s; min-height:22px; box-sizing:border-box; user-select:none; overflow:hidden; display:flex; flex-direction:row; align-items:flex-start; gap:4px; }
+.wcal-event {
+  position:absolute; left:3px; right:3px; border-radius:9px; padding:3px 7px 3px 5px;
+  font-size:12px; font-weight:600; cursor:grab; z-index:3;
+  transition:filter 0.15s, box-shadow 0.15s, opacity 0.15s, transform 0.12s;
+  min-height:22px; box-sizing:border-box; user-select:none; overflow:hidden;
+  display:flex; flex-direction:row; align-items:flex-start; gap:4px;
+  /* Shared frosted-glass base — a LIGHT translucent fill + blur reads clean
+     over the dark grid; a dark colour at low alpha (the old approach) just
+     turns to mud, which is why type colour lives only in the edge + glow. */
+  background: linear-gradient(135deg, rgba(255,255,255,.16), rgba(255,255,255,.05));
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30);
+}
 /* Inner column that holds title row + time, fills remaining space */
 .wcal-event-body { display:flex; flex-direction:column; min-width:0; flex:1; }
-.wcal-event:hover { filter:brightness(1.2); box-shadow:0 3px 16px rgba(0,0,0,.5), 0 0 0 1px rgba(196,181,253,.18); transform:translateY(-1px); transition:filter 0.12s, box-shadow 0.12s, transform 0.12s; }
+.wcal-event:hover { filter:brightness(1.12); box-shadow:inset 0 1px 0 rgba(255,255,255,.3), 0 6px 22px rgba(0,0,0,.4); transform:translateY(-1px); transition:filter 0.12s, box-shadow 0.12s, transform 0.12s; }
 .wcal-event.is-done { opacity:.72; }
 .wcal-event.is-done .wcal-event-title { text-decoration:line-through; text-decoration-color:currentColor; text-decoration-thickness:2px; }
 /* Check circle — flex sibling, never overlaps title */
@@ -6789,48 +6803,51 @@ input[type="range"]::-moz-range-progress {
 .wcal-priority-pill.high   { background:rgba(139,92,246,.22);  color:#ddd6fe; border:1px solid rgba(139,92,246,.45); }
 .wcal-priority-pill.medium { background:rgba(245,158,11,.18);  color:#fcd34d; border:1px solid rgba(245,158,11,.3);  }
 .wcal-priority-pill.low    { background:rgba(16,185,129,.15);  color:#6ee7b7; border:1px solid rgba(16,185,129,.3);  }
-/* ── TASKS (local app tasks) — purple ── */
+/* ── TASKS vs EVENTS — same frosted glass, told apart by the accent edge
+   + a soft tinted glow only, so the grid never turns into a purple/green
+   clash. Violet = task, cyan = event; both cool, both sit in one family. ── */
 .wcal-event[data-etype="task"] {
-  /* SOLID violet — was 18% alpha + blur, which read as murk over the grid */
-  background: rgba(109,40,217,.88) !important;
   color: #f5f3ff !important;
-  border-left: 3px solid rgba(196,181,253,.9) !important;
-  border-radius: 4px 6px 6px 4px;
+  border-left: 3px solid rgba(196,181,253,.95) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30), 0 0 16px rgba(139,92,246,.16) !important;
+}
+.wcal-event[data-etype="task"]:hover {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 6px 22px rgba(0,0,0,.4), 0 0 24px rgba(139,92,246,.30) !important;
 }
 /* Priorities: crisp static edges instead of three glow animations pulsing
    over each other — color pops come from the edge + a single sharp ring. */
 .wcal-event[data-etype="task"].task-prio-high {
   border-left-color: #f87171 !important;
-  box-shadow: 0 0 0 1px rgba(248,113,113,.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30), 0 0 0 1px rgba(248,113,113,.4) !important;
 }
 .wcal-event[data-etype="task"].task-prio-medium {
-  color: #fef9c3 !important;
   border-left-color: #eab308 !important;
-  box-shadow: 0 0 0 1px rgba(234,179,8,.3);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30), 0 0 0 1px rgba(234,179,8,.3) !important;
 }
 .wcal-event[data-etype="task"].task-prio-low {
-  color: #d1fae5 !important;
   border-left-color: #10b981 !important;
-  box-shadow: 0 0 0 1px rgba(16,185,129,.25);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30), 0 0 0 1px rgba(16,185,129,.25) !important;
 }
 .wcal-event[data-etype="task"].is-done {
-  background: rgba(30,40,70,.65) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
   animation: none !important;
-  border-left-color: rgba(100,120,180,.35) !important;
-  color: rgba(160,180,220,.6) !important;
-  backdrop-filter: none;
+  border-left-color: rgba(180,190,210,.35) !important;
+  color: rgba(220,225,235,.55) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 2px 10px rgba(0,0,0,.2) !important;
 }
-/* ── EVENTS (gcal items manually switched to Event) — blue/teal, distinct ── */
 .wcal-event[data-etype="event"] {
-  background: rgba(14,116,144,.92) !important;
-  color: #e0f2fe !important;
-  border-left: 3px solid rgba(56,189,248,.85) !important;
-  border-radius: 4px 6px 6px 4px;
+  color: #f0fbff !important;
+  border-left: 3px solid rgba(103,232,249,.95) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 18px rgba(0,0,0,.30), 0 0 16px rgba(56,189,248,.16) !important;
+}
+.wcal-event[data-etype="event"]:hover {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 6px 22px rgba(0,0,0,.4), 0 0 24px rgba(56,189,248,.30) !important;
 }
 .wcal-event[data-etype="event"].is-done {
-  background: rgba(20,40,60,.75) !important;
-  color: rgba(148,180,220,.7) !important;
-  border-left-color: rgba(56,130,180,.35) !important;
+  background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
+  color: rgba(220,225,235,.55) !important;
+  border-left-color: rgba(140,190,220,.35) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 2px 10px rgba(0,0,0,.2) !important;
 }
 /* ── Type toggle button in detail panel ── */
 .wcal-type-toggle-btn {
@@ -21090,10 +21107,8 @@ function wcalRenderWeek(){
       const title=(ev.summary||'Task').replace(/</g,'&lt;');
       const evKey=ev.id||ev.summary||'';
       const isTask=(ev._gcalType||'task')==='task';
-      const bg=isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe=isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
       const prefix=isTask?'☑ ':'📅 ';
-      html+=`<div class="wcal-event" style="top:4px;height:18px;background:${bg};color:#f5f3ff;font-size:10px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${prefix}${title}"><div class="wcal-event-title">${prefix}${title}</div></div>`;
+      html+=`<div class="wcal-event" style="top:4px;height:18px;font-size:10px;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'task':'event'}" onclick="wcalOpenDetail(this)" oncontextmenu="wcalCtxShow(event,this)" title="${prefix}${title}"><div class="wcal-event-title">${prefix}${title}</div></div>`;
     });
     html+='</div>';
   });
@@ -21162,9 +21177,7 @@ function wcalRenderDay(){
       const evKey=ev.id||ev.summary||'';
       const isTask=(ev._gcalType||'task')==='task';
       const title=(ev.summary||'Task').replace(/</g,'&lt;');
-      const bg    = isTask?'rgba(139,92,246,.72)':'rgba(14,116,144,.72)';
-      const stripe= isTask?'rgba(196,181,253,.95)':'rgba(56,189,248,.85)';
-      html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;background:${bg};color:#f5f3ff;font-size:11px;border-left:3px solid ${stripe};border-radius:4px 6px 6px 4px;white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'gcal-task':'event'}" onclick="wcalOpenDetail(this)">${isTask?'☑':'📅'} ${title}</div>`;
+      html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;font-size:11px;white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'task':'event'}" onclick="wcalOpenDetail(this)">${isTask?'☑':'📅'} ${title}</div>`;
     });
     html+='</div>';
   }
