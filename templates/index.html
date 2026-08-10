@@ -9536,6 +9536,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // =========================
     let _manifestRaf = 0;
     let _manifestT = 0;
+    let _manifestStream = null;
+    let _manifestAudioCtx = null;
+    let _manifestAnalyser = null;
+    let _manifestMicLevel = 0; // 0..1, smoothed real mic amplitude
 
     function _manifestEnsureOverlay(){
       let ov = document.getElementById("manifestOverlay");
@@ -9584,7 +9588,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const w = canvas.width, h = canvas.height;
       const cx = w/2, cy = h/2;
       _manifestT += 0.015;
-      const breathe = 1 + Math.sin(_manifestT) * 0.04;
+      // Real mic amplitude (0..1, already smoothed in _manifestReadMicLevel)
+      // layers on top of the idle sine breathing — silence looks the same as
+      // Phase 1, actual voice visibly pushes the glow outward.
+      if(_manifestAnalyser) _manifestReadMicLevel();
+      const breathe = 1 + Math.sin(_manifestT) * 0.04 + _manifestMicLevel * 0.22;
 
       ctx.clearRect(0, 0, w, h);
 
@@ -9628,6 +9636,47 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas, colorHex));
     }
 
+    // ── Phase 2: live mic amplitude, same AnalyserNode technique as
+    // _whisperStartWaveform (~12148) — separate stream/context from Whisper's
+    // own, so the two features never share or fight over mic lifecycle. ────
+    function _manifestReadMicLevel(){
+      if(!_manifestAnalyser) return;
+      const data = new Uint8Array(_manifestAnalyser.frequencyBinCount);
+      _manifestAnalyser.getByteFrequencyData(data);
+      let sum = 0;
+      for(let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / data.length; // 0..255
+      const target = Math.min(1, avg / 60); // 60 ≈ comfortable speaking volume ceiling
+      // Smooth so the glow doesn't flicker frame-to-frame on noise.
+      _manifestMicLevel = _manifestMicLevel + (target - _manifestMicLevel) * 0.25;
+    }
+
+    async function _manifestStartMic(){
+      if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({audio:{
+          echoCancellation:true, noiseSuppression:true, autoGainControl:true
+        }});
+        _manifestStream = stream;
+        _manifestAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = _manifestAudioCtx.createMediaStreamSource(stream);
+        _manifestAnalyser = _manifestAudioCtx.createAnalyser();
+        _manifestAnalyser.fftSize = 64;
+        src.connect(_manifestAnalyser);
+      }catch(e){
+        // Mic denied/unavailable — Manifest Mode still works, just without
+        // audio-reactivity (same graceful fallback as the idle Phase 1 view).
+        if(typeof showToast === "function") showToast("🎤 " + (typeof micHelpText === "function" ? micHelpText() : "Microphone unavailable."));
+      }
+    }
+
+    function _manifestStopMic(){
+      if(_manifestStream){ try{ _manifestStream.getTracks().forEach(t => t.stop()); }catch(_){} _manifestStream = null; }
+      if(_manifestAudioCtx){ try{ _manifestAudioCtx.close(); }catch(_){} _manifestAudioCtx = null; }
+      _manifestAnalyser = null;
+      _manifestMicLevel = 0;
+    }
+
     function openManifestView(name){
       const defn = (state && state.installed && state.installed[name])
         || {name: name, job_title: "", avatar: {bg:"#7c3aed", fg:"#ffffff"}};
@@ -9643,6 +9692,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_manifestRaf) cancelAnimationFrame(_manifestRaf);
       _manifestT = 0;
       _manifestDraw(document.getElementById("manifestCanvas"), color);
+      _manifestStartMic();
     }
 
     function closeManifestView(){
@@ -9650,11 +9700,21 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(ov) ov.style.display = "none";
       if(_manifestRaf){ cancelAnimationFrame(_manifestRaf); _manifestRaf = 0; }
       document.removeEventListener("keydown", _manifestEscHandler);
+      _manifestStopMic();
     }
 
     function _manifestEscHandler(e){
       if(e.key === "Escape") closeManifestView();
     }
+
+    // Never leave the Manifest mic hot in a backgrounded tab — same lesson
+    // as the Whisper hands-free visibilitychange handler.
+    document.addEventListener("visibilitychange", () => {
+      if(document.hidden && _manifestStream){
+        const ov = document.getElementById("manifestOverlay");
+        if(ov && ov.style.display !== "none") closeManifestView();
+      }
+    });
 
     window.openManifestView = openManifestView;
     window.closeManifestView = closeManifestView;
