@@ -9353,6 +9353,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       avatar.className = "avatar";
       avatar.style.background = av.bg;
       avatar.style.color = av.fg;
+      avatar.style.cursor = "pointer";
+      avatar.title = "Shift+click to manifest " + defn.name;
       if(av.glyph){
         avatar.innerHTML = av.glyph;
         avatar.style.fontSize = "0";
@@ -9470,7 +9472,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
 
       // ── Click to select ──
-      seat.addEventListener("click", () => { selectSeat(defn.name); });
+      seat.addEventListener("click", (e) => {
+        if(e.shiftKey){ if(typeof openManifestView === "function") openManifestView(defn.name); return; }
+        selectSeat(defn.name);
+      });
       seat.addEventListener("keydown", e => {
         if(e.key === "Enter" || e.key === " "){ e.preventDefault(); selectSeat(defn.name); }
       });
@@ -9522,6 +9527,137 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       return seat;
     }
+
+    // =========================
+    // MANIFEST MODE — shift+click a teammate's avatar to open a full-presence
+    // view. Phase 1: overlay shell, per-teammate colored idle visualization,
+    // open/close wiring. No audio-reactivity or live conversation yet —
+    // those are separate follow-up passes.
+    // =========================
+    let _manifestRaf = 0;
+    let _manifestT = 0;
+
+    function _manifestEnsureOverlay(){
+      let ov = document.getElementById("manifestOverlay");
+      if(ov) return ov;
+      ov = document.createElement("div");
+      ov.id = "manifestOverlay";
+      ov.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(1200px 900px at 50% 40%,rgba(20,20,30,.96),rgba(4,4,8,.99));backdrop-filter:blur(6px);";
+
+      const closeBtn = document.createElement("button");
+      closeBtn.id = "manifestClose";
+      closeBtn.innerHTML = "&times;";
+      closeBtn.title = "Close (Esc)";
+      closeBtn.style.cssText = "position:absolute;top:22px;right:26px;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6edff;font-size:22px;line-height:1;cursor:pointer;";
+      closeBtn.addEventListener("click", closeManifestView);
+      ov.appendChild(closeBtn);
+
+      const canvas = document.createElement("canvas");
+      canvas.id = "manifestCanvas";
+      canvas.width = 520; canvas.height = 520;
+      canvas.style.cssText = "width:min(70vmin,520px);height:min(70vmin,520px);";
+      ov.appendChild(canvas);
+
+      const nameEl = document.createElement("div");
+      nameEl.id = "manifestName";
+      nameEl.style.cssText = "margin-top:8px;font-size:26px;font-weight:800;color:#f2f4ff;letter-spacing:.02em;";
+      ov.appendChild(nameEl);
+
+      const roleEl = document.createElement("div");
+      roleEl.id = "manifestRole";
+      roleEl.style.cssText = "font-size:14px;color:rgba(226,232,255,.6);margin-top:2px;";
+      ov.appendChild(roleEl);
+
+      const statusEl = document.createElement("div");
+      statusEl.id = "manifestStatus";
+      statusEl.style.cssText = "margin-top:16px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(226,232,255,.45);";
+      statusEl.textContent = "Idle";
+      ov.appendChild(statusEl);
+
+      ov.addEventListener("click", (e) => { if(e.target === ov) closeManifestView(); });
+      document.body.appendChild(ov);
+      return ov;
+    }
+
+    function _manifestDraw(canvas, colorHex){
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width, h = canvas.height;
+      const cx = w/2, cy = h/2;
+      _manifestT += 0.015;
+      const breathe = 1 + Math.sin(_manifestT) * 0.04;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Outer concentric arcs, faint
+      const ringAlphas = [70, 55, 38, 22]; // out of 255, outermost fades most
+      for(let i = 0; i < 4; i++){
+        const r = (120 + i*46) * breathe;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI*2);
+        ctx.strokeStyle = colorHex + ringAlphas[i].toString(16).padStart(2,"0");
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+
+      // Humanoid silhouette — simple head + shoulders, glowing outline
+      ctx.save();
+      ctx.translate(cx, cy);
+      const scale = breathe;
+      ctx.scale(scale, scale);
+      ctx.beginPath();
+      ctx.ellipse(0, -70, 46, 58, 0, 0, Math.PI*2);            // head
+      ctx.moveTo(-95, 150);
+      ctx.quadraticCurveTo(-100, 10, 0, -6);                    // left shoulder->neck
+      ctx.quadraticCurveTo(100, 10, 95, 150);                   // neck->right shoulder
+      ctx.strokeStyle = colorHex;
+      ctx.lineWidth = 2.2;
+      ctx.globalAlpha = 0.85;
+      ctx.stroke();
+      ctx.restore();
+
+      // Warm glowing core at chest/face
+      const coreGrad = ctx.createRadialGradient(cx, cy-10, 4, cx, cy-10, 90*breathe);
+      coreGrad.addColorStop(0, "rgba(255,255,255,.9)");
+      coreGrad.addColorStop(0.35, colorHex + "cc");
+      coreGrad.addColorStop(1, colorHex + "00");
+      ctx.fillStyle = coreGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy-10, 90*breathe, 0, Math.PI*2);
+      ctx.fill();
+
+      _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas, colorHex));
+    }
+
+    function openManifestView(name){
+      const defn = (state && state.installed && state.installed[name])
+        || {name: name, job_title: "", avatar: {bg:"#7c3aed", fg:"#ffffff"}};
+      const color = (defn.avatar && defn.avatar.bg) || "#7c3aed";
+
+      const ov = _manifestEnsureOverlay();
+      document.getElementById("manifestName").textContent = defn.name;
+      document.getElementById("manifestRole").textContent = defn.job_title || "";
+      document.getElementById("manifestStatus").textContent = "Idle";
+      ov.style.display = "flex";
+      document.addEventListener("keydown", _manifestEscHandler);
+
+      if(_manifestRaf) cancelAnimationFrame(_manifestRaf);
+      _manifestT = 0;
+      _manifestDraw(document.getElementById("manifestCanvas"), color);
+    }
+
+    function closeManifestView(){
+      const ov = document.getElementById("manifestOverlay");
+      if(ov) ov.style.display = "none";
+      if(_manifestRaf){ cancelAnimationFrame(_manifestRaf); _manifestRaf = 0; }
+      document.removeEventListener("keydown", _manifestEscHandler);
+    }
+
+    function _manifestEscHandler(e){
+      if(e.key === "Escape") closeManifestView();
+    }
+
+    window.openManifestView = openManifestView;
+    window.closeManifestView = closeManifestView;
 
     function renderTable(){
       const wrap = $("tableWrap");
