@@ -395,8 +395,17 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.5")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
+
+# What's New — shown on the login page under "What's New in V{app_ver}".
+# Update this list alongside APP_VERSION on every patch so the banner
+# reflects what actually shipped, not a stale static blurb.
+WHATS_NEW_ITEMS = [
+    "Manifest Mode — shift+click a teammate's avatar for a live voice-reactive view",
+    "Chrome extension API fixed — leads, keywords, and bulk import now actually reach the app",
+    "Hands-free Whisper no longer re-arms itself on every page load",
+]
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
 # Optional cheaper model for OpenAI agentic tool-loop rounds AFTER the first
@@ -1247,6 +1256,7 @@ def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = 
 app = Flask(__name__)
 # Make the app version available to every template as {{app_ver}} (single source of truth).
 app.jinja_env.globals["app_ver"] = APP_VERSION
+app.jinja_env.globals["whats_new"] = WHATS_NEW_ITEMS
 
 # -----------------------------
 # Uploads static serving (additive)
@@ -13090,7 +13100,7 @@ resize();draw();
     <div class="muted">Sign in to your command center.</div>
     <div style="margin:10px 0 4px;display:flex;justify-content:center;">
       <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(99,102,241,.18));border:1px solid rgba(124,58,237,.45);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:0.04em;">
-        &#10024; What&#39;s New in V{{app_ver}} &nbsp;&middot;&nbsp; Smarter teammates &nbsp;&middot;&nbsp; Faster pipeline &nbsp;&middot;&nbsp; Polished UI
+        &#10024; What&#39;s New in V{{app_ver}} &nbsp;&middot;&nbsp; {% for item in whats_new %}{{item}}{% if not loop.last %} &nbsp;&middot;&nbsp; {% endif %}{% endfor %}
       </span>
     </div>
 
