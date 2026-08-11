@@ -395,14 +395,14 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.2")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
 # Update this list alongside APP_VERSION on every patch so the banner
 # reflects what actually shipped, not a stale static blurb.
 WHATS_NEW_ITEMS = [
-    "Manifest Mode — richer visual + much stronger live mic reaction",
+    "Manifest Mode — real chat window + animated energy visual, no more glow ball",
     "Chrome extension API fixed — leads, keywords, and bulk import now actually reach the app",
     "Hands-free Whisper no longer re-arms itself on every page load",
 ]
