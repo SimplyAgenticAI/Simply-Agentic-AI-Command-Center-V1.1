@@ -9541,6 +9541,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestAnalyser = null;
     let _manifestMicLevel = 0; // 0..1, smoothed real mic amplitude
     let _manifestParticles = [];
+    let _manifestCurrentName = "";
+    let _manifestActivity = 0;       // 0..1, smoothed — "is a conversation happening"
+    let _manifestActivityTarget = 0; // set by the chat send/reply lifecycle
+    let _manifestSpeakWatch = 0;     // interval id polling window._saTtsPlaying
 
     // Humanoid contour profile: t=0 top of head -> ~0.34 chin/neck (narrowest)
     // -> 1 base of shoulders. Returns a half-width in px at that slice.
@@ -9576,106 +9580,288 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(ov) return ov;
       ov = document.createElement("div");
       ov.id = "manifestOverlay";
-      ov.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;flex-direction:column;background:radial-gradient(1200px 900px at 50% 40%,rgba(20,20,30,.96),rgba(4,4,8,.99));backdrop-filter:blur(6px);";
+      ov.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;gap:36px;flex-wrap:wrap;background:radial-gradient(1200px 900px at 50% 40%,rgba(20,20,30,.96),rgba(4,4,8,.99));backdrop-filter:blur(6px);padding:24px;";
 
       const closeBtn = document.createElement("button");
       closeBtn.id = "manifestClose";
       closeBtn.innerHTML = "&times;";
       closeBtn.title = "Close (Esc)";
-      closeBtn.style.cssText = "position:absolute;top:22px;right:26px;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6edff;font-size:22px;line-height:1;cursor:pointer;";
+      closeBtn.style.cssText = "position:absolute;top:22px;right:26px;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e6edff;font-size:22px;line-height:1;cursor:pointer;z-index:1;";
       closeBtn.addEventListener("click", closeManifestView);
       ov.appendChild(closeBtn);
 
+      // ── Left: the figure ──
+      const stage = document.createElement("div");
+      stage.style.cssText = "display:flex;flex-direction:column;align-items:center;";
+
       const canvas = document.createElement("canvas");
       canvas.id = "manifestCanvas";
-      canvas.width = 520; canvas.height = 520;
-      canvas.style.cssText = "width:min(70vmin,520px);height:min(70vmin,520px);";
-      ov.appendChild(canvas);
+      canvas.width = 460; canvas.height = 460;
+      canvas.style.cssText = "width:min(50vmin,460px);height:min(50vmin,460px);";
+      stage.appendChild(canvas);
 
       const nameEl = document.createElement("div");
       nameEl.id = "manifestName";
-      nameEl.style.cssText = "margin-top:8px;font-size:26px;font-weight:800;color:#f2f4ff;letter-spacing:.02em;";
-      ov.appendChild(nameEl);
+      nameEl.style.cssText = "margin-top:4px;font-size:26px;font-weight:800;color:#f2f4ff;letter-spacing:.02em;";
+      stage.appendChild(nameEl);
 
       const roleEl = document.createElement("div");
       roleEl.id = "manifestRole";
       roleEl.style.cssText = "font-size:14px;color:rgba(226,232,255,.6);margin-top:2px;";
-      ov.appendChild(roleEl);
+      stage.appendChild(roleEl);
 
       const statusEl = document.createElement("div");
       statusEl.id = "manifestStatus";
-      statusEl.style.cssText = "margin-top:16px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(226,232,255,.45);";
+      statusEl.style.cssText = "margin-top:14px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(226,232,255,.45);";
       statusEl.textContent = "Idle";
-      ov.appendChild(statusEl);
+      stage.appendChild(statusEl);
+
+      ov.appendChild(stage);
+
+      // ── Right: chat panel — real conversation, not just a visual ──
+      const chatPanel = document.createElement("div");
+      chatPanel.style.cssText = "display:flex;flex-direction:column;width:min(400px,90vw);height:min(560px,72vh);background:rgba(14,16,28,.72);border:1px solid rgba(255,255,255,.10);border-radius:16px;overflow:hidden;";
+
+      const chatLog = document.createElement("div");
+      chatLog.id = "manifestChatLog";
+      chatLog.style.cssText = "flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;";
+      chatPanel.appendChild(chatLog);
+
+      const chatRow = document.createElement("div");
+      chatRow.style.cssText = "display:flex;gap:8px;padding:12px;border-top:1px solid rgba(255,255,255,.08);";
+
+      const chatInput = document.createElement("input");
+      chatInput.id = "manifestChatInput";
+      chatInput.type = "text";
+      chatInput.placeholder = "Type a message…";
+      chatInput.style.cssText = "flex:1;min-width:0;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#f2f4ff;padding:10px 12px;font-size:14px;outline:none;";
+      chatInput.addEventListener("keydown", (e) => { if(e.key === "Enter"){ e.preventDefault(); _manifestSendMessage(); } });
+      chatRow.appendChild(chatInput);
+
+      const chatSend = document.createElement("button");
+      chatSend.id = "manifestChatSend";
+      chatSend.textContent = "Send";
+      chatSend.style.cssText = "border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;background:rgba(255,255,255,.12);color:#f2f4ff;";
+      chatSend.addEventListener("click", () => _manifestSendMessage());
+      chatRow.appendChild(chatSend);
+
+      chatPanel.appendChild(chatRow);
+      ov.appendChild(chatPanel);
 
       ov.addEventListener("click", (e) => { if(e.target === ov) closeManifestView(); });
       document.body.appendChild(ov);
       return ov;
     }
 
+    function _manifestAddBubble(who, text, isUser){
+      const log = document.getElementById("manifestChatLog");
+      if(!log) return null;
+      const bubble = document.createElement("div");
+      bubble.style.cssText = "max-width:88%;align-self:" + (isUser ? "flex-end" : "flex-start") + ";"
+        + "background:" + (isUser ? "rgba(124,58,237,.28)" : "rgba(255,255,255,.07)") + ";"
+        + "border:1px solid " + (isUser ? "rgba(167,139,250,.4)" : "rgba(255,255,255,.10)") + ";"
+        + "border-radius:12px;padding:9px 12px;font-size:13.5px;line-height:1.45;color:#f2f4ff;white-space:pre-wrap;word-break:break-word;";
+      bubble.textContent = text;
+      log.appendChild(bubble);
+      log.scrollTop = log.scrollHeight;
+      return bubble;
+    }
+
+    async function _manifestSendMessage(){
+      const input = document.getElementById("manifestChatInput");
+      if(!input) return;
+      const msg = input.value.trim();
+      if(!msg || !_manifestCurrentName) return;
+      input.value = "";
+      const name = _manifestCurrentName;
+
+      _manifestAddBubble("You", msg, true);
+      const replyBubble = _manifestAddBubble(name, "…", false);
+      const statusEl = document.getElementById("manifestStatus");
+      if(statusEl) statusEl.textContent = "Thinking…";
+      _manifestActivityTarget = 1;
+
+      let fullText = "";
+      try{
+        const res = await fetch("/api/followup/stream", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name: name, message: msg, voice: true, file_ids: [], lighting_mode: false}),
+        });
+        if(!res.ok || !res.body){
+          let errMsg = "Send failed (" + res.status + ")";
+          try{ const ed = await res.json(); errMsg = ed.error || ed.message || errMsg; }catch(_){}
+          throw new Error(errMsg);
+        }
+        const ct = res.headers.get("content-type") || "";
+        if(ct.includes("application/json")){
+          const d = await res.json().catch(() => ({}));
+          fullText = d.response || d.error || "";
+          if(replyBubble) replyBubble.textContent = fullText;
+        } else {
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "", first = true;
+          while(true){
+            const {done, value} = await reader.read();
+            if(done) break;
+            buf += dec.decode(value, {stream:true});
+            const lines = buf.split("\n"); buf = lines.pop();
+            for(const line of lines){
+              if(!line.startsWith("data:")) continue;
+              try{
+                const ev = JSON.parse(line.slice(5).trim());
+                if(ev.error){ fullText = ev.error; if(replyBubble) replyBubble.textContent = ev.error; continue; }
+                if(ev.token){
+                  fullText += ev.token;
+                  if(first){ first = false; if(replyBubble) replyBubble.textContent = ""; }
+                  if(replyBubble){
+                    replyBubble.textContent = fullText;
+                    const log = document.getElementById("manifestChatLog");
+                    if(log) log.scrollTop = log.scrollHeight;
+                  }
+                }
+                if(ev.done){
+                  const finalText = ev.response || fullText;
+                  if(replyBubble) replyBubble.textContent = finalText;
+                  fullText = finalText;
+                }
+              }catch(_){}
+            }
+          }
+        }
+      }catch(e){
+        const errText = String(e && e.message ? e.message : e) || "Send failed";
+        if(replyBubble) replyBubble.textContent = "⚠️ " + errText;
+        if(statusEl) statusEl.textContent = "Idle";
+        _manifestActivityTarget = 0;
+        try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_){}
+        return;
+      }
+
+      // Speak the reply the same way the rest of the app does — Manifest Mode
+      // is inherently scoped to this one teammate, so no seat-match gate.
+      let spoke = false;
+      try{
+        if(fullText.trim() && typeof window.saSpeakAlive === "function" && !window._saTtsPlaying){
+          let voiceId = "alloy";
+          try{ voiceId = ((state && state.installed) || {})[name]?.tts_voice || "alloy"; }catch(_){}
+          window.saSpeakAlive(fullText, name, voiceId, null, "conversation");
+          spoke = true;
+        }
+      }catch(_){}
+
+      if(spoke && statusEl){
+        statusEl.textContent = "Speaking…";
+        if(_manifestSpeakWatch) clearInterval(_manifestSpeakWatch);
+        // Playback often starts a beat after saSpeakAlive() returns (audio
+        // fetch first) — waiting for _saTtsPlaying to go true BEFORE treating
+        // a later false as "finished" avoids resetting to Idle before speech
+        // even starts. Bounded by a ~20s timeout so this can never get stuck.
+        let hasStarted = false, ticks = 0;
+        _manifestSpeakWatch = setInterval(() => {
+          ticks++;
+          if(window._saTtsPlaying) hasStarted = true;
+          const finished = hasStarted && !window._saTtsPlaying;
+          if(finished || ticks > 66){
+            clearInterval(_manifestSpeakWatch);
+            _manifestSpeakWatch = 0;
+            const se = document.getElementById("manifestStatus");
+            if(se) se.textContent = "Idle";
+            _manifestActivityTarget = 0;
+          }
+        }, 300);
+      } else {
+        if(statusEl) statusEl.textContent = "Idle";
+        _manifestActivityTarget = 0;
+      }
+
+      try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_){}
+    }
+
     function _manifestDraw(canvas, colorHex){
       const ctx = canvas.getContext("2d");
       const w = canvas.width, h = canvas.height;
       const cx = w/2, cy = h/2;
-      _manifestT += 0.015;
-      // Real mic amplitude (0..1, already smoothed in _manifestReadMicLevel)
-      // layers on top of the idle sine breathing — silence looks the same as
-      // idle, actual voice visibly pushes size/brightness/particles outward.
+      _manifestT += 0.018;
       if(_manifestAnalyser) _manifestReadMicLevel();
-      const mic = _manifestMicLevel;
-      const breathe = 1 + Math.sin(_manifestT) * 0.03 + mic * 0.35;
+      // Activity ramps up while a message is being sent/answered/spoken —
+      // the figure visibly comes alive during a real exchange, not just
+      // when the mic picks something up.
+      _manifestActivity += (_manifestActivityTarget - _manifestActivity) * 0.06;
+      const energy = Math.max(_manifestMicLevel, _manifestActivity);
+      const breathe = 1 + Math.sin(_manifestT) * 0.025 + energy * 0.3;
 
-      ctx.clearRect(0, 0, w, h);
+      // Motion-trail fade instead of a hard clear — particles and lines
+      // leave a faint streak behind them, reading as flowing energy rather
+      // than a flat redraw every frame.
+      ctx.fillStyle = "rgba(6,7,14,0.22)";
+      ctx.fillRect(0, 0, w, h);
 
       // ── Ambient particle halo — drifting dots around the figure, pushed
-      // outward and brightened by mic level for a visible "energy" reaction.
+      // outward and brightened by mic/activity level.
       if(!_manifestParticles.length) _manifestInitParticles();
       _manifestParticles.forEach(p => {
-        p.angle += p.spin;
-        const pulse = 1 + mic * 0.5;
-        const r = p.baseR * breathe * pulse + Math.sin(_manifestT * p.speed + p.phase) * 8;
+        p.angle += p.spin * (1 + energy);
+        const pulse = 1 + energy * 0.6;
+        const r = p.baseR * breathe * pulse + Math.sin(_manifestT * p.speed + p.phase) * 10;
         const x = cx + Math.cos(p.angle) * r;
-        const y = cy - 10 + Math.sin(p.angle) * r * 0.72; // flattened halo, humanoid-ish
-        const a = Math.max(0, Math.min(255, Math.round(p.alpha * (0.4 + mic * 0.6) * 255)));
+        const y = cy + Math.sin(p.angle) * r * 0.72; // flattened halo, humanoid-ish
+        const a = Math.max(0, Math.min(255, Math.round(p.alpha * (0.35 + energy * 0.65) * 255)));
         ctx.beginPath();
-        ctx.arc(x, y, p.size, 0, Math.PI * 2);
+        ctx.arc(x, y, p.size * (1 + energy * 0.4), 0, Math.PI * 2);
         ctx.fillStyle = colorHex + a.toString(16).padStart(2, "0");
         ctx.fill();
       });
 
-      // ── Topographic contour silhouette — many thin horizontal slice-arcs
-      // following a head+shoulders profile, instead of one flat outline.
+      // ── Topographic contour silhouette — thin horizontal slice-arcs
+      // following a head+shoulders profile, with a pulse of brightness
+      // traveling up/down the body continuously (a "scan" feel, not static).
       ctx.save();
       ctx.translate(cx, cy);
       ctx.scale(breathe, breathe);
-      const slices = 26;
+      const slices = 30;
       for(let i = 0; i < slices; i++){
         const t = i / (slices - 1);
         const y = -128 + t * 268;
         const width = _manifestSilhouetteWidth(t);
         if(width <= 0) continue;
+        const wave = 0.5 + 0.5 * Math.sin(_manifestT * 2.4 - i * 0.4);
         ctx.beginPath();
-        ctx.ellipse(0, y, width, 5.5, 0, 0, Math.PI * 2);
-        const a = (0.16 + 0.5 * (1 - Math.abs(t - 0.5) * 1.4)) * (0.6 + mic * 0.4);
+        ctx.ellipse(0, y, width, 5, 0, 0, Math.PI * 2);
+        const base = 0.14 + 0.34 * (1 - Math.abs(t - 0.5) * 1.3);
+        const a = base * (0.5 + wave * 0.5) * (0.55 + energy * 0.7);
         const aByte = Math.max(0, Math.min(255, Math.round(a * 255)));
         ctx.strokeStyle = colorHex + aByte.toString(16).padStart(2, "0");
-        ctx.lineWidth = 1.1;
+        ctx.lineWidth = 1 + wave * 0.8;
         ctx.stroke();
       }
       ctx.restore();
 
-      // ── Warm glowing core at chest/face — radius AND brightness both react
-      // to mic level so it's obvious something is listening, not just idle.
-      const coreR = (70 + mic * 55) * breathe;
-      const coreBright = 0.75 + mic * 0.25;
-      const coreGrad = ctx.createRadialGradient(cx, cy-10, 4, cx, cy-10, coreR);
-      coreGrad.addColorStop(0, "rgba(255,255,255," + coreBright.toFixed(2) + ")");
-      coreGrad.addColorStop(0.32, colorHex + "dd");
-      coreGrad.addColorStop(1, colorHex + "00");
-      ctx.fillStyle = coreGrad;
-      ctx.beginPath();
-      ctx.arc(cx, cy-10, coreR, 0, Math.PI*2);
-      ctx.fill();
+      // ── Flowing energy tendrils — a few animated curved streaks radiating
+      // outward, standing in for "made of energy" instead of a glow ball.
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(breathe, breathe);
+      const tendrils = 5;
+      for(let k = 0; k < tendrils; k++){
+        const baseAngle = (k / tendrils) * Math.PI * 2 + _manifestT * 0.3;
+        const wobble = Math.sin(_manifestT * 1.6 + k * 1.7) * 0.35;
+        const r0 = 60, r1 = 150 + energy * 70;
+        const a0x = Math.cos(baseAngle) * r0, a0y = Math.sin(baseAngle) * r0 * 0.7 - 10;
+        const a1x = Math.cos(baseAngle + wobble) * r1, a1y = Math.sin(baseAngle + wobble) * r1 * 0.7 - 10;
+        const midx = (a0x + a1x) / 2 + Math.sin(_manifestT * 2 + k) * 18;
+        const midy = (a0y + a1y) / 2 + Math.cos(_manifestT * 2 + k) * 18;
+        ctx.beginPath();
+        ctx.moveTo(a0x, a0y);
+        ctx.quadraticCurveTo(midx, midy, a1x, a1y);
+        const ta = 0.12 + energy * 0.35;
+        const taByte = Math.max(0, Math.min(255, Math.round(ta * 255)));
+        ctx.strokeStyle = colorHex + taByte.toString(16).padStart(2, "0");
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+      ctx.restore();
 
       _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas, colorHex));
     }
@@ -9727,19 +9913,29 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const defn = (state && state.installed && state.installed[name])
         || {name: name, job_title: "", avatar: {bg:"#7c3aed", fg:"#ffffff"}};
       const color = (defn.avatar && defn.avatar.bg) || "#7c3aed";
+      _manifestCurrentName = defn.name;
 
       const ov = _manifestEnsureOverlay();
       document.getElementById("manifestName").textContent = defn.name;
       document.getElementById("manifestRole").textContent = defn.job_title || "";
       document.getElementById("manifestStatus").textContent = "Idle";
+      const log = document.getElementById("manifestChatLog");
+      if(log) log.innerHTML = "";
       ov.style.display = "flex";
       document.addEventListener("keydown", _manifestEscHandler);
 
+      // Manifesting a teammate makes them the active conversation partner —
+      // keeps the background thread panel and TTS voice selection in sync.
+      try{ if(typeof selectSeat === "function") selectSeat(defn.name); }catch(_){}
+
       if(_manifestRaf) cancelAnimationFrame(_manifestRaf);
       _manifestT = 0;
+      _manifestActivity = 0;
+      _manifestActivityTarget = 0;
       _manifestInitParticles();
       _manifestDraw(document.getElementById("manifestCanvas"), color);
       _manifestStartMic();
+      setTimeout(() => { const inp = document.getElementById("manifestChatInput"); if(inp) inp.focus(); }, 50);
     }
 
     function closeManifestView(){
@@ -9748,6 +9944,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_manifestRaf){ cancelAnimationFrame(_manifestRaf); _manifestRaf = 0; }
       document.removeEventListener("keydown", _manifestEscHandler);
       _manifestStopMic();
+      if(_manifestSpeakWatch){ clearInterval(_manifestSpeakWatch); _manifestSpeakWatch = 0; }
+      _manifestActivity = 0;
+      _manifestActivityTarget = 0;
     }
 
     function _manifestEscHandler(e){
