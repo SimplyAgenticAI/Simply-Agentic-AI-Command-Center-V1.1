@@ -9545,6 +9545,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestActivity = 0;       // 0..1, smoothed — "is a conversation happening"
     let _manifestActivityTarget = 0; // set by the chat send/reply lifecycle
     let _manifestSpeakWatch = 0;     // interval id polling window._saTtsPlaying
+    let _manifestRec = null;         // push-to-talk SpeechRecognition (manifest-scoped)
+    let _manifestRecOn = false;
+    let _manifestVoiceSendOnEnd = false;
     // ── Per-teammate manifest visual identity (V9.7). Each teammate manifests
     // in its own distinct render style; palette + style resolved on open. ──
     let _manifestStyleKey = "mesh";
@@ -9646,6 +9649,16 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       const chatRow = document.createElement("div");
       chatRow.style.cssText = "display:flex;gap:9px;padding:14px;border-top:1px solid rgba(124,58,237,.2);align-items:center;";
+
+      const chatMic = document.createElement("button");
+      chatMic.id = "manifestChatMic";
+      chatMic.type = "button";
+      chatMic.title = "Push to talk";
+      chatMic.setAttribute("aria-label", "Push to talk");
+      chatMic.textContent = "🎤";
+      chatMic.style.cssText = "flex:none;width:46px;height:46px;border-radius:12px;border:1px solid rgba(124,58,237,.35);background:rgba(255,255,255,.055);color:#f2f4ff;font-size:18px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;";
+      chatMic.addEventListener("click", () => _manifestToggleVoice());
+      chatRow.appendChild(chatMic);
 
       const chatInput = document.createElement("input");
       chatInput.id = "manifestChatInput";
@@ -9864,14 +9877,20 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const tw=0.5+0.5*Math.sin(t*2.4+_manifestPTS[i].ph); const bright=tw2 && tw>0.93;
         ctx.beginPath(); ctx.arc(xy[0],xy[1],_manifestPTS[i].r*(0.9+e*0.6)*(bright?1.8:1),0,6.283);
         ctx.fillStyle=_mfRgba(bright?tm.a:tm.c, Math.min(1,alpha*(0.4+tw*0.6)+e*0.25)); ctx.fill(); } }
-    // Soft head/heart highlights. Energy is CAPPED and the core alpha kept low
-    // with a tight mid-falloff — additive "lighter" over the trail-fade used to
-    // accumulate here into a white-out that swallowed the whole figure.
-    function _mfGlows(ctx,cx,cy,sc,tm,e){ const eg=Math.min(0.5,e); ctx.save(); ctx.globalCompositeOperation="lighter";
-      const spots=[[-140,24],[-70,19]];
-      for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+eg*0.3);
+    // Soft head/heart highlights with a subtle HEARTBEAT — a gentle double-thump
+    // ("lub-dub") keeping the figure alive at head & chest. Energy is CAPPED and
+    // core alpha kept low with a tight mid-falloff so the additive "lighter"
+    // layers can never accumulate into the white-out they once did.
+    function _mfGlows(ctx,cx,cy,sc,tm,e){ const eg=Math.min(0.5,e);
+      const hbT=_manifestT*1.85;
+      const hb=Math.min(1, Math.pow(Math.max(0,Math.sin(hbT)),6) + 0.55*Math.pow(Math.max(0,Math.sin(hbT-0.46)),6));
+      const beat=1 + 0.34*hb;   // gentle pulse, never overpowering
+      ctx.save(); ctx.globalCompositeOperation="lighter";
+      const spots=[[-140,25],[-70,21]];
+      for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+eg*0.3)*(1+0.06*hb);
+        const core=(0.13+eg*0.13)*beat;
         const g=ctx.createRadialGradient(gx,gy,0,gx,gy,R);
-        g.addColorStop(0,_mfRgba(tm.a,0.12+eg*0.14)); g.addColorStop(0.5,_mfRgba(tm.a,0.05)); g.addColorStop(1,_mfRgba(tm.a,0));
+        g.addColorStop(0,_mfRgba(tm.a,core)); g.addColorStop(0.5,_mfRgba(tm.a,core*0.4)); g.addColorStop(1,_mfRgba(tm.a,0));
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(gx,gy,R,0,6.283); ctx.fill(); } ctx.restore(); }
     function _mfGround(ctx,W,H,tm,e){ const eg=Math.min(0.5,e); ctx.save(); ctx.globalCompositeOperation="lighter";
       const gy=H*0.9, R=W*0.34, g=ctx.createRadialGradient(W/2,gy,0,W/2,gy,R);
@@ -10101,6 +10120,79 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestMicLevel = _manifestMicLevel + (target - _manifestMicLevel) * 0.25;
     }
 
+    // ── Manifest push-to-talk voice ───────────────────────────────────────
+    // Tap to talk (fills the input live), tap again to stop + send. Deliberately
+    // NOT hands-free: it only listens when the operator chooses, so the TTS
+    // feedback loop that plagued the always-on path cannot happen here.
+    function _manifestVoiceBtnState(on){
+      const b = document.getElementById("manifestChatMic");
+      if(!b) return;
+      if(on){
+        b.style.background = _mfRgba(_manifestC, .9);
+        b.style.borderColor = _manifestC;
+        b.style.boxShadow = "0 0 0 4px " + _mfRgba(_manifestC, .22);
+        b.style.color = "#fff"; b.textContent = "■"; b.title = "Stop & send";
+      } else {
+        b.style.background = "rgba(255,255,255,.055)";
+        b.style.borderColor = "rgba(124,58,237,.35)";
+        b.style.boxShadow = "none"; b.textContent = "🎤"; b.title = "Push to talk";
+      }
+    }
+    function _manifestToggleVoice(){
+      if(_manifestRecOn){ _manifestStopVoice(true); return; }   // tap again = stop + send
+      _manifestStartVoice();
+    }
+    function _manifestStartVoice(){
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if(!SR){ if(typeof showToast==="function") showToast("🎤 " + (typeof micHelpText==="function" ? micHelpText() : "Voice input isn't supported in this browser.")); return; }
+      // Only one recognizer at a time: pause the main hands-free listener if it
+      // happens to be running behind the overlay.
+      try{ if(typeof alwaysOn!=="undefined" && alwaysOn && typeof stopAlwaysListening==="function"){ stopAlwaysListening(); if(typeof showToast==="function") showToast("🎤 Paused hands-free listening for Manifest voice"); } }catch(_){}
+      // Interrupt the teammate if they're mid-sentence so the mic isn't hearing
+      // their TTS while you talk.
+      try{ if(window._saTtsPlaying && window.saTtsStopAll) window.saTtsStopAll(); }catch(_){}
+      let rec;
+      try{ rec = new SR(); }catch(_){ return; }
+      rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+      _manifestRec = rec; _manifestRecOn = true; _manifestVoiceSendOnEnd = false;
+      _manifestVoiceBtnState(true);
+      const input = document.getElementById("manifestChatInput");
+      const statusEl = document.getElementById("manifestStatus");
+      const base = (input && input.value.trim()) ? input.value.trim() + " " : "";
+      if(statusEl) statusEl.textContent = "Listening…";
+
+      let finals = "";
+      rec.onresult = (ev) => {
+        let interim = "";
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          const t = ev.results[i][0].transcript || "";
+          if(ev.results[i].isFinal) finals += t + " "; else interim += t;
+        }
+        if(input) input.value = (base + finals + interim).replace(/\s+/g, " ").trimStart();
+      };
+      rec.onerror = (e) => {
+        const et = (e && e.error) || "";
+        if(et === "not-allowed" || et === "service-not-allowed"){
+          if(typeof showToast==="function") showToast("🎤 " + (typeof micHelpText==="function" ? micHelpText() : "Microphone blocked."));
+        }
+      };
+      rec.onend = () => {
+        _manifestRecOn = false; _manifestRec = null;
+        _manifestVoiceBtnState(false);
+        if(statusEl && statusEl.textContent === "Listening…") statusEl.textContent = "Idle";
+        const send = _manifestVoiceSendOnEnd; _manifestVoiceSendOnEnd = false;
+        // Only auto-send on a deliberate stop — a spontaneous end leaves the
+        // captured text in the box to edit or send manually.
+        if(send && input && input.value.trim()) _manifestSendMessage();
+      };
+      try{ rec.start(); }catch(_){ _manifestRecOn = false; _manifestRec = null; _manifestVoiceBtnState(false); }
+    }
+    function _manifestStopVoice(send){
+      _manifestVoiceSendOnEnd = !!send;
+      if(_manifestRec){ try{ _manifestRec.stop(); }catch(_){ _manifestRecOn = false; _manifestRec = null; _manifestVoiceBtnState(false); } }
+      else { _manifestRecOn = false; _manifestVoiceBtnState(false); }
+    }
+
     async function _manifestStartMic(){
       if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
       try{
@@ -10185,6 +10277,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_manifestRaf){ cancelAnimationFrame(_manifestRaf); _manifestRaf = 0; }
       document.removeEventListener("keydown", _manifestEscHandler);
       _manifestStopMic();
+      if(_manifestRecOn || _manifestRec){ _manifestVoiceSendOnEnd = false; try{ if(_manifestRec) _manifestRec.stop(); }catch(_){} _manifestRec = null; _manifestRecOn = false; _manifestVoiceBtnState(false); }
       if(_manifestSpeakWatch){ clearInterval(_manifestSpeakWatch); _manifestSpeakWatch = 0; }
       _manifestActivity = 0;
       _manifestActivityTarget = 0;
