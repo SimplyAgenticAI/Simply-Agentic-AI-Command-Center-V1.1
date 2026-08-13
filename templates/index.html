@@ -9545,9 +9545,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestActivity = 0;       // 0..1, smoothed — "is a conversation happening"
     let _manifestActivityTarget = 0; // set by the chat send/reply lifecycle
     let _manifestSpeakWatch = 0;     // interval id polling window._saTtsPlaying
-    let _manifestRec = null;         // push-to-talk SpeechRecognition (manifest-scoped)
-    let _manifestRecOn = false;
-    let _manifestVoiceSendOnEnd = false;
+    // Hands-free voice reuses the shared whisper engine; `window._saManifestVoice`
+    // is the active flag (see _manifestStartHandsFree / _voiceSendDm redirect).
     // ── Per-teammate manifest visual identity (V9.7). Each teammate manifests
     // in its own distinct render style; palette + style resolved on open. ──
     let _manifestStyleKey = "mesh";
@@ -9701,12 +9700,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return bubble;
     }
 
-    async function _manifestSendMessage(){
+    async function _manifestSendMessage(overrideText){
       const input = document.getElementById("manifestChatInput");
-      if(!input) return;
-      const msg = input.value.trim();
+      // overrideText is passed by hands-free voice (the transcript); otherwise
+      // read the typed input.
+      const fromVoice = (typeof overrideText === "string");
+      const msg = (fromVoice ? overrideText : (input ? input.value : "")).trim();
       if(!msg || !_manifestCurrentName) return;
-      input.value = "";
+      if(input && !fromVoice) input.value = "";
       const name = _manifestCurrentName;
 
       _manifestAddBubble("You", msg, true);
@@ -10120,10 +10121,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestMicLevel = _manifestMicLevel + (target - _manifestMicLevel) * 0.25;
     }
 
-    // ── Manifest push-to-talk voice ───────────────────────────────────────
-    // Tap to talk (fills the input live), tap again to stop + send. Deliberately
-    // NOT hands-free: it only listens when the operator chooses, so the TTS
-    // feedback loop that plagued the always-on path cannot happen here.
+    // ── Manifest hands-free voice ─────────────────────────────────────────
+    // Reuses the REAL whisper engine (startAlwaysListening) — same continuous
+    // listen, auto-send-on-pause, VAD, and TTS hard-mute as the main interface.
+    // No send button: the only difference from the main feature is that the
+    // final send is redirected into the manifest chat (see _voiceSendDm), and
+    // the `_saManifestVoice` flag keeps name-mentions from switching the seat.
     function _manifestVoiceBtnState(on){
       const b = document.getElementById("manifestChatMic");
       if(!b) return;
@@ -10131,66 +10134,37 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         b.style.background = _mfRgba(_manifestC, .9);
         b.style.borderColor = _manifestC;
         b.style.boxShadow = "0 0 0 4px " + _mfRgba(_manifestC, .22);
-        b.style.color = "#fff"; b.textContent = "■"; b.title = "Stop & send";
+        b.style.color = "#fff"; b.textContent = "🎙️"; b.title = "Listening — tap to stop";
       } else {
         b.style.background = "rgba(255,255,255,.055)";
         b.style.borderColor = "rgba(124,58,237,.35)";
-        b.style.boxShadow = "none"; b.textContent = "🎤"; b.title = "Push to talk";
+        b.style.boxShadow = "none"; b.textContent = "🎤"; b.title = "Talk hands-free";
       }
     }
     function _manifestToggleVoice(){
-      if(_manifestRecOn){ _manifestStopVoice(true); return; }   // tap again = stop + send
-      _manifestStartVoice();
+      if(window._saManifestVoice){ _manifestStopHandsFree(); return; }
+      _manifestStartHandsFree();
     }
-    function _manifestStartVoice(){
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if(!SR){ if(typeof showToast==="function") showToast("🎤 " + (typeof micHelpText==="function" ? micHelpText() : "Voice input isn't supported in this browser.")); return; }
-      // Only one recognizer at a time: pause the main hands-free listener if it
-      // happens to be running behind the overlay.
-      try{ if(typeof alwaysOn!=="undefined" && alwaysOn && typeof stopAlwaysListening==="function"){ stopAlwaysListening(); if(typeof showToast==="function") showToast("🎤 Paused hands-free listening for Manifest voice"); } }catch(_){}
-      // Interrupt the teammate if they're mid-sentence so the mic isn't hearing
-      // their TTS while you talk.
-      try{ if(window._saTtsPlaying && window.saTtsStopAll) window.saTtsStopAll(); }catch(_){}
-      let rec;
-      try{ rec = new SR(); }catch(_){ return; }
-      rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
-      _manifestRec = rec; _manifestRecOn = true; _manifestVoiceSendOnEnd = false;
+    function _manifestStartHandsFree(){
+      if(typeof speechSupported === "function" && !speechSupported()){
+        if(typeof showToast==="function") showToast("🎤 " + (typeof micHelpText==="function" ? micHelpText() : "Voice isn't supported in this browser."));
+        return;
+      }
+      if(typeof startAlwaysListening !== "function"){ if(typeof showToast==="function") showToast("🎤 Voice unavailable."); return; }
+      window._saManifestVoice = true;
       _manifestVoiceBtnState(true);
-      const input = document.getElementById("manifestChatInput");
-      const statusEl = document.getElementById("manifestStatus");
-      const base = (input && input.value.trim()) ? input.value.trim() + " " : "";
-      if(statusEl) statusEl.textContent = "Listening…";
-
-      let finals = "";
-      rec.onresult = (ev) => {
-        let interim = "";
-        for(let i = ev.resultIndex; i < ev.results.length; i++){
-          const t = ev.results[i][0].transcript || "";
-          if(ev.results[i].isFinal) finals += t + " "; else interim += t;
-        }
-        if(input) input.value = (base + finals + interim).replace(/\s+/g, " ").trimStart();
-      };
-      rec.onerror = (e) => {
-        const et = (e && e.error) || "";
-        if(et === "not-allowed" || et === "service-not-allowed"){
-          if(typeof showToast==="function") showToast("🎤 " + (typeof micHelpText==="function" ? micHelpText() : "Microphone blocked."));
-        }
-      };
-      rec.onend = () => {
-        _manifestRecOn = false; _manifestRec = null;
-        _manifestVoiceBtnState(false);
-        if(statusEl && statusEl.textContent === "Listening…") statusEl.textContent = "Idle";
-        const send = _manifestVoiceSendOnEnd; _manifestVoiceSendOnEnd = false;
-        // Only auto-send on a deliberate stop — a spontaneous end leaves the
-        // captured text in the box to edit or send manually.
-        if(send && input && input.value.trim()) _manifestSendMessage();
-      };
-      try{ rec.start(); }catch(_){ _manifestRecOn = false; _manifestRec = null; _manifestVoiceBtnState(false); }
+      // The teammate is already selected (openManifestView → selectSeat), so
+      // start engaged/hot in DM mode — not standby — and let the shared engine
+      // handle everything from here. Its auto-send lands in the manifest chat.
+      try{ startAlwaysListening("dm", {standby:false}); }
+      catch(_){ window._saManifestVoice = false; _manifestVoiceBtnState(false); }
     }
-    function _manifestStopVoice(send){
-      _manifestVoiceSendOnEnd = !!send;
-      if(_manifestRec){ try{ _manifestRec.stop(); }catch(_){ _manifestRecOn = false; _manifestRec = null; _manifestVoiceBtnState(false); } }
-      else { _manifestRecOn = false; _manifestVoiceBtnState(false); }
+    function _manifestStopHandsFree(){
+      window._saManifestVoice = false;
+      try{ if(typeof stopAlwaysListening === "function") stopAlwaysListening(); }catch(_){}
+      _manifestVoiceBtnState(false);
+      const s = document.getElementById("manifestStatus");
+      if(s && (s.textContent === "Listening…" || s.textContent === "Listening...")) s.textContent = "Idle";
     }
 
     async function _manifestStartMic(){
@@ -10277,7 +10251,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(_manifestRaf){ cancelAnimationFrame(_manifestRaf); _manifestRaf = 0; }
       document.removeEventListener("keydown", _manifestEscHandler);
       _manifestStopMic();
-      if(_manifestRecOn || _manifestRec){ _manifestVoiceSendOnEnd = false; try{ if(_manifestRec) _manifestRec.stop(); }catch(_){} _manifestRec = null; _manifestRecOn = false; _manifestVoiceBtnState(false); }
+      if(window._saManifestVoice) _manifestStopHandsFree();   // stop the shared whisper engine
       if(_manifestSpeakWatch){ clearInterval(_manifestSpeakWatch); _manifestSpeakWatch = 0; }
       _manifestActivity = 0;
       _manifestActivityTarget = 0;
@@ -13044,6 +13018,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // ── Streaming voice send (DM) ────────────────────────────────
     async function _voiceSendDm(msg, seat){
       if(!msg||!seat)return;
+      // Hands-free voice driving Manifest Mode → render the exchange in the
+      // manifest chat, not the hidden main thread. This reuses the ENTIRE
+      // whisper engine (continuous listen, VAD, auto-send, TTS hard-mute) and
+      // only redirects the final send here.
+      if(window._saManifestVoice){
+        const _mo=document.getElementById("manifestOverlay");
+        if(_mo && _mo.style.display!=="none"){
+          try{ _whisperSetStatus("Sending..."); _whisperHideCountdown(); _whisperSetTranscript("",""); }catch(_){}
+          const _h=_whisperHud(); if(_h)_h.classList.remove("listening");
+          return _manifestSendMessage(msg);
+        }
+      }
       _whisperSetStatus("Sending...");
       _whisperHideCountdown();
       _whisperSetTranscript("","");
@@ -13450,7 +13436,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const _inGrace = (_nowMs - _nameDebounce) < 2000;
         const _seatNow = (window.selectedSeat||selectedSeat||"");
         let hit = null;
-        if(!_inGrace){
+        // Manifest Mode is bound to one teammate — never let a name mention
+        // switch the seat out from under it.
+        if(!_inGrace && !window._saManifestVoice){
           if(_hfStandby || !_seatNow){
             hit = findFirstNameMention(interim) || findFirstNameMention(newFinals);
           }else if(!_buf){
