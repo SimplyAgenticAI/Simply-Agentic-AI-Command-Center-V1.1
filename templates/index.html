@@ -9606,52 +9606,63 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       const canvas = document.createElement("canvas");
       canvas.id = "manifestCanvas";
-      canvas.width = 480; canvas.height = 480;   // backing re-set to 480*dpr on open
-      canvas.style.cssText = "width:min(54vmin,500px);height:min(54vmin,500px);border-radius:22px;background:radial-gradient(circle at 50% 46%,#0a0c16,#05060c 72%);";
+      canvas.width = _MF_SIZE; canvas.height = _MF_SIZE;   // backing re-set to _MF_SIZE*dpr on open
+      canvas.style.cssText = "width:min(66vmin,600px);height:min(66vmin,600px);border-radius:26px;background:radial-gradient(circle at 50% 46%,#0b0d1a,#05060c 74%);";
       stage.appendChild(canvas);
 
       const nameEl = document.createElement("div");
       nameEl.id = "manifestName";
-      nameEl.style.cssText = "margin-top:4px;font-size:26px;font-weight:800;color:#f2f4ff;letter-spacing:.02em;";
+      nameEl.style.cssText = "margin-top:8px;font-size:34px;font-weight:800;color:#f2f4ff;letter-spacing:.01em;";
       stage.appendChild(nameEl);
 
       const roleEl = document.createElement("div");
       roleEl.id = "manifestRole";
-      roleEl.style.cssText = "font-size:14px;color:rgba(226,232,255,.6);margin-top:2px;";
+      roleEl.style.cssText = "font-size:15px;color:rgba(226,232,255,.62);margin-top:3px;";
       stage.appendChild(roleEl);
 
       const statusEl = document.createElement("div");
       statusEl.id = "manifestStatus";
-      statusEl.style.cssText = "margin-top:14px;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(226,232,255,.45);";
+      statusEl.style.cssText = "margin-top:16px;font-size:12.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:rgba(196,181,253,.6);";
       statusEl.textContent = "Idle";
       stage.appendChild(statusEl);
 
       ov.appendChild(stage);
 
-      // ── Right: chat panel — real conversation, not just a visual ──
+      // ── Right: chat panel — real conversation, not just a visual. Glass
+      // styling matched to the app's purple/cyan aurora aesthetic. ──
       const chatPanel = document.createElement("div");
-      chatPanel.style.cssText = "display:flex;flex-direction:column;width:min(400px,90vw);height:min(560px,72vh);background:rgba(14,16,28,.72);border:1px solid rgba(255,255,255,.10);border-radius:16px;overflow:hidden;";
+      chatPanel.style.cssText = "display:flex;flex-direction:column;width:min(460px,92vw);height:min(680px,80vh);background:linear-gradient(180deg,rgba(20,30,65,.5),rgba(12,14,26,.72));border:1px solid rgba(124,58,237,.28);border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);backdrop-filter:blur(14px);";
+
+      const chatHead = document.createElement("div");
+      chatHead.id = "manifestChatHead";
+      chatHead.style.cssText = "padding:15px 18px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:rgba(226,232,255,.72);border-bottom:1px solid rgba(124,58,237,.22);display:flex;align-items:center;gap:9px;";
+      chatHead.innerHTML = '<span id="manifestChatDot" style="width:8px;height:8px;border-radius:50%;background:#a78bfa;box-shadow:0 0 10px #a78bfa;"></span><span>Conversation</span>';
+      chatPanel.appendChild(chatHead);
 
       const chatLog = document.createElement("div");
       chatLog.id = "manifestChatLog";
-      chatLog.style.cssText = "flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;";
+      chatLog.style.cssText = "flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px;";
       chatPanel.appendChild(chatLog);
 
       const chatRow = document.createElement("div");
-      chatRow.style.cssText = "display:flex;gap:8px;padding:12px;border-top:1px solid rgba(255,255,255,.08);";
+      chatRow.style.cssText = "display:flex;gap:9px;padding:14px;border-top:1px solid rgba(124,58,237,.2);align-items:center;";
 
       const chatInput = document.createElement("input");
       chatInput.id = "manifestChatInput";
       chatInput.type = "text";
       chatInput.placeholder = "Type a message…";
-      chatInput.style.cssText = "flex:1;min-width:0;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:10px;color:#f2f4ff;padding:10px 12px;font-size:14px;outline:none;";
+      chatInput.style.cssText = "flex:1;min-width:0;background:rgba(255,255,255,.055);border:1px solid rgba(124,58,237,.35);border-radius:12px;color:#f2f4ff;padding:12px 14px;font-size:15px;outline:none;transition:border-color .18s,box-shadow .18s;";
+      chatInput.addEventListener("focus", () => { chatInput.style.borderColor = _manifestC; chatInput.style.boxShadow = "0 0 0 3px " + _mfRgba(_manifestC, .18); });
+      chatInput.addEventListener("blur", () => { chatInput.style.borderColor = "rgba(124,58,237,.35)"; chatInput.style.boxShadow = "none"; });
       chatInput.addEventListener("keydown", (e) => { if(e.key === "Enter"){ e.preventDefault(); _manifestSendMessage(); } });
       chatRow.appendChild(chatInput);
 
       const chatSend = document.createElement("button");
       chatSend.id = "manifestChatSend";
       chatSend.textContent = "Send";
-      chatSend.style.cssText = "border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:13px;cursor:pointer;background:rgba(255,255,255,.12);color:#f2f4ff;";
+      chatSend.style.cssText = "border:none;border-radius:12px;padding:12px 20px;font-weight:700;font-size:14px;cursor:pointer;background:linear-gradient(135deg,rgba(110,65,255,.95),rgba(79,70,229,.88));color:#fff;box-shadow:0 6px 18px rgba(79,70,229,.35);transition:filter .15s;";
+      chatSend.addEventListener("mouseenter", () => chatSend.style.filter = "brightness(1.12)");
+      chatSend.addEventListener("mouseleave", () => chatSend.style.filter = "none");
       chatSend.addEventListener("click", () => _manifestSendMessage());
       chatRow.appendChild(chatSend);
 
@@ -9794,7 +9805,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // rendered in seven distinct per-teammate styles. Same engine validated
     // in the design preview. Drives off `energy` = max(mic, activity).
     // ═══════════════════════════════════════════════════════════════
-    const _MF_MONO = "12px ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+    const _MF_SIZE = 600;   // logical canvas coord space; backing = _MF_SIZE*dpr
+    const _MF_MONO = "13px ui-monospace,'SF Mono',Menlo,Consolas,monospace";
     const _MF_GLY = "01<>{}[]=+*/#ｱｶｻﾀﾅﾊﾏﾜ01".split("");
     const _MF_LET = "aeiourhstΨΔΣαλ".split("");
     // Full-body skeleton (local px, origin at figure centre, y down):
@@ -9869,6 +9881,25 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     function _mfVignette(ctx,W,H){ const g=ctx.createRadialGradient(W/2,H*0.52,H*0.33,W/2,H*0.52,H*0.72);
       g.addColorStop(0,"rgba(5,6,12,0)"); g.addColorStop(1,"rgba(5,6,12,0.9)");
       ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+    // Aurora wash — a few large, slowly drifting soft blobs in the teammate's
+    // hue + a cool cyan complement, echoing the app's cosmic background. Low
+    // alpha, source-over (NOT additive) so it stays subtle and never blooms.
+    function _mfAuroraBg(ctx,W,H,tm,t,e){
+      const blobs=[
+        {hx:0.28,hy:0.30, dx:0.06,dy:0.05, r:0.62, col:tm.c,      a:0.10},
+        {hx:0.74,hy:0.72, dx:0.05,dy:0.06, r:0.55, col:"#22d3ee", a:0.07},
+        {hx:0.60,hy:0.24, dx:0.04,dy:0.05, r:0.48, col:tm.a,      a:0.06},
+      ];
+      ctx.save();
+      for(let i=0;i<blobs.length;i++){ const b=blobs[i];
+        const cx=(b.hx + Math.sin(t*0.12+i*2.1)*b.dx)*W;
+        const cy=(b.hy + Math.cos(t*0.10+i*1.7)*b.dy)*H;
+        const R=b.r*W*(1+e*0.08);
+        const g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+        g.addColorStop(0,_mfRgba(b.col, b.a*(0.7+e*0.5))); g.addColorStop(1,_mfRgba(b.col,0));
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.283); ctx.fill(); }
+      ctx.restore();
+    }
     function _mfBeam(ctx,W,H,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
       const g=ctx.createLinearGradient(0,0,0,H*0.6);
       g.addColorStop(0,_mfRgba(tm.a,0.16+e*0.16)); g.addColorStop(1,_mfRgba(tm.a,0));
@@ -10020,7 +10051,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     function _manifestDraw(canvas){
       const ctx = canvas.getContext("2d");
-      const W = 480, H = 480;               // logical coord space; backing is W*dpr
+      const W = _MF_SIZE, H = _MF_SIZE;     // logical coord space; backing is W*dpr
       ctx.setTransform(_manifestDpr, 0, 0, _manifestDpr, 0, 0);  // crisp on retina
       _manifestT += 0.018;
       if(_manifestAnalyser) _manifestReadMicLevel();
@@ -10034,6 +10065,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       // can't accumulate frame-over-frame into a white-out.
       ctx.fillStyle = "rgba(4,5,11,0.42)";
       ctx.fillRect(0, 0, W, H);
+      // Living aurora wash behind the figure — matches the app's cosmic
+      // background so the chamber isn't a flat black void. Source-over + low
+      // alpha, redrawn each frame, so it never accumulates.
+      _mfAuroraBg(ctx, W, H, {c:_manifestC, a:_manifestA}, _manifestT, energy);
 
       if(!_manifestPTS.length) _manifestBuildModel();
       const inst = {tm:{style:_manifestStyleKey, c:_manifestC, a:_manifestA}, t:_manifestT, energy:energy, dt:0.018, st:_manifestSt};
@@ -10106,6 +10141,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       document.getElementById("manifestName").textContent = defn.name;
       document.getElementById("manifestRole").textContent = defn.job_title || "";
       document.getElementById("manifestStatus").textContent = "Idle";
+      // Tint the overlay with a living aurora in this teammate's hue — matches
+      // the app's cosmic background instead of a flat dark modal. Reuses the
+      // global `auroraShift` keyframes already defined for the app body.
+      ov.style.background =
+        "radial-gradient(ellipse 80% 60% at 22% 12%, " + _mfRgba(_manifestC,.22) + ", transparent 55%),"
+        + "radial-gradient(ellipse 65% 55% at 82% 88%, rgba(6,182,212,.16), transparent 52%),"
+        + "radial-gradient(ellipse 60% 50% at 60% 60%, " + _mfRgba(_manifestA,.10) + ", transparent 64%),"
+        + "linear-gradient(160deg,#09090f 0%,#0b0e1c 42%,#0e1428 100%)";
+      ov.style.backgroundSize = "200% 200%,200% 200%,200% 200%,100% 100%";
+      ov.style.animation = "auroraShift 24s ease-in-out infinite";
+      // Accent the chat header dot with this teammate's colour.
+      const _cdot = document.getElementById("manifestChatDot");
+      if(_cdot){ _cdot.style.background = _manifestA; _cdot.style.boxShadow = "0 0 10px " + _manifestA; }
       const log = document.getElementById("manifestChatLog");
       if(log) log.innerHTML = "";
       ov.style.display = "flex";
@@ -10124,8 +10172,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       // Match backing store to device pixels for a crisp figure (logical 480).
       const _mcv = document.getElementById("manifestCanvas");
       _manifestDpr = Math.min(2, window.devicePixelRatio || 1);
-      _mcv.width = Math.round(480 * _manifestDpr);
-      _mcv.height = Math.round(480 * _manifestDpr);
+      _mcv.width = Math.round(_MF_SIZE * _manifestDpr);
+      _mcv.height = Math.round(_MF_SIZE * _manifestDpr);
       _manifestDraw(_mcv);
       _manifestStartMic();
       setTimeout(() => { const inp = document.getElementById("manifestChatInput"); if(inp) inp.focus(); }, 50);
