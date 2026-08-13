@@ -9545,6 +9545,15 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestActivity = 0;       // 0..1, smoothed — "is a conversation happening"
     let _manifestActivityTarget = 0; // set by the chat send/reply lifecycle
     let _manifestSpeakWatch = 0;     // interval id polling window._saTtsPlaying
+    // ── Per-teammate manifest visual identity (V9.7). Each teammate manifests
+    // in its own distinct render style; palette + style resolved on open. ──
+    let _manifestStyleKey = "mesh";
+    let _manifestC = "#7c3aed";      // primary hue
+    let _manifestA = "#c4b5fd";      // accent hue
+    let _manifestSt = {};            // per-open style state (rain columns, embers, stars)
+    let _manifestPTS = [];           // shared humanoid point cloud (built once)
+    let _manifestEDGES = [];         // wireframe neighbour graph
+    let _manifestCONST = [];         // sparse constellation subset (nebula)
 
     // Humanoid contour profile: t=0 top of head -> ~0.34 chin/neck (narrowest)
     // -> 1 base of shoulders. Returns a half-width in px at that slice.
@@ -9779,91 +9788,251 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_){}
     }
 
-    function _manifestDraw(canvas, colorHex){
+    // ═══════════════════════════════════════════════════════════════
+    // MANIFEST VISUAL ENGINE (V9.7) — one shared full-body humanoid model,
+    // rendered in seven distinct per-teammate styles. Same engine validated
+    // in the design preview. Drives off `energy` = max(mic, activity).
+    // ═══════════════════════════════════════════════════════════════
+    const _MF_MONO = "12px ui-monospace,'SF Mono',Menlo,Consolas,monospace";
+    const _MF_GLY = "01<>{}[]=+*/#ｱｶｻﾀﾅﾊﾏﾜ01".split("");
+    const _MF_LET = "aeiourhstΨΔΣαλ".split("");
+    // Full-body skeleton (local px, origin at figure centre, y down):
+    // [x0,y0,x1,y1,r0,r1] tapered capsules + a head circle.
+    const _MF_SEG = [
+      [0,-118,0,-102, 9,12], [0,-102,0,-40, 46,29], [0,-40,0,-4, 29,33],
+      [-40,-96,-54,-40, 13,9], [-54,-40,-60,14, 9,6],
+      [40,-96,54,-40, 13,9],   [54,-40,60,14, 9,6],
+      [-18,-4,-22,72, 17,12],  [-22,72,-24,152, 12,6],
+      [18,-4,22,72, 17,12],    [22,72,24,152, 12,6],
+    ];
+    const _MF_HEAD = [0,-140,26];
+    function _mfInside(x,y){
+      const dx=x-_MF_HEAD[0], dy=y-_MF_HEAD[1];
+      if(dx*dx+dy*dy<=_MF_HEAD[2]*_MF_HEAD[2]) return true;
+      for(let s=0;s<_MF_SEG.length;s++){
+        const g=_MF_SEG[s], ax=g[0],ay=g[1],bx=g[2],by=g[3];
+        const vx=bx-ax, vy=by-ay, L2=vx*vx+vy*vy||1;
+        let t=((x-ax)*vx+(y-ay)*vy)/L2; if(t<0)t=0; else if(t>1)t=1;
+        const px=ax+vx*t, py=ay+vy*t, r=g[4]+(g[5]-g[4])*t;
+        const ex=x-px, ey=y-py;
+        if(ex*ex+ey*ey<=r*r) return true;
+      }
+      return false;
+    }
+    function _manifestBuildModel(){
+      if(_manifestPTS.length) return;
+      let tr=0;
+      while(_manifestPTS.length<210 && tr<24000){ tr++;
+        const x=Math.random()*186-93, y=Math.random()*364-174;
+        if(_mfInside(x,y)) _manifestPTS.push({x,y,ph:Math.random()*6.283,r:0.7+Math.random()*1.7});
+      }
+      for(let i=0;i<_manifestPTS.length;i++){ const near=[];
+        for(let j=0;j<_manifestPTS.length;j++){ if(i===j)continue;
+          const dx=_manifestPTS[i].x-_manifestPTS[j].x, dy=_manifestPTS[i].y-_manifestPTS[j].y, d=dx*dx+dy*dy;
+          if(d<27*27) near.push([d,j]); }
+        near.sort((a,b)=>a[0]-b[0]);
+        for(let k=0;k<Math.min(3,near.length);k++){ const j=near[k][1]; if(i<j) _manifestEDGES.push([i,j]); } }
+      for(let i=0;i<_manifestPTS.length;i+=3){ let best=-1,bd=1e9;
+        for(let j=0;j<_manifestPTS.length;j++){ if(j===i)continue;
+          const dx=_manifestPTS[i].x-_manifestPTS[j].x, dy=_manifestPTS[i].y-_manifestPTS[j].y, d=dx*dx+dy*dy;
+          if(d>18*18 && d<48*48 && d<bd){bd=d;best=j;} }
+        if(best>=0 && i<best) _manifestCONST.push([i,best]); }
+    }
+    function _mfRgba(hex,a){ const n=parseInt(hex.slice(1),16); return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"; }
+    function _mfBrighten(hex,amt){ const n=parseInt(hex.slice(1),16);
+      let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+      r=Math.round(r+(255-r)*amt); g=Math.round(g+(255-g)*amt); b=Math.round(b+(255-b)*amt);
+      return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
+    function _mfP(i,t,cx,cy,sc,e){ const p=_manifestPTS[i];
+      const jx=Math.sin(t*1.6+p.ph)*(0.5+e*1.7), jy=Math.cos(t*1.3+p.ph)*(0.5+e*1.3);
+      return [cx+(p.x+jx)*sc, cy+(p.y+jy)*sc]; }
+    function _mfBodyDots(ctx,inst,cx,cy,sc,alpha,tw2){ const tm=inst.tm, t=inst.t, e=inst.energy;
+      for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e);
+        const tw=0.5+0.5*Math.sin(t*2.4+_manifestPTS[i].ph); const bright=tw2 && tw>0.93;
+        ctx.beginPath(); ctx.arc(xy[0],xy[1],_manifestPTS[i].r*(0.9+e*0.6)*(bright?1.8:1),0,6.283);
+        ctx.fillStyle=_mfRgba(bright?tm.a:tm.c, Math.min(1,alpha*(0.4+tw*0.6)+e*0.25)); ctx.fill(); } }
+    function _mfGlows(ctx,cx,cy,sc,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
+      const spots=[[-140,42],[-70,32]];
+      for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+e*0.9);
+        const g=ctx.createRadialGradient(gx,gy,0,gx,gy,R);
+        g.addColorStop(0,_mfRgba(tm.a,0.4+e*0.4)); g.addColorStop(1,_mfRgba(tm.a,0));
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(gx,gy,R,0,6.283); ctx.fill(); } ctx.restore(); }
+    function _mfGround(ctx,W,H,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
+      const gy=H*0.9, g=ctx.createRadialGradient(W/2,gy,0,W/2,gy,W*0.42);
+      g.addColorStop(0,_mfRgba(tm.c,0.2+e*0.22)); g.addColorStop(1,_mfRgba(tm.c,0));
+      ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(W/2,gy,W*0.36,H*0.055,0,0,6.283); ctx.fill(); ctx.restore(); }
+    function _mfBeam(ctx,W,H,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
+      const g=ctx.createLinearGradient(0,0,0,H*0.6);
+      g.addColorStop(0,_mfRgba(tm.a,0.16+e*0.16)); g.addColorStop(1,_mfRgba(tm.a,0));
+      ctx.fillStyle=g; const bw=W*0.16; ctx.beginPath();
+      ctx.moveTo(W/2-bw*0.35,0); ctx.lineTo(W/2+bw*0.35,0); ctx.lineTo(W/2+bw,H*0.6); ctx.lineTo(W/2-bw,H*0.6);
+      ctx.closePath(); ctx.fill(); ctx.restore(); }
+
+    const _MF_RENDER = {
+      orbital(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        _mfBeam(ctx,W,H,tm,e); const oy=cy-70*sc;
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(let k=0;k<3;k++){ const rr=(92+k*24)*sc, tilt=0.3+k*0.05, rot=t*(0.5+k*0.18)+k*2;
+          ctx.save(); ctx.translate(cx,oy); ctx.rotate(Math.sin(t*0.25+k)*0.18);
+          ctx.beginPath(); ctx.ellipse(0,0,rr,rr*tilt,0,0,6.283);
+          ctx.strokeStyle=_mfRgba(tm.c,0.16+e*0.2); ctx.lineWidth=1.1; ctx.stroke();
+          const sx=Math.cos(rot)*rr, sy=Math.sin(rot)*rr*tilt;
+          ctx.beginPath(); ctx.arc(sx,sy,2.6+e*1.5,0,6.283); ctx.fillStyle=_mfRgba(tm.a,0.95); ctx.fill();
+          ctx.restore(); }
+        ctx.restore();
+        _mfBodyDots(ctx,inst,cx,cy,sc,0.6,false); _mfGlows(ctx,cx,cy,sc,tm,e); _mfGround(ctx,W,H,tm,e);
+      },
+      ribbons(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        _mfBodyDots(ctx,inst,cx,cy,sc,0.42,false);
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(let k=0;k<4;k++){ const amp=(16+k*7)*sc; ctx.beginPath();
+          for(let s=0;s<=26;s++){ const tt=s/26, y=cy+(150-tt*300)*sc,
+            x=cx+Math.sin(tt*6.0+t*1.4+k*1.7)*amp*(0.35+tt*0.9);
+            if(s===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+          ctx.strokeStyle=_mfRgba(k%2?tm.a:tm.c,0.18+e*0.34); ctx.lineWidth=1.5+(k%2?0:0.6); ctx.stroke(); }
+        ctx.restore();
+        ctx.font=_MF_MONO; ctx.textAlign="center";
+        for(let i=0;i<10;i++){ const sp=0.16+(i%5)*0.05, prog=((t*sp+i*0.37)%1);
+          const y=cy+(150-prog*300)*sc, x=cx+Math.sin(i*2.1+t*0.5)*44*sc;
+          const al=Math.sin(prog*Math.PI)*(0.5+e*0.4);
+          ctx.fillStyle=_mfRgba(tm.a,al); ctx.fillText(_MF_LET[(i*3+((t*2)|0))%_MF_LET.length], x, y); }
+        _mfGlows(ctx,cx,cy,sc,tm,e); _mfGround(ctx,W,H,tm,e);
+      },
+      matrix(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        if(!inst.st.cols || inst.st.w!==W){ const cw=13, n=Math.ceil(W/cw)+1; const cols=[];
+          for(let i=0;i<n;i++) cols.push({y:Math.random()*H, sp:38+Math.random()*70});
+          inst.st.cols=cols; inst.st.cw=cw; inst.st.w=W; }
+        const cols=inst.st.cols, cw=inst.st.cw, dt=inst.dt;
+        ctx.font=_MF_MONO; ctx.textAlign="center";
+        for(let i=0;i<cols.length;i++){ const c=cols[i]; c.y+=c.sp*dt*(1+e*1.4);
+          if(c.y>H+30) c.y=-Math.random()*90; const x=i*cw+cw*0.5;
+          for(let k=0;k<13;k++){ const yy=c.y-k*cw; if(yy<-cw||yy>H+cw) continue;
+            const inb=_mfInside((x-cx)/sc,(yy-cy)/sc);
+            const ch=_MF_GLY[(i*7+k+((c.y*0.12)|0))%_MF_GLY.length];
+            let al=k===0?0.95:Math.max(0,0.5-k*0.045);
+            ctx.fillStyle=inb?_mfRgba(tm.a,Math.min(1,al+0.45)):_mfRgba(tm.c,al*0.5);
+            ctx.fillText(ch,x,yy); } }
+        _mfGlows(ctx,cx,cy,sc,tm,e*0.6); _mfGround(ctx,W,H,tm,e);
+      },
+      nebula(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        if(!inst.st.stars){ const st=[]; for(let i=0;i<46;i++) st.push({x:Math.random()*W,y:Math.random()*H,
+          z:0.3+Math.random()*0.7,ph:Math.random()*6.28}); inst.st.stars=st; inst.st.shoot=2+Math.random()*4; }
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(const s of inst.st.stars){ const tw=0.4+0.6*Math.sin(t*1.5*s.z+s.ph);
+          ctx.fillStyle=_mfRgba(tm.a,0.25*tw*s.z); ctx.beginPath(); ctx.arc(s.x,s.y,s.z*1.3,0,6.283); ctx.fill(); }
+        const hx=cx, hy=cy-140*sc, R=52*sc;
+        const g=ctx.createRadialGradient(hx+8*sc,hy-6*sc,R*0.2,hx,hy,R);
+        g.addColorStop(0,_mfRgba(tm.a,0.16+e*0.12)); g.addColorStop(1,_mfRgba(tm.a,0));
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(hx,hy,R,0,6.283); ctx.fill(); ctx.restore();
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(const ed of _manifestCONST){ const a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
+          ctx.strokeStyle=_mfRgba(tm.c,0.12+e*0.2); ctx.lineWidth=0.8; ctx.beginPath();
+          ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); } ctx.restore();
+        _mfBodyDots(ctx,inst,cx,cy,sc,0.5,true);
+        inst.st.shoot-=inst.dt; if(inst.st.shoot<0){ inst.st.sx=Math.random()*W*0.6; inst.st.sy=Math.random()*H*0.4;
+          inst.st.sp=0; inst.st.shoot=4+Math.random()*6; }
+        if(inst.st.sp!==undefined && inst.st.sp<1){ inst.st.sp+=inst.dt*0.9;
+          const p=inst.st.sp, x=inst.st.sx+p*120, y=inst.st.sy+p*70;
+          ctx.save(); ctx.globalCompositeOperation="lighter"; ctx.strokeStyle=_mfRgba("#ffffff",Math.sin(p*Math.PI)*0.7);
+          ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-26,y-15); ctx.stroke(); ctx.restore(); }
+        _mfGlows(ctx,cx,cy,sc,tm,e); _mfGround(ctx,W,H,tm,e);
+      },
+      mesh(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(let k=0;k<5;k++){ const a=t*0.2+k*1.3, px=cx+Math.cos(a)*(W*0.36), py=cy-60*sc+Math.sin(a*0.8)*(H*0.3);
+          const rr=8+(k%3)*5; ctx.strokeStyle=_mfRgba(tm.c,0.14); ctx.lineWidth=1; ctx.beginPath();
+          const sides=k%2?3:6; for(let s=0;s<=sides;s++){ const aa=a*1.5+s/sides*6.283;
+            const xx=px+Math.cos(aa)*rr, yy=py+Math.sin(aa)*rr; s===0?ctx.moveTo(xx,yy):ctx.lineTo(xx,yy);} ctx.stroke(); }
+        ctx.strokeStyle=_mfRgba(tm.c,0.1+e*0.12); ctx.lineWidth=1.2; ctx.beginPath();
+        ctx.ellipse(cx,cy-64*sc,112*sc,112*sc*0.34,Math.sin(t*0.2)*0.2,0,6.283); ctx.stroke(); ctx.restore();
+        ctx.lineWidth=1;
+        for(let ei=0;ei<_manifestEDGES.length;ei++){ const ed=_manifestEDGES[ei], a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
+          const pulse=0.5+0.5*Math.sin(t*2.4 - ei*0.12);
+          ctx.strokeStyle=_mfRgba(tm.c,Math.min(0.8,0.09+pulse*0.22+e*0.3));
+          ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+        for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e); const hot=Math.sin(t*3+_manifestPTS[i].ph)>0.86;
+          ctx.beginPath(); ctx.arc(xy[0],xy[1],hot?2.4:1.1,0,6.283);
+          ctx.fillStyle=_mfRgba(hot?tm.a:tm.c,hot?0.95:0.5+e*0.4); ctx.fill(); }
+        _mfGlows(ctx,cx,cy,sc,tm,e*0.7); _mfGround(ctx,W,H,tm,e);
+      },
+      solar(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        const hx=cx, hy=cy-70*sc;
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        const rays=26; for(let k=0;k<rays;k++){ const a=t*0.3+k/rays*6.283;
+          const len=(70+Math.sin(t*2+k)*16+e*40)*sc, r0=30*sc;
+          ctx.strokeStyle=_mfRgba(k%2?tm.a:tm.c,0.1+e*0.24); ctx.lineWidth=k%2?1.4:0.8;
+          ctx.beginPath(); ctx.moveTo(hx+Math.cos(a)*r0,hy+Math.sin(a)*r0);
+          ctx.lineTo(hx+Math.cos(a)*(r0+len),hy+Math.sin(a)*(r0+len)); ctx.stroke(); }
+        ctx.strokeStyle=_mfRgba(tm.a,0.2+e*0.2); ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(hx,hy,(34+Math.sin(t*2)*3+e*8)*sc,0,6.283); ctx.stroke(); ctx.restore();
+        _mfBodyDots(ctx,inst,cx,cy,sc,0.55,false);
+        if(!inst.st.emb){ const em=[]; for(let i=0;i<26;i++) em.push({x:Math.random()*W,y:Math.random()*H,
+          sp:14+Math.random()*30,sz:0.6+Math.random()*1.6,ph:Math.random()*6.28}); inst.st.emb=em; }
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        for(const p of inst.st.emb){ p.y-=p.sp*inst.dt*(1+e); if(p.y<-6){p.y=H+6;p.x=Math.random()*W;}
+          const x=p.x+Math.sin(t*1.5+p.ph)*10;
+          ctx.fillStyle=_mfRgba(tm.a,0.5*(p.y/H)); ctx.beginPath(); ctx.arc(x,p.y,p.sz,0,6.283); ctx.fill(); } ctx.restore();
+        _mfGlows(ctx,cx,cy,sc,tm,e); _mfGround(ctx,W,H,tm,e);
+      },
+      crystal(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
+        ctx.save(); ctx.globalCompositeOperation="lighter"; ctx.strokeStyle=_mfRgba(tm.c,0.06); ctx.lineWidth=1;
+        const gs=34; for(let gx=(t*6%gs);gx<W;gx+=gs){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,H); ctx.stroke(); }
+        for(let gy=0;gy<H;gy+=gs){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); } ctx.restore();
+        const scanLocal=152-((t*46)%306), scanY=cy+scanLocal*sc;
+        for(let ei=0;ei<_manifestEDGES.length;ei++){ const ed=_manifestEDGES[ei], a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
+          ctx.strokeStyle=_mfRgba(tm.c,0.1+e*0.24); ctx.lineWidth=0.9;
+          ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+        for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e);
+          const near=Math.max(0,1-Math.abs(xy[1]-scanY)/(22*sc)); const s=(1.4+near*2.2);
+          ctx.beginPath(); ctx.moveTo(xy[0],xy[1]-s); ctx.lineTo(xy[0]+s,xy[1]); ctx.lineTo(xy[0],xy[1]+s); ctx.lineTo(xy[0]-s,xy[1]); ctx.closePath();
+          ctx.fillStyle=_mfRgba(near>0.3?tm.a:tm.c, 0.45+near*0.5+e*0.2); ctx.fill(); }
+        ctx.save(); ctx.globalCompositeOperation="lighter"; ctx.strokeStyle=_mfRgba(tm.a,0.5); ctx.lineWidth=1.4;
+        ctx.beginPath(); ctx.moveTo(cx-70*sc,scanY); ctx.lineTo(cx+70*sc,scanY); ctx.stroke(); ctx.restore();
+        _mfGlows(ctx,cx,cy,sc,tm,e*0.7); _mfGround(ctx,W,H,tm,e);
+      },
+    };
+
+    // Built-ins get a hand-tuned style + palette matching the design preview;
+    // custom teammates get a deterministic style from their name and a palette
+    // derived from their own avatar colour, so every teammate stays distinct.
+    const _MF_STYLE_MAP = {
+      Alex:["orbital","#3b82f6","#bfdbfe"], Willow:["ribbons","#a78bfa","#ede9fe"],
+      Ava:["matrix","#2dd4bf","#99f6e4"],   Luna:["nebula","#a5b4fc","#e0e7ff"],
+      Orion:["mesh","#93b4d8","#dbeafe"],    Sunshine:["solar","#fb923c","#fed7aa"],
+      Atlis:["crystal","#38bdf8","#bae6fd"],
+    };
+    function _manifestStyleFor(name, defn){
+      const m = _MF_STYLE_MAP[name];
+      if(m) return {style:m[0], c:m[1], a:m[2]};
+      const styles = ["orbital","ribbons","matrix","nebula","mesh","solar","crystal"];
+      let h=0; for(let i=0;i<name.length;i++) h=(h*31 + name.charCodeAt(i))>>>0;
+      const base = (defn && defn.avatar && defn.avatar.bg) || "#7c3aed";
+      return {style: styles[h % styles.length], c: _mfBrighten(base,0.16), a: _mfBrighten(base,0.55)};
+    }
+
+    function _manifestDraw(canvas){
       const ctx = canvas.getContext("2d");
-      const w = canvas.width, h = canvas.height;
-      const cx = w/2, cy = h/2;
+      const W = canvas.width, H = canvas.height;
       _manifestT += 0.018;
       if(_manifestAnalyser) _manifestReadMicLevel();
-      // Activity ramps up while a message is being sent/answered/spoken —
-      // the figure visibly comes alive during a real exchange, not just
-      // when the mic picks something up.
+      // Activity ramps up while a message is being sent/answered/spoken — the
+      // figure comes alive during a real exchange, not just on mic pickup.
       _manifestActivity += (_manifestActivityTarget - _manifestActivity) * 0.06;
       const energy = Math.max(_manifestMicLevel, _manifestActivity);
-      const breathe = 1 + Math.sin(_manifestT) * 0.025 + energy * 0.3;
 
-      // Motion-trail fade instead of a hard clear — particles and lines
-      // leave a faint streak behind them, reading as flowing energy rather
-      // than a flat redraw every frame.
-      ctx.fillStyle = "rgba(6,7,14,0.22)";
-      ctx.fillRect(0, 0, w, h);
+      // Motion-trail fade — the void keeps a faint streak of the last frame so
+      // particles and rain read as flowing energy, not a flat per-frame redraw.
+      ctx.fillStyle = "rgba(4,5,11,0.30)";
+      ctx.fillRect(0, 0, W, H);
 
-      // ── Ambient particle halo — drifting dots around the figure, pushed
-      // outward and brightened by mic/activity level.
-      if(!_manifestParticles.length) _manifestInitParticles();
-      _manifestParticles.forEach(p => {
-        p.angle += p.spin * (1 + energy);
-        const pulse = 1 + energy * 0.6;
-        const r = p.baseR * breathe * pulse + Math.sin(_manifestT * p.speed + p.phase) * 10;
-        const x = cx + Math.cos(p.angle) * r;
-        const y = cy + Math.sin(p.angle) * r * 0.72; // flattened halo, humanoid-ish
-        const a = Math.max(0, Math.min(255, Math.round(p.alpha * (0.35 + energy * 0.65) * 255)));
-        ctx.beginPath();
-        ctx.arc(x, y, p.size * (1 + energy * 0.4), 0, Math.PI * 2);
-        ctx.fillStyle = colorHex + a.toString(16).padStart(2, "0");
-        ctx.fill();
-      });
-
-      // ── Topographic contour silhouette — thin horizontal slice-arcs
-      // following a head+shoulders profile, with a pulse of brightness
-      // traveling up/down the body continuously (a "scan" feel, not static).
+      if(!_manifestPTS.length) _manifestBuildModel();
+      const inst = {tm:{style:_manifestStyleKey, c:_manifestC, a:_manifestA}, t:_manifestT, energy:energy, dt:0.018, st:_manifestSt};
+      const cx = W/2, cy = H*0.55, sc = (H*0.8/340) * (1 + energy*0.04);
       ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(breathe, breathe);
-      const slices = 30;
-      for(let i = 0; i < slices; i++){
-        const t = i / (slices - 1);
-        const y = -128 + t * 268;
-        const width = _manifestSilhouetteWidth(t);
-        if(width <= 0) continue;
-        const wave = 0.5 + 0.5 * Math.sin(_manifestT * 2.4 - i * 0.4);
-        ctx.beginPath();
-        ctx.ellipse(0, y, width, 5, 0, 0, Math.PI * 2);
-        const base = 0.14 + 0.34 * (1 - Math.abs(t - 0.5) * 1.3);
-        const a = base * (0.5 + wave * 0.5) * (0.55 + energy * 0.7);
-        const aByte = Math.max(0, Math.min(255, Math.round(a * 255)));
-        ctx.strokeStyle = colorHex + aByte.toString(16).padStart(2, "0");
-        ctx.lineWidth = 1 + wave * 0.8;
-        ctx.stroke();
-      }
+      (_MF_RENDER[_manifestStyleKey] || _MF_RENDER.mesh)(ctx, W, H, inst, cx, cy, sc);
       ctx.restore();
 
-      // ── Flowing energy tendrils — a few animated curved streaks radiating
-      // outward, standing in for "made of energy" instead of a glow ball.
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.scale(breathe, breathe);
-      const tendrils = 5;
-      for(let k = 0; k < tendrils; k++){
-        const baseAngle = (k / tendrils) * Math.PI * 2 + _manifestT * 0.3;
-        const wobble = Math.sin(_manifestT * 1.6 + k * 1.7) * 0.35;
-        const r0 = 60, r1 = 150 + energy * 70;
-        const a0x = Math.cos(baseAngle) * r0, a0y = Math.sin(baseAngle) * r0 * 0.7 - 10;
-        const a1x = Math.cos(baseAngle + wobble) * r1, a1y = Math.sin(baseAngle + wobble) * r1 * 0.7 - 10;
-        const midx = (a0x + a1x) / 2 + Math.sin(_manifestT * 2 + k) * 18;
-        const midy = (a0y + a1y) / 2 + Math.cos(_manifestT * 2 + k) * 18;
-        ctx.beginPath();
-        ctx.moveTo(a0x, a0y);
-        ctx.quadraticCurveTo(midx, midy, a1x, a1y);
-        const ta = 0.12 + energy * 0.35;
-        const taByte = Math.max(0, Math.min(255, Math.round(ta * 255)));
-        ctx.strokeStyle = colorHex + taByte.toString(16).padStart(2, "0");
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-      }
-      ctx.restore();
-
-      _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas, colorHex));
+      _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas));
     }
 
     // ── Phase 2: live mic amplitude, same AnalyserNode technique as
@@ -9912,7 +10081,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     function openManifestView(name){
       const defn = (state && state.installed && state.installed[name])
         || {name: name, job_title: "", avatar: {bg:"#7c3aed", fg:"#ffffff"}};
-      const color = (defn.avatar && defn.avatar.bg) || "#7c3aed";
+      // Resolve this teammate's distinct manifest identity (style + palette).
+      const ident = _manifestStyleFor(defn.name, defn);
+      _manifestStyleKey = ident.style;
+      _manifestC = ident.c;
+      _manifestA = ident.a;
       _manifestCurrentName = defn.name;
 
       const ov = _manifestEnsureOverlay();
@@ -9932,8 +10105,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestT = 0;
       _manifestActivity = 0;
       _manifestActivityTarget = 0;
-      _manifestInitParticles();
-      _manifestDraw(document.getElementById("manifestCanvas"), color);
+      _manifestSt = {};              // fresh per-style state (rain/embers/stars)
+      _manifestBuildModel();
+      _manifestDraw(document.getElementById("manifestCanvas"));
       _manifestStartMic();
       setTimeout(() => { const inp = document.getElementById("manifestChatInput"); if(inp) inp.focus(); }, 50);
     }
