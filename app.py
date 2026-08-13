@@ -23312,7 +23312,11 @@ _TOOLISH_RE = re.compile(
     r"\b(add|save|log|update|crm|contact|client|lead|email|send|draft|"
     r"follow[- ]?up|look\s?up|lookup|find|search|research|read|scan|"
     r"analy[sz]e|check|remember|schedule|book|reach out|outreach|"
-    r"objective|goal|change|set)\b"
+    r"objective|goal|change|set|"
+    # Calendar / meeting vocabulary — natural phrasings like "put a google meet
+    # on my calendar" or "create a calendar event" matched none of the above,
+    # so the teammate was never offered book_meeting and hallucinated success.
+    r"calendar|meeting|meet|invite|appointment|event)\b"
     r"|https?://|www\.",
     re.I,
 )
