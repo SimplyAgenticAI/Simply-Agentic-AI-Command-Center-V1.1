@@ -9551,6 +9551,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestC = "#7c3aed";      // primary hue
     let _manifestA = "#c4b5fd";      // accent hue
     let _manifestSt = {};            // per-open style state (rain columns, embers, stars)
+    let _manifestDpr = 1;            // device-pixel ratio for crisp retina render
     let _manifestPTS = [];           // shared humanoid point cloud (built once)
     let _manifestEDGES = [];         // wireframe neighbour graph
     let _manifestCONST = [];         // sparse constellation subset (nebula)
@@ -9589,7 +9590,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(ov) return ov;
       ov = document.createElement("div");
       ov.id = "manifestOverlay";
-      ov.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;gap:36px;flex-wrap:wrap;background:radial-gradient(1200px 900px at 50% 40%,rgba(20,20,30,.96),rgba(4,4,8,.99));backdrop-filter:blur(6px);padding:24px;";
+      ov.style.cssText = "position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;gap:36px;flex-wrap:wrap;background:radial-gradient(1100px 850px at 50% 42%,rgba(9,10,18,.975),rgba(3,3,7,.995));backdrop-filter:blur(7px);padding:24px;";
 
       const closeBtn = document.createElement("button");
       closeBtn.id = "manifestClose";
@@ -9605,8 +9606,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       const canvas = document.createElement("canvas");
       canvas.id = "manifestCanvas";
-      canvas.width = 460; canvas.height = 460;
-      canvas.style.cssText = "width:min(50vmin,460px);height:min(50vmin,460px);";
+      canvas.width = 480; canvas.height = 480;   // backing re-set to 480*dpr on open
+      canvas.style.cssText = "width:min(54vmin,500px);height:min(54vmin,500px);border-radius:22px;background:radial-gradient(circle at 50% 46%,#0a0c16,#05060c 72%);";
       stage.appendChild(canvas);
 
       const nameEl = document.createElement("div");
@@ -9851,16 +9852,23 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const tw=0.5+0.5*Math.sin(t*2.4+_manifestPTS[i].ph); const bright=tw2 && tw>0.93;
         ctx.beginPath(); ctx.arc(xy[0],xy[1],_manifestPTS[i].r*(0.9+e*0.6)*(bright?1.8:1),0,6.283);
         ctx.fillStyle=_mfRgba(bright?tm.a:tm.c, Math.min(1,alpha*(0.4+tw*0.6)+e*0.25)); ctx.fill(); } }
-    function _mfGlows(ctx,cx,cy,sc,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
-      const spots=[[-140,42],[-70,32]];
-      for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+e*0.9);
+    // Soft head/heart highlights. Energy is CAPPED and the core alpha kept low
+    // with a tight mid-falloff — additive "lighter" over the trail-fade used to
+    // accumulate here into a white-out that swallowed the whole figure.
+    function _mfGlows(ctx,cx,cy,sc,tm,e){ const eg=Math.min(0.5,e); ctx.save(); ctx.globalCompositeOperation="lighter";
+      const spots=[[-140,24],[-70,19]];
+      for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+eg*0.3);
         const g=ctx.createRadialGradient(gx,gy,0,gx,gy,R);
-        g.addColorStop(0,_mfRgba(tm.a,0.4+e*0.4)); g.addColorStop(1,_mfRgba(tm.a,0));
+        g.addColorStop(0,_mfRgba(tm.a,0.12+eg*0.14)); g.addColorStop(0.5,_mfRgba(tm.a,0.05)); g.addColorStop(1,_mfRgba(tm.a,0));
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(gx,gy,R,0,6.283); ctx.fill(); } ctx.restore(); }
-    function _mfGround(ctx,W,H,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
-      const gy=H*0.9, g=ctx.createRadialGradient(W/2,gy,0,W/2,gy,W*0.42);
-      g.addColorStop(0,_mfRgba(tm.c,0.2+e*0.22)); g.addColorStop(1,_mfRgba(tm.c,0));
-      ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(W/2,gy,W*0.36,H*0.055,0,0,6.283); ctx.fill(); ctx.restore(); }
+    function _mfGround(ctx,W,H,tm,e){ const eg=Math.min(0.5,e); ctx.save(); ctx.globalCompositeOperation="lighter";
+      const gy=H*0.9, R=W*0.34, g=ctx.createRadialGradient(W/2,gy,0,W/2,gy,R);
+      g.addColorStop(0,_mfRgba(tm.c,0.1+eg*0.12)); g.addColorStop(0.6,_mfRgba(tm.c,0.03)); g.addColorStop(1,_mfRgba(tm.c,0));
+      ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(W/2,gy,W*0.32,H*0.05,0,0,6.283); ctx.fill(); ctx.restore(); }
+    // Corner vignette — dissolves the square canvas edge into the overlay void.
+    function _mfVignette(ctx,W,H){ const g=ctx.createRadialGradient(W/2,H*0.52,H*0.33,W/2,H*0.52,H*0.72);
+      g.addColorStop(0,"rgba(5,6,12,0)"); g.addColorStop(1,"rgba(5,6,12,0.9)");
+      ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
     function _mfBeam(ctx,W,H,tm,e){ ctx.save(); ctx.globalCompositeOperation="lighter";
       const g=ctx.createLinearGradient(0,0,0,H*0.6);
       g.addColorStop(0,_mfRgba(tm.a,0.16+e*0.16)); g.addColorStop(1,_mfRgba(tm.a,0));
@@ -10012,7 +10020,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     function _manifestDraw(canvas){
       const ctx = canvas.getContext("2d");
-      const W = canvas.width, H = canvas.height;
+      const W = 480, H = 480;               // logical coord space; backing is W*dpr
+      ctx.setTransform(_manifestDpr, 0, 0, _manifestDpr, 0, 0);  // crisp on retina
       _manifestT += 0.018;
       if(_manifestAnalyser) _manifestReadMicLevel();
       // Activity ramps up while a message is being sent/answered/spoken — the
@@ -10020,9 +10029,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestActivity += (_manifestActivityTarget - _manifestActivity) * 0.06;
       const energy = Math.max(_manifestMicLevel, _manifestActivity);
 
-      // Motion-trail fade — the void keeps a faint streak of the last frame so
-      // particles and rain read as flowing energy, not a flat per-frame redraw.
-      ctx.fillStyle = "rgba(4,5,11,0.30)";
+      // Motion-trail fade — keeps a faint streak so particles/rain read as
+      // flowing energy. Cleared briskly (was .30) so the additive glow layers
+      // can't accumulate frame-over-frame into a white-out.
+      ctx.fillStyle = "rgba(4,5,11,0.42)";
       ctx.fillRect(0, 0, W, H);
 
       if(!_manifestPTS.length) _manifestBuildModel();
@@ -10031,6 +10041,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       ctx.save();
       (_MF_RENDER[_manifestStyleKey] || _MF_RENDER.mesh)(ctx, W, H, inst, cx, cy, sc);
       ctx.restore();
+
+      // Dissolve the square canvas edge into the void (no more "cut-out box")
+      // and cap any corner glow build-up.
+      _mfVignette(ctx, W, H);
 
       _manifestRaf = requestAnimationFrame(() => _manifestDraw(canvas));
     }
@@ -10107,7 +10121,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestActivityTarget = 0;
       _manifestSt = {};              // fresh per-style state (rain/embers/stars)
       _manifestBuildModel();
-      _manifestDraw(document.getElementById("manifestCanvas"));
+      // Match backing store to device pixels for a crisp figure (logical 480).
+      const _mcv = document.getElementById("manifestCanvas");
+      _manifestDpr = Math.min(2, window.devicePixelRatio || 1);
+      _mcv.width = Math.round(480 * _manifestDpr);
+      _mcv.height = Math.round(480 * _manifestDpr);
+      _manifestDraw(_mcv);
       _manifestStartMic();
       setTimeout(() => { const inp = document.getElementById("manifestChatInput"); if(inp) inp.focus(); }, 50);
     }
