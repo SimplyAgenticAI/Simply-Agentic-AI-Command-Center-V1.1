@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.4")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3416,6 +3416,10 @@ def save_json(path: Path, payload: Any) -> None:
     """
     with _json_file_lock(path):
         try:
+            # A missing parent dir is otherwise swallowed by the excepts below,
+            # so the write is silently lost — that is exactly how every Booking
+            # Link record vanished before BOOKINGS_DIR got its mkdir.
+            path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             tmp.replace(path)
@@ -5810,10 +5814,30 @@ def _calendar_delete_event(access_token: str, event_id: str, calendar_id: str = 
 # storing the result of a booking.
 from zoneinfo import ZoneInfo
 
+
+def _safe_zoneinfo(tz_str: str):
+    """ZoneInfo(tz) that can never raise — falls back to real UTC.
+
+    zoneinfo has no timezone database of its own: it reads the host's
+    (/usr/share/zoneinfo), which Windows and slim containers do not have.
+    There, EVERY key fails — including "UTC" — so a bare
+    `except: tz = "UTC"` guard is not a fallback at all, it just fails
+    again one line later and 500s a public route. The tzdata package in
+    requirements.txt is what actually supplies the database; this helper
+    is the belt to that braces, so an unknown or missing zone degrades to
+    UTC instead of taking a visitor-facing page down.
+    """
+    try:
+        return ZoneInfo(tz_str or "UTC")
+    except Exception:
+        return timezone.utc
+
+
 _BOOKING_WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _BOOKING_TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
 BOOKINGS_DIR = DATA / "bookings"
+BOOKINGS_DIR.mkdir(parents=True, exist_ok=True)  # every booking write lands here
 BOOKING_SLUG_INDEX_PATH = DATA / "booking_slugs.json"
 BOOKING_CANCEL_INDEX_PATH = DATA / "booking_cancel_index.json"
 
@@ -6105,12 +6129,12 @@ def _booking_parse_google_dt(s: str) -> Optional[datetime]:
 def _booking_utc_to_local_naive(dt_utc_naive: datetime, tz_str: str) -> datetime:
     """UTC-naive -> operator-local-naive, same idiom as _user_now_local."""
     aware_utc = dt_utc_naive.replace(tzinfo=timezone.utc)
-    return aware_utc.astimezone(ZoneInfo(tz_str)).replace(tzinfo=None)
+    return aware_utc.astimezone(_safe_zoneinfo(tz_str)).replace(tzinfo=None)
 
 
 def _booking_local_naive_to_utc(dt_local_naive: datetime, tz_str: str) -> datetime:
     """operator-local-naive -> UTC-naive."""
-    aware_local = dt_local_naive.replace(tzinfo=ZoneInfo(tz_str))
+    aware_local = dt_local_naive.replace(tzinfo=_safe_zoneinfo(tz_str))
     return aware_local.astimezone(timezone.utc).replace(tzinfo=None)
 
 
@@ -11851,10 +11875,8 @@ def _booking_day_window_utc(date_str: str, visitor_tz: str) -> Optional[Tuple[da
         day = datetime.strptime((date_str or "").strip(), "%Y-%m-%d")
     except Exception:
         return None
-    try:
-        ZoneInfo(visitor_tz)
-    except Exception:
-        visitor_tz = "UTC"
+    # No tz validation needed here — _booking_local_naive_to_utc goes through
+    # _safe_zoneinfo, which already degrades an unknown zone to UTC.
     start_utc = _booking_local_naive_to_utc(day, visitor_tz)
     end_utc = _booking_local_naive_to_utc(day + timedelta(days=1), visitor_tz)
     return start_utc, end_utc
