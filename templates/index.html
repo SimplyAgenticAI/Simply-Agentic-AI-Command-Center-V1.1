@@ -17154,27 +17154,33 @@ Challenge weak assumptions. Surface risks.`;
         var sb=document.getElementById('tpSaveBar'); if(sb) sb.style.display='none';
 
         var blob=_tpLastBlob;
-        var isAlreadyMp4=(_tpBlobMime||'').indexOf('mp4')>-1;
+        var srcWasMp4=(_tpBlobMime||'').indexOf('mp4')>-1;
 
-        // Convert WebM → MP4 via server (ffmpeg) so the file has proper duration
-        // metadata and opens in every video player and editor including our own.
-        if(!isAlreadyMp4){
-          if(typeof showToast==='function') showToast('⏳ Converting to MP4…');
-          try{
-            var fd=new FormData(); fd.append('file', blob, 'recording.webm');
-            var convResp=await fetch('/api/video/convert_to_mp4',{method:'POST',body:fd,credentials:'same-origin'});
-            if(convResp.ok){
-              var mp4Blob=await convResp.blob();
-              if(mp4Blob&&mp4Blob.size>100){ blob=mp4Blob; isAlreadyMp4=true; }
-              else{ if(typeof showToast==='function') showToast('Conversion returned empty — downloading as WebM'); }
-            } else {
-              var errData={error:'Server conversion failed'};
-              try{ errData=await convResp.json(); }catch(e){}
-              if(typeof showToast==='function') showToast('⚠️ '+errData.error+' — downloading as WebM');
-            }
-          }catch(e){
-            if(typeof showToast==='function') showToast('⚠️ Conversion unavailable — downloading as WebM');
+        // Always run the recording through the server ffmpeg remux — even
+        // when the browser already recorded it as "video/mp4" (Safari/iOS).
+        // MediaRecorder's native MP4 output is often a fragmented/streaming
+        // container: fine for a <video> tag or QuickTime, but strict mobile
+        // editors like InShot reject it outright ("odd file type"). Sending
+        // every recording through ffmpeg normalizes it to a clean, faststart,
+        // H.264/AAC MP4 regardless of what codec/container it started as.
+        var isAlreadyMp4=false;
+        if(typeof showToast==='function') showToast('⏳ Converting to MP4…');
+        try{
+          var fd=new FormData(); fd.append('file', blob, srcWasMp4?'recording.mp4':'recording.webm');
+          var convResp=await fetch('/api/video/convert_to_mp4',{method:'POST',body:fd,credentials:'same-origin'});
+          if(convResp.ok){
+            var mp4Blob=await convResp.blob();
+            if(mp4Blob&&mp4Blob.size>100){ blob=mp4Blob; isAlreadyMp4=true; }
+            else{ if(typeof showToast==='function') showToast('Conversion returned empty — downloading original file'); isAlreadyMp4=srcWasMp4; }
+          } else {
+            var errData={error:'Server conversion failed'};
+            try{ errData=await convResp.json(); }catch(e){}
+            if(typeof showToast==='function') showToast('⚠️ '+errData.error+' — downloading original file');
+            isAlreadyMp4=srcWasMp4;
           }
+        }catch(e){
+          if(typeof showToast==='function') showToast('⚠️ Conversion unavailable — downloading original file');
+          isAlreadyMp4=srcWasMp4;
         }
 
         var ext=isAlreadyMp4?'.mp4':'.webm';
@@ -17226,6 +17232,13 @@ Challenge weak assumptions. Surface risks.`;
         if(stopBtn) stopBtn.innerHTML=scrollOnly?'&#9209; Stop':'&#9209; Stop &amp; Save';
         // The floating button becomes a second, always-visible Stop — never disabled mid-take
         _tpSetRecBtn(true,scrollOnly);
+        // The top-bar Reset button also stops any in-progress recording (it's
+        // meant for resetting scroll position during setup/rehearsal) — during
+        // an active take that reads as "Reset kicked me out", when Restart in
+        // the bottom bar is the correct control. Hide the redundant/confusing
+        // one while recording; _tpHideRecBar brings it back afterward.
+        var resetBtn=document.getElementById('tpResetBtn');
+        if(resetBtn) resetBtn.style.display='none';
       }
 
       // Paints the always-visible top-right button as either Record or Stop
@@ -17251,6 +17264,8 @@ Challenge weak assumptions. Surface risks.`;
         _tpSetRecBtn(false);
         var rt=document.getElementById('tpRecTimer'); if(rt) rt.textContent='';
         _tpPaused=false;
+        var resetBtn=document.getElementById('tpResetBtn');
+        if(resetBtn) resetBtn.style.display='';
       }
 
       // An unsaved take is only ever held in memory — surface it in the setup window
@@ -33967,7 +33982,7 @@ window.toggleNotifPanel = function(){
 
   <!-- Auto-hiding controls bar -->
   <div id="tpControls" style="position:fixed;top:0;left:0;right:145px;z-index:30;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);padding:8px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
-    <button onclick="tpReset()" style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);color:#cbd5e1;font-size:13px;cursor:pointer;white-space:nowrap;">&#8635; Reset</button>
+    <button id="tpResetBtn" onclick="tpReset()" style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);color:#cbd5e1;font-size:13px;cursor:pointer;white-space:nowrap;">&#8635; Reset</button>
     <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:6px;">
       <span style="font-size:10px;color:#a8b4c8;letter-spacing:.04em;">SPD</span>
       <button onclick="tpAdjustSpeed(-1)" style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#cbd5e1;font-size:14px;cursor:pointer;line-height:1;">&#8722;</button>
