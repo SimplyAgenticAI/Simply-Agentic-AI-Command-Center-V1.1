@@ -16724,7 +16724,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpCamDeviceId=null; // chosen camera (null = system default / front camera)
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
-      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null, _tpSaveBarTimer=null;
+      var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null;
       var _tpIsIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
       // Voice-activated scroll pause state
       var _tpVoiceEnabled=false, _tpVoicePaused=false;
@@ -16775,6 +16775,7 @@ Challenge weak assumptions. Surface risks.`;
         }
         m.style.display='flex';
         document.body.style.overflow='hidden';
+        _tpRefreshLastTake(); // surface an unsaved take from a previous session
       };
 
       window.closeTeleprompterModal = function(){
@@ -16802,14 +16803,11 @@ Challenge weak assumptions. Surface risks.`;
         if(wrap) wrap.style.transform='translateY(0px)';
         _updateSpeedDisp();
         // Reset UI state
-        var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
-        var dlBar=document.getElementById('tpDownloadBar');
-        if(dlBar) dlBar.style.display='none';
         _tpHideRecBar();
         _tpPaused=false; _tpClosing=false; _tpAutoSaveClose=false;
-        _tpLastBlob=null;
-        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
+        // NOTE: the previous take is deliberately NOT cleared here — relaunching the
+        // prompter must not destroy a recording the user hasn't saved yet. It is
+        // cleared in tpStartRecording, the moment a new take actually begins.
         _showCtrl();
         closeTeleprompterModal();
         var ov=document.getElementById('tpOverlay');
@@ -16825,7 +16823,7 @@ Challenge weak assumptions. Surface risks.`;
           _showCtrl();
           var t=e.target;
           if(!t) return;
-          if(t.closest && (t.closest('#tpControls')||t.closest('#tpDownloadBar')||t.closest('#tpRecBar'))) return;
+          if(t.closest && (t.closest('#tpControls')||t.closest('#tpRecBtn')||t.closest('#tpRecBar'))) return;
           if(t.tagName==='BUTTON'||t.tagName==='A') return;
           _tpToggleScroll();
         };
@@ -17142,9 +17140,6 @@ Challenge weak assumptions. Surface risks.`;
           ov.removeEventListener('mousemove',_showCtrl);
           ov.removeEventListener('touchstart',_showCtrl);
         }
-        var dlBar=document.getElementById('tpDownloadBar');
-        if(dlBar) dlBar.style.display='none';
-        clearTimeout(_tpSaveBarTimer); _tpSaveBarTimer=null;
         document.body.style.overflow='';
         var prog=document.getElementById('tpProgress');
         if(prog) prog.style.height='0%';
@@ -17153,11 +17148,10 @@ Challenge weak assumptions. Surface risks.`;
       // Primary save function — converts to MP4 via FFmpeg.wasm then downloads
       window.tpSave = window.tpDownload = async function(){
         if(!_tpLastBlob||_tpLastBlob.size===0){
-          if(typeof showToast==='function') showToast('No recording yet — hit Record then Stop & Save');
+          if(typeof showToast==='function') showToast('No recording yet — hit ● Record, then ⏹ Stop & Save');
           return;
         }
         var sb=document.getElementById('tpSaveBar'); if(sb) sb.style.display='none';
-        clearTimeout(_tpSaveBarTimer); _tpSaveBarTimer=null;
 
         var blob=_tpLastBlob;
         var isAlreadyMp4=(_tpBlobMime||'').indexOf('mp4')>-1;
@@ -17229,9 +17223,23 @@ Challenge weak assumptions. Surface risks.`;
         var badge=document.getElementById('tpRecBarBadge');
         if(badge) badge.style.display=scrollOnly?'none':'flex';
         var stopBtn=document.getElementById('tpRecStopBtn');
-        if(stopBtn) stopBtn.innerHTML='&#9209; Stop Recording';
+        if(stopBtn) stopBtn.innerHTML=scrollOnly?'&#9209; Stop':'&#9209; Stop &amp; Save';
+        // The floating button becomes a second, always-visible Stop — never disabled mid-take
+        _tpSetRecBtn(true,scrollOnly);
+      }
+
+      // Paints the always-visible top-right button as either Record or Stop
+      function _tpSetRecBtn(recording,scrollOnly){
         var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.style.opacity='0.35'; rb.style.pointerEvents='none'; }
+        if(!rb) return;
+        rb.style.opacity='1'; rb.style.pointerEvents='auto';
+        if(recording){
+          rb.innerHTML=scrollOnly?'&#9209; Stop':'&#9209; Stop &amp; Save';
+          rb.style.background='#dc2626'; rb.style.borderColor='#ef4444'; rb.style.color='#fff';
+        } else {
+          rb.innerHTML='&#9679; Record';
+          rb.style.background='rgba(239,68,68,.3)'; rb.style.borderColor='rgba(239,68,68,.6)'; rb.style.color='#fecaca';
+        }
       }
 
       function _tpHideRecBar(){
@@ -17240,11 +17248,37 @@ Challenge weak assumptions. Surface risks.`;
         if(bar) bar.style.display='none';
         var pb=document.getElementById('tpRecBarPause');
         if(pb){ pb.innerHTML='&#9646;&#9646; Pause'; pb.style.background='rgba(251,191,36,.15)'; pb.style.border='1px solid rgba(251,191,36,.5)'; pb.style.color='#fde68a'; }
-        var rb=document.getElementById('tpRecBtn');
-        if(rb){ rb.style.opacity='1'; rb.style.pointerEvents='auto'; }
+        _tpSetRecBtn(false);
         var rt=document.getElementById('tpRecTimer'); if(rt) rt.textContent='';
         _tpPaused=false;
       }
+
+      // An unsaved take is only ever held in memory — surface it in the setup window
+      // so dismissing the save bar can never strand the recording.
+      function _tpRefreshLastTake(){
+        var row=document.getElementById('tpLastTakeRow');
+        if(!row) return;
+        if(_tpLastBlob&&_tpLastBlob.size>0){
+          row.style.display='flex';
+          var s=document.getElementById('tpLastTakeSize');
+          if(s) s.textContent=(_tpLastBlob.size/1048576).toFixed(1)+' MB · saving is the only way to keep it';
+        } else {
+          row.style.display='none';
+        }
+      }
+
+      window.tpDismissSaveBar = function(){
+        var sb=document.getElementById('tpSaveBar');
+        if(sb) sb.style.display='none';
+        if(typeof showToast==='function') showToast('Take kept — reopen the Teleprompter to save it');
+      };
+
+      window.tpDiscardTake = function(){
+        _tpLastBlob=null;
+        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
+        var sb=document.getElementById('tpSaveBar'); if(sb) sb.style.display='none';
+        _tpRefreshLastTake();
+      };
 
       // State-based handler — no dynamic onclick swapping needed
       window.tpRecBtnClick = function(){
@@ -17312,8 +17346,8 @@ Challenge weak assumptions. Surface risks.`;
       window.tpStartRecording = function(){
         // Stop voice scroll detection first — iOS permits only one active audio stream
         if(_tpVoiceEnabled){ _tpStopVoiceDetect(); }
-        var dlBar=document.getElementById('tpDownloadBar');
-        if(dlBar) dlBar.style.display='none';
+        var sbNow=document.getElementById('tpSaveBar');
+        if(sbNow) sbNow.style.display='none';
         if(_tpCamPending){
           if(typeof showToast==='function') showToast('Camera connecting — wait a moment then try again');
           return;
@@ -17329,6 +17363,10 @@ Challenge weak assumptions. Surface risks.`;
           return;
         }
         _tpChunks=[]; _tpClosing=false;
+        // A new take supersedes the old one — release it here, not on launch
+        _tpLastBlob=null;
+        if(_tpLastBlobUrl){ URL.revokeObjectURL(_tpLastBlobUrl); _tpLastBlobUrl=null; }
+        _tpRefreshLastTake();
         // Stop any existing camera stream before requesting a fresh combined one
         _tpStopCamera();
 
@@ -17390,8 +17428,9 @@ Challenge weak assumptions. Surface risks.`;
             if(sbSize) sbSize.textContent=sizeMb+' MB — tap Save to keep it';
             var sb=document.getElementById('tpSaveBar');
             if(sb) sb.style.display='block';
-            clearTimeout(_tpSaveBarTimer);
-            _tpSaveBarTimer=setTimeout(function(){ var s=document.getElementById('tpSaveBar'); if(s) s.style.display='none'; },60000);
+            // NO auto-hide timer: the bar is the only handle on an unsaved take,
+            // so it stays until the user saves or dismisses it themselves.
+            _tpRefreshLastTake();
             if(typeof showToast==='function') showToast('Recording ready — tap Save!');
           };
           _tpRunCountdown(function(){
@@ -33895,8 +33934,17 @@ window.toggleNotifPanel = function(){
     <div style="margin-top:24px;text-align:center;">
       <button onclick="tpLaunch()" style="display:inline-flex;align-items:center;gap:8px;padding:13px 32px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:0 4px 18px rgba(124,58,237,.4);">&#128640; Launch Teleprompter</button>
     </div>
+    <!-- Recovery: an unsaved take survives here until it is saved or discarded -->
+    <div id="tpLastTakeRow" style="display:none;margin-top:16px;padding:13px 15px;background:rgba(16,185,129,.10);border:1px solid rgba(16,185,129,.38);border-radius:10px;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:150px;">
+        <div style="font-size:13.5px;font-weight:700;color:#6ee7b7;">&#127909; Your last take is still here</div>
+        <div id="tpLastTakeSize" style="font-size:12px;color:#aab8cc;margin-top:2px;"></div>
+      </div>
+      <button onclick="window.tpSave()" style="padding:11px 20px;border-radius:10px;background:linear-gradient(135deg,#059669,#047857);border:none;color:#fff;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap;">&#128190; Save to Device</button>
+      <button onclick="window.tpDiscardTake()" style="padding:11px 14px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#aab8cc;font-size:13px;cursor:pointer;white-space:nowrap;">Discard</button>
+    </div>
     <div style="margin-top:14px;padding:14px 16px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;font-size:12px;color:#cbd5e1;line-height:1.7;">
-      <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. A 3-second countdown gives you a moment before scroll begins. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> to start — it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop</strong> when done and download your take.
+      <strong style="color:#c4b5fd;">How it works:</strong> Camera fills the background so you see yourself while reading. Hit <strong style="color:#c4b5fd;">&#9679; Record</strong> (top-right, always visible) to start — a 3-second countdown runs, then it records camera + mic and scrolls at the same time. Tap anywhere to pause the scroll. Hit <strong style="color:#c4b5fd;">&#9209; Stop &amp; Save</strong> when done — the green <strong style="color:#6ee7b7;">Save to Device</strong> bar appears at the bottom and stays until you save or dismiss it. If you dismiss it by accident, the take reappears right here.
     </div>
   </div>
   </div><!-- end z-index:1 wrapper -->
@@ -33914,8 +33962,11 @@ window.toggleNotifPanel = function(){
   <!-- ALWAYS-VISIBLE exit button — never auto-hides -->
   <button onclick="tpClose()" style="position:fixed;top:10px;right:12px;z-index:40;padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.28);border:1px solid rgba(239,68,68,.55);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px);">&#10005; Exit</button>
 
+  <!-- ALWAYS-VISIBLE record/stop button — lives outside #tpControls so it never auto-hides -->
+  <button onclick="tpRecBtnClick()" id="tpRecBtn" style="position:fixed;top:52px;right:12px;z-index:40;padding:11px 20px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.6);color:#fecaca;font-size:14px;font-weight:800;cursor:pointer;backdrop-filter:blur(6px);white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.5);transition:background .2s,color .2s;">&#9679; Record</button>
+
   <!-- Auto-hiding controls bar -->
-  <div id="tpControls" style="position:fixed;top:0;left:0;right:90px;z-index:30;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);padding:8px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
+  <div id="tpControls" style="position:fixed;top:0;left:0;right:145px;z-index:30;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);padding:8px 10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;transition:opacity .35s;opacity:1;pointer-events:auto;">
     <button onclick="tpReset()" style="padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);color:#cbd5e1;font-size:13px;cursor:pointer;white-space:nowrap;">&#8635; Reset</button>
     <div style="display:flex;align-items:center;gap:3px;border-left:1px solid rgba(255,255,255,.1);padding-left:6px;">
       <span style="font-size:10px;color:#a8b4c8;letter-spacing:.04em;">SPD</span>
@@ -33930,7 +33981,6 @@ window.toggleNotifPanel = function(){
     </div>
     <button onclick="tpToggleCamera()" id="tpCamBtn" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.20);color:#cbd5e1;font-size:12px;cursor:pointer;white-space:nowrap;">&#128247; Cam</button>
     <button onclick="tpChooseCamera()" id="tpCamPickBtn" title="Connect or choose a camera" style="padding:8px 11px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.20);color:#cbd5e1;font-size:12px;cursor:pointer;white-space:nowrap;">&#127909; Choose camera</button>
-    <button onclick="tpRecBtnClick()" id="tpRecBtn" style="padding:8px 16px;border-radius:8px;background:rgba(239,68,68,.25);border:1px solid rgba(239,68,68,.5);color:#fca5a5;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s;">&#9679; Record</button>
   </div>
 
   <!-- Reading zone line at 50vh -->
@@ -33957,7 +34007,7 @@ window.toggleNotifPanel = function(){
   <div id="tpHint" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.3);pointer-events:none;white-space:nowrap;text-align:center;">Tap screen to pause scroll &#183; Swipe up on controls to show them</div>
 
   <!-- Recording control bar — always visible while recording, can't be missed -->
-  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:12px 10px;border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:7px;flex-wrap:wrap;">
+  <div id="tpRecBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:45;background:rgba(4,8,24,.97);backdrop-filter:blur(14px);padding:12px 10px calc(12px + env(safe-area-inset-bottom,0px));border-top:2px solid rgba(239,68,68,.55);align-items:center;gap:7px;flex-wrap:wrap;">
     <button id="tpRecBarPause" onclick="tpTogglePause()" style="padding:11px 14px;border-radius:10px;background:rgba(251,191,36,.15);border:1px solid rgba(251,191,36,.5);color:#fde68a;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9646;&#9646; Pause</button>
     <button id="tpVoiceBtn" onclick="tpToggleVoiceScroll()" title="Auto-pause scroll when you stop talking" style="padding:11px 14px;border-radius:10px;background:rgba(30,42,74,.6);border:1px solid rgba(42,58,106,.6);color:#cbd5e1;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#127908; Voice Scroll</button>
     <button id="tpRecBarRestart" onclick="tpRestartRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.55);color:#a5b4fc;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#8635; Restart</button>
@@ -33967,34 +34017,20 @@ window.toggleNotifPanel = function(){
       <span id="tpRecTimer" style="font-size:13px;color:#fca5a5;font-weight:600;min-width:38px;"></span>
       <span id="tpVoiceBadge" style="font-size:11px;opacity:.8;color:#6ee7b7;margin-left:8px;"></span>
     </div>
-    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:11px 14px;border-radius:10px;background:rgba(239,68,68,.3);border:1px solid rgba(239,68,68,.65);color:#fca5a5;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;">&#9209; Stop</button>
-  </div>
-
-  <!-- Download bar -->
-  <div id="tpDownloadBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:46;background:rgba(4,10,26,.97);backdrop-filter:blur(14px);padding:14px 16px;align-items:center;gap:10px;flex-wrap:wrap;border-top:2px solid rgba(16,185,129,.5);">
-    <div style="display:flex;flex-direction:column;gap:2px;">
-      <span style="font-size:13px;color:#6ee7b7;font-weight:700;">&#9989; Take ready!</span>
-      <span id="tpDlSize" style="font-size:12.5px;color:#aab8cc;"></span>
-    </div>
-    <button onclick="tpSave()" style="flex:1;padding:14px 20px;border-radius:10px;background:linear-gradient(135deg,rgba(16,185,129,.45),rgba(16,185,129,.28));border:1px solid rgba(16,185,129,.7);color:#6ee7b7;font-size:16px;font-weight:800;cursor:pointer;min-width:160px;letter-spacing:.01em;">&#128190; Save to Device</button>
-    <div style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:#aab8cc;">
-      <span>Mobile: saves to camera roll</span>
-      <span>Desktop: saves to Downloads</span>
-    </div>
-    <button onclick="document.getElementById('tpDownloadBar').style.display='none'" style="background:none;border:none;color:#a8b4c8;font-size:22px;cursor:pointer;flex-shrink:0;padding:4px;">&#10005;</button>
+    <button id="tpRecStopBtn" onclick="tpStopRecording()" style="padding:13px 22px;border-radius:10px;background:#dc2626;border:1px solid #ef4444;color:#fff;font-size:15px;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;box-shadow:0 4px 16px rgba(239,68,68,.45);">&#9209; Stop &amp; Save</button>
   </div>
 </div>
 
 <!-- Teleprompter save bar — lives OUTSIDE the overlay so iOS releases the audio session when shown -->
-<div id="tpSaveBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999950;background:linear-gradient(135deg,#1e293b,#0f172a);border-top:2px solid rgba(139,92,246,.5);padding:14px 16px;font-family:system-ui,sans-serif;box-shadow:0 -8px 32px rgba(0,0,0,.6);">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:600px;margin:0 auto;">
-    <div>
-      <div style="color:#e2e8f0;font-size:15px;font-weight:700;">&#127909; Recording ready</div>
+<div id="tpSaveBar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999950;background:linear-gradient(135deg,#1e293b,#0f172a);border-top:2px solid rgba(16,185,129,.6);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));font-family:system-ui,sans-serif;box-shadow:0 -8px 32px rgba(0,0,0,.6);">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:600px;margin:0 auto;flex-wrap:wrap;">
+    <div style="min-width:150px;">
+      <div style="color:#6ee7b7;font-size:15px;font-weight:800;">&#9989; Take ready &mdash; save it</div>
       <div style="color:#cbd5e1;font-size:13px;margin-top:2px;"><span id="tpSaveBarSize"></span></div>
     </div>
     <div style="display:flex;gap:8px;flex-shrink:0;">
-      <button onclick="window.tpSave()" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;">&#128190; Save</button>
-      <button onclick="document.getElementById('tpSaveBar').style.display='none'" style="background:rgba(255,255,255,.08);color:#cbd5e1;border:1px solid rgba(255,255,255,.20);border-radius:10px;padding:10px 14px;font-size:14px;cursor:pointer;">&#10005;</button>
+      <button onclick="window.tpSave()" style="background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:10px;padding:13px 26px;font-size:15px;font-weight:800;cursor:pointer;white-space:nowrap;box-shadow:0 4px 16px rgba(16,185,129,.4);">&#128190; Save to Device</button>
+      <button onclick="window.tpDismissSaveBar()" title="Hide (the take stays in the Teleprompter window)" style="background:rgba(255,255,255,.08);color:#cbd5e1;border:1px solid rgba(255,255,255,.20);border-radius:10px;padding:10px 14px;font-size:14px;cursor:pointer;">&#10005;</button>
     </div>
   </div>
 </div>

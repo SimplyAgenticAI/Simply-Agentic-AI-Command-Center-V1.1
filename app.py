@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.3")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -2804,7 +2804,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/book/", "/api/public/booking/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -3264,6 +3264,13 @@ def _auth_guard() -> Optional[Any]:
     if request.path.startswith("/static/"):
         return None
     if request.path.startswith("/stripe/"):
+        return None
+    if request.path.startswith("/book/"):
+        # Public booking page + cancel page — no session possible for a
+        # visitor. Rate limiting + a honeypot field (not auth) are what
+        # actually protect the writes here; see the Booking Link routes.
+        return None
+    if request.path.startswith("/api/public/booking/"):
         return None
     if request.path.startswith("/admin/"):
         # Enforce auth globally for all admin routes — don't rely on per-route checks
@@ -5781,6 +5788,441 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
         pass  # Silently skip — old token without calendar.readonly scope
 
     return out
+
+
+def _calendar_delete_event(access_token: str, event_id: str, calendar_id: str = "primary") -> Tuple[bool, str]:
+    """Delete a Google Calendar event. 410 (Gone) counts as success — already deleted."""
+    r = requests.delete(
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+        headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
+    if r.status_code in (200, 204, 410):
+        return True, ""
+    return False, f"Google Calendar returned {r.status_code}."
+
+
+# =========================
+# BOOKING LINK — data model, storage, slot math
+# =========================
+# Public Calendly-style booking page. Reuses the Google Calendar OAuth stack
+# above (_calendar_creds_for_user / _calendar_check_conflicts /
+# _calendar_create_event / _calendar_delete_event) — nothing new is built for
+# talking to Google, only for turning free/busy data into bookable slots and
+# storing the result of a booking.
+from zoneinfo import ZoneInfo
+
+_BOOKING_WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_BOOKING_TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+
+BOOKINGS_DIR = DATA / "bookings"
+BOOKING_SLUG_INDEX_PATH = DATA / "booking_slugs.json"
+BOOKING_CANCEL_INDEX_PATH = DATA / "booking_cancel_index.json"
+
+
+def _booking_default_settings() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "slug": "",
+        "timezone": "UTC",
+        "meeting_types": [],
+        "working_hours": {
+            "mon": [{"start": "09:00", "end": "17:00"}],
+            "tue": [{"start": "09:00", "end": "17:00"}],
+            "wed": [{"start": "09:00", "end": "17:00"}],
+            "thu": [{"start": "09:00", "end": "17:00"}],
+            "fri": [{"start": "09:00", "end": "17:00"}],
+            "sat": [], "sun": [],
+        },
+        "buffer_min": 15,
+        "min_notice_hours": 4,
+        "max_horizon_days": 30,
+        "slot_step_min": 30,
+        "custom_message": "",
+        "updated_at": None,
+    }
+
+
+def _booking_settings_for_user(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge stored settings.booking over defaults — self-healing like _crm_load,
+    so a partial/legacy record can never crash a caller."""
+    base = _booking_default_settings()
+    stored = ((u or {}).get("settings") or {}).get("booking") or {}
+    if isinstance(stored, dict):
+        for k, v in stored.items():
+            if k in base and k != "working_hours":
+                base[k] = v
+        if isinstance(stored.get("working_hours"), dict):
+            base["working_hours"].update({
+                k: v for k, v in stored["working_hours"].items() if k in _BOOKING_WEEKDAY_KEYS
+            })
+    username = (u or {}).get("username", "")
+    if not (base.get("slug") or "").strip():
+        base["slug"] = _clean_username(username)
+    if not (base.get("timezone") or "").strip() or base["timezone"] == "UTC":
+        prof_tz = (_load_operator_profile(username) or {}).get("timezone") or ""
+        if prof_tz:
+            base["timezone"] = prof_tz
+    return base
+
+
+def _booking_clean_slug(raw: str) -> str:
+    return re.sub(r"[^a-z0-9_-]+", "", (raw or "").strip().lower())[:40]
+
+
+def _booking_resolve_slug(slug: str) -> Optional[str]:
+    """slug -> username, O(1) via the index; self-heals by full scan if the
+    index is missing/stale (e.g. hand-edited data, or a race on first save)."""
+    if not slug:
+        return None
+    idx = load_json(BOOKING_SLUG_INDEX_PATH, {})
+    uname = idx.get(slug) if isinstance(idx, dict) else None
+    if uname:
+        return uname
+    users = (load_users().get("users") or {})
+    for uname2, rec in users.items():
+        if ((rec.get("settings") or {}).get("booking") or {}).get("slug") == slug:
+            def _mut(d, _slug=slug, _uname=uname2):
+                d[_slug] = _uname
+                return d
+            try:
+                update_json(BOOKING_SLUG_INDEX_PATH, {}, _mut)
+            except Exception:
+                pass
+            return uname2
+    return None
+
+
+def _booking_slug_taken(slug: str, exclude_username: str = "") -> bool:
+    owner = _booking_resolve_slug(slug)
+    return bool(owner) and owner != exclude_username
+
+
+def _booking_validate_meeting_types(raw: Any) -> Tuple[bool, str, List[Dict[str, Any]]]:
+    if not isinstance(raw, list):
+        return False, "meeting_types must be a list.", []
+    cleaned: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for item in raw[:20]:
+        if not isinstance(item, dict):
+            continue
+        name = (item.get("name") or "").strip()[:80]
+        if not name:
+            continue
+        try:
+            duration = int(item.get("duration_min") or 30)
+        except Exception:
+            duration = 30
+        duration = max(5, min(480, duration))
+        mid = re.sub(r"[^a-zA-Z0-9_-]+", "", (item.get("id") or "").strip())[:40]
+        if not mid or mid in seen_ids:
+            mid = secrets.token_hex(6)
+        seen_ids.add(mid)
+        cleaned.append({
+            "id": mid,
+            "name": name,
+            "duration_min": duration,
+            "description": (item.get("description") or "").strip()[:500],
+            "location": (item.get("location") or "").strip()[:200],
+            "use_meet": bool(item.get("use_meet")),
+            "active": bool(item.get("active", True)),
+        })
+    return True, "", cleaned
+
+
+def _booking_validate_working_hours(raw: Any) -> Tuple[bool, str, Dict[str, List[Dict[str, str]]]]:
+    if not isinstance(raw, dict):
+        return False, "working_hours must be an object.", {}
+    cleaned: Dict[str, List[Dict[str, str]]] = {k: [] for k in _BOOKING_WEEKDAY_KEYS}
+    for day in _BOOKING_WEEKDAY_KEYS:
+        ranges = raw.get(day)
+        if not isinstance(ranges, list):
+            continue
+        for r in ranges[:4]:
+            if not isinstance(r, dict):
+                continue
+            start = (r.get("start") or "").strip()
+            end = (r.get("end") or "").strip()
+            if not (_BOOKING_TIME_RE.match(start) and _BOOKING_TIME_RE.match(end)):
+                continue
+            if start >= end:  # zero-padded HH:MM strings compare correctly as text
+                continue
+            cleaned[day].append({"start": start, "end": end})
+    return True, "", cleaned
+
+
+def _booking_save_settings(u: Dict[str, Any], payload: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
+    """Validate + persist settings.booking via update_user() (atomic per-user
+    write, not the racy whole-dict load_users()/save_users() pattern), then
+    keep the slug index in sync in the same call."""
+    username = u.get("username", "")
+    current = _booking_settings_for_user(u)
+
+    if payload.get("slug") is not None:
+        slug = _booking_clean_slug(payload.get("slug"))
+        if len(slug) < 3:
+            return False, "Slug must be at least 3 characters (letters, numbers, - and _ only).", {}
+        if _booking_slug_taken(slug, exclude_username=username):
+            return False, "That link is already in use — pick another.", {}
+    else:
+        slug = current["slug"]
+
+    tz = (payload.get("timezone") or current["timezone"] or "UTC").strip()
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        return False, "Unknown timezone.", {}
+
+    ok, err, meeting_types = _booking_validate_meeting_types(
+        payload.get("meeting_types", current["meeting_types"]))
+    if not ok:
+        return False, err, {}
+    ok, err, working_hours = _booking_validate_working_hours(
+        payload.get("working_hours", current["working_hours"]))
+    if not ok:
+        return False, err, {}
+
+    def _clamp(val, lo, hi, default):
+        try:
+            v = int(val)
+        except Exception:
+            return default
+        return max(lo, min(hi, v))
+
+    buffer_min = _clamp(payload.get("buffer_min", current["buffer_min"]), 0, 120, current["buffer_min"])
+    min_notice_hours = _clamp(payload.get("min_notice_hours", current["min_notice_hours"]), 0, 168, current["min_notice_hours"])
+    max_horizon_days = _clamp(payload.get("max_horizon_days", current["max_horizon_days"]), 1, 180, current["max_horizon_days"])
+    slot_step_min = _clamp(payload.get("slot_step_min", current["slot_step_min"]), 5, 120, current["slot_step_min"])
+    enabled = bool(payload.get("enabled", current["enabled"]))
+    custom_message = payload.get("custom_message", current["custom_message"])
+    custom_message = str(custom_message or "").strip()[:500]
+
+    new_settings = {
+        "enabled": enabled, "slug": slug, "timezone": tz,
+        "meeting_types": meeting_types, "working_hours": working_hours,
+        "buffer_min": buffer_min, "min_notice_hours": min_notice_hours,
+        "max_horizon_days": max_horizon_days, "slot_step_min": slot_step_min,
+        "custom_message": custom_message, "updated_at": now_iso(),
+    }
+
+    def _mutate(rec):
+        rec.setdefault("settings", {})
+        rec["settings"]["booking"] = new_settings
+        return rec
+    update_user(username, _mutate)
+
+    old_slug = current.get("slug", "")
+    def _reindex(idx, _old=old_slug, _new=slug, _uname=username):
+        if not isinstance(idx, dict):
+            idx = {}
+        if _old and _old != _new and idx.get(_old) == _uname:
+            idx.pop(_old, None)
+        idx[_new] = _uname
+        return idx
+    try:
+        update_json(BOOKING_SLUG_INDEX_PATH, {}, _reindex)
+    except Exception as e:
+        _capture_error(e, context="booking_slug_reindex")
+
+    return True, "", new_settings
+
+
+# ── Bookings log — per-user JSON file, exact _crm_load/_crm_save shape ──────
+
+def _bookings_path_for_user(username: str) -> Path:
+    return BOOKINGS_DIR / f"{_safe_name(username or 'anon')}.json"
+
+
+def _bookings_default_state() -> Dict[str, Any]:
+    return {"version": "bookings_v1", "updated_at": None, "bookings": {}}
+
+
+def _bookings_load(username: str) -> Dict[str, Any]:
+    data = load_json(_bookings_path_for_user(username), _bookings_default_state())
+    if not isinstance(data, dict):
+        data = _bookings_default_state()
+    if not isinstance(data.get("bookings"), dict):
+        data["bookings"] = {}
+    return data
+
+
+def _bookings_save(username: str, data: Dict[str, Any]) -> None:
+    data["updated_at"] = now_iso()
+    save_json(_bookings_path_for_user(username), data)
+
+
+def _bookings_new_id() -> str:
+    return f"bkg_{uuid.uuid4().hex[:12]}"
+
+
+# ── Cancel-token index — a cancel token is the SOLE auth for an anonymous
+# visitor, unlike every other per-user store here (only ever read by its
+# authenticated owner), so it needs its own fast global lookup. ────────────
+
+def _booking_cancel_index_add(token: str, username: str, booking_id: str) -> None:
+    def _mut(idx, _t=token, _u=username, _b=booking_id):
+        if not isinstance(idx, dict):
+            idx = {}
+        idx[_t] = {"username": _u, "booking_id": _b}
+        return idx
+    update_json(BOOKING_CANCEL_INDEX_PATH, {}, _mut)
+
+
+def _booking_cancel_index_lookup(token: str) -> Optional[Dict[str, str]]:
+    idx = load_json(BOOKING_CANCEL_INDEX_PATH, {})
+    entry = idx.get(token) if isinstance(idx, dict) else None
+    if isinstance(entry, dict) and entry.get("username") and entry.get("booking_id"):
+        return entry
+    return None
+
+
+def _booking_cancel_index_remove(token: str) -> None:
+    def _mut(idx, _t=token):
+        if isinstance(idx, dict):
+            idx.pop(_t, None)
+        return idx
+    try:
+        update_json(BOOKING_CANCEL_INDEX_PATH, {}, _mut)
+    except Exception:
+        pass
+
+
+# ── Slot math — pure function, no Flask/network, fully unit-testable ───────
+
+def _booking_parse_google_dt(s: str) -> Optional[datetime]:
+    """Google freeBusy busy times are RFC3339 UTC. Returns a naive datetime
+    treated as UTC — this codebase's convention throughout (see the many
+    datetime.fromisoformat(...replace("Z","")) call sites)."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
+
+def _booking_utc_to_local_naive(dt_utc_naive: datetime, tz_str: str) -> datetime:
+    """UTC-naive -> operator-local-naive, same idiom as _user_now_local."""
+    aware_utc = dt_utc_naive.replace(tzinfo=timezone.utc)
+    return aware_utc.astimezone(ZoneInfo(tz_str)).replace(tzinfo=None)
+
+
+def _booking_local_naive_to_utc(dt_local_naive: datetime, tz_str: str) -> datetime:
+    """operator-local-naive -> UTC-naive."""
+    aware_local = dt_local_naive.replace(tzinfo=ZoneInfo(tz_str))
+    return aware_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _booking_slots_from_availability(
+    working_hours: Dict[str, List[Dict[str, str]]],
+    busy_blocks: List[Dict[str, str]],
+    duration_min: int,
+    slot_step_min: int,
+    buffer_min: int,
+    not_before_utc: datetime,
+    not_after_utc: datetime,
+    day_window_start_utc: datetime,
+    day_window_end_utc: datetime,
+    operator_tz: str,
+) -> List[datetime]:
+    """Walk [day_window_start_utc, day_window_end_utc) in slot_step_min steps,
+    keep candidates that: fall inside the operator's local working_hours for
+    that weekday, don't overlap any busy block expanded by buffer_min on each
+    side, and land within [not_before_utc, not_after_utc]. All datetimes are
+    naive, treated as UTC (this codebase's convention) except where converted
+    to operator-local for the working-hours check. Returns UTC-naive slot
+    start instants. Pure function — no I/O, safe to unit test directly."""
+    duration = timedelta(minutes=max(1, int(duration_min or 30)))
+    step = timedelta(minutes=max(1, int(slot_step_min or 30)))
+    buffer_td = timedelta(minutes=max(0, int(buffer_min or 0)))
+
+    busy_ranges = []
+    for b in (busy_blocks or []):
+        s = _booking_parse_google_dt(b.get("start", ""))
+        e = _booking_parse_google_dt(b.get("end", ""))
+        if s and e:
+            busy_ranges.append((s - buffer_td, e + buffer_td))
+
+    slots: List[datetime] = []
+    cursor = day_window_start_utc
+    while cursor + duration <= day_window_end_utc:
+        if cursor >= not_before_utc and (cursor + duration) <= not_after_utc:
+            local_start = _booking_utc_to_local_naive(cursor, operator_tz)
+            local_end = _booking_utc_to_local_naive(cursor + duration, operator_tz)
+            day_key = _BOOKING_WEEKDAY_KEYS[local_start.weekday()]
+            in_hours = False
+            if local_start.date() == local_end.date():
+                for r in (working_hours.get(day_key) or []):
+                    try:
+                        rs_h, rs_m = (int(x) for x in r["start"].split(":"))
+                        re_h, re_m = (int(x) for x in r["end"].split(":"))
+                    except Exception:
+                        continue
+                    range_start = local_start.replace(hour=rs_h, minute=rs_m, second=0, microsecond=0)
+                    range_end = local_start.replace(hour=re_h, minute=re_m, second=0, microsecond=0)
+                    if local_start >= range_start and local_end <= range_end:
+                        in_hours = True
+                        break
+            if in_hours:
+                overlaps_busy = any(cursor < be and (cursor + duration) > bs for bs, be in busy_ranges)
+                if not overlaps_busy:
+                    slots.append(cursor)
+        cursor += step
+    return slots
+
+
+# ── Email + cancel — shared by the authenticated and public routes ─────────
+
+def _send_booking_email_for_user(u: Dict[str, Any], to_addr: str, subject: str, body: str) -> Tuple[bool, str]:
+    """Tiers 2-3 of the invite-email fallback used elsewhere: operator's own
+    SMTP settings, then server env SMTP. No Gmail-OAuth tier — out of scope,
+    SMTP is sufficient and simpler for a confirmation email."""
+    if not to_addr:
+        return False, "no_recipient"
+    smtp = (u.get("settings") or {}).get("smtp") or {}
+    from_name = (smtp.get("from_name") or "").strip() \
+        or (_load_operator_profile(u.get("username", "")).get("display_name") or "").strip() \
+        or APP_TITLE
+    user, pw = (smtp.get("user") or "").strip(), (smtp.get("pass") or "").strip()
+    if user and pw:
+        host = (smtp.get("host") or "").strip() or SMTP_HOST
+        port = int(smtp.get("port") or SMTP_PORT)
+        try:
+            send_email_smtp_with_creds(to_addr, subject, body, host, port, user, pw, from_name)
+            return True, ""
+        except Exception as exc:
+            _capture_error(exc, context="booking_email_operator_smtp")
+    if SMTP_USER and SMTP_PASS:
+        try:
+            send_email_smtp_with_creds(to_addr, subject, body, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, from_name)
+            return True, ""
+        except Exception as exc:
+            _capture_error(exc, context="booking_email_server_smtp")
+    return False, "no_smtp_configured"
+
+
+def _booking_cancel(username: str, booking_id: str) -> Tuple[bool, str]:
+    """Shared by the operator-authenticated cancel route and the public
+    token-cancel route. Best-effort on the Google delete — a Google hiccup
+    must not strand the booking log entry in limbo."""
+    data = _bookings_load(username)
+    bkg = (data.get("bookings") or {}).get(booking_id)
+    if not bkg or bkg.get("status") != "confirmed":
+        return False, "Booking not found or already cancelled."
+    user_rec = (load_users().get("users") or {}).get(username)
+    if user_rec and bkg.get("calendar_event_id"):
+        access_token, _reason = _calendar_creds_for_user(user_rec)
+        if access_token:
+            ok, err = _calendar_delete_event(access_token, bkg["calendar_event_id"])
+            if not ok:
+                _capture_error(Exception(err), context="booking_cancel_calendar_delete")
+    bkg["status"] = "cancelled"
+    bkg["cancelled_at"] = now_iso()
+    _bookings_save(username, data)
+    if bkg.get("cancel_token"):
+        _booking_cancel_index_remove(bkg["cancel_token"])
+    return True, ""
 
 
 def _gmail_creds_for_user(u: Optional[Dict[str, Any]]) -> Tuple[Optional[str], str]:
@@ -11108,17 +11550,12 @@ def api_calendar_delete_event():
     if not event_id:
         return jsonify({"ok": False, "error": "Missing event_id"}), 400
     try:
-        _req = requests
-        r = _req.delete(
-            f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=20,
-        )
-        if r.status_code in (200, 204):
+        ok, err = _calendar_delete_event(access_token, event_id, calendar_id)
+        if ok:
             append_log("calendar_event_deleted", {"user": u.get("username",""), "event_id": event_id, "at": now_iso()})
             return jsonify({"ok": True})
-        _capture_error(Exception(f"Calendar delete {r.status_code}: {r.text}"), context="calendar_delete_event")
-        return jsonify({"ok": False, "error": f"Google Calendar returned {r.status_code}. Please try again."}), 400
+        _capture_error(Exception(err), context="calendar_delete_event")
+        return jsonify({"ok": False, "error": err + " Please try again."}), 400
     except Exception as e:
         _capture_error(e, context="calendar_delete_event")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -11345,6 +11782,288 @@ def api_calendar_quick_add():
         return jsonify({"ok": True, "summary": res.get("summary", ""), "task_id": res.get("task_id")})
     except Exception:
         return jsonify({"ok": False, "error": "Couldn't parse that — try something like: lunch with Jamie tomorrow 1pm"}), 400
+
+
+# =========================
+# BOOKING LINK — routes
+# =========================
+
+# ── Authenticated management (normal session + CSRF, like every other
+# in-app write — only the public routes further down are exempt) ──────────
+
+@app.get("/api/booking/settings")
+def api_booking_settings_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    settings = _booking_settings_for_user(u)
+    public_url = f"{PUBLIC_BASE_URL}/book/{settings['slug']}" if (PUBLIC_BASE_URL and settings.get("slug")) else ""
+    return jsonify({"ok": True, "settings": settings, "public_url": public_url})
+
+
+@app.post("/api/booking/settings")
+def api_booking_settings_post():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(force=True, silent=True) or {}
+    ok, err, settings = _booking_save_settings(u, payload)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    try:
+        _mark_onboarding_step(u.get("username", ""), "booking_link_configured", True)
+    except Exception:
+        pass
+    public_url = f"{PUBLIC_BASE_URL}/book/{settings['slug']}" if (PUBLIC_BASE_URL and settings.get("slug")) else ""
+    return jsonify({"ok": True, "settings": settings, "public_url": public_url})
+
+
+@app.get("/api/booking/list")
+def api_booking_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    status = (request.args.get("status") or "confirmed").strip()
+    data = _bookings_load(u.get("username", ""))
+    items = [b for b in (data.get("bookings") or {}).values() if b.get("status") == status]
+    items.sort(key=lambda b: b.get("start_iso", ""))
+    return jsonify({"ok": True, "bookings": items})
+
+
+@app.post("/api/booking/<booking_id>/cancel")
+def api_booking_cancel(booking_id):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    ok, err = _booking_cancel(u.get("username", ""), booking_id)
+    return jsonify({"ok": ok, "error": None if ok else err}), (200 if ok else 400)
+
+
+# ── Public routes — no session possible, rate-limited + honeypot instead ───
+# (CSRF-exempt by design; see _csrf_valid's _CSRF_EXEMPT_PREFIXES and
+# _auth_guard's /book/ + /api/public/booking/ startswith exemptions.)
+
+def _booking_day_window_utc(date_str: str, visitor_tz: str) -> Optional[Tuple[datetime, datetime]]:
+    """visitor-local calendar date -> [start, end) UTC-naive window covering
+    that whole local day for the visitor, so a visitor near a timezone
+    boundary sees the slots that actually fall on the day they clicked."""
+    try:
+        day = datetime.strptime((date_str or "").strip(), "%Y-%m-%d")
+    except Exception:
+        return None
+    try:
+        ZoneInfo(visitor_tz)
+    except Exception:
+        visitor_tz = "UTC"
+    start_utc = _booking_local_naive_to_utc(day, visitor_tz)
+    end_utc = _booking_local_naive_to_utc(day + timedelta(days=1), visitor_tz)
+    return start_utc, end_utc
+
+
+@app.get("/book/<slug>")
+def public_booking_page(slug):
+    ok_rl, _msg = _rate_limit_check(f"booking_page:{_get_client_ip()}", 60)
+    if not ok_rl:
+        return "Too many requests — please wait a moment and try again.", 429
+    username = _booking_resolve_slug(slug)
+    if not username:
+        return make_response(render_template_string(
+            BOOKING_HTML, state="not_found", app_title=APP_TITLE), 404)
+    user_rec = (load_users().get("users") or {}).get(username)
+    settings = _booking_settings_for_user(user_rec)
+    operator_name = (_load_operator_profile(username) or {}).get("display_name") or "This operator"
+    access_token, _reason = _calendar_creds_for_user(user_rec) if user_rec else (None, "")
+    active_types = [m for m in settings.get("meeting_types", []) if m.get("active")]
+    if not settings.get("enabled") or not access_token or not active_types:
+        return render_template_string(
+            BOOKING_HTML, state="unavailable", app_title=APP_TITLE, operator_name=operator_name)
+    return render_template_string(
+        BOOKING_HTML, state="ready", app_title=APP_TITLE, slug=slug,
+        operator_name=operator_name, custom_message=settings.get("custom_message", ""),
+        meeting_types=active_types, timezone=settings.get("timezone", "UTC"),
+        min_notice_hours=settings.get("min_notice_hours", 4),
+        max_horizon_days=settings.get("max_horizon_days", 30))
+
+
+@app.get("/api/public/booking/<slug>/meta")
+def api_public_booking_meta(slug):
+    ok_rl, msg = _rate_limit_check(f"booking_meta:{_get_client_ip()}", 60)
+    if not ok_rl:
+        return jsonify({"ok": False, "error": msg}), 429
+    username = _booking_resolve_slug(slug)
+    if not username:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    user_rec = (load_users().get("users") or {}).get(username)
+    settings = _booking_settings_for_user(user_rec)
+    active_types = [m for m in settings.get("meeting_types", []) if m.get("active")]
+    operator_name = (_load_operator_profile(username) or {}).get("display_name") or "This operator"
+    return jsonify({"ok": True, "operator_name": operator_name, "timezone": settings.get("timezone", "UTC"),
+                     "meeting_types": active_types,
+                     "min_notice_hours": settings.get("min_notice_hours", 4),
+                     "max_horizon_days": settings.get("max_horizon_days", 30)})
+
+
+@app.get("/api/public/booking/<slug>/slots")
+def api_public_booking_slots(slug):
+    ok_rl, msg = _rate_limit_check(f"booking_slots:{_get_client_ip()}", 30)
+    if not ok_rl:
+        return jsonify({"ok": False, "error": msg}), 429
+    username = _booking_resolve_slug(slug)
+    if not username:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    user_rec = (load_users().get("users") or {}).get(username)
+    settings = _booking_settings_for_user(user_rec)
+    access_token, _reason = _calendar_creds_for_user(user_rec) if user_rec else (None, "")
+    if not access_token:
+        return jsonify({"ok": False, "error": "This booking page is temporarily unavailable."}), 200
+
+    date_str = (request.args.get("date") or "").strip()
+    mt_id = (request.args.get("meeting_type") or "").strip()
+    visitor_tz = (request.args.get("tz") or "UTC").strip()
+    mt = next((m for m in settings.get("meeting_types", []) if m.get("id") == mt_id and m.get("active")), None)
+    window = _booking_day_window_utc(date_str, visitor_tz)
+    if not mt or not window:
+        return jsonify({"ok": False, "error": "Invalid request"}), 400
+    day_start_utc, day_end_utc = window
+
+    not_before = _utcnow() + timedelta(hours=int(settings.get("min_notice_hours", 4)))
+    not_after = _utcnow() + timedelta(days=int(settings.get("max_horizon_days", 30)))
+
+    busy = _calendar_check_conflicts(
+        access_token, day_start_utc.isoformat() + "Z", day_end_utc.isoformat() + "Z", settings.get("timezone", "UTC"))
+    slots = _booking_slots_from_availability(
+        settings.get("working_hours", {}), busy, mt["duration_min"],
+        settings.get("slot_step_min", 30), settings.get("buffer_min", 15),
+        not_before, not_after, day_start_utc, day_end_utc, settings.get("timezone", "UTC"))
+    return jsonify({"ok": True, "slots": [s.isoformat() + "Z" for s in slots]})
+
+
+@app.post("/api/public/booking/<slug>/book")
+def api_public_booking_submit(slug):
+    ip = _get_client_ip()
+    ok_rl, msg = _rate_limit_check(f"booking_submit:{ip}", 5)
+    if not ok_rl:
+        return jsonify({"ok": False, "error": msg}), 429
+    username = _booking_resolve_slug(slug)
+    if not username:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+
+    payload = request.get_json(force=True, silent=True) or {}
+    if (payload.get("hp_website") or "").strip():
+        # Honeypot tripped — fake success, do nothing real.
+        append_log("booking_spam_blocked", {"slug": slug, "ip": ip, "at": now_iso()})
+        return jsonify({"ok": True, "booking": {"id": "spam", "cancel_url": ""}})
+
+    user_rec = (load_users().get("users") or {}).get(username)
+    settings = _booking_settings_for_user(user_rec)
+    access_token, _reason = _calendar_creds_for_user(user_rec) if user_rec else (None, "")
+    if not access_token:
+        return jsonify({"ok": False, "error": "This booking page is temporarily unavailable."}), 200
+
+    mt_id = (payload.get("meeting_type") or "").strip()
+    start_str = (payload.get("start") or "").strip()
+    visitor_name = (payload.get("visitor_name") or "").strip()[:120]
+    visitor_email = (payload.get("visitor_email") or "").strip()[:200]
+    visitor_notes = (payload.get("visitor_notes") or "").strip()[:2000]
+    mt = next((m for m in settings.get("meeting_types", []) if m.get("id") == mt_id and m.get("active")), None)
+    if not mt or not start_str or not visitor_name or not EMAIL_RE.match(visitor_email):
+        return jsonify({"ok": False, "error": "Missing or invalid booking details."}), 400
+
+    start_dt = _booking_parse_google_dt(start_str)
+    if not start_dt:
+        return jsonify({"ok": False, "error": "Invalid start time."}), 400
+    end_dt = start_dt + timedelta(minutes=mt["duration_min"])
+
+    # Re-derive and re-validate server-side — never trust a client-claimed slot.
+    not_before = _utcnow() + timedelta(hours=int(settings.get("min_notice_hours", 4)))
+    not_after = _utcnow() + timedelta(days=int(settings.get("max_horizon_days", 30)))
+    if start_dt < not_before or end_dt > not_after:
+        return jsonify({"ok": False, "error": "That time is no longer available. Please pick another slot."}), 400
+
+    start_iso = start_dt.isoformat() + "Z"
+    end_iso = end_dt.isoformat() + "Z"
+    conflicts = _calendar_check_conflicts(access_token, start_iso, end_iso, settings.get("timezone", "UTC"))
+    if conflicts:
+        return jsonify({"ok": False, "conflict": True,
+                         "error": "That time was just booked. Please pick another slot."}), 409
+
+    try:
+        created = _calendar_create_event(
+            access_token, title=f"{mt['name']} — {visitor_name}",
+            start_iso=start_iso, end_iso=end_iso, timezone=settings.get("timezone", "UTC"),
+            attendees=[visitor_email], description=visitor_notes,
+            location=mt.get("location", ""), use_meet=bool(mt.get("use_meet")))
+    except Exception as e:
+        _capture_error(e, context="booking_create_event")
+        data = _bookings_load(username)
+        bid = _bookings_new_id()
+        data["bookings"][bid] = {
+            "id": bid, "status": "failed", "meeting_type_id": mt_id,
+            "start_iso": start_iso, "visitor_email": visitor_email,
+            "created_at": now_iso(), "source_ip": ip,
+        }
+        _bookings_save(username, data)
+        return jsonify({"ok": False, "error": "We couldn't confirm your booking due to a calendar error. "
+                                               "Please try again or contact the operator directly."}), 502
+
+    cancel_token = secrets.token_hex(32)
+    bid = _bookings_new_id()
+    booking = {
+        "id": bid, "meeting_type_id": mt_id, "meeting_type_name": mt["name"],
+        "duration_min": mt["duration_min"], "start_iso": start_iso, "end_iso": end_iso,
+        "timezone": settings.get("timezone", "UTC"), "visitor_name": visitor_name,
+        "visitor_email": visitor_email, "visitor_notes": visitor_notes,
+        "visitor_tz_hint": (payload.get("visitor_tz") or "")[:64],
+        "status": "confirmed", "calendar_event_id": created.get("id", ""),
+        "cancel_token": cancel_token, "created_at": now_iso(), "cancelled_at": None,
+        "source_ip": ip,
+    }
+    data = _bookings_load(username)
+    data["bookings"][bid] = booking
+    _bookings_save(username, data)
+    _booking_cancel_index_add(cancel_token, username, bid)
+
+    cancel_url = f"{PUBLIC_BASE_URL}/book/{slug}/cancel/{cancel_token}"
+    operator_name = (_load_operator_profile(username) or {}).get("display_name") or "your host"
+    _send_booking_email_for_user(
+        user_rec, visitor_email, f"Confirmed: {mt['name']} with {operator_name}",
+        f"Your call is booked for {start_iso} ({settings.get('timezone', 'UTC')}).\n\n"
+        f"Need to cancel? {cancel_url}")
+    operator_email = (user_rec or {}).get("email", "")
+    if operator_email:
+        _send_booking_email_for_user(
+            user_rec, operator_email, f"New booking: {visitor_name}",
+            f"{visitor_name} ({visitor_email}) booked {mt['name']} at {start_iso}.\n\nNotes: {visitor_notes or '(none)'}")
+    append_log("booking_created", {"user": username, "booking_id": bid, "at": now_iso()})
+    return jsonify({"ok": True, "booking": {"id": bid, "start_iso": start_iso, "cancel_url": cancel_url}})
+
+
+@app.get("/book/<slug>/cancel/<token>")
+def public_booking_cancel_page(slug, token):
+    entry = _booking_cancel_index_lookup(token)
+    if not entry:
+        return make_response(render_template_string(
+            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+    bkg = (_bookings_load(entry["username"]).get("bookings") or {}).get(entry["booking_id"])
+    if not bkg or bkg.get("status") != "confirmed":
+        return make_response(render_template_string(
+            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+    return render_template_string(
+        BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="confirm", slug=slug, token=token, booking=bkg)
+
+
+@app.post("/book/<slug>/cancel/<token>")
+def public_booking_cancel_submit(slug, token):
+    ok_rl, _msg = _rate_limit_check(f"booking_cancel:{_get_client_ip()}", 10)
+    if not ok_rl:
+        return "Too many requests — please wait a moment and try again.", 429
+    entry = _booking_cancel_index_lookup(token)
+    if not entry:
+        return make_response(render_template_string(
+            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+    ok, err = _booking_cancel(entry["username"], entry["booking_id"])
+    return render_template_string(
+        BOOKING_CANCEL_HTML, app_title=APP_TITLE, state=("cancelled" if ok else "invalid"), error=err)
 
 
 @app.post("/api/cal/tasks/<task_id>")
@@ -12332,6 +13051,270 @@ footer a{color:var(--pl);text-decoration:none;}
   var gcb=document.getElementById('gcBox');if(gcb){var gi=0;function addR(){if(gi>=gcr.length){setTimeout(function(){gcb.innerHTML='';gi=0;setTimeout(addR,800);},2000);return;}var r=gcr[gi++];var d=document.createElement('div');d.className='gc-rep';d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';gcb.appendChild(d);setTimeout(addR,1100);}setTimeout(addR,600);}
 })();
 </script>
+</body></html>"""
+
+BOOKING_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+<title>{% if state == "ready" %}Book a call with {{operator_name}}{% else %}{{app_title}} | Booking{% endif %}</title>
+""" + AUTH_BASE_CSS + r"""
+<style>
+  .bkCard{ width:min(640px,92vw); }
+  .bkMsg{ text-align:center; padding:30px 10px; }
+  .bkTypes{ display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+  .bkType{ border:1px solid rgba(82,98,156,.6); border-radius:14px; padding:14px 16px; cursor:pointer; transition:border-color .15s,background .15s; }
+  .bkType:hover{ border-color:rgba(167,139,250,.7); }
+  .bkType.sel{ border-color:rgba(167,139,250,.95); background:rgba(124,58,237,.14); }
+  .bkType .bkTName{ font-weight:800; font-size:15px; }
+  .bkType .bkTMeta{ font-size:13px; color:var(--muted); margin-top:3px; }
+  .bkDateRow{ margin-top:18px; }
+  .bkSlotGrid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-top:12px; max-height:260px; overflow-y:auto; }
+  .bkSlot{ border:1px solid rgba(82,98,156,.9); background:rgba(12,18,38,.94); color:var(--text); border-radius:10px; padding:9px 6px; text-align:center; cursor:pointer; font-size:13px; font-weight:700; }
+  .bkSlot:hover{ border-color:rgba(167,139,250,.85); background:rgba(124,58,237,.14); }
+  .bkHoneypot{ position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
+  .bkStep{ display:none; }
+  .bkStep.on{ display:block; }
+  .bkBack{ font-size:13px; cursor:pointer; color:#ddd6fe; margin-bottom:10px; display:inline-block; }
+  #bkLoadingSlots, #bkNoSlots{ font-size:14px; color:var(--muted); margin-top:12px; }
+</style>
+</head><body>
+<div class="card bkCard">
+  <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+
+  {% if state == "not_found" %}
+    <div class="bkMsg">
+      <div class="muted" style="font-size:17px;">This booking page doesn't exist.</div>
+    </div>
+  {% elif state == "unavailable" %}
+    <div class="bkMsg">
+      <div class="muted" style="font-size:17px;">Booking with {{operator_name}} isn't available right now.</div>
+      <div class="muted" style="font-size:14px;margin-top:8px;">Please check back later.</div>
+    </div>
+  {% else %}
+    <div class="muted">Book a call with {{operator_name}}</div>
+    {% if custom_message %}<div class="muted" style="margin-top:6px;">{{custom_message}}</div>{% endif %}
+
+    <div id="bkStepType" class="bkStep on">
+      <div class="bkTypes">
+        {% for mt in meeting_types %}
+        <div class="bkType" data-id="{{mt.id}}" data-duration="{{mt.duration_min}}">
+          <div class="bkTName">{{mt.name}}</div>
+          <div class="bkTMeta">{{mt.duration_min}} min{% if mt.description %} &middot; {{mt.description}}{% endif %}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div id="bkStepSlots" class="bkStep">
+      <span class="bkBack" id="bkBackToType">&larr; Choose a different meeting type</span>
+      <div class="bkDateRow">
+        <label>Pick a date</label>
+        <input type="date" id="bkDate"/>
+      </div>
+      <div id="bkLoadingSlots" style="display:none;">Loading available times&hellip;</div>
+      <div id="bkNoSlots" style="display:none;">No open times that day — try another date.</div>
+      <div class="bkSlotGrid" id="bkSlotGrid"></div>
+    </div>
+
+    <div id="bkStepForm" class="bkStep">
+      <span class="bkBack" id="bkBackToSlots">&larr; Choose a different time</span>
+      <div class="muted" id="bkChosenSlot" style="font-size:15px;font-weight:700;margin-bottom:10px;"></div>
+      <label>Your name</label>
+      <input id="bkName" placeholder="Full name" required/>
+      <label>Your email</label>
+      <input id="bkEmail" type="email" placeholder="you@example.com" required/>
+      <label>Anything to add? (optional)</label>
+      <input id="bkNotes" placeholder="What's this about?"/>
+      <input class="bkHoneypot" id="bkHoneypot" type="text" name="hp_website" tabindex="-1" autocomplete="off"/>
+      <div class="row">
+        <button class="btn btnPrimary" id="bkSubmit" type="button">Confirm booking</button>
+      </div>
+      <div id="bkFormErr" class="err" style="display:none;"></div>
+    </div>
+
+    <div id="bkStepDone" class="bkStep">
+      <div class="bkMsg">
+        <div class="ok" style="font-size:17px;">You're booked!</div>
+        <div class="muted" style="margin-top:8px;" id="bkDoneDetail"></div>
+        <div class="muted" style="margin-top:14px;font-size:13px;" id="bkDoneCancel"></div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  window.__BOOKING_CFG = {
+    slug: {{ (slug if state == "ready" else "") | tojson }},
+    minNoticeHours: {{ (min_notice_hours if state == "ready" else 4) | tojson }},
+    maxHorizonDays: {{ (max_horizon_days if state == "ready" else 30) | tojson }}
+  };
+</script>
+{% raw %}
+<script>
+(function(){
+  'use strict';
+  if (!window.__BOOKING_CFG || !window.__BOOKING_CFG.slug) return;
+  var CFG = window.__BOOKING_CFG;
+  var visitorTz = 'UTC';
+  try { visitorTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch(e) {}
+
+  var stepType = document.getElementById('bkStepType');
+  var stepSlots = document.getElementById('bkStepSlots');
+  var stepForm = document.getElementById('bkStepForm');
+  var stepDone = document.getElementById('bkStepDone');
+  var dateInput = document.getElementById('bkDate');
+  var slotGrid = document.getElementById('bkSlotGrid');
+  var loadingEl = document.getElementById('bkLoadingSlots');
+  var noSlotsEl = document.getElementById('bkNoSlots');
+
+  var chosen = { typeId: null, duration: null, typeName: '', slotIso: null };
+
+  function showStep(el){
+    [stepType, stepSlots, stepForm, stepDone].forEach(function(s){ if (s) s.classList.remove('on'); });
+    if (el) el.classList.add('on');
+  }
+
+  function fmtDateInputMin(offsetDays){
+    var d = new Date(Date.now() + offsetDays * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
+
+  document.querySelectorAll('.bkType').forEach(function(card){
+    card.addEventListener('click', function(){
+      document.querySelectorAll('.bkType').forEach(function(c){ c.classList.remove('sel'); });
+      card.classList.add('sel');
+      chosen.typeId = card.getAttribute('data-id');
+      chosen.duration = card.getAttribute('data-duration');
+      chosen.typeName = card.querySelector('.bkTName').textContent;
+      if (dateInput) {
+        dateInput.min = fmtDateInputMin(Math.ceil(CFG.minNoticeHours / 24));
+        dateInput.max = fmtDateInputMin(CFG.maxHorizonDays);
+        if (!dateInput.value) dateInput.value = dateInput.min;
+      }
+      showStep(stepSlots);
+      loadSlots();
+    });
+  });
+
+  var backToType = document.getElementById('bkBackToType');
+  if (backToType) backToType.addEventListener('click', function(){ showStep(stepType); });
+  var backToSlots = document.getElementById('bkBackToSlots');
+  if (backToSlots) backToSlots.addEventListener('click', function(){ showStep(stepSlots); });
+
+  if (dateInput) dateInput.addEventListener('change', loadSlots);
+
+  function loadSlots(){
+    if (!chosen.typeId || !dateInput || !dateInput.value) return;
+    slotGrid.innerHTML = '';
+    noSlotsEl.style.display = 'none';
+    loadingEl.style.display = 'block';
+    var url = '/api/public/booking/' + encodeURIComponent(CFG.slug) + '/slots'
+      + '?date=' + encodeURIComponent(dateInput.value)
+      + '&meeting_type=' + encodeURIComponent(chosen.typeId)
+      + '&tz=' + encodeURIComponent(visitorTz);
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      loadingEl.style.display = 'none';
+      if (!d.ok || !d.slots || !d.slots.length){
+        noSlotsEl.style.display = 'block';
+        return;
+      }
+      d.slots.forEach(function(iso){
+        var btn = document.createElement('div');
+        btn.className = 'bkSlot';
+        var dt = new Date(iso);
+        btn.textContent = dt.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+        btn.addEventListener('click', function(){
+          chosen.slotIso = iso;
+          document.getElementById('bkChosenSlot').textContent =
+            chosen.typeName + ' — ' + dt.toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+          showStep(stepForm);
+        });
+        slotGrid.appendChild(btn);
+      });
+    }).catch(function(){
+      loadingEl.style.display = 'none';
+      noSlotsEl.style.display = 'block';
+    });
+  }
+
+  var submitBtn = document.getElementById('bkSubmit');
+  if (submitBtn) submitBtn.addEventListener('click', function(){
+    var errEl = document.getElementById('bkFormErr');
+    errEl.style.display = 'none';
+    var name = document.getElementById('bkName').value.trim();
+    var email = document.getElementById('bkEmail').value.trim();
+    var notes = document.getElementById('bkNotes').value.trim();
+    var hp = document.getElementById('bkHoneypot').value;
+    if (!name || !email){
+      errEl.textContent = 'Please enter your name and email.';
+      errEl.style.display = 'block';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Booking…';
+    fetch('/api/public/booking/' + encodeURIComponent(CFG.slug) + '/book', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        meeting_type: chosen.typeId, start: chosen.slotIso,
+        visitor_name: name, visitor_email: email, visitor_notes: notes,
+        visitor_tz: visitorTz, hp_website: hp,
+      }),
+    }).then(function(r){ return r.json().then(function(d){ return {status:r.status, body:d}; }); })
+      .then(function(res){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm booking';
+        if (!res.body.ok){
+          errEl.textContent = res.body.error || 'Something went wrong. Please try again.';
+          errEl.style.display = 'block';
+          if (res.body.conflict) { showStep(stepSlots); loadSlots(); }
+          return;
+        }
+        var dt = new Date(chosen.slotIso);
+        document.getElementById('bkDoneDetail').textContent =
+          chosen.typeName + ' — ' + dt.toLocaleString([], {weekday:'long', month:'long', day:'numeric', hour:'numeric', minute:'2-digit'});
+        var cancelUrl = (res.body.booking || {}).cancel_url;
+        document.getElementById('bkDoneCancel').textContent = cancelUrl
+          ? 'A confirmation has been sent to your email. Need to cancel? Use the link in that email.'
+          : 'A confirmation has been sent to your email.';
+        showStep(stepDone);
+      }).catch(function(){
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm booking';
+        errEl.textContent = 'Network error — please try again.';
+        errEl.style.display = 'block';
+      });
+  });
+})();
+</script>
+{% endraw %}
+</body></html>"""
+
+BOOKING_CANCEL_HTML = r"""
+<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+<title>{{app_title}} | Cancel booking</title>
+""" + AUTH_BASE_CSS + r"""
+</head><body>
+<div class="card" style="width:min(520px,92vw);">
+  <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+  {% if state == "confirm" %}
+    <div class="muted" style="font-size:16px;">Cancel this booking?</div>
+    <div class="muted" style="margin-top:10px;font-size:14px;">
+      {{booking.meeting_type_name}} at {{booking.start_iso}} ({{booking.timezone}})<br/>
+      Booked by {{booking.visitor_name}}
+    </div>
+    <form method="post" action="/book/{{slug}}/cancel/{{token}}">
+      <div class="row">
+        <button class="btn btnPrimary" type="submit">Cancel this booking</button>
+      </div>
+    </form>
+  {% elif state == "cancelled" %}
+    <div class="ok" style="font-size:16px;">Your booking has been cancelled.</div>
+  {% else %}
+    <div class="err" style="font-size:16px;">This cancellation link is invalid or has already been used.</div>
+  {% endif %}
+</div>
 </body></html>"""
 
 LOGIN_HTML = r"""
