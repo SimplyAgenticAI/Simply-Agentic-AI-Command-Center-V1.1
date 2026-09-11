@@ -4754,8 +4754,8 @@ label {
                         <option value="o3-mini">o3-mini — advanced reasoning</option>
                       </optgroup>
                       <optgroup label="Anthropic (Claude)">
-                        <option value="claude-opus-4-5">Claude Opus — most capable</option>
-                        <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                        <option value="claude-opus-5">Claude Opus — most capable</option>
+                        <option value="claude-sonnet-5">Claude Sonnet — fast &amp; smart</option>
                         <option value="claude-haiku-4-5">Claude Haiku — fastest</option>
                       </optgroup>
                     </select>
@@ -5027,8 +5027,8 @@ label {
                           <option value="o3-mini">o3-mini — advanced reasoning</option>
                         </optgroup>
                         <optgroup label="Anthropic (Claude)">
-                          <option value="claude-opus-4-5">Claude Opus — most capable</option>
-                          <option value="claude-sonnet-4-5">Claude Sonnet — fast &amp; smart</option>
+                          <option value="claude-opus-5">Claude Opus — most capable</option>
+                          <option value="claude-sonnet-5">Claude Sonnet — fast &amp; smart</option>
                           <option value="claude-haiku-4-5">Claude Haiku — fastest &amp; cheapest</option>
                         </optgroup>
                       </select>
@@ -9268,7 +9268,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("editThinking").value = t.thinking_style || "";
       $("editResponsibilities").value = (t.responsibilities || []).join("\n");
       $("editWillNotDo").value = (t.will_not_do || []).join("\n");
-      if($("editPreferredModel")) $("editPreferredModel").value = t.preferred_model || "";
+      if($("editPreferredModel")) $("editPreferredModel").value = (window._saCanonModel ? window._saCanonModel(t.preferred_model) : t.preferred_model) || "";
       if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
       if($("etNameDisplay")) $("etNameDisplay").textContent = t.name || name || "";
       var _av = t.avatar || {};
@@ -12103,9 +12103,26 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // Load on init and after each message
     window._saRefreshUsageBar();
 
+    // Map a legacy claude-* id saved before the model refresh onto the option
+    // that's actually in the dropdowns now. The backend does the same thing at
+    // resolve time; this keeps the UI from showing a blank select for a
+    // teammate whose stored model is a retired id.
+    window._saCanonModel = function(id){
+      const MAP = {
+        'claude-opus-4-5':'claude-opus-5', 'claude-opus-4-1':'claude-opus-5',
+        'claude-sonnet-4-5':'claude-sonnet-5', 'claude-sonnet-4-6':'claude-sonnet-5'
+      };
+      const k = (id || '').trim();
+      return MAP[k.toLowerCase()] || k;
+    };
+
     // ── Model lock: disable premium models when user has no own API key ──────
     (function(){
-      const PREMIUM = ['gpt-4o','gpt-4-turbo','o3-mini','claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5'];
+      // Legacy claude-* ids stay listed: a teammate saved before the model
+      // refresh still carries one, and it must remain locked for key-less users.
+      const PREMIUM = ['gpt-4o','gpt-4-turbo','o3-mini',
+                       'claude-opus-5','claude-sonnet-5','claude-haiku-4-5',
+                       'claude-opus-4-5','claude-sonnet-4-5','claude-sonnet-4-6'];
       const HINT_ID_PREFIX = 'modelLockHint_';
 
       window._saApplyModelLock = function(hasOwnKey){
@@ -15507,7 +15524,7 @@ $("draftWithSelected").onclick = async () => {
       const fModel = mkSel([
         ["","Default (global model)"],["gpt-4o","GPT-4o — balanced"],["gpt-4o-mini","GPT-4o mini — fast"],
         ["gpt-4-turbo","GPT-4 Turbo"],["o3-mini","o3-mini — reasoning"],
-        ["claude-opus-4-5","Claude Opus 4"],["claude-sonnet-4-5","Claude Sonnet 4"],["claude-haiku-4-5","Claude Haiku 4"]
+        ["claude-opus-5","Claude Opus — most capable"],["claude-sonnet-5","Claude Sonnet — fast & smart"],["claude-haiku-4-5","Claude Haiku — fastest"]
       ]);
       const fVoice = mkSel([
         ["alloy","Alloy — neutral"],["echo","Echo — male, clear"],["fable","Fable — storytelling"],
@@ -16453,7 +16470,8 @@ Challenge weak assumptions. Surface risks.`;
           : '<span style="color:#f87171;">Not connected</span>';
 
         if($("globalDefaultModel") && s.global_default_model){
-          $("globalDefaultModel").value = s.global_default_model;
+          $("globalDefaultModel").value = window._saCanonModel
+            ? window._saCanonModel(s.global_default_model) : s.global_default_model;
         }
         const smtp = s.smtp || {};
         // SMTP fields hidden from UI — values preserved in backend

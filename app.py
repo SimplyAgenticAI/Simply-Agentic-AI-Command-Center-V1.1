@@ -395,16 +395,16 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.6")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
 # Update this list alongside APP_VERSION on every patch so the banner
 # reflects what actually shipped, not a stale static blurb.
 WHATS_NEW_ITEMS = [
+    "Claude teammates upgraded to the latest Opus and Sonnet — noticeably sharper, and cheaper to run",
+    "Faster, cheaper teammate replies: repeated context is now cached instead of re-sent on every turn",
     "Teleprompter: fixed a redundant Reset button that ended recordings, and downloaded videos that wouldn't open in InShot",
-    "Manifest Mode — real chat window + animated energy visual, no more glow ball",
-    "Chrome extension API fixed — leads, keywords, and bulk import now actually reach the app",
 ]
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -673,10 +673,23 @@ def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, An
 _MODEL_PRICING_PER_1M = {
     "gpt-4o":            {"in": 2.50,  "out": 10.00},
     "gpt-4o-mini":       {"in": 0.15,  "out": 0.60},
+    # Current Claude generation — what we actually call. Opus 5 is a third the
+    # price of the Opus 4.5 we used to send ($15/$75) and stronger; Sonnet 5
+    # undercuts gpt-4o on input.
+    "claude-opus-5":     {"in": 5.00,  "out": 25.00},
+    "claude-sonnet-5":   {"in": 2.00,  "out": 10.00},
+    "claude-haiku-4-5":  {"in": 1.00,  "out": 5.00},
+    # Legacy IDs — kept so historical usage-log entries still price correctly.
     "claude-opus-4-5":   {"in": 15.00, "out": 75.00},
     "claude-sonnet-4-6": {"in": 3.00,  "out": 15.00},
+    "claude-sonnet-4-5": {"in": 3.00,  "out": 15.00},
 }
 _DEFAULT_TOKEN_PRICING = {"in": 2.50, "out": 10.00}
+
+# Prompt-cache multipliers applied to a model's INPUT rate: a cache read costs
+# ~10% of normal input, writing the cache costs ~25% more than normal input.
+_CACHE_READ_MULT  = 0.10
+_CACHE_WRITE_MULT = 1.25
 
 # Flat per-image cost estimates (USD) for gpt-image-1 / dall-e-3 by quality.
 _IMAGE_COST_USD = {
@@ -685,9 +698,19 @@ _IMAGE_COST_USD = {
 }
 
 
-def _estimate_token_cost_usd(model: str, tokens_in: int, tokens_out: int) -> float:
+def _estimate_token_cost_usd(model: str, tokens_in: int, tokens_out: int,
+                             cached_in: int = 0, cache_write: int = 0) -> float:
+    """Estimate USD spend. `tokens_in` is uncached input only; `cached_in` and
+    `cache_write` are the prompt-cache read/write counts the provider reports
+    separately, priced at their own multipliers so the dashboard reflects what
+    caching actually saves instead of billing cache hits at full rate."""
     pricing = _MODEL_PRICING_PER_1M.get(model, _DEFAULT_TOKEN_PRICING)
-    return (tokens_in / 1_000_000.0) * pricing["in"] + (tokens_out / 1_000_000.0) * pricing["out"]
+    return (
+        (tokens_in    / 1_000_000.0) * pricing["in"]
+        + (tokens_out   / 1_000_000.0) * pricing["out"]
+        + (cached_in    / 1_000_000.0) * pricing["in"] * _CACHE_READ_MULT
+        + (cache_write  / 1_000_000.0) * pricing["in"] * _CACHE_WRITE_MULT
+    )
 
 
 def estimate_image_cost_usd(model: str, quality: str = "") -> float:
@@ -1242,15 +1265,33 @@ def _get_claude_client_for_user(u: Optional[Dict[str, Any]]) -> Optional[Any]:
 def _is_claude_model(model: Optional[str]) -> bool:
     return (model or "").lower().startswith("claude")
 
+# Legacy Claude model IDs that are still sitting in saved teammate defs and user
+# settings. Mapped to the current generation at resolve time so nobody's stored
+# preference has to be rewritten — and so an old pick doesn't quietly keep
+# billing at the old (3x higher) Opus rate.
+_MODEL_ALIASES = {
+    "claude-opus-4-5":   "claude-opus-5",
+    "claude-opus-4-1":   "claude-opus-5",
+    "claude-3-opus":     "claude-opus-5",
+    "claude-sonnet-4-5": "claude-sonnet-5",
+    "claude-sonnet-4-6": "claude-sonnet-5",
+    "claude-3-5-sonnet": "claude-sonnet-5",
+}
+
+def _canonical_model(model: Optional[str]) -> str:
+    """Map a stored/legacy model ID onto the one we actually call today."""
+    m = (model or "").strip()
+    return _MODEL_ALIASES.get(m.lower(), m)
+
 def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = None) -> str:
     """Priority: teammate preferred_model > user global_default_model > server MODEL."""
     tm = (defn.get("preferred_model") or "").strip()
     if tm:
-        return tm
+        return _canonical_model(tm)
     if u:
         gm = ((u.get("settings") or {}).get("global_default_model") or "").strip()
         if gm:
-            return gm
+            return _canonical_model(gm)
     return MODEL
 
 app = Flask(__name__)
@@ -7238,23 +7279,32 @@ def _usage_log_path(username: str) -> Path:
     return LOGS_DIR / f"usage_{safe}.json"
 
 def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens: int,
-                      teammate: str = "", kind: str = "chat", cost_usd: Optional[float] = None) -> None:
+                      teammate: str = "", kind: str = "chat", cost_usd: Optional[float] = None,
+                      cached_in: int = 0, cache_write: int = 0) -> None:
     """Append a token usage record for the user. Best-effort, never raises.
 
     kind: short label ("chat", "visual", "image", "tts") for breaking down spend
     by feature. cost_usd: pass an explicit estimate (e.g. flat per-image pricing);
     otherwise estimated from the token pricing table for `model`.
+    cached_in/cache_write: prompt-cache read/write token counts, reported
+    separately by Anthropic and priced at their own (much lower / slightly
+    higher) rates. Left at 0 for providers that don't report them.
     """
     try:
         path = _usage_log_path(username or "anon")
+        _cached_in   = int(cached_in or 0)
+        _cache_write = int(cache_write or 0)
         if cost_usd is None:
-            cost_usd = _estimate_token_cost_usd(model, int(input_tokens or 0), int(output_tokens or 0))
+            cost_usd = _estimate_token_cost_usd(model, int(input_tokens or 0), int(output_tokens or 0),
+                                                _cached_in, _cache_write)
         entry = {
             "ts": now_iso(),
             "model": model,
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
-            "total_tokens": int(input_tokens or 0) + int(output_tokens or 0),
+            "cached_input_tokens": _cached_in,
+            "cache_write_tokens": _cache_write,
+            "total_tokens": int(input_tokens or 0) + int(output_tokens or 0) + _cached_in + _cache_write,
             "teammate": teammate or "",
             "kind": kind,
             "cost_usd": round(float(cost_usd or 0.0), 6),
@@ -7616,6 +7666,37 @@ def _inject_url_content(message: str) -> str:
     return message
 
 
+def _cached_system(system: str):
+    """Wrap a Claude system prompt as a cacheable content block.
+
+    Anthropic caches on a PREFIX match in the order tools -> system -> messages,
+    so a breakpoint at the end of the system block covers the tool schema and the
+    whole persona prompt. Repeat sends of that prefix — every follow-up turn, and
+    every round of an agentic tool loop — then read at ~10% of input price
+    instead of full freight.
+
+    Returns the plain string for prompts too short to reach any model's minimum
+    cacheable prefix, where a block would just be noise.
+    """
+    s = system or ""
+    if len(s) < 2000:          # ~500 tokens — below every model's cache minimum
+        return s
+    return [{"type": "text", "text": s, "cache_control": {"type": "ephemeral"}}]
+
+
+def _claude_usage_counts(usage) -> Tuple[int, int, int, int]:
+    """Pull (input, output, cache_read, cache_write) off an Anthropic usage
+    object. `input_tokens` from Anthropic already EXCLUDES cached tokens, so the
+    four are additive. Returns zeros for anything the SDK didn't report."""
+    def _n(attr: str) -> int:
+        try:
+            return int(getattr(usage, attr, 0) or 0)
+        except Exception:
+            return 0
+    return (_n("input_tokens"), _n("output_tokens"),
+            _n("cache_read_input_tokens"), _n("cache_creation_input_tokens"))
+
+
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None, _fallback: bool = False) -> str:
     """Routes to Claude or OpenAI based on model name.
     claude-* models use Anthropic API. Everything else uses OpenAI.
@@ -7630,7 +7711,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             out.append({"role": m.get("role", "user"), "content": str(c)})
         return out
 
-    use_model = (model or "").strip() or MODEL
+    use_model = _canonical_model((model or "").strip()) or MODEL
     timeout = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
 
     # ── Claude path ───────────────────────────────────────────────
@@ -7650,7 +7731,7 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
             resp = claude.messages.create(
                 model=use_model,
                 max_tokens=4096,
-                system=system,
+                system=_cached_system(system),
                 messages=clean,
                 temperature=temperature,
             )
@@ -7662,7 +7743,9 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                         _uname = _get_session_username()
                     except Exception:
                         pass
-                    _log_token_usage(_uname, use_model, _cu.input_tokens or 0, _cu.output_tokens or 0)
+                    _in, _out, _cr, _cw = _claude_usage_counts(_cu)
+                    _log_token_usage(_uname, use_model, _in, _out,
+                                     cached_in=_cr, cache_write=_cw)
             except Exception:
                 pass
             return (resp.content[0].text or "").strip()
@@ -7956,18 +8039,17 @@ def _call_visual_llm(system: str, user_msg: str, username: str) -> str:
         try:
             cl = _ensure_anthropic().Anthropic(api_key=claude_key)
             resp = cl.messages.create(
-                model="claude-opus-4-5",
+                model="claude-opus-5",
                 max_tokens=16000,
-                system=system,
+                system=_cached_system(system),
                 messages=[{"role": "user", "content": user_msg}],
                 temperature=1.0,
             )
             usage = getattr(resp, "usage", None)
             if usage:
-                _log_token_usage(username, "claude-opus-4-5",
-                                  getattr(usage, "input_tokens", 0) or 0,
-                                  getattr(usage, "output_tokens", 0) or 0,
-                                  kind="visual")
+                _in, _out, _cr, _cw = _claude_usage_counts(usage)
+                _log_token_usage(username, "claude-opus-5", _in, _out,
+                                 kind="visual", cached_in=_cr, cache_write=_cw)
             html = _clean_visual_html(resp.content[0].text or "")
             if html:
                 return html
@@ -25776,7 +25858,7 @@ def api_followup_stream():
 
     # Teammates always use the model the user selected — no automatic
     # per-message downgrading. Keeps each teammate's voice/quality consistent.
-    preferred_model = (defn.get("preferred_model") or "").strip() or MODEL
+    preferred_model = _canonical_model((defn.get("preferred_model") or "").strip()) or MODEL
     _use_claude     = _is_claude_model(preferred_model)
 
     # Read the user's OpenAI key directly — never rely on g.openai_client
@@ -25997,16 +26079,21 @@ def api_followup_stream():
                         for _round in range(5):
                             if _t.monotonic() - _stream_start > _STREAM_TIMEOUT:
                                 break
+                            # Cache the tools+system prefix: it is byte-identical
+                            # on every one of these rounds, so rounds 2..5 read it
+                            # back at ~10% of input price instead of paying full
+                            # freight to re-send the persona and tool schema.
                             _resp = _cc.messages.create(
-                                model=preferred_model, max_tokens=4096, system=sys_prompt,
+                                model=preferred_model, max_tokens=4096,
+                                system=_cached_system(sys_prompt),
                                 messages=_cmsgs, tools=_tools_anthropic_schema())
                             try:
                                 _cu = getattr(_resp, "usage", None)
                                 if _cu:
-                                    _log_token_usage(uname, preferred_model,
-                                                     getattr(_cu, "input_tokens", 0) or 0,
-                                                     getattr(_cu, "output_tokens", 0) or 0,
-                                                     teammate=name, kind="chat")
+                                    _in, _out, _cr, _cw = _claude_usage_counts(_cu)
+                                    _log_token_usage(uname, preferred_model, _in, _out,
+                                                     teammate=name, kind="chat",
+                                                     cached_in=_cr, cache_write=_cw)
                             except Exception: pass
                             _text_parts, _tool_uses, _asst_content = [], [], []
                             for _block in _resp.content:
@@ -28363,9 +28450,9 @@ def _fusion_run(uname: str, prompt: str, system: str = "") -> Dict[str, Any]:
                 claude_err = "No Anthropic API key configured."
                 return
             resp = cl.messages.create(
-                model="claude-sonnet-4-5",
+                model="claude-sonnet-5",
                 max_tokens=2000,
-                system=sys_msg,
+                system=_cached_system(sys_msg),
                 messages=[{"role": "user", "content": prompt}],
             )
             claude_result = (resp.content[0].text if resp.content else "").strip()
