@@ -395,16 +395,16 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.7")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
 # Update this list alongside APP_VERSION on every patch so the banner
 # reflects what actually shipped, not a stale static blurb.
 WHATS_NEW_ITEMS = [
+    "Teammates reliably take action when their tools are on, instead of sometimes just offering to",
+    "Teammate context now stays cached across a whole conversation, not just within a single reply",
     "Claude teammates upgraded to the latest Opus and Sonnet — noticeably sharper, and cheaper to run",
-    "Faster, cheaper teammate replies: repeated context is now cached instead of re-sent on every turn",
-    "Teleprompter: fixed a redundant Reset button that ended recordings, and downloaded videos that wouldn't open in InShot",
 ]
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -671,8 +671,11 @@ def _increment_msg_usage(username: str, *, images: bool = False) -> Dict[str, An
 # dashboard — not billing-accurate, but enough to spot heavy users or runaway
 # costs at a glance.
 _MODEL_PRICING_PER_1M = {
-    "gpt-4o":            {"in": 2.50,  "out": 10.00},
-    "gpt-4o-mini":       {"in": 0.15,  "out": 0.60},
+    # OpenAI caches long prompt prefixes automatically and bills the cached part
+    # at half the input rate — `cache_read` carries that explicitly because it
+    # differs from Anthropic's multiplier below.
+    "gpt-4o":            {"in": 2.50,  "out": 10.00, "cache_read": 1.25},
+    "gpt-4o-mini":       {"in": 0.15,  "out": 0.60,  "cache_read": 0.075},
     # Current Claude generation — what we actually call. Opus 5 is a third the
     # price of the Opus 4.5 we used to send ($15/$75) and stronger; Sonnet 5
     # undercuts gpt-4o on input.
@@ -684,10 +687,11 @@ _MODEL_PRICING_PER_1M = {
     "claude-sonnet-4-6": {"in": 3.00,  "out": 15.00},
     "claude-sonnet-4-5": {"in": 3.00,  "out": 15.00},
 }
-_DEFAULT_TOKEN_PRICING = {"in": 2.50, "out": 10.00}
+_DEFAULT_TOKEN_PRICING = {"in": 2.50, "out": 10.00, "cache_read": 1.25}
 
-# Prompt-cache multipliers applied to a model's INPUT rate: a cache read costs
-# ~10% of normal input, writing the cache costs ~25% more than normal input.
+# Anthropic prompt-cache multipliers applied to a model's INPUT rate when the
+# pricing entry has no explicit `cache_read`: a cache read costs ~10% of normal
+# input, writing the cache costs ~25% more than normal input.
 _CACHE_READ_MULT  = 0.10
 _CACHE_WRITE_MULT = 1.25
 
@@ -705,10 +709,11 @@ def _estimate_token_cost_usd(model: str, tokens_in: int, tokens_out: int,
     separately, priced at their own multipliers so the dashboard reflects what
     caching actually saves instead of billing cache hits at full rate."""
     pricing = _MODEL_PRICING_PER_1M.get(model, _DEFAULT_TOKEN_PRICING)
+    cache_read_rate = pricing.get("cache_read", pricing["in"] * _CACHE_READ_MULT)
     return (
         (tokens_in    / 1_000_000.0) * pricing["in"]
         + (tokens_out   / 1_000_000.0) * pricing["out"]
-        + (cached_in    / 1_000_000.0) * pricing["in"] * _CACHE_READ_MULT
+        + (cached_in    / 1_000_000.0) * cache_read_rate
         + (cache_write  / 1_000_000.0) * pricing["in"] * _CACHE_WRITE_MULT
     )
 
@@ -6553,15 +6558,48 @@ _SYS_PROMPT_CACHE: Dict[str, Any] = {}  # key -> {"prompt": str, "ts": float}
 _SYS_PROMPT_CACHE_TTL = 30.0
 _SYS_PROMPT_CACHE_LOCK = threading.Lock()
 
+def _sys_prompt_cache_key(username: str, teammate: str, lighting_mode: bool, tools_enabled: bool) -> str:
+    # tools_enabled MUST be part of the key: the base prompt includes the ACTIONS
+    # block only when tools are live. Without it, a tools-off build (convene,
+    # compare, reviewer) served a streaming chat within the TTL a prompt with no
+    # ACTIONS block, so the teammate offered instead of acting.
+    return f"{username}:{teammate}:{bool(lighting_mode)}:{bool(tools_enabled)}"
+
 def _invalidate_sys_prompt_cache(username: str = "", teammate: str = "") -> None:
     """Call when memory, settings, or teammate definition changes."""
-    import time as _t
     with _SYS_PROMPT_CACHE_LOCK:
         if username and teammate:
-            _SYS_PROMPT_CACHE.pop(f"{username}:{teammate}:True", None)
-            _SYS_PROMPT_CACHE.pop(f"{username}:{teammate}:False", None)
+            for _lm in (True, False):
+                for _te in (True, False):
+                    _SYS_PROMPT_CACHE.pop(_sys_prompt_cache_key(username, teammate, _lm, _te), None)
         else:
             _SYS_PROMPT_CACHE.clear()
+
+# Base (stable) teammate prompts recently handed out, so _cached_system can put
+# the provider cache breakpoint at the end of the base instead of the end of the
+# whole prompt. The per-message suffix (RAG, memory, image status, voice mode)
+# changes every turn; a breakpoint after it would miss on every new message.
+_CACHEABLE_PREFIXES: Dict[str, None] = {}   # insertion-ordered; oldest evicted first
+_CACHEABLE_PREFIXES_MAX = 64
+_CACHEABLE_PREFIXES_LOCK = threading.Lock()
+
+def _register_cacheable_prefix(base: str) -> None:
+    if not base:
+        return
+    with _CACHEABLE_PREFIXES_LOCK:
+        _CACHEABLE_PREFIXES.pop(base, None)
+        _CACHEABLE_PREFIXES[base] = None
+        while len(_CACHEABLE_PREFIXES) > _CACHEABLE_PREFIXES_MAX:
+            _CACHEABLE_PREFIXES.pop(next(iter(_CACHEABLE_PREFIXES)), None)
+
+def _longest_cacheable_prefix(system: str) -> str:
+    with _CACHEABLE_PREFIXES_LOCK:
+        bases = list(_CACHEABLE_PREFIXES)
+    best = ""
+    for b in bases:
+        if len(b) > len(best) and system.startswith(b):
+            best = b
+    return best
 
 def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                            rag_context: str = "", memory_context: str = "",
@@ -7103,20 +7141,49 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         brand_context_block = ""
 
-    # Cache the base prompt (everything except rag_context which changes per message)
+    # Per-message suffix — built the same way on cache hit and miss. (The hit
+    # path used to drop the IMAGE REQUEST STATUS note, so a second message within
+    # the TTL lost the "no image is being generated" guard.)
+    def _per_message_suffix() -> str:
+        suffix = ""
+        if rag_context:
+            suffix += f"\n{rag_context}"
+        if memory_context:
+            suffix += f"\n{memory_context}"
+        if image_request_active:
+            suffix += (
+                "\nIMAGE REQUEST STATUS: The system HAS classified this message as an image "
+                "generation/edit request and will automatically send your visual description to "
+                "gpt-image-1 right after your reply. Respond with a brief confirmation followed by "
+                "a rich, detailed visual description, e.g. 'Here it is! Generating: [UFO shaped like "
+                "a silver disc hovering over a city skyline at night, blue glow underneath, retro "
+                "1950s poster style, bold text at top reading \\'THEY ARE REAL\\', yellow and black "
+                "color scheme, slight film grain texture.]'\n"
+            )
+        else:
+            suffix += (
+                "\nIMAGE REQUEST STATUS: The system did NOT classify this message as an image "
+                "generation/edit request — no image will be generated automatically after this reply. "
+                "Do NOT say 'here it is', 'generating', 'creating the image', or describe a visual as "
+                "if it is being produced. If the user wants an image, graphic, logo, or poster, respond "
+                "normally and invite them to ask using words like image/graphic/poster/logo (or just "
+                "ask if they'd like you to generate one) — do not claim generation is underway.\n"
+            )
+        return suffix
+
+    # Cache the base prompt (everything except the per-message suffix)
     import time as _t
     try:
         _uname_cache = _get_session_username()
     except Exception:
         _uname_cache = "anon"
-    _cache_key = f"{_uname_cache}:{defn.get('name','')}:{lighting_mode}"
+    _cache_key = _sys_prompt_cache_key(_uname_cache, defn.get('name', ''), lighting_mode, tools_enabled)
     with _SYS_PROMPT_CACHE_LOCK:
         _cached = _SYS_PROMPT_CACHE.get(_cache_key)
-        if _cached and (_t.monotonic() - _cached["ts"]) < _SYS_PROMPT_CACHE_TTL:
-            _sfx = ""
-            if rag_context: _sfx += f"\n{rag_context}"
-            if memory_context: _sfx += f"\n{memory_context}"
-            return _cached["prompt"] + _sfx
+        _cached_base = _cached["prompt"] if (_cached and (_t.monotonic() - _cached["ts"]) < _SYS_PROMPT_CACHE_TTL) else None
+    if _cached_base is not None:
+        _register_cacheable_prefix(_cached_base)
+        return _cached_base + _per_message_suffix()
 
     _base_prompt = (
         "You are a persistent, expert AI teammate inside a multi-teammate command center.\n"
@@ -7154,31 +7221,8 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             oldest_key = min(_SYS_PROMPT_CACHE, key=lambda k: _SYS_PROMPT_CACHE[k]["ts"])
             _SYS_PROMPT_CACHE.pop(oldest_key, None)
         _SYS_PROMPT_CACHE[_cache_key] = {"prompt": _base_prompt, "ts": _t.monotonic()}
-    suffix = ""
-    if rag_context:
-        suffix += f"\n{rag_context}"
-    if memory_context:
-        suffix += f"\n{memory_context}"
-    if image_request_active:
-        suffix += (
-            "\nIMAGE REQUEST STATUS: The system HAS classified this message as an image "
-            "generation/edit request and will automatically send your visual description to "
-            "gpt-image-1 right after your reply. Respond with a brief confirmation followed by "
-            "a rich, detailed visual description, e.g. 'Here it is! Generating: [UFO shaped like "
-            "a silver disc hovering over a city skyline at night, blue glow underneath, retro "
-            "1950s poster style, bold text at top reading \\'THEY ARE REAL\\', yellow and black "
-            "color scheme, slight film grain texture.]'\n"
-        )
-    else:
-        suffix += (
-            "\nIMAGE REQUEST STATUS: The system did NOT classify this message as an image "
-            "generation/edit request — no image will be generated automatically after this reply. "
-            "Do NOT say 'here it is', 'generating', 'creating the image', or describe a visual as "
-            "if it is being produced. If the user wants an image, graphic, logo, or poster, respond "
-            "normally and invite them to ask using words like image/graphic/poster/logo (or just "
-            "ask if they'd like you to generate one) — do not claim generation is underway.\n"
-        )
-    return _base_prompt + suffix
+    _register_cacheable_prefix(_base_prompt)
+    return _base_prompt + _per_message_suffix()
 
 
 ContentType = Union[str, List[Dict[str, Any]]]
@@ -7675,12 +7719,25 @@ def _cached_system(system: str):
     every round of an agentic tool loop — then read at ~10% of input price
     instead of full freight.
 
+    When the prompt starts with a registered teammate base prompt, the breakpoint
+    goes at the end of that base and the per-message suffix (RAG, memory, image
+    status, voice mode) rides in a second, uncached block. Otherwise a suffix that
+    changes every turn would sit inside the cached span and miss on every new
+    message — caching would only ever help within one reply's tool loop.
+
     Returns the plain string for prompts too short to reach any model's minimum
     cacheable prefix, where a block would just be noise.
     """
     s = system or ""
     if len(s) < 2000:          # ~500 tokens — below every model's cache minimum
         return s
+    base = _longest_cacheable_prefix(s)
+    if len(base) >= 2000:
+        rest = s[len(base):]
+        blocks = [{"type": "text", "text": base, "cache_control": {"type": "ephemeral"}}]
+        if rest.strip():       # the API rejects empty / whitespace-only text blocks
+            blocks.append({"type": "text", "text": rest})
+        return blocks
     return [{"type": "text", "text": s, "cache_control": {"type": "ephemeral"}}]
 
 
@@ -7695,6 +7752,23 @@ def _claude_usage_counts(usage) -> Tuple[int, int, int, int]:
             return 0
     return (_n("input_tokens"), _n("output_tokens"),
             _n("cache_read_input_tokens"), _n("cache_creation_input_tokens"))
+
+
+def _openai_usage_counts(usage) -> Tuple[int, int, int]:
+    """Pull (uncached_input, output, cached_input) off an OpenAI usage object.
+
+    Unlike Anthropic, OpenAI's `prompt_tokens` INCLUDES the cached portion,
+    reported separately in `prompt_tokens_details.cached_tokens`. Split them so
+    the cached part isn't billed at full input rate on the dashboard."""
+    def _n(obj, attr: str) -> int:
+        try:
+            return int(getattr(obj, attr, 0) or 0)
+        except Exception:
+            return 0
+    prompt = _n(usage, "prompt_tokens")
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = min(_n(details, "cached_tokens"), prompt) if details is not None else 0
+    return prompt - cached, _n(usage, "completion_tokens"), cached
 
 
 def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0.6, model: Optional[str] = None, _fallback: bool = False) -> str:
@@ -7779,7 +7853,8 @@ def call_llm(system: str, messages: List[Dict[str, Any]], temperature: float = 0
                     _uname = _get_session_username()
                 except Exception:
                     pass
-                _log_token_usage(_uname, use_model, _u.prompt_tokens or 0, _u.completion_tokens or 0)
+                _in, _out, _cr = _openai_usage_counts(_u)
+                _log_token_usage(_uname, use_model, _in, _out, cached_in=_cr)
         except Exception:
             pass
         return (resp.choices[0].message.content or "").strip()
@@ -8069,10 +8144,9 @@ def _call_visual_llm(system: str, user_msg: str, username: str) -> str:
         )
         usage = getattr(resp, "usage", None)
         if usage:
-            _log_token_usage(username, "gpt-4o",
-                              getattr(usage, "prompt_tokens", 0) or 0,
-                              getattr(usage, "completion_tokens", 0) or 0,
-                              kind="visual")
+            _in, _out, _cr = _openai_usage_counts(usage)
+            _log_token_usage(username, "gpt-4o", _in, _out,
+                             kind="visual", cached_in=_cr)
         html = _clean_visual_html((resp.choices[0].message.content or ""))
         if html:
             return html
@@ -24113,10 +24187,9 @@ def call_llm_with_tools(
         try:
             _u = getattr(resp, "usage", None)
             if _u:
-                _log_token_usage(username, _round_model,
-                                 getattr(_u, "prompt_tokens", 0) or 0,
-                                 getattr(_u, "completion_tokens", 0) or 0,
-                                 teammate=teammate, kind="chat")
+                _in, _out, _cr = _openai_usage_counts(_u)
+                _log_token_usage(username, _round_model, _in, _out,
+                                 teammate=teammate, kind="chat", cached_in=_cr)
         except Exception: pass
         choice = resp.choices[0]
 
@@ -25971,10 +26044,9 @@ def api_followup_stream():
                         try:
                             _ru = getattr(_r, "usage", None)
                             if _ru:
-                                _log_token_usage(uname, _loop_model,
-                                                 getattr(_ru, "prompt_tokens", 0) or 0,
-                                                 getattr(_ru, "completion_tokens", 0) or 0,
-                                                 teammate=name, kind="chat")
+                                _in, _out, _cr = _openai_usage_counts(_ru)
+                                _log_token_usage(uname, _loop_model, _in, _out,
+                                                 teammate=name, kind="chat", cached_in=_cr)
                         except Exception: pass
                         _m = _r.choices[0].message
                         _calls = getattr(_m, "tool_calls", None)
