@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.10")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.11")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -16731,7 +16731,12 @@ def api_account_delete():
 def index():
     _uname = _get_session_username()
     _trial_banner = _trial_banner_html(_uname) if FREE_TRIAL_DAYS > 0 else ""
-    return _INDEX_TEMPLATE.render(app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL)
+    # Mint the CSRF token with the page itself. Otherwise the burst of parallel
+    # requests on first load each race to create one in the cookie session, the
+    # last Set-Cookie wins, and the client is left holding a dead token (every
+    # save 403s until a refresh — hit on every fresh login).
+    _csrf = _csrf_token_for_session()
+    return _INDEX_TEMPLATE.render(app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL, csrf_token=_csrf)
 
 
 
@@ -19717,7 +19722,9 @@ def api_crm_lead_lab():
                 warning = f"Found {len(final)} leads matching your filters."
 
             try:
-                _uname = (u.get("username") if isinstance(u, dict) else None) or ""
+                # NOTE: never assign to _uname inside _generate — that makes it a
+                # local for the whole generator and the first line (_entry) raises
+                # UnboundLocalError, 500-ing every Lead Lab run.
                 if _uname:
                     _pts = 10 + (2 * min(len(final), lead_count))
                     _award_points(_uname, f"Ran Lead Lab ({min(len(final),lead_count)} leads)", _pts)

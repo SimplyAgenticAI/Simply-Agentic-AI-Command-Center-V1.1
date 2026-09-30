@@ -4539,9 +4539,9 @@ label {
       <div style="margin-bottom:24px;">
         <div class="wcStep"><div class="wcNum">1</div><div class="wcText"><strong>Add your OpenAI API key</strong> — Settings → API Key. This powers every teammate.</div></div>
         <div class="wcStep"><div class="wcNum">2</div><div class="wcText"><strong>Meet your AI teammates</strong> — click any seat at the round table to start chatting.</div></div>
-        <div class="wcStep"><div class="wcNum">3</div><div class="wcText"><strong>Add your first contact</strong> — open <em>Contacts</em> from the Manage menu to build your list.</div></div>
-        <div class="wcStep"><div class="wcNum">4</div><div class="wcText"><strong>Find leads automatically</strong> — use <em>Find Leads</em> in the Research menu to discover prospects.</div></div>
-        <div class="wcStep"><div class="wcNum">5</div><div class="wcText"><strong>Watch the tutorials</strong> — step-by-step animated guides for every feature.</div></div>
+        <div class="wcStep"><div class="wcNum">3</div><div class="wcText"><strong>Add your first contact</strong> — click <em>Contacts</em> in the top bar and give them a follow-up date.</div></div>
+        <div class="wcStep"><div class="wcNum">4</div><div class="wcText"><strong>Start every day on ☀️ Today</strong> — your meetings, to-dos and who to reach out to, in one place.</div></div>
+        <div class="wcStep"><div class="wcNum">5</div><div class="wcText"><strong>Everything else is under 🧰 More</strong> — lead finder, content tools, research and libraries.</div></div>
       </div>
       <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
         <a class="wcSecondary" href="/getting-started">📚 Watch tutorials</a>
@@ -7237,7 +7237,7 @@ input[type="range"]::-moz-range-progress {
                   <div id="gcToolsDrop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;width:190px;background:rgba(10,14,30,.98);border:1px solid rgba(80,110,200,.35);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.55);z-index:9999;padding:5px;">
                     <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
                     <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
-                    <button id="handsFreeToggleBtn" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice: the mic arms itself in standby every visit — just say a teammate's name to talk. No Whisper click needed." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
+                    <button id="handsFreeToggleBtn" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice until you turn it off or reload — just say a teammate's name to talk." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
                     <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
                     <button id="screenGroupBtn"     class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share screen</button>
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
@@ -7423,7 +7423,7 @@ input[type="range"]::-moz-range-progress {
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="talkDmBtn"          style="display:none;position:absolute;left:-9999px;"></button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
-                <button id="handsFreeToggleBtn2" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice: the mic arms itself in standby every visit — just say a teammate's name to talk. No Whisper click needed." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
+                <button id="handsFreeToggleBtn2" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice until you turn it off or reload — just say a teammate's name to talk." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
                 <button id="passSeatWeb"        class="saMoreItem" style="display:none;color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
@@ -7482,6 +7482,7 @@ input[type="range"]::-moz-range-progress {
 // the X-CSRF-Token header into every POST/PUT/PATCH/DELETE request.
 // This means no individual fetch() call needs to be changed.
 // =============================================================
+window._csrfToken = window._csrfToken || '{{ csrf_token|default("", true) }}';
 (function() {
   var _csrfToken    = window._csrfToken || '';   /* global — set by _loadCsrf */
   var _csrfFetching = false;
@@ -7530,17 +7531,30 @@ input[type="range"]::-moz-range-progress {
     }
 
     // Inject CSRF token then fire the real request
+    function _send(token) {
+      opts.headers = opts.headers || {};
+      // Support both plain objects and Headers instances
+      if (opts.headers instanceof Headers) {
+        opts.headers.set('X-CSRF-Token', token);
+      } else {
+        opts.headers['X-CSRF-Token'] = token;
+      }
+      opts.credentials = opts.credentials || 'same-origin';
+      return window._nativeFetch(url, opts);
+    }
     return new Promise(function(resolve, reject) {
       _loadCsrf(function(token) {
-        opts.headers = opts.headers || {};
-        // Support both plain objects and Headers instances
-        if (opts.headers instanceof Headers) {
-          opts.headers.set('X-CSRF-Token', token);
-        } else {
-          opts.headers['X-CSRF-Token'] = token;
-        }
-        opts.credentials = opts.credentials || 'same-origin';
-        window._nativeFetch(url, opts).then(resolve).catch(reject);
+        _send(token).then(function(resp) {
+          // Stale token (session rotated) — refresh it once and retry. Only
+          // for replayable bodies; FormData/streams are consumed once.
+          var replayable = !opts.body || typeof opts.body === 'string';
+          if (resp.status !== 403 || !replayable) { resolve(resp); return; }
+          resp.clone().json().then(function(d) {
+            if (!d || !/csrf/i.test(String(d.error || ''))) { resolve(resp); return; }
+            _csrfToken = ''; window._csrfToken = '';
+            _loadCsrf(function(fresh) { _send(fresh).then(resolve).catch(reject); });
+          }).catch(function() { resolve(resp); });
+        }).catch(reject);
       });
     });
   };
@@ -12056,9 +12070,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     /* ── Monthly usage bar ──────────────────────────────────────────── */
     window._saRefreshUsageBar = async function(){
+      let d = null; // outside try: the model-lock call below reads it
       try{
         const r = await fetch('/api/usage/messages');
-        const d = await r.json();
+        d = await r.json();
         if(!d.ok) return;
         const wrap = document.getElementById('msgUsageWrap');
         const bar  = document.getElementById('msgUsageBar');
@@ -13334,8 +13349,14 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // ── Hands-free master toggle — exposed for the Tools/+ menus so users can
     // enable always-on voice WITHOUT first opening Whisper (the AUTO pill in
     // the HUD was undiscoverable). Arms/disarms immediately AND persists.
+    // V9.6.11: hands-free is per page session only — it used to persist in
+    // localStorage and re-arm the mic (and pop the Whisper HUD) on every visit
+    // and every tab return, which read as "Whisper turns itself on". Voice now
+    // only ever starts from an explicit click. Clear the old persisted flag.
+    try{ localStorage.removeItem("sa_handsfree_auto"); }catch(_){}
+    window._saHandsFreeOn = false;
     window._saPaintHandsFree = function(){
-      let on=false; try{ on = localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
+      const on = !!window._saHandsFreeOn;
       ["handsFreeToggleBtn","handsFreeToggleBtn2"].forEach(function(id){
         const b=document.getElementById(id); if(!b) return;
         b.textContent = on ? "🎙 Hands-free voice: ON" : "🎙 Hands-free voice";
@@ -13343,9 +13364,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       });
     };
     window.saToggleHandsFree = function(){
-      let on=false; try{ on = localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
-      const next = !on;
-      try{ localStorage.setItem("sa_handsfree_auto", next ? "1" : "0"); }catch(_){}
+      const next = !window._saHandsFreeOn;
+      window._saHandsFreeOn = next;
       if(next){
         if(!alwaysOn) startAlwaysListening("dm", {standby:true});
         if(typeof showToast==="function") showToast("🎙 Hands-free ON — say a teammate's name anytime.");
@@ -13803,8 +13823,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       // users previously came back to a dead mic until a full reload).
       if(document.hidden&&alwaysOn){ stopAlwaysListening(); window._hfResumeOnReturn=true; return; }
       if(!document.hidden){
-        let _hf=false; try{ _hf=localStorage.getItem("sa_handsfree_auto")==="1"; }catch(_){}
-        if(_hf&&(window._hfResumeOnReturn||!alwaysOn)&&!alwaysOn){
+        // Only resume if the user turned hands-free on during THIS page session
+        // and it was actually live when they left.
+        if(window._saHandsFreeOn&&window._hfResumeOnReturn&&!alwaysOn){
           window._hfResumeOnReturn=false;
           setTimeout(()=>{ if(!alwaysOn&&!document.hidden) startAlwaysListening("dm",{standby:true}); },600);
         }
@@ -23740,7 +23761,7 @@ $("saveFramework").onclick = async () => {
       box.appendChild(title);
       const groups = [
         { label:'Teammates', rows:[['1 – 7','Activate teammate by seat number'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
-        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)'],['W','Whisper voice on / off']] },
+        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
         { label:'Navigation', rows:[['Esc','Close modal / deselect seat'],['?','Show this cheat sheet'],['Ctrl+/','Show this cheat sheet']] },
       ];
       groups.forEach(g => {
@@ -23841,13 +23862,8 @@ $("saveFramework").onclick = async () => {
           e.preventDefault();
           toggleTool('knowledge',function(){ if(typeof saOpenRag==='function') saOpenRag(); hkToast('⌨ Knowledge Base'); });
           break;
-        case 'w':
-          e.preventDefault();
-          if(typeof window.saToggleWhisper==='function'){
-            const _on=window.saToggleWhisper();
-            hkToast('⌨ Whisper '+(_on?'on':'off'));
-          }
-          break;
+        // 'w' (toggle Whisper) removed V9.6.11 — a stray keypress outside a
+        // text box kept opening voice mode. Whisper starts from its button only.
         case '?':
         case '/':
           e.preventDefault();
@@ -33858,6 +33874,110 @@ function _saEsc(s){
 </script>
 <!-- ===== END TODAY SCREEN ===== -->
 
+<!-- ===== CONTACT EMAIL AUTOFILL for calendar invite fields (V9.6.11) =====
+     Type a name, company or email → pick a CRM contact → their email is filled
+     in. Replaces Chrome's form-history popup, which doesn't know contacts and
+     couldn't be clicked inside the calendar popovers. Delegated on focusin so
+     it also covers fields rendered later (event detail panel). -->
+<style>
+#saContactSuggest{position:fixed;z-index:2147483000;display:none;min-width:260px;max-width:380px;max-height:280px;overflow-y:auto;background:rgba(10,15,32,.99);border:1px solid rgba(124,58,237,.45);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.6);padding:4px;}
+#saContactSuggest .scs-i{display:block;width:100%;text-align:left;padding:8px 10px;border:none;border-radius:8px;background:none;color:#e2e8f0;font-size:13px;cursor:pointer;line-height:1.3;}
+#saContactSuggest .scs-i.on,#saContactSuggest .scs-i:hover{background:rgba(124,58,237,.25);}
+#saContactSuggest .scs-e{display:block;font-size:12px;color:#94a3b8;}
+#saContactSuggest .scs-none{padding:8px 10px;font-size:12px;color:#94a3b8;}
+</style>
+<div id="saContactSuggest" role="listbox"></div>
+<script>
+(function(){
+  'use strict';
+  var FIELDS = { wcalAddAttendees:1, wcalAddAttendeesM:1, detAttendees:1 };
+  var box = document.getElementById('saContactSuggest');
+  var contacts = null, loadedAt = 0, input = null, items = [], sel = 0;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+
+  async function load(){
+    if(contacts && Date.now()-loadedAt < 60000) return contacts;
+    try{
+      var d = await (await fetch('/api/crm/clients')).json();
+      contacts = ((d && d.clients) || []).filter(function(c){ return c && /@/.test(c.email||''); })
+        .map(function(c){ return {name:c.name||'', email:(c.email||'').trim(), company:c.company||''}; });
+      loadedAt = Date.now();
+    }catch(_){ contacts = contacts || []; }
+    return contacts;
+  }
+  function token(v){ var i = v.lastIndexOf(','); return v.slice(i+1).trim().toLowerCase(); }
+  function place(){
+    if(!input) return;
+    var r = input.getBoundingClientRect();
+    box.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 390)) + 'px';
+    box.style.width = Math.max(260, r.width) + 'px';
+    var below = window.innerHeight - r.bottom;
+    if(below < 200 && r.top > below){ box.style.top = ''; box.style.bottom = (window.innerHeight - r.top + 4) + 'px'; }
+    else { box.style.bottom = ''; box.style.top = (r.bottom + 4) + 'px'; }
+  }
+  function hide(){ box.style.display = 'none'; items = []; }
+  async function show(){
+    if(!input) return;
+    var all = await load();
+    if(!input) return;
+    var q = token(input.value);
+    var already = input.value.toLowerCase().split(',').map(function(s){return s.trim();});
+    items = all.filter(function(c){
+      if(already.indexOf(c.email.toLowerCase()) !== -1) return false;
+      return !q || c.name.toLowerCase().indexOf(q) !== -1 || c.email.toLowerCase().indexOf(q) !== -1 || c.company.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 8);
+    sel = 0;
+    if(!items.length){
+      if(!all.length){ box.innerHTML = '<div class="scs-none">No contacts with an email yet — add them in Contacts.</div>'; }
+      else if(q){ hide(); return; }
+      else { hide(); return; }
+    } else {
+      box.innerHTML = items.map(function(c,i){
+        return '<button type="button" class="scs-i'+(i===0?' on':'')+'" data-i="'+i+'">'+esc(c.name||c.email)+(c.company?' <span style="color:#94a3b8">· '+esc(c.company)+'</span>':'')+'<span class="scs-e">'+esc(c.email)+'</span></button>';
+      }).join('');
+    }
+    place(); box.style.display = 'block';
+  }
+  function pick(i){
+    var c = items[i]; if(!c || !input) return;
+    var v = input.value, cut = v.lastIndexOf(',');
+    var head = cut === -1 ? '' : v.slice(0, cut+1) + ' ';
+    input.value = (head + c.email + ', ').replace(/^\s+/, '');
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.focus();
+    show();
+  }
+  function paint(){ [].forEach.call(box.querySelectorAll('.scs-i'), function(b,i){ b.classList.toggle('on', i===sel); if(i===sel) b.scrollIntoView({block:'nearest'}); }); }
+
+  // mousedown + preventDefault keeps focus in the field, so the calendar
+  // popover doesn't treat the click as "outside" and close before the pick.
+  box.addEventListener('mousedown', function(e){
+    e.preventDefault(); e.stopPropagation();
+    var b = e.target.closest('.scs-i'); if(b) pick(+b.getAttribute('data-i'));
+  });
+  document.addEventListener('focusin', function(e){
+    var t = e.target;
+    if(t && t.id && FIELDS[t.id]){
+      input = t;
+      t.setAttribute('autocomplete', 'sa-contact-email'); // unknown token → Chrome stops offering its own history
+      show();
+    }
+  });
+  document.addEventListener('focusout', function(e){ if(e.target === input) setTimeout(function(){ if(document.activeElement !== input){ input = null; hide(); } }, 120); });
+  document.addEventListener('input', function(e){ if(e.target === input) show(); });
+  document.addEventListener('keydown', function(e){
+    if(!input || e.target !== input || box.style.display === 'none' || !items.length) return;
+    if(e.key === 'ArrowDown'){ e.preventDefault(); sel = (sel+1) % items.length; paint(); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); sel = (sel-1+items.length) % items.length; paint(); }
+    else if(e.key === 'Enter' || e.key === 'Tab'){ e.preventDefault(); e.stopPropagation(); pick(sel); }
+    else if(e.key === 'Escape'){ e.stopPropagation(); hide(); }
+  }, true);
+  window.addEventListener('resize', function(){ if(box.style.display !== 'none') place(); });
+  document.addEventListener('scroll', function(){ if(box.style.display !== 'none') place(); }, true);
+})();
+</script>
+<!-- ===== END CONTACT EMAIL AUTOFILL ===== -->
+
 <!-- Mobile Bottom Nav -->
 <nav id="sa5MobNav" aria-label="Quick navigation">
   <button class="sa5-mtab" onclick="if(typeof saOpenToday==='function')saOpenToday()"><span>☀️</span>Today</button>
@@ -33965,7 +34085,7 @@ function sa5InjectTmplBar(formId, channel){
     '</div>' +
     '<button class="btn btnMini" onclick="sa5SaveTmpl(\'' + formId + '\',\'' + channel + '\')">💾 Save</button>';
   var firstLabel = form.querySelector('label');
-  if(firstLabel) form.insertBefore(bar, firstLabel);
+  if(firstLabel) firstLabel.parentNode.insertBefore(bar, firstLabel); // label may be nested, not a direct child
   else form.insertBefore(bar, form.firstChild);
 }
 
