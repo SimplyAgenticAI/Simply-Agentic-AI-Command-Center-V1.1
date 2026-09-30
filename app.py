@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.8")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -22089,6 +22089,232 @@ def api_os_next_actions():
     return jsonify({"ok": True, "suggestions": suggestions[:10]})
 
 
+# =========================
+# TODAY — the daily home screen + morning brief email (V9.6.9)
+# One aggregate of what matters today: focus, calendar, tasks, follow-ups.
+# =========================
+
+def _cal_task_occurs_on(t: Dict[str, Any], d) -> bool:
+    """Server-side mirror of the calendar's recurrence rules (index.html wcal expansion)."""
+    try:
+        start = datetime.strptime(str(t.get("date") or "")[:10], "%Y-%m-%d").date()
+    except Exception:
+        return False
+    rule = (t.get("recurring") or "none").strip()
+    if rule == "none":
+        return start == d
+    if d < start:
+        return False
+    delta = (d - start).days
+    js_dow = (d.weekday() + 1) % 7  # JS getDay(): 0=Sun
+    if rule == "daily":
+        return True
+    if rule == "weekdays":
+        return d.weekday() < 5
+    if rule == "custom":
+        return js_dow in [int(x) for x in (t.get("recur_days") or [1, 2, 3, 4, 5]) if str(x).isdigit() or isinstance(x, int)]
+    if rule == "weekly":
+        return delta % 7 == 0
+    if rule == "biweekly":
+        return delta % 14 == 0
+    if rule == "monthly":
+        return d.day == start.day
+    return False
+
+
+def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str, Any]:
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    tz_str = (_load_operator_profile(uname) or {}).get("timezone") or "UTC"
+    local_now = _user_now_local(uname)
+    today = local_now.date()
+    today_str = today.strftime("%Y-%m-%d")
+
+    osd = _os_load(uname)
+    objective = ((osd.get("session_objective") or {}).get("title") or "").strip()
+
+    # Tasks: today's calendar-task instances + overdue one-offs + due CRM tasks
+    tasks: List[Dict[str, Any]] = []
+    try:
+        for t in _load_cal_tasks(uname) or []:
+            if not isinstance(t, dict):
+                continue
+            recurring = (t.get("recurring") or "none") != "none"
+            if recurring:
+                if _cal_task_occurs_on(t, today) and today_str not in (t.get("done_dates") or []):
+                    tasks.append({"source": "cal", "id": t.get("id"), "title": t.get("title") or "Task",
+                                  "time": (t.get("start_overrides") or {}).get(today_str) or t.get("start") or "",
+                                  "recurring": True, "instance_date": today_str, "overdue": False})
+            elif not t.get("done"):
+                d = str(t.get("date") or "")[:10]
+                if d and d <= today_str:
+                    tasks.append({"source": "cal", "id": t.get("id"), "title": t.get("title") or "Task",
+                                  "time": t.get("start") or "", "recurring": False,
+                                  "overdue": d < today_str, "date": d})
+    except Exception as e:
+        _capture_error(e, context="today_cal_tasks")
+    crm = _crm_load(uname)
+    for t in (crm.get("tasks") or {}).values():
+        if not isinstance(t, dict) or t.get("done") or (t.get("status") or "open") in ("done", "completed", "closed"):
+            continue
+        due = str(t.get("due") or "")[:10]
+        if due and due <= today_str:
+            tasks.append({"source": "crm", "id": t.get("id"), "title": t.get("title") or "Task",
+                          "time": "", "overdue": due < today_str, "date": due})
+    tasks.sort(key=lambda x: (not x.get("overdue"), x.get("time") or "99:99"))
+
+    # Relationships: contacts whose follow-up date is today or past
+    followups: List[Dict[str, Any]] = []
+    for c in (crm.get("clients") or {}).values():
+        if not isinstance(c, dict):
+            continue
+        nf = str(c.get("next_followup") or "").strip()
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", nf) or nf > today_str:
+            continue
+        days = (today - datetime.strptime(nf, "%Y-%m-%d").date()).days
+        followups.append({"id": c.get("id"), "name": c.get("name") or "Contact",
+                          "company": c.get("company") or "", "days_overdue": days,
+                          "suggestion": _next_followup_suggestion(c)})
+    followups.sort(key=lambda x: -x["days_overdue"])
+
+    # Calendar events (only if Google Calendar is connected; never fail the page)
+    events: List[Dict[str, Any]] = []
+    calendar_connected = False
+    if include_calendar:
+        try:
+            access_token, _reason = _calendar_creds_for_user(u)
+            if access_token:
+                calendar_connected = True
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(tz_str)
+                day_start = datetime(today.year, today.month, today.day, tzinfo=tz)
+                raw = _calendar_list_events(access_token, time_min=day_start.isoformat(),
+                                            time_max=(day_start + timedelta(days=1)).isoformat(),
+                                            timezone=tz_str, max_results=50)
+                for ev in raw or []:
+                    s = str(ev.get("start") or "")
+                    all_day = len(s) == 10  # date-only => all-day event
+                    events.append({"title": ev.get("summary") or "(no title)",
+                                   "start": s, "all_day": all_day, "link": ev.get("htmlLink") or "",
+                                   "time": "" if all_day else s[11:16]})
+                events.sort(key=lambda x: (not x["all_day"], x["time"]))
+        except Exception as e:
+            _capture_error(e, context="today_calendar")
+
+    brief = ((u.get("settings") or {}).get("daily_brief") or {}) if isinstance(u, dict) else {}
+    return {
+        "ok": True,
+        "date": today_str,
+        "date_label": local_now.strftime("%A, %B ") + str(local_now.day),
+        "hour": local_now.hour,
+        "timezone": tz_str,
+        "objective": objective,
+        "events": events[:20],
+        "calendar_connected": calendar_connected,
+        "tasks": tasks[:20],
+        "followups": followups[:8],
+        "followups_total": len(followups),
+        "brief": {"enabled": bool(brief.get("enabled")), "hour": int(brief.get("hour") or 8),
+                  "email": (u.get("email") or "").strip() if isinstance(u, dict) else ""},
+    }
+
+
+@app.get("/api/today")
+def api_today():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify(_today_payload(u))
+
+
+@app.post("/api/today/brief_settings")
+def api_today_brief_settings():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("enabled"))
+    try:
+        hour = max(0, min(23, int(payload.get("hour") if payload.get("hour") is not None else 8)))
+    except Exception:
+        hour = 8
+    if enabled and not (u.get("email") or "").strip():
+        return jsonify({"ok": False, "error": "Your account has no email address on file."}), 400
+
+    def _mut(rec):
+        s = rec.setdefault("settings", {})
+        b = s.get("daily_brief") if isinstance(s.get("daily_brief"), dict) else {}
+        b.update({"enabled": enabled, "hour": hour})
+        s["daily_brief"] = b
+        rec["updated_at"] = now_iso()
+        return rec
+    update_user(u.get("username", ""), _mut)
+    _invalidate_users_cache()
+    return jsonify({"ok": True, "enabled": enabled, "hour": hour})
+
+
+def _daily_brief_text(p: Dict[str, Any], base_url: str) -> str:
+    lines = [f"Good morning — here's your {p['date_label']}.", ""]
+    if p.get("objective"):
+        lines += [f"FOCUS: {p['objective']}", ""]
+    if p.get("events"):
+        lines.append("CALENDAR")
+        for ev in p["events"]:
+            lines.append(f"  • {'All day' if ev.get('all_day') else (ev.get('time') or '')}  {ev['title']}")
+        lines.append("")
+    if p.get("tasks"):
+        lines.append("TO DO")
+        for t in p["tasks"]:
+            tag = " (overdue)" if t.get("overdue") else ""
+            lines.append(f"  • {t['title']}{tag}")
+        lines.append("")
+    if p.get("followups"):
+        lines.append("PEOPLE TO REACH OUT TO")
+        for f in p["followups"]:
+            when = "today" if f["days_overdue"] == 0 else f"{f['days_overdue']}d overdue"
+            lines.append(f"  • {f['name']} ({when})")
+        more = p.get("followups_total", 0) - len(p["followups"])
+        if more > 0:
+            lines.append(f"  …and {more} more")
+        lines.append("")
+    if len(lines) <= 3:
+        lines += ["Nothing scheduled and nobody overdue. Pick one thing that moves the business forward today.", ""]
+    lines += [f"Open your day: {base_url}/?today=1", "",
+              "You're getting this because you turned on the morning brief. Turn it off from the Today screen."]
+    return "\n".join(lines)
+
+
+def _daily_brief_tick() -> None:
+    """Called from the background scheduler every minute. Sends each opted-in user
+    their brief once per local day at/after their chosen hour. last_sent is persisted
+    on the user record so worker restarts (max-requests recycling) never double-send."""
+    base_url = (os.getenv("APP_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    users = (load_users().get("users") or {})
+    for uname, rec in list(users.items()):
+        try:
+            if not isinstance(rec, dict):
+                continue
+            b = ((rec.get("settings") or {}).get("daily_brief") or {})
+            if not b.get("enabled") or not (rec.get("email") or "").strip():
+                continue
+            local_now = _user_now_local(uname)
+            today_str = local_now.strftime("%Y-%m-%d")
+            if b.get("last_sent") == today_str or local_now.hour < int(b.get("hour") or 8):
+                continue
+            # Claim the day first so a slow send can't be repeated by the next tick
+            def _claim(r, _d=today_str):
+                s = r.setdefault("settings", {})
+                db = s.get("daily_brief") if isinstance(s.get("daily_brief"), dict) else {}
+                db["last_sent"] = _d
+                s["daily_brief"] = db
+                return r
+            update_user(uname, _claim)
+            _invalidate_users_cache()
+            p = _today_payload(rec)
+            _send_platform_email(rec["email"].strip(), f"Your day — {p['date_label']}", _daily_brief_text(p, base_url))
+        except Exception as e:
+            _log("WARNING", "Daily brief failed", user=uname, error=str(e)[:200])
+
+
 @app.get("/api/os/session_recap")
 def api_os_session_recap():
     u = current_user()
@@ -30834,6 +31060,12 @@ def _bg_schedule_tick():
                         _uname = _dp.stem[:-len("_drip")]
                         try: _drip_tick(_uname)
                         except Exception: pass
+        except Exception:
+            pass
+        # Morning brief emails (V9.6.9)
+        try:
+            with app.app_context():
+                _daily_brief_tick()
         except Exception:
             pass
         # Every 10 minutes: prune logs + evict old image jobs

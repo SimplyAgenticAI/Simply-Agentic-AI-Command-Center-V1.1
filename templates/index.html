@@ -850,6 +850,9 @@
     .saChevron{font-size:9px;opacity:.7;}
     .saDrop{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:200px;background:rgba(8,12,32,.90);backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);border:1px solid rgba(255,255,255,.16);border-top:1px solid rgba(255,255,255,.22);border-radius:14px;padding:6px;z-index:9999;box-shadow:0 16px 56px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.14);}
     .saDrop.open{display:block;}
+    .saDrop.saMoreTools.open{display:grid;grid-template-columns:repeat(4,minmax(170px,1fr));gap:4px 10px;width:max-content;max-width:calc(100vw - 40px);padding:10px;}
+    @media(max-width:1000px){.saDrop.saMoreTools.open{grid-template-columns:repeat(2,minmax(160px,1fr));}}
+    .saMoreHead{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:rgba(167,139,250,.85);padding:8px 12px 4px;}
     .saDropItem{display:block;width:100%;text-align:left;padding:9px 12px;background:transparent;border:none;border-radius:8px;color:rgba(226,232,240,.88);font-size:13px;cursor:pointer;transition:all .15s;}
     .saDropItem:hover{background:rgba(124,58,237,.22);color:#d4bbff;box-shadow:inset 0 0 0 1px rgba(124,58,237,.22),0 0 14px rgba(124,58,237,.14);}
 
@@ -4396,28 +4399,37 @@ label {
     <!-- ===== REDESIGNED NAV BAR ===== -->
     <div class="saNavBar" id="saNavBar">
 
-      <!-- Left: 3 dropdown groups -->
+      <!-- Left: the 4 daily essentials + one More drawer (V9.6.9 simplification).
+           Every legacy tool keeps its original id inside the More drawer, so all
+           existing handlers still bind; the old group wrappers are plain divs now
+           (saToggleDrop on them is a harmless no-op). -->
       <div class="saNavLeft">
 
+        <button class="saNavBtn" id="navTodayBtn" onclick="saOpenToday()" style="background:rgba(250,204,21,.14);border-color:rgba(250,204,21,.45);">☀️ Today</button>
+        <button class="saNavBtn" id="navContactsBtn" onclick="document.getElementById('crmBtn').click()">👥 Contacts</button>
+        <button class="saNavBtn" id="navCalendarBtn" onclick="document.getElementById('calendarBtn').click()">📅 Calendar</button>
+        <button class="saNavBtn" id="navEmailBtn" onclick="document.getElementById('emailConsoleBtn').click()">📧 Email</button>
+
         <div class="saDropWrap">
-          <button class="saNavBtn" id="saTeamDropBtn" data-tip="Manage your AI teammates" onclick="saToggleDrop('saTeamDrop')">
-            <span>👥 Teammates</span><span class="saChevron">&#9660;</span>
+          <button class="saNavBtn" id="saMoreToolsBtn" data-tip="Every other tool lives here" onclick="saToggleDrop('saMoreToolsDrop')">
+            <span>🧰 More</span><span class="saChevron">&#9660;</span>
           </button>
-          <div class="saDrop" id="saTeamDrop">
+          <div class="saDrop saMoreTools" id="saMoreToolsDrop">
+          <div class="saMoreCol" id="saTeamDrop">
+            <div class="saMoreHead">Teammates</div>
             <button class="saDropItem" id="createTeamBtn">✨ Create Teammate</button>
             <button class="saDropItem" id="editTeammatesBtn">✏️ Edit Teammates</button>
             <button class="saDropItem" id="manageTeamBtn">➕ Add / Dismiss</button>
             <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
+            <div class="saMoreHead">Overview</div>
+            <button class="saDropItem" id="dashboardNavBtn" onclick="saOpenDashboard()">📊 Dashboard</button>
+            <button class="saDropItem" id="communityNavBtn" onclick="openCommunityPanel()">🏆 Community<span id="communityPendingBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;margin-left:5px;font-weight:800;"></span></button>
           </div>
-        </div>
 
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saCreateDropBtn" data-tip="Create content & access tools" onclick="saToggleDrop('saCreateDrop')">
-            <span>✍️ Create</span><span class="saChevron">&#9660;</span>
-          </button>
-          <div class="saDrop" id="saCreateDrop">
+          <div class="saMoreCol" id="saCreateDrop">
+            <div class="saMoreHead">Create</div>
             <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
@@ -4426,13 +4438,9 @@ label {
             <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
             <button class="saDropItem" id="videoEditorBtn" onclick="saToggleDrop('saCreateDrop');showVideoEditorModal()">✂️ Video Editor</button>
           </div>
-        </div>
 
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saResearchDropBtn" data-tip="Research leads & analyze sites" onclick="saToggleDrop('saResearchDrop')">
-            <span>🔍 Research</span><span class="saChevron">&#9660;</span>
-          </button>
-          <div class="saDrop" id="saResearchDrop">
+          <div class="saMoreCol" id="saResearchDrop">
+            <div class="saMoreHead">Research</div>
             <button class="saDropItem" id="leadLabBtn">🔬 Find Leads</button>
             <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
@@ -4440,31 +4448,22 @@ label {
             <button class="saDropItem" id="marketScannerBtn" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
             <button class="saDropItem" id="intentSignalsBtn" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
           </div>
-        </div>
 
-        <div class="saDropWrap">
-          <button class="saNavBtn" id="saManageDropBtn" data-tip="Contacts, libraries & resources" onclick="saToggleDrop('saManageDrop')">
-            <span>📊 Manage</span><span class="saChevron">&#9660;</span>
-          </button>
-          <div class="saDrop" id="saManageDrop">
-            <button class="saDropItem" id="crmBtn" data-tip="Manage your contacts, notes & messages">👥 Contacts</button>
-            <button class="saDropItem" id="calendarBtn" data-tip="Schedule & sync with Google Calendar">📅 Calendar</button>
-            <button class="saDropItem" id="emailConsoleBtn" data-tip="Compose & send emails, manage broadcasts">📧 Email Console</button>
-            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
+          <div class="saMoreCol" id="saManageDrop">
+            <div class="saMoreHead">Libraries</div>
+            <!-- Contacts/Calendar/Email are promoted to the top bar; these hidden
+                 originals keep their handlers and are what the top buttons click. -->
+            <button class="saDropItem" id="crmBtn" style="display:none;">👥 Contacts</button>
+            <button class="saDropItem" id="calendarBtn" style="display:none;">📅 Calendar</button>
+            <button class="saDropItem" id="emailConsoleBtn" style="display:none;">📧 Email Console</button>
             <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
             <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Media Library</button>
           </div>
+          </div>
         </div>
-
-        <button class="saNavBtn" id="dashboardNavBtn" onclick="saOpenDashboard()" style="padding:7px 14px;">
-          📊 Dashboard
-        </button>
-        <button class="saNavBtn" id="communityNavBtn" onclick="openCommunityPanel()" style="padding:7px 14px;background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.4);">
-          🏆 Community<span id="communityPendingBadge" style="display:none;background:#ef4444;color:#fff;font-size:9px;border-radius:999px;padding:1px 5px;margin-left:5px;font-weight:800;"></span>
-        </button>
 
         <!-- Notification Bell — after Community -->
         <div style="display:flex;align-items:center;">
@@ -7331,6 +7330,7 @@ input[type="range"]::-moz-range-progress {
             <button class="btn btnMini" id="chatMoreBtn" onclick="window._saToggleChatMore()" title="More options" style="font-size:15px;letter-spacing:3px;padding:3px 10px;display:none;">···</button>
             <div id="chatMoreMenu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:rgba(8,13,33,.98);border:1px solid rgba(42,58,106,.8);border-radius:12px;padding:6px;min-width:205px;box-shadow:0 12px 40px rgba(0,0,0,.7);z-index:300;backdrop-filter:blur(20px);">
               <button class="btn btnMini" onclick="saToggleThreadSearch();window._saCloseChatMore();" title="Search conversation (Ctrl+K)" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;">🔍&nbsp; Search conversation</button>
+              <button class="btn btnMini" id="saChatToolsToggle" onclick="window._saToggleChatTools();window._saCloseChatMore();" title="Show Dream, 2nd Opinion, Snapshots, Export, Share and reply length" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;">🧰&nbsp; Show chat tools</button>
               <button class="btn btnMini" id="saMemoryBtn" onclick="window._saToggleMemoryPanel();window._saCloseChatMore();" title="View &amp; edit teammate memory" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">🧠&nbsp; Memory</button>
               <div style="height:1px;background:rgba(42,58,106,.4);margin:4px 2px;"></div>
               <button class="btn btnMini" id="threadExportBtn" onclick="window._saExportThread();window._saCloseChatMore();" title="Export conversation" style="width:100%;text-align:left;margin-bottom:3px;font-size:12px;padding:6px 10px;display:none;">⬇&nbsp; Export</button>
@@ -7405,7 +7405,7 @@ input[type="range"]::-moz-range-progress {
         <!-- Input always visible at bottom -->
         <div style="flex-shrink:0;border-top:1px solid rgba(42,58,106,.5);padding-top:8px;margin-top:6px;">
           <!-- Length mode toggle -->
-          <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px;">
+          <div id="dmLengthRow" style="display:none;align-items:center;gap:5px;margin-bottom:5px;">
             <span style="font-size:12px;color:#aab8cc;font-weight:600;letter-spacing:.5px;margin-right:2px;">REPLY LENGTH</span>
             <button id="dmBriefBtn" title="Brief replies" onclick="window._saSetLengthMode('brief')" style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#cbd5e1;cursor:pointer;transition:all .15s;">Brief</button>
             <button id="dmAutoBtn"  title="Auto length (default)" onclick="window._saSetLengthMode('auto')"  style="padding:2px 9px;font-size:11px;border-radius:6px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#c4b5fd;cursor:pointer;transition:all .15s;">Auto</button>
@@ -8717,10 +8717,10 @@ window.showModal = function showModal(title, body, imgUrl){
     // beamCanvas) because nav icons live outside #tableWrap.
     const _SA_TOOL_TARGET_RE = [
       [/session objective/i,  "sessionObjectivePill"],
-      [/\bimage\b/i,          "saCreateDropBtn"],
-      [/\bclient|\bcrm\b/i,   "saManageDropBtn"],
-      [/\bemail\b/i,          "saManageDropBtn"],
-      [/knowledge base|the page at|couldn't read that page/i, "saResearchDropBtn"]
+      [/\bimage\b/i,          "saMoreToolsBtn"],
+      [/\bclient|\bcrm\b/i,   "navContactsBtn"],
+      [/\bemail\b/i,          "navEmailBtn"],
+      [/knowledge base|the page at|couldn't read that page/i, "saMoreToolsBtn"]
     ];
     function _saToolTargetId(text){
       const t = String(text || "");
@@ -19719,6 +19719,7 @@ window.crmPipelineOpenClient = function(clientId){
     }; // end draftGo.onclick
     }; // end crmPipelineDraft
 
+    window.crmShowDraftResult = function(){ return crmShowDraftResult.apply(this, arguments); }; // used by the Today screen
     function crmShowDraftResult(draft, client, clientId){
       const name = (client&&client.name)||'Contact';
       const subj = draft.subject||'';
@@ -25927,8 +25928,10 @@ if(typeof maybeAutoShowOnboarding === "function"){
     window.markActiveSeat = function(name){
       orig.apply(this, arguments);
       try{
+        // V9.6.9: the power-tools row stays tucked away unless the user opened
+        // it from ··· → Chat tools (remembered per browser).
         const tb = document.getElementById("threadActionsRow");
-        if(tb) tb.style.display = name ? "flex" : "none";
+        if(tb) tb.style.display = (name && window._saChatToolsOn && window._saChatToolsOn()) ? "flex" : "none";
         if(name) saLoadBranches(name);
       }catch(_){}
     };
@@ -33625,9 +33628,239 @@ function _saEsc(s){
   </div>
 </div>
 
+<!-- ===== TODAY SCREEN (V9.6.9) — the daily home: focus, calendar, to-dos, people ===== -->
+<style>
+#saToday{display:none;position:fixed;inset:0;z-index:9500;background:rgba(2,6,16,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);overflow-y:auto;padding:40px 16px;}
+#saToday.open{display:block;}
+.st-card{max-width:760px;margin:0 auto;background:rgba(10,16,34,.97);border:1px solid rgba(250,204,21,.28);border-radius:20px;padding:26px 28px;box-shadow:0 30px 90px rgba(0,0,0,.7);color:#e2e8f0;}
+.st-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px;}
+.st-greet{font-size:24px;font-weight:800;color:#f8fafc;}
+.st-date{font-size:13px;color:#94a3b8;margin-top:3px;}
+.st-x{background:none;border:none;color:#94a3b8;font-size:22px;cursor:pointer;line-height:1;padding:2px 6px;}
+.st-sec{margin-top:18px;}
+.st-h{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#fcd34d;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+.st-h a,.st-h button{font-size:11px;font-weight:600;letter-spacing:0;text-transform:none;color:#a5b4fc;background:none;border:none;cursor:pointer;padding:0;}
+.st-focus{display:flex;gap:8px;}
+.st-focus input,.st-ask textarea{flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;color:#f1f5f9;font-size:14px;font-family:inherit;}
+.st-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.035);margin-bottom:6px;font-size:14px;}
+.st-row .st-t{flex:1;min-width:0;}
+.st-row .st-sub{font-size:12px;color:#94a3b8;margin-top:2px;}
+.st-time{font-variant-numeric:tabular-nums;color:#93c5fd;font-size:13px;min-width:58px;}
+.st-tag{font-size:11px;padding:2px 7px;border-radius:999px;background:rgba(239,68,68,.18);color:#fca5a5;white-space:nowrap;}
+.st-tag.ok{background:rgba(250,204,21,.15);color:#fde68a;}
+.st-btn{font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e2e8f0;cursor:pointer;white-space:nowrap;}
+.st-btn.pri{background:rgba(250,204,21,.18);border-color:rgba(250,204,21,.5);color:#fde68a;}
+.st-check{width:20px;height:20px;border-radius:6px;border:1.5px solid rgba(255,255,255,.35);background:none;cursor:pointer;flex-shrink:0;}
+.st-check:hover{border-color:#86efac;background:rgba(134,239,172,.15);}
+.st-empty{font-size:13px;color:#94a3b8;padding:6px 2px;}
+.st-ask{display:flex;gap:8px;align-items:flex-end;}
+.st-ask textarea{height:48px;resize:none;}
+.st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;color:#cbd5e1;}
+.st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
+@media(max-width:720px){ #saToday{padding:12px 8px 90px;}.st-card{padding:18px 16px;}.st-greet{font-size:20px;}.st-row{flex-wrap:wrap;}}
+</style>
+<div id="saToday" role="dialog" aria-modal="true" aria-label="Today">
+  <div class="st-card">
+    <div class="st-top">
+      <div><div class="st-greet" id="stGreet">Good morning</div><div class="st-date" id="stDate"></div></div>
+      <button class="st-x" onclick="saCloseToday()" title="Close">&times;</button>
+    </div>
+    <div class="st-sec">
+      <div class="st-h">Today's focus</div>
+      <div class="st-focus">
+        <input id="stFocusInput" maxlength="200" placeholder="The one thing that would make today a win…" />
+        <button class="st-btn pri" onclick="saTodaySaveFocus()">Set</button>
+      </div>
+    </div>
+    <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
+    <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
+    <div class="st-sec"><div class="st-h"><span>People to reach out to</span><button onclick="saCloseToday();document.getElementById('crmBtn').click()">All contacts →</button></div><div id="stPeople"></div></div>
+    <div class="st-sec">
+      <div class="st-h">Ask your team</div>
+      <div class="st-ask">
+        <textarea id="stAsk" placeholder="e.g. Help me plan my afternoon around these calls"></textarea>
+        <button class="st-btn pri" onclick="saTodayAsk()">Ask</button>
+      </div>
+    </div>
+    <div class="st-foot">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;"><input type="checkbox" id="stBriefOn" onchange="saTodaySaveBrief()"> Email me this every morning at</label>
+      <select id="stBriefHour" onchange="saTodaySaveBrief()"></select>
+      <span id="stBriefNote" style="color:#94a3b8;font-size:12px;"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  'use strict';
+  var _data = null;
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function toast(m,t){ if(typeof window.showToast==='function') window.showToast(m,t); }
+  function fmtTime(hm){ if(!hm) return ''; var p=hm.split(':'); var h=+p[0]; if(isNaN(h)) return hm; return ((h%12)||12)+':'+(p[1]||'00')+(h<12?' am':' pm'); }
+  function localISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
+  function render(d){
+    _data = d;
+    var h = d.hour;
+    document.getElementById('stGreet').textContent = h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
+    document.getElementById('stDate').textContent = d.date_label || '';
+    var fi = document.getElementById('stFocusInput'); if(document.activeElement!==fi) fi.value = d.objective || '';
+
+    var ev = document.getElementById('stEvents');
+    if(!d.calendar_connected){
+      ev.innerHTML = '<div class="st-empty">Google Calendar isn\'t connected. <a href="#" style="color:#a5b4fc" onclick="saCloseToday();document.getElementById(\'settingsBtn\').click();return false;">Connect it in Settings</a> to see your meetings here.</div>';
+    } else if(!d.events.length){
+      ev.innerHTML = '<div class="st-empty">No meetings today — open calendar, open time.</div>';
+    } else {
+      ev.innerHTML = d.events.map(function(e){
+        return '<div class="st-row"><span class="st-time">'+(e.all_day?'All day':esc(fmtTime(e.time)))+'</span><div class="st-t">'+esc(e.title)+'</div>'+(e.link?'<a class="st-btn" href="'+esc(e.link)+'" target="_blank" rel="noopener">Open</a>':'')+'</div>';
+      }).join('');
+    }
+
+    var tk = document.getElementById('stTasks');
+    tk.innerHTML = d.tasks.length ? d.tasks.map(function(t,i){
+      var tag = t.overdue ? '<span class="st-tag">overdue</span>' : '';
+      return '<div class="st-row"><button class="st-check" title="Mark done" onclick="saTodayTaskDone('+i+',this)"></button><span class="st-time">'+esc(fmtTime(t.time))+'</span><div class="st-t">'+esc(t.title)+'</div>'+tag+'</div>';
+    }).join('') : '<div class="st-empty">Nothing due. Add one task that moves things forward.</div>';
+
+    var pp = document.getElementById('stPeople');
+    if(!d.followups.length){
+      pp.innerHTML = '<div class="st-empty">Nobody\'s waiting on you. Set a follow-up date on a contact and they\'ll show up here when it\'s due.</div>';
+    } else {
+      pp.innerHTML = d.followups.map(function(f,i){
+        var when = f.days_overdue===0 ? '<span class="st-tag ok">today</span>' : '<span class="st-tag">'+f.days_overdue+'d overdue</span>';
+        return '<div class="st-row"><div class="st-t">'+esc(f.name)+(f.company?' <span style="color:#94a3b8">· '+esc(f.company)+'</span>':'')+'<div class="st-sub">'+esc(f.suggestion||'')+'</div></div>'+when+
+          '<button class="st-btn pri" onclick="saTodayDraft('+i+',this)">✍ Draft</button><button class="st-btn" title="Log it and follow up again in a week" onclick="saTodayContacted('+i+',this)">✓ Done</button></div>';
+      }).join('') + (d.followups_total > d.followups.length ? '<div class="st-empty">…and '+(d.followups_total-d.followups.length)+' more in Contacts.</div>' : '');
+    }
+
+    var sel = document.getElementById('stBriefHour');
+    if(!sel.options.length){ for(var hr=5; hr<=11; hr++){ var o=document.createElement('option'); o.value=hr; o.textContent=hr+':00 am'; sel.appendChild(o);} }
+    document.getElementById('stBriefOn').checked = !!(d.brief && d.brief.enabled);
+    sel.value = String((d.brief && d.brief.hour) || 8);
+    document.getElementById('stBriefNote').textContent = (d.brief && d.brief.email) ? ('→ '+d.brief.email+' · '+(d.timezone||'')) : 'Add an email to your account to enable this.';
+  }
+
+  async function load(){
+    try{
+      var r = await fetch('/api/today'); var d = await r.json();
+      if(d && d.ok) render(d);
+    }catch(e){ toast('Could not load Today: '+e, 'error'); }
+  }
+
+  window.saOpenToday = function(){
+    document.getElementById('saToday').classList.add('open');
+    try{ localStorage.setItem('saTodaySeen', localISO(new Date())); }catch(_){}
+    load();
+  };
+  window.saCloseToday = function(){ document.getElementById('saToday').classList.remove('open'); };
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('saToday').classList.contains('open')) window.saCloseToday(); });
+  document.getElementById('saToday').addEventListener('click', function(e){ if(e.target.id==='saToday') window.saCloseToday(); });
+
+  window.saTodaySaveFocus = async function(){
+    var v = document.getElementById('stFocusInput').value.trim();
+    try{
+      var r = await fetch('/api/os/session_objective',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v})});
+      var d = await r.json();
+      if(d.ok){ toast('✓ Focus set'); var pill=document.getElementById('sessionObjectivePill'); if(pill) pill.textContent = v || 'No objective set'; }
+      else toast(d.error||'Could not save focus','error');
+    }catch(e){ toast(String(e),'error'); }
+  };
+
+  window.saTodayTaskDone = async function(i, btn){
+    var t = _data && _data.tasks[i]; if(!t) return;
+    btn.disabled = true;
+    var url = t.source==='crm' ? '/api/crm/tasks/'+encodeURIComponent(t.id) : '/api/cal/tasks/'+encodeURIComponent(t.id);
+    var body = t.source==='crm' ? {status:'done'} : (t.recurring ? {done:true, instance_date:t.instance_date} : {done:true});
+    try{
+      var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      var d = await r.json();
+      if(d.ok){ var row = btn.closest('.st-row'); row.style.opacity='.35'; row.style.textDecoration='line-through'; btn.textContent='✓'; }
+      else { btn.disabled=false; toast(d.error||'Could not update task','error'); }
+    }catch(e){ btn.disabled=false; toast(String(e),'error'); }
+  };
+
+  window.saTodayDraft = async function(i, btn){
+    var f = _data && _data.followups[i]; if(!f) return;
+    var orig = btn.textContent; btn.textContent='Drafting…'; btn.disabled=true;
+    try{
+      var r = await fetch('/api/crm/clients/'+encodeURIComponent(f.id)+'/draft_outreach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:'email', context:'Follow-up that is due now'})});
+      var d = await r.json();
+      if(d.ok && d.email_draft && typeof window.crmShowDraftResult==='function'){ window.crmShowDraftResult(d.email_draft, {name:f.name}, f.id); }
+      else toast('Draft failed: '+(d.error||'unknown error'),'error');
+    }catch(e){ toast(String(e),'error'); }
+    btn.textContent=orig; btn.disabled=false;
+  };
+
+  window.saTodayContacted = async function(i, btn){
+    var f = _data && _data.followups[i]; if(!f) return;
+    btn.disabled = true;
+    var now = new Date(), next = new Date(now.getTime()+7*86400000);
+    try{
+      var r = await fetch('/api/crm/clients/'+encodeURIComponent(f.id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({last_contact:localISO(now), next_followup:localISO(next)})});
+      var d = await r.json();
+      if(d.ok){
+        fetch('/api/crm/clients/'+encodeURIComponent(f.id)+'/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'contact',detail:'Reached out (from Today)'})}).catch(function(){});
+        var row = btn.closest('.st-row'); row.style.opacity='.35'; toast('✓ Logged — next follow-up '+localISO(next));
+      } else { btn.disabled=false; toast(d.error||'Could not update contact','error'); }
+    }catch(e){ btn.disabled=false; toast(String(e),'error'); }
+  };
+
+  window.saTodayAsk = function(){
+    var q = document.getElementById('stAsk').value.trim(); if(!q) return;
+    var ctx = '';
+    if(_data){
+      if(_data.objective) ctx += 'My focus today: '+_data.objective+'\n';
+      if(_data.events.length) ctx += 'Meetings: '+_data.events.map(function(e){return (e.all_day?'all day':e.time)+' '+e.title;}).join('; ')+'\n';
+      if(_data.tasks.length) ctx += 'To do: '+_data.tasks.map(function(t){return t.title;}).join('; ')+'\n';
+      if(_data.followups.length) ctx += 'Follow-ups due: '+_data.followups.map(function(f){return f.name;}).join('; ')+'\n';
+    }
+    var op = document.getElementById('opPrompt'), send = document.getElementById('conveneAll');
+    if(!op || !send){ toast('Team console not available','error'); return; }
+    op.value = (ctx ? '[Context for today]\n'+ctx+'\n' : '') + q;
+    document.getElementById('stAsk').value = '';
+    window.saCloseToday();
+    send.click();
+  };
+
+  window.saTodaySaveBrief = async function(){
+    var on = document.getElementById('stBriefOn').checked, hr = +document.getElementById('stBriefHour').value;
+    try{
+      var r = await fetch('/api/today/brief_settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:on,hour:hr})});
+      var d = await r.json();
+      if(d.ok) toast(on ? '✓ Morning brief on — '+hr+':00 am' : 'Morning brief off');
+      else { document.getElementById('stBriefOn').checked = false; toast(d.error||'Could not save','error'); }
+    }catch(e){ toast(String(e),'error'); }
+  };
+
+  // Chat tools toggle (··· menu) — keeps Dream/2nd Opinion/Snapshots/Export/Share/reply-length out of the way by default
+  window._saChatToolsOn = function(){ try{ return localStorage.getItem('saChatTools')==='1'; }catch(_){ return false; } };
+  function applyChatTools(){
+    var on = window._saChatToolsOn();
+    var row = document.getElementById('threadActionsRow'), len = document.getElementById('dmLengthRow'), btn = document.getElementById('saChatToolsToggle');
+    if(row) row.style.display = (on && window.selectedSeat) ? 'flex' : 'none';
+    if(len) len.style.display = on ? 'flex' : 'none';
+    if(btn) btn.innerHTML = on ? '🧰&nbsp; Hide chat tools' : '🧰&nbsp; Show chat tools';
+  }
+  window._saToggleChatTools = function(){ try{ localStorage.setItem('saChatTools', window._saChatToolsOn() ? '0' : '1'); }catch(_){} applyChatTools(); };
+  applyChatTools();
+
+  // Open Today first: via ?today=1 (brief email link) or on the first visit of each day
+  window.addEventListener('load', function(){
+    setTimeout(function(){
+      var forced = /[?&]today=1/.test(location.search), seen = null;
+      try{ seen = localStorage.getItem('saTodaySeen'); }catch(_){}
+      var wo = document.getElementById('welcomeOverlay');
+      var welcomeUp = wo && wo.style.display && wo.style.display !== 'none';
+      if(forced || (!welcomeUp && seen !== localISO(new Date()))) window.saOpenToday();
+    }, 900);
+  });
+})();
+</script>
+<!-- ===== END TODAY SCREEN ===== -->
+
 <!-- Mobile Bottom Nav -->
 <nav id="sa5MobNav" aria-label="Quick navigation">
-  <button class="sa5-mtab" onclick="window.scrollTo({top:0,behavior:'smooth'})"><span>🏠</span>Home</button>
+  <button class="sa5-mtab" onclick="if(typeof saOpenToday==='function')saOpenToday()"><span>☀️</span>Today</button>
   <button class="sa5-mtab" onclick="var b=document.getElementById('crmBtn');if(b)b.click()"><span>👥</span>Contacts</button>
   <button class="sa5-mtab" onclick="var b=document.getElementById('calendarBtn');if(b)b.click()"><span>📅</span>Calendar</button>
   <button class="sa5-mtab" onclick="var b=document.getElementById('emailConsoleBtn');if(b)b.click()"><span>📣</span>Broadcast</button>
