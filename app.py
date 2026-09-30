@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.9")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.10")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -22287,7 +22287,7 @@ def _daily_brief_tick() -> None:
     """Called from the background scheduler every minute. Sends each opted-in user
     their brief once per local day at/after their chosen hour. last_sent is persisted
     on the user record so worker restarts (max-requests recycling) never double-send."""
-    base_url = (os.getenv("APP_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    base_url = (os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
     users = (load_users().get("users") or {})
     for uname, rec in list(users.items()):
         try:
@@ -22300,15 +22300,21 @@ def _daily_brief_tick() -> None:
             today_str = local_now.strftime("%Y-%m-%d")
             if b.get("last_sent") == today_str or local_now.hour < int(b.get("hour") or 8):
                 continue
-            # Claim the day first so a slow send can't be repeated by the next tick
+            # Claim the day atomically (check + set under update_user's lock) so a
+            # slow send or a concurrent tick can never send twice
+            claimed = {"ok": False}
             def _claim(r, _d=today_str):
                 s = r.setdefault("settings", {})
                 db = s.get("daily_brief") if isinstance(s.get("daily_brief"), dict) else {}
-                db["last_sent"] = _d
+                if db.get("last_sent") != _d:
+                    db["last_sent"] = _d
+                    claimed["ok"] = True
                 s["daily_brief"] = db
                 return r
             update_user(uname, _claim)
             _invalidate_users_cache()
+            if not claimed["ok"]:
+                continue
             p = _today_payload(rec)
             _send_platform_email(rec["email"].strip(), f"Your day — {p['date_label']}", _daily_brief_text(p, base_url))
         except Exception as e:

@@ -63,6 +63,11 @@ def test_today_aggregate_and_brief(flask_app, monkeypatch):
     assert [f["name"] for f in d["followups"]] == ["Dana Follow"]
     assert d["followups"][0]["days_overdue"] == 3
 
+    # Patch the sender before enabling: the app's background scheduler thread
+    # may run the tick at any moment once the brief is on.
+    sent = []
+    monkeypatch.setattr(app_module, "_send_platform_email", lambda to, subj, body: sent.append((to, subj, body)) or True)
+
     # Brief can't be enabled without an account email
     r = c.post("/api/today/brief_settings", json={"enabled": True, "hour": 0}, headers=_h(c))
     assert r.status_code == 400
@@ -71,8 +76,6 @@ def test_today_aggregate_and_brief(flask_app, monkeypatch):
     r = c.post("/api/today/brief_settings", json={"enabled": True, "hour": 0}, headers=_h(c))
     assert r.get_json()["ok"] is True
 
-    sent = []
-    monkeypatch.setattr(app_module, "_send_platform_email", lambda to, subj, body: sent.append((to, subj, body)) or True)
     app_module._daily_brief_tick()
     app_module._daily_brief_tick()  # same day: must not send twice
     assert len(sent) == 1
