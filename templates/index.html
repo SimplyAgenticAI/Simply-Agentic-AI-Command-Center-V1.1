@@ -35879,6 +35879,10 @@ window.addEventListener('focus', function(){
         <div style="font-size:15px;font-weight:700;color:#e2e8f0;">Video Editor</div>
         <div id="veFileInfo" style="font-size:12.5px;color:#aab8cc;">Upload a video to get started</div>
       </div>
+      <div class="vc-tabs" role="tablist" style="margin-left:14px;">
+        <button id="vcTabSource" class="vc-tab on" onclick="vcShowTab('source')">🎬 Source</button>
+        <button id="vcTabClips" class="vc-tab" onclick="vcShowTab('clips')">🎞 My Clips <span id="vcClipCount" class="vc-count"></span></button>
+      </div>
     </div>
     <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;">✕ Close</button>
   </div>
@@ -35914,7 +35918,8 @@ window.addEventListener('focus', function(){
 
       <!-- AI + Tool buttons (shown after upload) -->
       <div id="veToolbar">
-        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:12px;font-weight:700;padding:9px 10px;cursor:pointer;">✨ Auto-detect Clips</button>
+        <button id="vcMakeShortsBtn" onclick="vcMakeShorts()" style="display:none;width:100%;flex-basis:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:12px;color:#fff;font-size:14px;font-weight:800;padding:12px 10px;cursor:pointer;box-shadow:0 6px 20px rgba(236,72,153,.35);" title="AI finds the best moments and makes captioned vertical shorts">⚡ Make my shorts</button>
+        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:12px;font-weight:700;padding:9px 10px;cursor:pointer;">✨ Suggest moments</button>
         <button id="veExtractAudioBtn" onclick="veExtractAudio()" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;color:#6ee7b7;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">🎵 Extract Audio</button>
         <button id="veMuteExportBtn" onclick="veMuteExport()" style="display:none;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);border-radius:10px;color:#a5b4fc;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">🔇 Remove Audio</button>
         <button id="veScreenshotBtn" onclick="veScreenshot()" style="display:none;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:10px;color:#fde68a;font-size:12px;font-weight:600;padding:9px 10px;cursor:pointer;">📸 Screenshot</button>
@@ -35927,7 +35932,7 @@ window.addEventListener('focus', function(){
 
       <!-- Export -->
       <div id="veExportPanel" style="display:none;margin:0 14px 16px;">
-        <button id="veExportBtn" onclick="veExportClip()" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 4px 16px rgba(124,58,237,.4);">⬇ Export Clip</button>
+        <button id="veExportBtn" onclick="veExportClip()" style="width:100%;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 4px 16px rgba(124,58,237,.4);" title="Save the In→Out range to My Clips">＋ Save as clip</button>
       </div>
 
       <!-- Shortcuts (hidden on mobile) -->
@@ -36008,8 +36013,472 @@ window.addEventListener('focus', function(){
       </div>
     </div>
   </div>
+  <!-- ═══ CLIP STUDIO (My Clips) ═══ -->
+  <div id="vcStudio" style="display:none;">
+    <div id="vcLib">
+      <div class="vc-libbar">
+        <label class="vc-chk"><input type="checkbox" id="vcSelAll" onchange="vcSelectAll(this.checked)"> All</label>
+        <button class="vc-btn" id="vcZipBtn" onclick="vcDownloadZip()" disabled>⬇ Download selected</button>
+        <div style="flex:1"></div>
+        <button class="vc-btn" onclick="vcOpenBrand()" title="Logo + caption color applied to your clips">🎨 Brand kit</button>
+      </div>
+      <div id="vcStorage" class="vc-storage"></div>
+      <div id="vcGrid"></div>
+    </div>
+    <div id="vcEditor">
+      <div id="vcEmpty" class="vc-empty">
+        <div style="font-size:44px;opacity:.5;margin-bottom:10px;">🎞</div>
+        <div style="font-weight:700;color:#e2e8f0;margin-bottom:6px;">Your clips live here</div>
+        <div>Upload a video on the <b>Source</b> tab, then hit <b>⚡ Make my shorts</b> — or set In/Out and <b>＋ Save as clip</b>.</div>
+      </div>
+      <div id="vcEdit" style="display:none;">
+        <div class="vc-ed-top">
+          <div class="vc-player-wrap"><video id="vcPlayer" controls playsinline preload="metadata"></video>
+            <div id="vcRenderOverlay" class="vc-overlay"><div class="vc-spin"></div><div>Rendering your clip…</div></div></div>
+          <div class="vc-ed-side">
+            <input id="vcTitle" class="vc-input vc-title" maxlength="80" onchange="vcSaveTitle()" placeholder="Clip title">
+            <div id="vcMeta" class="vc-meta"></div>
+            <div id="vcErr" class="vc-err" style="display:none;"></div>
+            <div class="vc-subtabs">
+              <button class="vc-subtab on" data-p="edit" onclick="vcSubTab('edit')">✂️ Edit</button>
+              <button class="vc-subtab" data-p="text" onclick="vcSubTab('text')">💬 Captions &amp; Text</button>
+              <button class="vc-subtab" data-p="post" onclick="vcSubTab('post')">🚀 Post</button>
+            </div>
+
+            <div class="vc-pane" id="vcPaneEdit">
+              <div class="vc-lbl">Format</div>
+              <div class="vc-chips" id="vcAspect">
+                <button data-v="9:16">📱 9:16</button><button data-v="1:1">⬛ 1:1</button><button data-v="16:9">🖥 16:9</button><button data-v="original">Original</button>
+              </div>
+              <div class="vc-lbl">Trim <span class="vc-hint">(seconds in the original video)</span></div>
+              <div class="vc-trim">
+                <div><span>Start</span><button onclick="vcNudge('start',-0.5)">−½</button><input id="vcStart" type="number" step="0.1" class="vc-input" oninput="vcDirty()"><button onclick="vcNudge('start',0.5)">+½</button></div>
+                <div><span>End</span><button onclick="vcNudge('end',-0.5)">−½</button><input id="vcEnd" type="number" step="0.1" class="vc-input" oninput="vcDirty()"><button onclick="vcNudge('end',0.5)">+½</button></div>
+              </div>
+              <div class="vc-lbl">Hook <span class="vc-hint">(big text for the first 3 seconds)</span></div>
+              <input id="vcHook" class="vc-input" maxlength="90" placeholder="e.g. 3 mistakes killing your sales" oninput="vcDirty()">
+              <div class="vc-toggles">
+                <label><input type="checkbox" id="vcSilence" onchange="vcDirty()"> ✂️ Remove silences</label>
+                <label><input type="checkbox" id="vcFillers" onchange="vcDirty()"> 🤐 Remove “um” &amp; “uh”</label>
+                <label><input type="checkbox" id="vcBrand" onchange="vcDirty()"> 🎨 Add my logo</label>
+                <label><input type="checkbox" id="vcMute" onchange="vcDirty()"> 🔇 Mute audio</label>
+              </div>
+            </div>
+
+            <div class="vc-pane" id="vcPaneText" style="display:none;">
+              <div class="vc-row"><label class="vc-switch"><input type="checkbox" id="vcCapOn" onchange="vcDirty()"> Animated captions</label></div>
+              <div class="vc-chips" id="vcCapStyle"><button data-v="bold">BOLD</button><button data-v="pop">POP</button><button data-v="clean">Clean</button></div>
+              <div class="vc-lbl" style="margin-top:12px;">Transcript <span class="vc-hint">click a word to cut it · double-click to fix spelling</span></div>
+              <div id="vcWords" class="vc-words"></div>
+            </div>
+
+            <div class="vc-pane" id="vcPanePost" style="display:none;">
+              <button class="vc-btn vc-pri" id="vcSocialBtn" onclick="vcWriteSocial()" style="width:100%;">✨ Write caption &amp; hashtags</button>
+              <div class="vc-lbl">Post caption</div>
+              <textarea id="vcSocCap" class="vc-input" rows="5" placeholder="Your post caption…" onchange="vcSaveSocial()"></textarea>
+              <div class="vc-lbl">Hashtags</div>
+              <input id="vcSocTags" class="vc-input" placeholder="growth smallbusiness marketing" onchange="vcSaveSocial()">
+              <div class="vc-row" style="gap:6px;margin-top:8px;"><button class="vc-btn" onclick="vcCopySocial()">📋 Copy caption + tags</button></div>
+              <div class="vc-lbl">Send to Content Planner</div>
+              <div class="vc-plats" id="vcPlats">
+                <label><input type="checkbox" value="tiktok" checked> TikTok</label><label><input type="checkbox" value="instagram" checked> Instagram</label>
+                <label><input type="checkbox" value="youtube"> YouTube</label><label><input type="checkbox" value="facebook"> Facebook</label><label><input type="checkbox" value="linkedin"> LinkedIn</label>
+              </div>
+              <button class="vc-btn vc-pri" onclick="vcToPlanner()" style="width:100%;margin-top:6px;">📅 Add to Content Planner</button>
+            </div>
+
+            <div class="vc-actions">
+              <button class="vc-btn vc-apply" id="vcApply" onclick="vcApply()" disabled>✔ Apply changes</button>
+              <button class="vc-btn" onclick="vcDownload()">⬇ Download</button>
+              <button class="vc-btn" onclick="vcDuplicate()" title="Make a copy to try a different version">⧉</button>
+              <button class="vc-btn vc-danger" onclick="vcDelete()" title="Delete clip">🗑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Brand kit -->
+  <div id="vcBrandModal" class="vc-modal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+    <div class="vc-modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b style="font-size:15px;">🎨 Brand kit</b><button class="vc-btn" onclick="document.getElementById('vcBrandModal').style.display='none'">✕</button></div>
+      <div class="vc-lbl">Logo <span class="vc-hint">(PNG with transparency looks best — top-right corner)</span></div>
+      <div class="vc-row" style="gap:10px;align-items:center;">
+        <img id="vcLogoPrev" alt="" style="max-width:120px;max-height:60px;display:none;background:repeating-conic-gradient(#333 0% 25%,#222 0% 50%) 50%/12px 12px;border-radius:6px;">
+        <input type="file" id="vcLogoFile" accept="image/png,image/jpeg,image/webp" onchange="vcUploadLogo(this.files[0])">
+        <button class="vc-btn" id="vcLogoRm" onclick="vcRemoveLogo()" style="display:none;">Remove</button>
+      </div>
+      <div class="vc-lbl">Accent color <span class="vc-hint">(caption highlight + hook box)</span></div>
+      <input type="color" id="vcBrandColor" value="#FFD400" onchange="vcSaveBrand()" style="width:64px;height:36px;border:none;background:none;cursor:pointer;">
+      <label class="vc-switch" style="display:block;margin-top:12px;"><input type="checkbox" id="vcBrandDefault" onchange="vcSaveBrand()"> Add my logo to new clips automatically</label>
+    </div>
+  </div>
   </div><!-- end z-index:1 content wrapper -->
 </div>
+
+<style>
+.vc-tabs{display:flex;gap:4px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:3px;}
+.vc-tab{background:none;border:none;color:#94a3b8;font-size:13px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;}
+.vc-tab.on{background:rgba(124,58,237,.35);color:#f5f3ff;}
+.vc-count{display:inline-block;min-width:18px;padding:0 5px;border-radius:999px;background:rgba(236,72,153,.85);color:#fff;font-size:11px;line-height:17px;text-align:center;}
+.vc-count:empty{display:none;}
+#vcStudio{flex:1;min-height:0;display:flex;overflow:hidden;}
+#vcLib{width:320px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.4);display:flex;flex-direction:column;background:rgba(7,10,22,.97);}
+.vc-libbar{display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid rgba(42,58,106,.3);}
+.vc-chk{font-size:12px;color:#cbd5e1;display:flex;align-items:center;gap:4px;cursor:pointer;}
+.vc-storage{padding:6px 12px;font-size:11px;color:#94a3b8;}
+#vcGrid{flex:1;overflow-y:auto;padding:8px 10px 16px;display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start;}
+.vc-card{position:relative;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.08);cursor:pointer;transition:border-color .15s,transform .15s;}
+.vc-card:hover{border-color:rgba(124,58,237,.5);transform:translateY(-1px);}
+.vc-card.sel{border-color:#a78bfa;box-shadow:0 0 0 2px rgba(167,139,250,.35);}
+.vc-thumb{aspect-ratio:9/12;background:#0b1022 center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:#475569;font-size:24px;}
+.vc-cinfo{padding:6px 8px 8px;}
+.vc-ctitle{font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.vc-csub{font-size:11px;color:#94a3b8;margin-top:2px;display:flex;gap:6px;align-items:center;}
+.vc-badge{position:absolute;top:6px;left:6px;font-size:10.5px;font-weight:800;border-radius:6px;padding:2px 6px;background:rgba(0,0,0,.65);color:#fff;}
+.vc-badge.err{background:rgba(220,38,38,.85);} .vc-badge.score{left:auto;right:6px;background:rgba(245,158,11,.9);color:#1a1205;}
+.vc-cchk{position:absolute;bottom:52px;right:6px;width:18px;height:18px;accent-color:#a78bfa;cursor:pointer;}
+#vcEditor{flex:1;min-width:0;overflow-y:auto;background:rgba(4,6,16,.92);}
+.vc-empty{max-width:420px;margin:80px auto;text-align:center;color:#94a3b8;font-size:14px;line-height:1.6;padding:0 20px;}
+.vc-ed-top{display:flex;gap:18px;padding:16px 18px;align-items:flex-start;}
+.vc-player-wrap{position:relative;flex:0 0 auto;width:min(360px,40vw);background:#000;border-radius:14px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:300px;}
+#vcPlayer{width:100%;max-height:72vh;display:block;}
+.vc-overlay{position:absolute;inset:0;display:none;flex-direction:column;gap:10px;align-items:center;justify-content:center;background:rgba(4,6,16,.8);color:#e9d5ff;font-size:13px;font-weight:600;}
+.vc-overlay.on{display:flex;}
+.vc-spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(167,139,250,.25);border-top-color:#a78bfa;animation:vcSpin .9s linear infinite;}
+@keyframes vcSpin{to{transform:rotate(360deg)}}
+.vc-ed-side{flex:1;min-width:0;}
+.vc-input{width:100%;box-sizing:border-box;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,200,.35);border-radius:9px;padding:8px 10px;color:#e2e8f0;font-size:13px;font-family:inherit;outline:none;}
+.vc-input:focus{border-color:#a78bfa;}
+.vc-title{font-size:16px;font-weight:700;}
+.vc-meta{font-size:12px;color:#94a3b8;margin:6px 2px 10px;}
+.vc-err{background:rgba(220,38,38,.12);border:1px solid rgba(220,38,38,.4);color:#fca5a5;border-radius:9px;padding:8px 10px;font-size:12.5px;margin-bottom:10px;}
+.vc-subtabs{display:flex;gap:4px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:12px;}
+.vc-subtab{background:none;border:none;border-bottom:2px solid transparent;color:#94a3b8;font-size:13px;font-weight:700;padding:8px 10px;cursor:pointer;}
+.vc-subtab.on{color:#f5f3ff;border-bottom-color:#a78bfa;}
+.vc-lbl{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a5b4fc;margin:12px 0 6px;}
+.vc-hint{font-weight:500;text-transform:none;letter-spacing:0;color:#64748b;}
+.vc-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.vc-chips button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#cbd5e1;border-radius:9px;padding:7px 12px;font-size:12.5px;font-weight:700;cursor:pointer;}
+.vc-chips button.on{background:rgba(124,58,237,.35);border-color:#a78bfa;color:#fff;}
+.vc-trim{display:flex;flex-wrap:wrap;gap:10px;}
+.vc-trim>div{display:flex;align-items:center;gap:4px;font-size:12px;color:#cbd5e1;}
+.vc-trim input{width:84px;}
+.vc-trim button{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#cbd5e1;border-radius:7px;padding:6px 7px;font-size:11px;cursor:pointer;}
+.vc-toggles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;}
+.vc-toggles label,.vc-switch,.vc-plats label{font-size:13px;color:#e2e8f0;display:flex;align-items:center;gap:7px;cursor:pointer;}
+.vc-toggles input,.vc-switch input,.vc-plats input{accent-color:#a78bfa;width:16px;height:16px;}
+.vc-plats{display:flex;flex-wrap:wrap;gap:12px;}
+.vc-row{display:flex;align-items:center;}
+.vc-words{max-height:260px;overflow-y:auto;background:rgba(14,22,48,.6);border:1px solid rgba(80,110,200,.25);border-radius:10px;padding:10px;line-height:2;font-size:14px;color:#e2e8f0;}
+.vc-w{padding:2px 2px;border-radius:4px;cursor:pointer;}
+.vc-w:hover{background:rgba(167,139,250,.2);}
+.vc-w.cut{text-decoration:line-through;color:#64748b;background:rgba(220,38,38,.12);}
+.vc-w.filler{color:#fbbf24;}
+.vc-w.edited{border-bottom:2px dotted #34d399;}
+.vc-actions{display:flex;gap:6px;margin-top:18px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);flex-wrap:wrap;}
+.vc-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#e2e8f0;border-radius:9px;padding:8px 12px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.vc-btn:disabled{opacity:.45;cursor:not-allowed;}
+.vc-pri{background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:transparent;color:#fff;}
+.vc-apply{flex:1;background:linear-gradient(135deg,#10b981,#059669);border-color:transparent;color:#fff;}
+.vc-danger{color:#fca5a5;border-color:rgba(220,38,38,.4);}
+.vc-modal{position:fixed;inset:0;z-index:1000000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;}
+.vc-modal-card{background:#0d1328;border:1px solid rgba(124,58,237,.4);border-radius:16px;padding:20px;width:min(440px,100%);color:#e2e8f0;}
+@media(max-width:800px){
+  #vcStudio{flex-direction:column;overflow-y:auto;}
+  #vcLib{width:100%;border-right:none;border-bottom:1px solid rgba(42,58,106,.4);max-height:none;}
+  #vcGrid{grid-template-columns:repeat(3,1fr);max-height:290px;}
+  #vcEditor{overflow:visible;}
+  .vc-ed-top{flex-direction:column;padding:12px;}
+  .vc-player-wrap{width:100%;min-height:220px;}
+  .vc-toggles{grid-template-columns:1fr;}
+  .vc-tabs{margin-left:6px!important;}
+  .vc-tab{padding:5px 8px;font-size:12px;}
+}
+</style>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   CLIP STUDIO — library, editor, shorts, captions, post
+═══════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function fmt(s){ s=Math.max(0,+s||0); var m=Math.floor(s/60), r=Math.floor(s%60); return m+':'+(r<10?'0':'')+r; }
+  function toast(m,t){ if(window.showToast) window.showToast(m,t); }
+  function api(url,opts){ return (window._veApiFetch||function(u,o){return fetch(u,o).then(function(r){return r.json();});})(url,opts); }
+  function post(url,body){ return api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); }
+
+  var S = { clips:[], sel:null, checked:{}, brand:{}, words:null, pendingDeleted:null, wordEdits:{}, pollT:null, lastVer:{} , busy:false };
+
+  /* ── tabs ───────────────────────────────────────── */
+  window.vcShowTab=function(t){
+    var clips=(t==='clips');
+    $('veBody').style.display=clips?'none':'';
+    $('vcStudio').style.display=clips?'flex':'none';
+    $('vcTabSource').classList.toggle('on',!clips);
+    $('vcTabClips').classList.toggle('on',clips);
+    if(clips){ load(); var p=$('vePlayer'); if(p&&!p.paused) p.pause(); }
+    else { var q=$('vcPlayer'); if(q&&!q.paused) q.pause(); }
+  };
+  window.vcOnOpen=function(){ load(); }; /* called by showVideoEditorModal */
+
+  /* ── data ───────────────────────────────────────── */
+  function load(){
+    return fetch('/api/vclips').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return;
+      S.clips=d.clips||[]; S.brand=d.brand||{};
+      $('vcClipCount').textContent=S.clips.length?String(S.clips.length):'';
+      var mb=function(b){return (b/1048576).toFixed(0)+' MB';};
+      var pct=d.limit?Math.min(100,Math.round(d.usage/d.limit*100)):0;
+      $('vcStorage').innerHTML='Storage: '+mb(d.usage)+' of '+(d.limit/1073741824).toFixed(0)+' GB <span style="display:inline-block;width:80px;height:5px;border-radius:3px;background:rgba(255,255,255,.1);vertical-align:middle;margin-left:4px;"><span style="display:block;height:100%;width:'+pct+'%;border-radius:3px;background:'+(pct>85?'#ef4444':'#a78bfa')+';"></span></span>';
+      renderGrid();
+      if(S.sel){ var c=byId(S.sel); if(c) refreshEditor(c,false); else { S.sel=null; showEditor(null); } }
+      schedulePoll();
+    }).catch(function(){});
+  }
+  function byId(id){ for(var i=0;i<S.clips.length;i++) if(S.clips[i].id===id) return S.clips[i]; return null; }
+  function schedulePoll(){
+    clearTimeout(S.pollT);
+    var busy=S.clips.some(function(c){return c.status==='rendering';}) || S.busy;
+    if(busy && $('videoEditorModal').style.display!=='none') S.pollT=setTimeout(load,2500);
+  }
+
+  /* ── grid ───────────────────────────────────────── */
+  function renderGrid(){
+    var g=$('vcGrid');
+    if(!S.clips.length){ g.innerHTML='<div style="grid-column:1/-1;color:#64748b;font-size:12.5px;text-align:center;padding:30px 8px;">No clips yet</div>'; updateZip(); return; }
+    g.innerHTML=S.clips.map(function(c){
+      var thumb=(c.status==='ready'&&c.thumb)?'background-image:url(/api/vclips/'+c.id+'/thumb?v='+(c.version||0)+')':'';
+      var badge=c.status==='rendering'?'<span class="vc-badge">⏳ Rendering</span>':(c.status==='error'?'<span class="vc-badge err">⚠ Error</span>':'');
+      var score=c.score?'<span class="vc-badge score">🔥 '+(+c.score)+'</span>':'';
+      var asp=c.aspect==='original'?'':(' · '+esc(c.aspect));
+      return '<div class="vc-card'+(S.sel===c.id?' sel':'')+'" data-id="'+esc(c.id)+'">'+
+        '<div class="vc-thumb" style="'+thumb+(c.aspect==='16:9'?';aspect-ratio:16/10':'')+'">'+(thumb?'':(c.status==='rendering'?'<div class="vc-spin"></div>':'🎞'))+'</div>'+badge+score+
+        '<input type="checkbox" class="vc-cchk" '+(S.checked[c.id]?'checked':'')+' title="Select for download" '+(c.status!=='ready'?'disabled':'')+'>'+
+        '<div class="vc-cinfo"><div class="vc-ctitle">'+esc(c.title)+'</div><div class="vc-csub">'+fmt(c.duration)+asp+(c.captions&&c.captions.on?' · CC':'')+'</div></div></div>';
+    }).join('');
+    [].forEach.call(g.querySelectorAll('.vc-card'),function(el){
+      var id=el.getAttribute('data-id');
+      el.onclick=function(e){ if(e.target.classList.contains('vc-cchk')) return; select(id); };
+      el.querySelector('.vc-cchk').onchange=function(e){ S.checked[id]=e.target.checked; updateZip(); };
+    });
+    updateZip();
+  }
+  function updateZip(){
+    var n=Object.keys(S.checked).filter(function(k){return S.checked[k]&&byId(k);}).length;
+    $('vcZipBtn').disabled=!n; $('vcZipBtn').textContent=n?('⬇ Download '+n+(n>1?' clips':' clip')):'⬇ Download selected';
+  }
+  window.vcSelectAll=function(on){ S.checked={}; if(on) S.clips.forEach(function(c){ if(c.status==='ready') S.checked[c.id]=true; }); renderGrid(); };
+  window.vcDownloadZip=function(){
+    var ids=Object.keys(S.checked).filter(function(k){return S.checked[k];});
+    if(!ids.length) return;
+    if(ids.length===1){ location.href='/api/vclips/'+ids[0]+'/file?download=1'; return; }
+    location.href='/api/vclips/zip?ids='+ids.join(',');
+  };
+
+  /* ── create ─────────────────────────────────────── */
+  window.vcCreateClip=function(spec){
+    if(window._veStatus) window._veStatus('Saving clip…','info');
+    post('/api/vclips',spec).then(function(d){
+      if(!d.ok){ if(window._veStatus) window._veStatus(d.error||'Could not save clip','err'); return; }
+      if(window._veStatus) window._veStatus('✅ Saved to My Clips — rendering now','ok');
+      S.sel=d.clip.id; vcShowTab('clips');
+    });
+  };
+  window.vcMakeShorts=function(){
+    var st=window._veState?window._veState():{};
+    if(!st.vid){ toast('Upload a video first','error'); return; }
+    var b=$('vcMakeShortsBtn'); b.disabled=true; b.textContent='⏳ Finding your best moments…';
+    if(window._veStatus) window._veStatus('Transcribing + picking the best moments… clips will appear in My Clips as they finish.','info');
+    S.busy=true;
+    setTimeout(function(){ vcShowTab('clips'); }, 1200);
+    post('/api/vclips/make_shorts',{video_id:st.vid,duration:st.dur}).then(function(d){
+      S.busy=false; b.disabled=false; b.textContent='⚡ Make my shorts';
+      if(!d.ok){ toast(d.error||'Could not make shorts','error'); if(window._veStatus) window._veStatus(d.error||'Could not make shorts','err'); load(); return; }
+      toast('✅ '+(d.clip_ids||[]).length+' shorts ready!','success');
+      if(d.clip_ids&&d.clip_ids.length) S.sel=d.clip_ids[0];
+      load();
+    });
+    /* clips are created in the background job — poll the library meanwhile */
+    setTimeout(load,4000);
+  };
+
+  /* ── editor ─────────────────────────────────────── */
+  function select(id){ S.sel=id; S.words=null; S.pendingDeleted=null; S.wordEdits={}; renderGrid(); var c=byId(id); refreshEditor(c,true); }
+  function showEditor(c){ $('vcEmpty').style.display=c?'none':''; $('vcEdit').style.display=c?'':'none'; }
+  function setChips(box,val){ [].forEach.call($(box).querySelectorAll('button'),function(b){ b.classList.toggle('on',b.getAttribute('data-v')===val); }); }
+  function chipVal(box){ var b=$(box).querySelector('button.on'); return b?b.getAttribute('data-v'):null; }
+  ['vcAspect','vcCapStyle'].forEach(function(box){
+    document.addEventListener('click',function(e){
+      var b=e.target.closest('#'+box+' button'); if(!b) return;
+      setChips(box,b.getAttribute('data-v')); vcDirty();
+      if(box==='vcCapStyle' && !$('vcCapOn').checked){ $('vcCapOn').checked=true; vcDirty(); }
+    });
+  });
+
+  function refreshEditor(c,full){
+    showEditor(c); if(!c) return;
+    var p=$('vcPlayer'), rendering=c.status==='rendering';
+    $('vcRenderOverlay').classList.toggle('on',rendering);
+    var src='/api/vclips/'+c.id+'/file?v='+(c.version||0);
+    if(c.status==='ready' && c.file && S.lastVer[c.id+'@p']!==src){ S.lastVer[c.id+'@p']=src; p.src=src; p.load(); }
+    if(c.status!=='ready' && full){ p.removeAttribute('src'); p.load(); S.lastVer[c.id+'@p']=''; }
+    var mb=c.size?(' · '+(c.size/1048576).toFixed(1)+' MB'):'';
+    $('vcMeta').innerHTML=fmt(c.duration)+' · '+esc(c.aspect==='original'?'Original size':c.aspect)+(c.width?(' · '+c.width+'×'+c.height):'')+mb+(c.reason?('<br><span style="color:#fbbf24">🔥 '+esc(c.reason)+'</span>'):'')+(c.note?('<br><span style="color:#fbbf24">ℹ '+esc(c.note)+'</span>'):'');
+    $('vcErr').style.display=c.error?'':'none'; $('vcErr').textContent=c.error||'';
+    // after a re-render, fields already match the saved clip — reload them unless the user is mid-edit
+    if(full || (!rendering && $('vcApply').disabled)){
+      if(document.activeElement!==$('vcTitle')) $('vcTitle').value=c.title||'';
+      setChips('vcAspect',c.aspect||'original');
+      $('vcStart').value=(+c.start).toFixed(1); $('vcEnd').value=(+c.end).toFixed(1);
+      $('vcHook').value=c.hook||'';
+      $('vcSilence').checked=!!c.remove_silence; $('vcFillers').checked=!!c.remove_fillers;
+      $('vcBrand').checked=!!c.brand; $('vcMute').checked=!!c.mute;
+      $('vcCapOn').checked=!!(c.captions&&c.captions.on); setChips('vcCapStyle',(c.captions&&c.captions.style)||'bold');
+      $('vcSocCap').value=(c.social&&c.social.caption)||'';
+      $('vcSocTags').value=((c.social&&c.social.hashtags)||[]).map(function(h){return '#'+h;}).join(' ');
+      $('vcApply').disabled=true;
+      if(full || S.words===null) loadWords(c);
+    }
+    $('vcApply').textContent=rendering?'⏳ Rendering…':'✔ Apply changes';
+  }
+
+  window.vcSubTab=function(p){
+    [].forEach.call(document.querySelectorAll('.vc-subtab'),function(b){ b.classList.toggle('on',b.getAttribute('data-p')===p); });
+    $('vcPaneEdit').style.display=p==='edit'?'':'none';
+    $('vcPaneText').style.display=p==='text'?'':'none';
+    $('vcPanePost').style.display=p==='post'?'':'none';
+    if(p==='text'){ var c=byId(S.sel); if(c && S.words===null) loadWords(c); }
+  };
+  window.vcDirty=function(){ var c=byId(S.sel); $('vcApply').disabled=!c||c.status==='rendering'; };
+  window.vcNudge=function(which,d){ var el=$(which==='start'?'vcStart':'vcEnd'); el.value=Math.max(0,(+el.value||0)+d).toFixed(1); vcDirty(); };
+
+  window.vcApply=function(){
+    var c=byId(S.sel); if(!c) return;
+    var body={
+      aspect:chipVal('vcAspect')||c.aspect, start:+$('vcStart').value, end:+$('vcEnd').value,
+      hook:$('vcHook').value, remove_silence:$('vcSilence').checked, remove_fillers:$('vcFillers').checked,
+      brand:$('vcBrand').checked, mute:$('vcMute').checked,
+      captions:{on:$('vcCapOn').checked, style:chipVal('vcCapStyle')||'bold'}
+    };
+    if(S.pendingDeleted) body.deleted=S.pendingDeleted;
+    if(Object.keys(S.wordEdits).length) body.word_edits=S.wordEdits;
+    if(body.brand && !(S.brand&&S.brand.logo)){ toast('Add your logo in 🎨 Brand kit first','warning'); vcOpenBrand(); return; }
+    $('vcApply').disabled=true; $('vcApply').textContent='⏳ Saving…';
+    post('/api/vclips/'+c.id,body).then(function(d){
+      if(!d.ok){ toast(d.error||'Could not apply','error'); $('vcApply').disabled=false; $('vcApply').textContent='✔ Apply changes'; return; }
+      S.pendingDeleted=null; S.wordEdits={};
+      if(!d.rerender) toast('Nothing changed','info');
+      load();
+    });
+  };
+  window.vcSaveTitle=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id,{title:$('vcTitle').value}).then(function(d){ if(d.ok){ c.title=d.clip.title; renderGrid(); } }); };
+  window.vcDownload=function(){ var c=byId(S.sel); if(!c||c.status!=='ready'){ toast('Clip is still rendering','warning'); return; } location.href='/api/vclips/'+c.id+'/file?download=1'; };
+  window.vcDuplicate=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id+'/duplicate').then(function(d){ if(!d.ok){toast(d.error||'Could not duplicate','error');return;} S.sel=d.clip.id; toast('⧉ Copy made — edit it freely','success'); load().then(function(){ refreshEditor(byId(S.sel),true); }); }); };
+  window.vcDelete=function(){
+    var c=byId(S.sel); if(!c) return;
+    if(!confirm('Delete "'+(c.title||'this clip')+'"? This can\'t be undone.')) return;
+    api('/api/vclips/'+c.id,{method:'DELETE'}).then(function(d){ if(d.ok){ delete S.checked[c.id]; S.sel=null; showEditor(null); load(); } });
+  };
+
+  /* ── transcript / text editing ──────────────────── */
+  var FILLERS={um:1,uh:1,uhm:1,umm:1,erm:1,er:1,ah:1,hmm:1,mm:1};
+  function loadWords(c){
+    var box=$('vcWords');
+    if(!c.has_words){
+      S.words=[];
+      box.innerHTML='<div style="color:#94a3b8;font-size:13px;line-height:1.6;">Turn on captions or load the transcript to edit this clip by deleting words.</div>'+
+        '<button class="vc-btn vc-pri" id="vcLoadWords" style="margin-top:8px;">📝 Load transcript</button>';
+      $('vcLoadWords').onclick=function(){
+        this.disabled=true; this.textContent='⏳ Transcribing…';
+        post('/api/vclips/'+c.id+'/transcribe').then(function(d){
+          if(!d.ok){ toast(d.error||'Transcription failed','error'); loadWords(c); return; }
+          c.has_words=true; loadWords(c);
+        });
+      };
+      return;
+    }
+    box.innerHTML='<div style="color:#94a3b8;font-size:12px;">Loading…</div>';
+    fetch('/api/vclips/'+c.id+'/transcript').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ box.textContent=d.error||'Could not load transcript'; return; }
+      S.words=d.words||[]; var cut={}; (S.pendingDeleted||d.deleted||[]).forEach(function(i){cut[i]=1;});
+      if(!S.words.length){ box.innerHTML='<div style="color:#94a3b8;font-size:13px;">No speech found in this clip.</div>'; return; }
+      box.innerHTML=S.words.map(function(w){
+        var cls='vc-w'+(cut[w.i]?' cut':'')+(FILLERS[String(w.w).toLowerCase().replace(/[^a-z]/g,'')]?' filler':'')+(S.wordEdits[w.i]?' edited':'');
+        return '<span class="'+cls+'" data-i="'+w.i+'" title="'+fmt(w.s)+'">'+esc(S.wordEdits[w.i]||w.w)+'</span>';
+      }).join(' ');
+    });
+  }
+  var _clickT=null;
+  $('vcWords').addEventListener('click',function(e){
+    var el=e.target.closest('.vc-w'); if(!el) return;
+    clearTimeout(_clickT);
+    _clickT=setTimeout(function(){
+      el.classList.toggle('cut');
+      S.pendingDeleted=[].map.call($('vcWords').querySelectorAll('.vc-w.cut'),function(x){return +x.getAttribute('data-i');});
+      vcDirty();
+    },220);
+  });
+  $('vcWords').addEventListener('dblclick',function(e){
+    var el=e.target.closest('.vc-w'); if(!el) return;
+    clearTimeout(_clickT);
+    var v=prompt('Fix this word:',el.textContent); if(v==null) return;
+    v=v.trim(); if(!v||v===el.textContent) return;
+    S.wordEdits[el.getAttribute('data-i')]=v; el.textContent=v; el.classList.add('edited');
+    if(!$('vcCapOn').checked) toast('Spelling fixes show up in captions — turn captions on to see them','info');
+    vcDirty();
+  });
+
+  /* ── post ───────────────────────────────────────── */
+  window.vcWriteSocial=function(){
+    var c=byId(S.sel); if(!c) return;
+    var b=$('vcSocialBtn'); b.disabled=true; b.textContent='⏳ Writing…';
+    post('/api/vclips/'+c.id+'/social').then(function(d){
+      b.disabled=false; b.textContent='✨ Rewrite caption & hashtags';
+      if(!d.ok){ toast(d.error||'Could not write caption','error'); return; }
+      c.social=d.social; $('vcSocCap').value=d.social.caption;
+      $('vcSocTags').value=(d.social.hashtags||[]).map(function(h){return '#'+h;}).join(' ');
+    });
+  };
+  function readSocial(){ return {caption:$('vcSocCap').value, hashtags:$('vcSocTags').value.split(/[\s,]+/).map(function(h){return h.replace(/^#/,'');}).filter(Boolean)}; }
+  window.vcSaveSocial=function(){ var c=byId(S.sel); if(!c) return; var s=readSocial(); post('/api/vclips/'+c.id,{social:s}).then(function(d){ if(d.ok) c.social=d.clip.social; }); };
+  window.vcCopySocial=function(){
+    var s=readSocial(), txt=(s.caption+'\n\n'+s.hashtags.map(function(h){return '#'+h;}).join(' ')).trim();
+    if(navigator.clipboard) navigator.clipboard.writeText(txt).then(function(){ toast('📋 Copied','success'); }); else prompt('Copy:',txt);
+  };
+  window.vcToPlanner=function(){
+    var c=byId(S.sel); if(!c||c.status!=='ready'){ toast('Wait for the clip to finish rendering','warning'); return; }
+    var plats=[].map.call($('vcPlats').querySelectorAll('input:checked'),function(i){return i.value;});
+    post('/api/vclips/'+c.id,{social:readSocial()}).then(function(){
+      return post('/api/vclips/'+c.id+'/to_planner',{platforms:plats});
+    }).then(function(d){
+      if(!d||!d.ok){ toast((d&&d.error)||'Could not add to planner','error'); return; }
+      toast('📅 Added to Content Planner as a draft','success');
+    });
+  };
+
+  /* ── brand kit ──────────────────────────────────── */
+  function paintBrand(){
+    var b=S.brand||{};
+    $('vcBrandColor').value=b.color||'#FFD400'; $('vcBrandDefault').checked=!!b.default_on;
+    var img=$('vcLogoPrev');
+    if(b.logo){ img.src='/api/vclips/brand/logo?t='+Date.now(); img.style.display=''; $('vcLogoRm').style.display=''; }
+    else { img.style.display='none'; $('vcLogoRm').style.display='none'; }
+  }
+  window.vcOpenBrand=function(){ paintBrand(); $('vcBrandModal').style.display='flex'; };
+  window.vcSaveBrand=function(){ post('/api/vclips/brand',{color:$('vcBrandColor').value,default_on:$('vcBrandDefault').checked}).then(function(d){ if(d.ok){ S.brand=d.brand; toast('🎨 Brand kit saved','success'); } }); };
+  window.vcUploadLogo=function(f){
+    if(!f) return; var fd=new FormData(); fd.append('logo',f);
+    fetch('/api/vclips/brand',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ toast(d.error||'Upload failed','error'); return; } S.brand=d.brand; paintBrand(); toast('🎨 Logo saved','success');
+    });
+  };
+  window.vcRemoveLogo=function(){ post('/api/vclips/brand',{remove_logo:true}).then(function(d){ if(d.ok){ S.brand=d.brand; paintBrand(); } }); };
+})();
+</script>
 
 <script>
 /* ═══════════════════════════════════════════════════════
@@ -36020,7 +36489,7 @@ window.addEventListener('focus', function(){
   function $(id){ return document.getElementById(id); }
 
   /* open / close */
-  window.showVideoEditorModal=function(){ var m=$('videoEditorModal'); if(m){m.style.display='flex';document.body.style.overflow='hidden';} };
+  window.showVideoEditorModal=function(){ var m=$('videoEditorModal'); if(m){m.style.display='flex';document.body.style.overflow='hidden';} if(window.vcOnOpen) window.vcOnOpen(); };
   window.closeVideoEditorModal=function(){
     var m=$('videoEditorModal'); if(m){m.style.display='none';document.body.style.overflow='';}
     var p=$('vePlayer'); if(p&&!p.paused)p.pause();
@@ -36030,6 +36499,7 @@ window.addEventListener('focus', function(){
   document.addEventListener('keydown',function(e){
     var ve=$('videoEditorModal'); if(!ve||ve.style.display==='none')return;
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+    var vs=$('vcStudio'); if(vs&&vs.style.display!=='none'){ if(e.key==='Escape') closeVideoEditorModal(); return; } /* My Clips tab: no source shortcuts */
     if(e.key==='Escape'){closeVideoEditorModal();return;}
     switch(e.key){
       case ' ': e.preventDefault(); veTogglePlay(); break;
@@ -36111,9 +36581,9 @@ window.addEventListener('focus', function(){
     function veOnUploadDone(videoId){
       if(pw) pw.style.display='none';
       _veVidId = videoId;
+      $('vcMakeShortsBtn').style.display='block';
       $('veAutoClipBtn').style.display='block';
       $('veExtractAudioBtn').style.display='block';
-      $('veMuteExportBtn').style.display='block';
       $('veScreenshotBtn').style.display='block';
       $('veExportPanel').style.display='block';
       $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
@@ -36281,16 +36751,16 @@ window.addEventListener('focus', function(){
     if(_veDur<=0){veSt('Video not ready yet — wait a moment','err');return;}
     var btn=$('veAutoClipBtn');
     btn.disabled=true; btn.textContent='⏳ Analyzing…';
-    veSt('Transcribing and finding best clips…','info');
-    veApiFetch('/api/video/autoclip',{method:'POST',headers:{'Content-Type':'application/json'},
+    veSt('Transcribing and finding the best moments… (1–2 min for long videos)','info');
+    veApiFetch('/api/vclips/suggest',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({video_id:_veVidId,duration:_veDur})})
     .then(function(d){
-      btn.disabled=false; btn.textContent='✨ AI Auto-detect Clips';
+      btn.disabled=false; btn.textContent='✨ Suggest moments';
       if(!d.ok){veSt(d.error||'Analysis failed','err');return;}
       _veClips=d.clips||[];
       veRenderClips();
       veSt(_veClips.length+' clip'+(_veClips.length===1?'':'s')+' found — click to load','ok');
-    }).catch(function(e){btn.disabled=false;btn.textContent='✨ AI Auto-detect Clips';veSt('Error: '+e.message,'err');});
+    }).catch(function(e){btn.disabled=false;btn.textContent='✨ Suggest moments';veSt('Error: '+e.message,'err');});
   };
 
   function veRenderClips(){
@@ -36300,9 +36770,15 @@ window.addEventListener('focus', function(){
     _veClips.forEach(function(c,i){
       var d=document.createElement('div');
       d.style.cssText='background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:10px 11px;margin-bottom:7px;cursor:pointer;transition:all .15s;';
-      d.innerHTML='<div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+veEsc(c.title||'Clip '+(i+1))+'</div>'
+      d.innerHTML='<div style="display:flex;gap:6px;align-items:flex-start;"><div style="flex:1;font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:3px;">'+veEsc(c.title||'Clip '+(i+1))+'</div>'
+        +(c.score?'<span style="font-size:11px;font-weight:800;color:#fde68a;background:rgba(245,158,11,.15);border-radius:6px;padding:1px 6px;">🔥 '+(+c.score)+'</span>':'')+'</div>'
         +'<div style="font-size:12.5px;color:#b0bdd0;">'+veFmt(c.start)+' – '+veFmt(c.end)+'&ensp;·&ensp;'+veFmt((c.end||0)-(c.start||0))+'</div>'
-        +(c.reason?'<div style="font-size:12.5px;color:#aab8cc;margin-top:3px;line-height:1.4;">'+veEsc(c.reason)+'</div>':'');
+        +(c.reason?'<div style="font-size:12.5px;color:#aab8cc;margin-top:3px;line-height:1.4;">'+veEsc(c.reason)+'</div>':'')
+        +'<button class="vc-save-sugg" style="margin-top:7px;width:100%;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);border-radius:8px;color:#e9d5ff;font-size:12px;font-weight:700;padding:6px;cursor:pointer;">＋ Save as vertical short</button>';
+      d.querySelector('.vc-save-sugg').onclick=function(ev){
+        ev.stopPropagation();
+        if(window.vcCreateClip) window.vcCreateClip({video_id:_veVidId,start:c.start,end:c.end,title:c.title,hook:c.hook||'',aspect:'9:16',captions:true,style:'bold'});
+      };
       d.onmouseover=function(){d.style.borderColor='rgba(124,58,237,.5)';d.style.background='rgba(124,58,237,.14)';};
       d.onmouseout=function(){d.style.borderColor='rgba(124,58,237,.2)';d.style.background='rgba(124,58,237,.08)';};
       d.onclick=function(){
@@ -36318,23 +36794,15 @@ window.addEventListener('focus', function(){
   function veEsc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
   /* export */
+  /* "Save as clip" — lands in My Clips (editable), no forced download */
   window.veExportClip=function(){
     if(!_veVidId){veSt('Upload a video first','err');return;}
     if(_veOut-_veIn<0.5){veSt('Set your In and Out points first','err');return;}
-    var btn=$('veExportBtn');
-    btn.disabled=true; btn.textContent='⏳ Exporting…';
-    veSt('Exporting — this may take a moment…','info');
-    veApiFetch('/api/video/export',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({video_id:_veVidId,start:_veIn,end:_veOut})})
-    .then(function(d){
-      btn.disabled=false; btn.textContent='⬇ Export Clip';
-      if(!d.ok){veSt(d.error||'Export failed','err');return;}
-      var a=document.createElement('a');
-      a.href='/api/video/download/'+d.export_id;
-      a.download='clip.mp4'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      veSt('✅ Clip exported and downloaded!','ok');
-    }).catch(function(e){btn.disabled=false;btn.textContent='⬇ Export Clip';veSt('Export error: '+e.message,'err');});
+    if(window.vcCreateClip) window.vcCreateClip({video_id:_veVidId,start:_veIn,end:_veOut,title:'Clip '+veFmt(_veIn)+'–'+veFmt(_veOut)});
   };
+  window._veState=function(){ return {vid:_veVidId,inPt:_veIn,outPt:_veOut,dur:_veDur}; };
+  window._veStatus=veSt;
+  window._veApiFetch=veApiFetch;
 
   /* ── Extract audio (download MP3 from server) ── */
   window.veExtractAudio=function(){

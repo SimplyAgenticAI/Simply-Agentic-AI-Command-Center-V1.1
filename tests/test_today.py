@@ -48,7 +48,8 @@ def test_today_aggregate_and_brief(flask_app, monkeypatch):
     cid = r.get_json()["client"]["id"]
     c.post(f"/api/crm/clients/{cid}", json={"next_followup": past}, headers=_h(c))
     c.post("/api/cal/tasks", json={"title": "Write proposal", "date": today_s, "start": "10:00"}, headers=_h(c))
-    c.post("/api/crm/tasks", json={"title": "Send invoice", "due": past}, headers=_h(c))
+    r = c.post("/api/crm/tasks", json={"title": "Send invoice", "due": past}, headers=_h(c))
+    assert r.get_json().get("ok"), r.get_json()
     done = c.post("/api/crm/tasks", json={"title": "Old thing", "due": past}, headers=_h(c)).get_json()["task"]
     c.post(f"/api/crm/tasks/{done['id']}", json={"status": "done"}, headers=_h(c))
     c.post("/api/os/session_objective", json={"title": "Close the Acme deal"}, headers=_h(c))

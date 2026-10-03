@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.12")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3317,6 +3317,9 @@ def _auth_guard() -> Optional[Any]:
         # actually protect the writes here; see the Booking Link routes.
         return None
     if request.path.startswith("/api/public/booking/"):
+        return None
+    if request.path.startswith("/vclip/"):
+        # Signed public clip links (social media_url) — the token is the auth
         return None
     if request.path.startswith("/admin/"):
         # Enforce auth globally for all admin routes — don't rely on per-route checks
@@ -27712,7 +27715,7 @@ def api_video_preview():
 def _ve_cleanup_old():
     try:
         import time as _t
-        cutoff = _t.time() - 7200  # 2 hours
+        cutoff = _t.time() - 12 * 3600  # 12h — saved clips keep their own master, this only bounds re-trim reach
         if _VE_TEMP.exists():
             for d in _VE_TEMP.iterdir():
                 if d.is_dir() and d.stat().st_mtime < cutoff:
@@ -28071,6 +28074,991 @@ def api_video_convert_to_mp4():
             try: _shutil_ve.rmtree(conv_dir, ignore_errors=True)
             except Exception: pass
         _ct.Thread(target=_cleanup, daemon=True).start()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CLIP STUDIO (V9.7) — persistent, re-editable clips + one-click shorts
+#
+#  Every saved clip keeps a high-quality "master" (the source range it was
+#  cut from), so it can be re-trimmed / re-framed / re-captioned forever,
+#  even after the temporary source upload is cleaned up. Renders run as
+#  background jobs (2 at a time) and the UI polls the clip list.
+# ═══════════════════════════════════════════════════════════════════
+_VC_ROOT = DATA / "video_clips"
+_VC_LOCK = threading.Lock()
+_VC_RENDER_SEM = threading.Semaphore(2)
+_GB = 1024 * 1024 * 1024
+VCLIP_STORAGE_LIMITS = {"founder": 5 * _GB, "solo": 3 * _GB, "teams": 10 * _GB}
+_VC_ASPECTS = {"original": None, "9:16": (720, 1280), "1:1": (720, 720), "16:9": (1280, 720)}
+_VC_STYLES = ("bold", "clean", "pop")
+_VC_FILLERS = {"um", "uh", "uhm", "umm", "erm", "er", "ah", "hmm", "mm", "uh-huh"}
+_VC_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
+_VC_FONT_NAME = os.getenv("VCLIP_FONT_NAME", "Montserrat")
+_VC_MAX_LEN = 600.0
+
+
+class _VcError(Exception):
+    """User-facing clip error (message is shown as-is)."""
+
+
+def _vc_dir(uname: str) -> Path:
+    d = _VC_ROOT / _safe_name(uname or "anon")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _vc_load(uname: str) -> List[Dict[str, Any]]:
+    data = load_json(_vc_dir(uname) / "index.json", [])
+    return data if isinstance(data, list) else []
+
+def _vc_save(uname: str, clips: List[Dict[str, Any]]) -> None:
+    save_json(_vc_dir(uname) / "index.json", clips)
+
+def _vc_get(uname: str, cid: str) -> Optional[Dict[str, Any]]:
+    return next((c for c in _vc_load(uname) if c.get("id") == cid), None)
+
+def _vc_update(uname: str, cid: str, fn) -> Optional[Dict[str, Any]]:
+    with _VC_LOCK:
+        clips = _vc_load(uname)
+        for i, c in enumerate(clips):
+            if c.get("id") == cid:
+                fn(c)
+                c["updated_at"] = now_iso()
+                clips[i] = c
+                _vc_save(uname, clips)
+                return dict(c)
+    return None
+
+def _vc_usage(uname: str) -> int:
+    total = 0
+    for p in _vc_dir(uname).rglob("*"):
+        try:
+            if p.is_file():
+                total += p.stat().st_size
+        except Exception:
+            pass
+    return total
+
+def _vc_limit(uname: str) -> int:
+    return VCLIP_STORAGE_LIMITS.get(_normalize_plan_key(_get_user_plan(uname)), 3 * _GB)
+
+def _vc_file(uname: str, c: Optional[Dict[str, Any]], kind: str = "file") -> Optional[Path]:
+    """Current rendered clip (kind='file') or thumbnail (kind='thumb') path, if present."""
+    if not c or not re.match(r'^[a-f0-9]{6,32}$', str(c.get("id") or "")):
+        return None
+    name = c.get(kind) or ""
+    if not re.match(r'^(clip|thumb)_v\d+\.(mp4|jpg)$', name):
+        return None
+    p = _vc_dir(uname) / c["id"] / name
+    return p if p.exists() else None
+
+def _vc_public(c: Dict[str, Any]) -> Dict[str, Any]:
+    out = {k: v for k, v in c.items() if k not in ("words",)}
+    out["has_words"] = bool(c.get("words"))
+    return out
+
+def _vc_signer():
+    from itsdangerous import URLSafeSerializer
+    return URLSafeSerializer(app.secret_key, salt="vclip-public")
+
+def _vc_public_url(uname: str, cid: str) -> str:
+    tok = _vc_signer().dumps([uname, cid])
+    base = (PUBLIC_BASE_URL or request.host_url or "").rstrip("/")
+    return f"{base}/vclip/{tok}.mp4"
+
+def _vc_openai_key(user: Dict[str, Any]) -> str:
+    k = _decrypt_field(((user.get("settings") or {}).get("openai_key") or "").strip())
+    return (k or OPENAI_API_KEY or "").strip()
+
+def _ve_probe(path: Path) -> Dict[str, Any]:
+    """Duration / dims / audio presence via `ffmpeg -i` (no ffprobe in the bundled build)."""
+    proc = _subprocess_ve.run([_ffmpeg_bin(), "-hide_banner", "-i", str(path)], capture_output=True, timeout=60)
+    err = (proc.stderr or b"").decode("utf-8", errors="replace")
+    out: Dict[str, Any] = {"duration": 0.0, "has_audio": " Audio:" in err, "w": 0, "h": 0}
+    m = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", err)
+    if m:
+        out["duration"] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    m = re.search(r"Video:[^\n]*?\b(\d{2,5})x(\d{2,5})\b", err)
+    if m:
+        out["w"], out["h"] = int(m.group(1)), int(m.group(2))
+    rot = re.search(r"rotation of (-?[\d.]+)|rotate\s*:\s*(-?\d+)", err)
+    if rot:
+        deg = abs(int(float(rot.group(1) or rot.group(2) or 0))) % 180
+        if deg == 90:
+            out["w"], out["h"] = out["h"], out["w"]
+    return out
+
+def _ve_source_path(vid_id: str) -> Optional[Path]:
+    if not vid_id or not re.match(r'^[a-f0-9]+$', vid_id):
+        return None
+    d = _VE_TEMP / vid_id
+    files = list(d.glob("original.*")) if d.exists() else []
+    return files[0] if files else None
+
+def _vc_transcribe(user: Dict[str, Any], media: Path, workdir: Path) -> List[Dict[str, Any]]:
+    """Word-level Whisper transcript of a media file; times relative to its start."""
+    key = _vc_openai_key(user)
+    if not key:
+        raise _VcError("Captions and text editing need an OpenAI key — add yours in Settings.")
+    audio = workdir / "_words.mp3"
+    ok, _ = _ve_ffmpeg(["-y", "-i", str(media), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", str(audio)], timeout=600)
+    if not ok or not audio.exists():
+        raise _VcError("This video has no audio to transcribe.")
+    try:
+        with open(audio, "rb") as af:
+            res = OpenAI(api_key=key).audio.transcriptions.create(
+                model="whisper-1", file=af, response_format="verbose_json",
+                timestamp_granularities=["word", "segment"])
+    except Exception as exc:
+        try:
+            _, msg = _classify_openai_error(exc)
+        except Exception:
+            msg = str(exc)
+        raise _VcError(f"Transcription failed: {msg}")
+    finally:
+        try: audio.unlink()
+        except Exception: pass
+    words = []
+    for w in (getattr(res, "words", None) or []):
+        t = w.get("word") if isinstance(w, dict) else getattr(w, "word", "")
+        s = w.get("start") if isinstance(w, dict) else getattr(w, "start", 0)
+        e = w.get("end") if isinstance(w, dict) else getattr(w, "end", 0)
+        t = str(t or "").strip()
+        if t:
+            words.append({"w": t, "s": round(float(s or 0), 3), "e": round(float(e or 0), 3)})
+    return words
+
+def _ve_source_transcript(user: Dict[str, Any], vid_id: str) -> List[Dict[str, Any]]:
+    """Cached word transcript for a whole uploaded source (source time)."""
+    src = _ve_source_path(vid_id)
+    if not src:
+        raise _VcError("The original upload has expired — please upload the video again.")
+    cache = src.parent / "transcript.json"
+    if cache.exists():
+        data = load_json(cache, None)
+        if isinstance(data, list):
+            return data
+    words = _vc_transcribe(user, src, src.parent)
+    save_json(cache, words)
+    return words
+
+def _vc_silences(media: Path) -> List[Tuple[float, float]]:
+    proc = _subprocess_ve.run([_ffmpeg_bin(), "-hide_banner", "-i", str(media), "-vn",
+                               "-af", "silencedetect=noise=-35dB:d=0.55", "-f", "null", "-"],
+                              capture_output=True, timeout=600)
+    err = (proc.stderr or b"").decode("utf-8", errors="replace")
+    starts = [float(x) for x in re.findall(r"silence_start:\s*(-?[\d.]+)", err)]
+    ends = [float(x) for x in re.findall(r"silence_end:\s*(-?[\d.]+)", err)]
+    out = []
+    for i, s in enumerate(starts):
+        e = ends[i] if i < len(ends) else None
+        if e is None:
+            continue
+        # keep a little breathing room on both sides so cuts don't feel clipped
+        s2, e2 = max(0.0, s) + 0.15, e - 0.15
+        if e2 - s2 >= 0.25:
+            out.append((s2, e2))
+    return out
+
+def _vc_merge(ranges: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    out: List[Tuple[float, float]] = []
+    for s, e in sorted(r for r in ranges if r[1] > r[0]):
+        if out and s <= out[-1][1] + 0.02:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+def _vc_keep_segments(start: float, end: float, cuts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    keep, cur = [], start
+    for s, e in _vc_merge([(max(s, start), min(e, end)) for s, e in cuts]):
+        if s > cur:
+            keep.append((cur, s))
+        cur = max(cur, e)
+    if cur < end:
+        keep.append((cur, end))
+    return [(s, e) for s, e in keep if e - s >= 0.08]
+
+def _vc_map_time(t: float, segs: List[Tuple[float, float]]) -> Optional[float]:
+    acc = 0.0
+    for s, e in segs:
+        if s <= t <= e:
+            return acc + (t - s)
+        acc += e - s
+    return None
+
+def _ass_time(t: float) -> str:
+    t = max(0.0, t)
+    h = int(t // 3600); m = int((t % 3600) // 60); s = t % 60
+    return f"{h}:{m:02d}:{s:05.2f}"
+
+def _ass_color(hex_str: str, default: str = "#FFD400") -> str:
+    h = (hex_str or default).lstrip("#")
+    if not re.match(r"^[0-9a-fA-F]{6}$", h):
+        h = default.lstrip("#")
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+
+def _ass_escape(s: str) -> str:
+    return (s or "").replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
+
+def _vc_build_ass(W: int, H: int, words: List[Dict[str, Any]], style: str, hook: str,
+                  color: str, total: float) -> str:
+    base = min(W, H)
+    portrait = H > W
+    hl = _ass_color(color)
+    size = {"bold": 0.085, "clean": 0.058, "pop": 0.092}.get(style, 0.085) * base
+    margin_v = int(H * (0.24 if portrait else 0.09))
+    if style == "clean":
+        cap_style = (f"Style: Cap,{_VC_FONT_NAME},{size:.0f},&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,"
+                     f"-1,0,0,0,100,100,0,0,3,10,0,2,40,40,{margin_v},1")
+    else:
+        cap_style = (f"Style: Cap,{_VC_FONT_NAME},{size:.0f},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,"
+                     f"-1,0,0,0,100,100,0,0,1,{5 if style == 'pop' else 4},2,2,40,40,{margin_v},1")
+    hx = (color or "#FFD400").lstrip("#")
+    try:
+        lum = 0.299 * int(hx[0:2], 16) + 0.587 * int(hx[2:4], 16) + 0.114 * int(hx[4:6], 16)
+    except Exception:
+        lum = 200
+    hook_text = "&H00111111" if lum > 150 else "&H00FFFFFF"  # readable on the brand-color box
+    hook_style = (f"Style: Hook,{_VC_FONT_NAME},{0.07 * base:.0f},{hook_text},{hook_text},{hl},{hl},"
+                  f"-1,0,0,0,100,100,0,0,3,14,0,8,50,50,{int(H * 0.08)},1")
+    lines = ["[Script Info]", "ScriptType: v4.00+", f"PlayResX: {W}", f"PlayResY: {H}",
+             "WrapStyle: 0", "ScaledBorderAndShadow: yes", "", "[V4+ Styles]",
+             "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+             "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+             "Alignment, MarginL, MarginR, MarginV, Encoding",
+             cap_style, hook_style, "", "[Events]",
+             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
+    if hook:
+        lines.append(f"Dialogue: 1,{_ass_time(0)},{_ass_time(min(3.0, total))},Hook,,0,0,0,,{_ass_escape(hook)}")
+    upper = style in ("bold", "pop")
+    max_words, max_chars = (6, 34) if style == "clean" else (3, 18)
+    groups: List[List[Dict[str, Any]]] = []
+    for w in words:
+        g = groups[-1] if groups else None
+        if (g is None or len(g) >= max_words
+                or sum(len(x["w"]) + 1 for x in g) + len(w["w"]) > max_chars
+                or w["s"] - g[-1]["e"] > 0.6):
+            groups.append([w])
+        else:
+            g.append(w)
+    for g in groups:
+        texts = [_ass_escape(x["w"].upper() if upper else x["w"]) for x in g]
+        if style == "clean":
+            lines.append(f"Dialogue: 0,{_ass_time(g[0]['s'])},{_ass_time(g[-1]['e'] + 0.15)},Cap,,0,0,0,,{' '.join(texts)}")
+            continue
+        for i, w in enumerate(g):
+            end = g[i + 1]["s"] if i + 1 < len(g) else w["e"] + 0.2
+            pop = r"\fscx118\fscy118" if style == "pop" else ""
+            parts = [(f"{{\\c{hl}{pop}}}{t}{{\\r}}" if j == i else t) for j, t in enumerate(texts)]
+            lines.append(f"Dialogue: 0,{_ass_time(w['s'])},{_ass_time(max(end, w['s'] + 0.05))},Cap,,0,0,0,,{' '.join(parts)}")
+    return "\n".join(lines) + "\n"
+
+def _vc_brand(uname: str) -> Dict[str, Any]:
+    d = load_json(_vc_dir(uname) / "brand.json", {}) or {}
+    logo = next(iter(sorted(_vc_dir(uname).glob("brand_logo.*"))), None)
+    return {"color": d.get("color") or "#FFD400", "default_on": bool(d.get("default_on")),
+            "logo": logo.name if logo else ""}
+
+def _vc_make_master(c: Dict[str, Any], cdir: Path) -> None:
+    src = _ve_source_path(c.get("source_vid") or "")
+    if not src:
+        raise _VcError("The original upload has expired — you can only trim inside this clip's current range. Re-upload the video to extend it.")
+    tmp = cdir / "master.part.mp4"
+    ok, _ = _ve_ffmpeg(["-y", "-ss", f"{c['start']:.3f}", "-i", str(src), "-t", f"{c['end'] - c['start']:.3f}",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)])
+    if not ok or not tmp.exists():
+        raise _VcError("Couldn't read this part of the video — it may be corrupted.")
+    tmp.replace(cdir / "master.mp4")
+    c["m_start"], c["m_end"] = c["start"], c["end"]
+
+def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
+    """Render one clip from its spec. Updates the index with status/result."""
+    with _VC_RENDER_SEM:
+        c = _vc_get(uname, cid)
+        if not c:
+            return {"ok": False, "error": "Clip not found"}
+        cdir = _vc_dir(uname) / cid
+        cdir.mkdir(parents=True, exist_ok=True)
+        notes: List[str] = []
+        try:
+            start, end = float(c["start"]), float(c["end"])
+            master = cdir / "master.mp4"
+            if (not master.exists() or start < float(c.get("m_start", 0)) - 0.01
+                    or end > float(c.get("m_end", 0)) + 0.01):
+                old = (c.get("m_start"), c.get("m_end"))
+                _vc_make_master(c, cdir)
+                if old != (c["m_start"], c["m_end"]):
+                    c["words"] = None  # new range → re-slice words below
+            m0 = float(c["m_start"])
+            probe = _ve_probe(master)
+
+            # Words (source time) — needed for captions, filler removal, text edits
+            need_words = (c.get("captions") or {}).get("on") or c.get("remove_fillers") or c.get("deleted")
+            if need_words and not c.get("words"):
+                src_cache = _ve_source_path(c.get("source_vid") or "")
+                cached = load_json(src_cache.parent / "transcript.json", None) if src_cache else None
+                if isinstance(cached, list) and cached:
+                    c["words"] = [w for w in cached if m0 - 0.05 <= w["s"] and w["e"] <= float(c["m_end"]) + 0.05]
+                else:
+                    try:
+                        rel = _vc_transcribe(user, master, cdir)
+                        c["words"] = [{"w": w["w"], "s": round(w["s"] + m0, 3), "e": round(w["e"] + m0, 3)} for w in rel]
+                    except _VcError as ve:
+                        notes.append(str(ve))
+                        c["words"] = []
+            words = c.get("words") or []
+            in_range = [(i, w) for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
+
+            # Cuts in source time
+            cuts: List[Tuple[float, float]] = []
+            deleted = set(int(x) for x in (c.get("deleted") or []))
+            for i, w in in_range:
+                if i in deleted:
+                    cuts.append((w["s"], w["e"]))
+                elif c.get("remove_fillers") and re.sub(r"[^a-z\-]", "", w["w"].lower()) in _VC_FILLERS:
+                    cuts.append((w["s"], w["e"]))
+            if c.get("remove_silence") and probe["has_audio"]:
+                cuts += [(s + m0, e + m0) for s, e in _vc_silences(master)]
+            segs = _vc_keep_segments(start, end, cuts)[:60]
+            if not segs:
+                raise _VcError("Nothing left to render — you've cut the whole clip.")
+            total = sum(e - s for s, e in segs)
+
+            # Output geometry
+            target = _VC_ASPECTS.get(c.get("aspect") or "original")
+            if target:
+                W, H = target
+            else:
+                W, H = (probe["w"] or 1280), (probe["h"] or 720)
+                W, H = W - (W % 2), H - (H % 2)
+
+            # Filter graph — segments are master-relative
+            has_audio = probe["has_audio"] and not c.get("mute")
+            fc: List[str] = []
+            pads = ""
+            for i, (s, e) in enumerate(segs):
+                a, b = s - m0, e - m0
+                fc.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]")
+                pads += f"[v{i}]"
+                if has_audio:
+                    fc.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
+                    pads += f"[a{i}]"
+            fc.append(f"{pads}concat=n={len(segs)}:v=1:a={1 if has_audio else 0}[vc]" + ("[ac]" if has_audio else ""))
+            if target:
+                fc.append("[vc]split=2[b0][f0]")
+                fc.append(f"[b0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2[bg]")
+                fc.append(f"[f0]scale={W}:{H}:force_original_aspect_ratio=decrease[fg]")
+                fc.append("[bg][fg]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,setsar=1[vs]")
+            else:
+                fc.append("[vc]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vs]")
+            last = "vs"
+            inputs = ["-i", str(master)]
+            brand = _vc_brand(uname)
+            if c.get("brand") and brand["logo"]:
+                inputs += ["-i", str(_vc_dir(uname) / brand["logo"])]
+                fc.append(f"[1:v]scale={int(min(W, H) * 0.2)}:-1,format=rgba[lg]")
+                fc.append(f"[{last}][lg]overlay=main_w-overlay_w-28:28[vl]")
+                last = "vl"
+            cap = c.get("captions") or {}
+            cap_words = []
+            if cap.get("on"):
+                for i, w in in_range:
+                    if i in deleted:
+                        continue
+                    s2, e2 = _vc_map_time(w["s"], segs), _vc_map_time(min(w["e"], end), segs)
+                    if s2 is None:
+                        continue
+                    cap_words.append({"w": w["w"], "s": s2, "e": e2 if e2 is not None else s2 + 0.3})
+                if not cap_words and not notes:
+                    notes.append("No speech found for captions.")
+            hook = (c.get("hook") or "").strip()
+            if cap_words or hook:
+                (cdir / "subs.ass").write_text(
+                    _vc_build_ass(W, H, cap_words, cap.get("style") or "bold", hook,
+                                  brand["color"], total), encoding="utf-8")
+                for f in (_VC_FONTS_DIR.glob("*.[ot]tf") if _VC_FONTS_DIR.exists() else []):
+                    try: _shutil_ve.copy(f, cdir / f.name)
+                    except Exception: pass
+                fc.append(f"[{last}]ass=subs.ass:fontsdir=.[vo]")
+                last = "vo"
+            (cdir / "graph.txt").write_text(";\n".join(fc), encoding="utf-8")
+
+            out_tmp = cdir / "out.part.mp4"
+            args = ["-y"] + inputs + ["-filter_complex_script", "graph.txt", "-map", f"[{last}]"]
+            args += (["-map", "[ac]", "-c:a", "aac", "-b:a", "160k"] if has_audio else ["-an"])
+            args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
+                     "-movflags", "+faststart", "out.part.mp4"]
+            proc = _subprocess_ve.run([_ffmpeg_bin()] + args, capture_output=True, timeout=1800, cwd=str(cdir))
+            if proc.returncode != 0 or not out_tmp.exists():
+                tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-800:]
+                print(f"[VC] render failed {uname}/{cid}: {tail}", flush=True)
+                raise _VcError("Rendering failed — try a different format or re-upload the video.")
+            # Versioned output names: a viewer may still be streaming the previous
+            # render (Windows can't replace an open file; on Linux it's just tidier)
+            ver = int(c.get("version") or 0) + 1
+            clip_name, thumb_name = f"clip_v{ver}.mp4", f"thumb_v{ver}.jpg"
+            out_tmp.replace(cdir / clip_name)
+            _ve_ffmpeg(["-y", "-ss", f"{min(1.0, total / 2):.2f}", "-i", str(cdir / clip_name),
+                        "-frames:v", "1", "-vf", "scale=360:-2", "-q:v", "4", str(cdir / thumb_name)], timeout=60)
+            for f in list(cdir.glob("*.[ot]tf")) + [cdir / "graph.txt", cdir / "subs.ass"]:
+                try: f.unlink()
+                except Exception: pass
+            size = (cdir / clip_name).stat().st_size
+            words_now = c.get("words")
+            m_start, m_end = c["m_start"], c["m_end"]
+            def _done(x):
+                x.update({"status": "ready", "error": "", "note": " ".join(notes), "size": size,
+                          "duration": round(total, 2), "version": ver, "file": clip_name, "thumb": thumb_name,
+                          "width": W, "height": H, "words": words_now, "m_start": m_start, "m_end": m_end})
+            _vc_update(uname, cid, _done)
+            for f in list(cdir.glob("clip_v*.mp4")) + list(cdir.glob("thumb_v*.jpg")):
+                if f.name not in (clip_name, thumb_name):
+                    try: f.unlink()
+                    except Exception: pass  # still open — swept on the next render
+            return {"ok": True, "clip_id": cid}
+        except Exception as e:
+            msg = str(e) if isinstance(e, (_VcError, FileNotFoundError)) else f"Rendering failed: {str(e)[:160]}"
+            if isinstance(e, FileNotFoundError):
+                msg = "Video processing isn't available on the server right now."
+            if not isinstance(e, _VcError):
+                print(f"[VC] render exception {uname}/{cid}: {e}", flush=True)
+            _vc_update(uname, cid, lambda x: x.update({"status": "error", "error": msg}))
+            return {"ok": False, "error": msg}
+
+def _vc_start_render(uname: str, user: Dict[str, Any], cid: str) -> None:
+    _vc_update(uname, cid, lambda x: x.update({"status": "rendering", "error": ""}))
+    threading.Thread(target=_vc_render, args=(uname, user, cid), daemon=True).start()
+
+def _vc_new_clip(uname: str, vid_id: str, start: float, end: float, **spec) -> Dict[str, Any]:
+    brand = _vc_brand(uname)
+    c = {
+        "id": uuid.uuid4().hex[:12], "title": (spec.get("title") or "Untitled clip")[:80],
+        "created_at": now_iso(), "updated_at": now_iso(), "status": "rendering", "error": "", "note": "",
+        "source_vid": vid_id, "start": round(start, 3), "end": round(end, 3),
+        "m_start": None, "m_end": None, "aspect": spec.get("aspect") or "original",
+        "mute": bool(spec.get("mute")),
+        "captions": {"on": bool(spec.get("captions_on")), "style": spec.get("style") or "bold"},
+        "hook": (spec.get("hook") or "")[:90], "remove_silence": bool(spec.get("remove_silence")),
+        "remove_fillers": bool(spec.get("remove_fillers")), "deleted": [],
+        "brand": bool(spec.get("brand", brand["default_on"])), "words": None,
+        "social": {"caption": "", "hashtags": []}, "size": 0, "duration": round(end - start, 2), "version": 0,
+    }
+    with _VC_LOCK:
+        clips = _vc_load(uname)
+        clips.insert(0, c)
+        _vc_save(uname, clips)
+    return c
+
+def _vc_check_quota(uname: str) -> Optional[Any]:
+    if _vc_usage(uname) >= _vc_limit(uname):
+        gb = _vc_limit(uname) / _GB
+        return jsonify({"ok": False, "error": f"Clip storage is full ({gb:.0f} GB on your plan). Delete some clips to make room."}), 400
+    return None
+
+
+@app.get("/api/vclips")
+def api_vclips_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    return jsonify({"ok": True, "clips": [_vc_public(c) for c in _vc_load(uname)],
+                    "usage": _vc_usage(uname), "limit": _vc_limit(uname), "brand": _vc_brand(uname)})
+
+
+@app.post("/api/vclips")
+def api_vclips_create():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    vid = (b.get("video_id") or "").strip()
+    try:
+        start, end = float(b.get("start") or 0), float(b.get("end") or 0)
+    except Exception:
+        return jsonify({"ok": False, "error": "Bad start/end"}), 400
+    if not _ve_source_path(vid):
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    if end - start < 0.5:
+        return jsonify({"ok": False, "error": "Set your In and Out points first."}), 400
+    if end - start > _VC_MAX_LEN:
+        return jsonify({"ok": False, "error": "Clips can be up to 10 minutes."}), 400
+    q = _vc_check_quota(uname)
+    if q:
+        return q
+    c = _vc_new_clip(uname, vid, max(0.0, start), end, title=b.get("title"), aspect=b.get("aspect"),
+                     mute=b.get("mute"), captions_on=b.get("captions"), style=b.get("style"), hook=b.get("hook"))
+    _vc_start_render(uname, u, c["id"])
+    return jsonify({"ok": True, "clip": _vc_public(c)})
+
+
+@app.post("/api/vclips/<cid>")
+def api_vclips_update(cid):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    if c.get("status") == "rendering":
+        return jsonify({"ok": False, "error": "This clip is still rendering — wait a moment."}), 409
+    b = request.get_json(silent=True) or {}
+    rerender = False
+    def _apply(x):
+        nonlocal rerender
+        if "title" in b:
+            x["title"] = (str(b.get("title") or "").strip() or "Untitled clip")[:80]
+        if "start" in b or "end" in b:
+            s = float(b.get("start", x["start"])); e = float(b.get("end", x["end"]))
+            if e - s < 0.5 or e - s > _VC_MAX_LEN or s < 0:
+                raise _VcError("Clip length must be between 0.5 seconds and 10 minutes.")
+            if (x.get("m_start") is not None and (s < float(x["m_start"]) - 0.01 or e > float(x["m_end"]) + 0.01)
+                    and not _ve_source_path(x.get("source_vid") or "")):
+                raise _VcError("The original upload has expired, so this clip can only be trimmed shorter. "
+                               "Re-upload the video to extend it.")
+            if (round(s, 3), round(e, 3)) != (x["start"], x["end"]):
+                x["start"], x["end"] = round(s, 3), round(e, 3)
+                rerender = True
+        if "aspect" in b and b["aspect"] in _VC_ASPECTS and b["aspect"] != x.get("aspect"):
+            x["aspect"] = b["aspect"]; rerender = True
+        for k in ("mute", "remove_silence", "remove_fillers", "brand"):
+            if k in b and bool(b[k]) != bool(x.get(k)):
+                x[k] = bool(b[k]); rerender = True
+        if "captions" in b and isinstance(b["captions"], dict):
+            cap = {"on": bool(b["captions"].get("on")),
+                   "style": b["captions"].get("style") if b["captions"].get("style") in _VC_STYLES else "bold"}
+            if cap != (x.get("captions") or {}):
+                x["captions"] = cap; rerender = True
+        if "hook" in b:
+            h = str(b.get("hook") or "").strip()[:90]
+            if h != (x.get("hook") or ""):
+                x["hook"] = h; rerender = True
+        if "deleted" in b and isinstance(b["deleted"], list):
+            d = sorted({int(i) for i in b["deleted"] if str(i).lstrip("-").isdigit()})
+            if d != sorted(x.get("deleted") or []):
+                x["deleted"] = d; rerender = True
+        if "word_edits" in b and isinstance(b["word_edits"], dict) and x.get("words"):
+            for k, v in b["word_edits"].items():
+                i = int(k)
+                if 0 <= i < len(x["words"]) and str(v).strip() and str(v).strip() != x["words"][i]["w"]:
+                    x["words"][i]["w"] = str(v).strip()[:40]; rerender = True
+        if "social" in b and isinstance(b["social"], dict):
+            x["social"] = {"caption": str(b["social"].get("caption") or "")[:2200],
+                           "hashtags": [str(h).strip().lstrip("#")[:40] for h in (b["social"].get("hashtags") or []) if str(h).strip()][:30]}
+    try:
+        c = _vc_update(uname, cid, _apply)
+    except _VcError as ve:
+        return jsonify({"ok": False, "error": str(ve)}), 400
+    if rerender:
+        _vc_start_render(uname, u, cid)
+        c = _vc_get(uname, cid)
+    return jsonify({"ok": True, "clip": _vc_public(c), "rerender": rerender})
+
+
+@app.post("/api/vclips/<cid>/duplicate")
+def api_vclips_duplicate(cid):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c or c.get("status") == "rendering":
+        return jsonify({"ok": False, "error": "Clip not found or still rendering"}), 404
+    q = _vc_check_quota(uname)
+    if q:
+        return q
+    new = dict(c)
+    new.update({"id": uuid.uuid4().hex[:12], "title": (c.get("title") or "Clip")[:72] + " (copy)",
+                "created_at": now_iso(), "updated_at": now_iso()})
+    src, dst = _vc_dir(uname) / cid, _vc_dir(uname) / new["id"]
+    _shutil_ve.copytree(src, dst, dirs_exist_ok=True)
+    with _VC_LOCK:
+        clips = _vc_load(uname)
+        idx = next((i for i, x in enumerate(clips) if x.get("id") == cid), 0)
+        clips.insert(idx, new)
+        _vc_save(uname, clips)
+    return jsonify({"ok": True, "clip": _vc_public(new)})
+
+
+@app.delete("/api/vclips/<cid>")
+def api_vclips_delete(cid):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    if not re.match(r'^[a-f0-9]{6,32}$', cid):
+        return jsonify({"ok": False, "error": "Invalid id"}), 400
+    with _VC_LOCK:
+        clips = [c for c in _vc_load(uname) if c.get("id") != cid]
+        _vc_save(uname, clips)
+    _shutil_ve.rmtree(_vc_dir(uname) / cid, ignore_errors=True)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/vclips/<cid>/file")
+def api_vclips_file(cid):
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    p = _vc_file(uname, c)
+    if not p:
+        return jsonify({"ok": False, "error": "Clip not ready"}), 404
+    if request.args.get("download"):
+        name = re.sub(r"[^A-Za-z0-9 _\-]+", "", c.get("title") or "clip").strip() or "clip"
+        return _sf(str(p), mimetype="video/mp4", as_attachment=True, download_name=f"{name}.mp4")
+    return _sf(str(p), mimetype="video/mp4", conditional=True)
+
+
+@app.get("/api/vclips/<cid>/thumb")
+def api_vclips_thumb(cid):
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    p = _vc_file(uname, _vc_get(uname, cid), "thumb")
+    if not p:
+        return jsonify({"ok": False, "error": "No thumbnail"}), 404
+    return _sf(str(p), mimetype="image/jpeg", max_age=0)
+
+
+@app.get("/api/vclips/<cid>/transcript")
+def api_vclips_transcript(cid):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    c = _vc_get(u.get("username", ""), cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    s, e = float(c["start"]), float(c["end"])
+    words = [{"i": i, "w": w["w"], "s": w["s"], "e": w["e"]} for i, w in enumerate(c.get("words") or [])
+             if w["s"] >= s - 0.05 and w["e"] <= e + 0.05]
+    return jsonify({"ok": True, "words": words, "deleted": c.get("deleted") or [], "has_words": c.get("words") is not None})
+
+
+@app.post("/api/vclips/<cid>/transcribe")
+def api_vclips_transcribe(cid):
+    """Fetch words for text-based editing without changing the render."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    if c.get("words"):
+        return jsonify({"ok": True, "ready": True})
+
+    def _work():
+        cdir = _vc_dir(uname) / cid
+        master = cdir / "master.mp4"
+        if not master.exists():
+            return {"ok": False, "error": "Clip isn't rendered yet."}
+        try:
+            m0 = float(c.get("m_start") or 0)
+            src = _ve_source_path(c.get("source_vid") or "")
+            cached = load_json(src.parent / "transcript.json", None) if src else None
+            if isinstance(cached, list) and cached:
+                words = [w for w in cached if m0 - 0.05 <= w["s"] and w["e"] <= float(c["m_end"]) + 0.05]
+            else:
+                rel = _vc_transcribe(u, master, cdir)
+                words = [{"w": w["w"], "s": round(w["s"] + m0, 3), "e": round(w["e"] + m0, 3)} for w in rel]
+        except _VcError as ve:
+            return {"ok": False, "error": str(ve)}
+        _vc_update(uname, cid, lambda x: x.update({"words": words}))
+        return {"ok": True, "ready": True}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key=f"vct:{cid}")})
+
+
+@app.get("/api/vclips/zip")
+def api_vclips_zip():
+    import zipfile as _zf
+    from flask import send_file as _sf, after_this_request
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    ids = [i for i in (request.args.get("ids") or "").split(",") if re.match(r'^[a-f0-9]{6,32}$', i)]
+    clips = {c["id"]: c for c in _vc_load(uname)}
+    tmp = Path(_tempfile_ve.mkstemp(suffix=".zip")[1])
+    used: set = set()
+    with _zf.ZipFile(tmp, "w", _zf.ZIP_STORED) as z:
+        for i in ids or list(clips.keys()):
+            p = _vc_file(uname, clips.get(i))
+            if p:
+                base = re.sub(r"[^A-Za-z0-9 _\-]+", "", clips[i].get("title") or "clip").strip() or "clip"
+                name, n = f"{base}.mp4", 2
+                while name in used:
+                    name = f"{base} ({n}).mp4"; n += 1
+                used.add(name)
+                z.write(p, name)
+
+    @after_this_request
+    def _rm(resp):
+        threading.Thread(target=lambda: (__import__("time").sleep(60), tmp.unlink(missing_ok=True)), daemon=True).start()
+        return resp
+    return _sf(str(tmp), mimetype="application/zip", as_attachment=True, download_name="my-clips.zip")
+
+
+@app.get("/vclip/<token>.mp4")
+def vclip_public(token):
+    """Signed public link to a rendered clip (used as media_url for social posting)."""
+    from flask import send_file as _sf
+    try:
+        uname, cid = _vc_signer().loads(token)
+    except Exception:
+        return "Not found", 404
+    p = _vc_file(str(uname), _vc_get(str(uname), str(cid)))
+    if not p:
+        return "Not found", 404
+    return _sf(str(p), mimetype="video/mp4", conditional=True)
+
+
+@app.get("/api/vclips/brand")
+def api_vclips_brand_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "brand": _vc_brand(u.get("username", ""))})
+
+
+@app.post("/api/vclips/brand")
+def api_vclips_brand_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    d = _vc_dir(uname)
+    cur = load_json(d / "brand.json", {}) or {}
+    if request.files.get("logo"):
+        f = request.files["logo"]
+        ext = (f.filename or "").rsplit(".", 1)[-1].lower()
+        if ext not in ("png", "jpg", "jpeg", "webp"):
+            return jsonify({"ok": False, "error": "Logo must be PNG, JPG or WEBP."}), 400
+        data = f.read()
+        if len(data) > 5 * 1024 * 1024:
+            return jsonify({"ok": False, "error": "Logo must be under 5 MB."}), 400
+        for old in d.glob("brand_logo.*"):
+            old.unlink(missing_ok=True)
+        (d / f"brand_logo.{ext}").write_bytes(data)
+    else:
+        b = request.get_json(silent=True) or {}
+        if "color" in b and re.match(r"^#[0-9a-fA-F]{6}$", str(b["color"])):
+            cur["color"] = b["color"]
+        if "default_on" in b:
+            cur["default_on"] = bool(b["default_on"])
+        if b.get("remove_logo"):
+            for old in d.glob("brand_logo.*"):
+                old.unlink(missing_ok=True)
+    save_json(d / "brand.json", cur)
+    return jsonify({"ok": True, "brand": _vc_brand(uname)})
+
+
+@app.get("/api/vclips/brand/logo")
+def api_vclips_brand_logo():
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = _vc_brand(u.get("username", ""))
+    if not b["logo"]:
+        return jsonify({"ok": False, "error": "No logo"}), 404
+    return _sf(str(_vc_dir(u.get("username", "")) / b["logo"]), max_age=0)
+
+
+def _vc_pick_moments(user: Dict[str, Any], words: List[Dict[str, Any]], duration: float, count: int) -> List[Dict[str, Any]]:
+    key = _vc_openai_key(user)
+    if not key:
+        raise _VcError("Finding the best moments needs an OpenAI key — add yours in Settings.")
+    lines, cur, cur_s = [], [], None
+    for w in words:
+        if cur_s is None:
+            cur_s = w["s"]
+        cur.append(w["w"])
+        if w["w"].endswith((".", "?", "!")) or len(cur) >= 18:
+            lines.append(f"[{cur_s:.1f}-{w['e']:.1f}] {' '.join(cur)}"); cur, cur_s = [], None
+    if cur:
+        lines.append(f"[{cur_s:.1f}-{words[-1]['e']:.1f}] {' '.join(cur)}")
+    transcript = "\n".join(lines)[:24000]
+    prompt = (
+        f"You are a top short-form video editor (Opus Clip / TikTok). From this {duration:.0f}s video transcript, "
+        f"pick the {count} strongest standalone moments for vertical short-form posts.\n\n{transcript}\n\n"
+        "Return ONLY a JSON array; each item: {\"title\": \"short file title\", \"hook\": \"on-screen hook, max 7 words, punchy\", "
+        "\"start\": 12.5, \"end\": 47.0, \"score\": 0-100 virality estimate, \"reason\": \"one line\"}.\n"
+        f"Rules: 15-75 seconds each, start on the first word of a complete thought, end after a complete sentence, "
+        f"no overlaps, start>=0, end<={duration:.0f}. Best first.")
+    try:
+        resp = OpenAI(api_key=key).chat.completions.create(
+            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=900, temperature=0.4)
+        raw = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:
+        try:
+            _, msg = _classify_openai_error(exc)
+        except Exception:
+            msg = str(exc)
+        raise _VcError(f"AI analysis failed: {msg}")
+    m = re.search(r"\[.*\]", raw, re.DOTALL)
+    if not m:
+        raise _VcError("Couldn't find strong moments — try a longer video with clear speech.")
+    out = []
+    for it in json.loads(m.group()):
+        if not isinstance(it, dict):
+            continue
+        s = max(0.0, float(it.get("start") or 0)); e = min(float(duration), float(it.get("end") or 0))
+        if e - s < 5:
+            continue
+        # snap to word boundaries so clips never start/end mid-word
+        ws = [w for w in words if w["s"] >= s - 0.6]
+        if ws:
+            s = max(0.0, ws[0]["s"] - 0.15)
+        we = [w for w in words if w["e"] <= e + 0.6]
+        if we:
+            e = min(float(duration), we[-1]["e"] + 0.35)
+        out.append({"title": str(it.get("title") or "Clip")[:60], "hook": str(it.get("hook") or "")[:60],
+                    "start": round(s, 2), "end": round(e, 2), "score": int(float(it.get("score") or 0)),
+                    "reason": str(it.get("reason") or "")[:160]})
+    return out[:count]
+
+
+@app.post("/api/vclips/make_shorts")
+def api_vclips_make_shorts():
+    """One click: transcribe → pick best moments → render vertical, captioned,
+    hooked, branded shorts. Returns a job; clips appear in the library as they render."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    vid = (b.get("video_id") or "").strip()
+    src = _ve_source_path(vid)
+    if not src:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    q = _vc_check_quota(uname)
+    if q:
+        return q
+    count = max(1, min(6, int(b.get("count") or 4)))
+    style = b.get("style") if b.get("style") in _VC_STYLES else "bold"
+    aspect = b.get("aspect") if b.get("aspect") in _VC_ASPECTS else "9:16"
+
+    def _work():
+        try:
+            words = _ve_source_transcript(u, vid)
+            if not words:
+                return {"ok": False, "error": "No speech detected — shorts need a video with talking."}
+            dur = float(_ve_probe(src)["duration"] or words[-1]["e"])
+            moments = _vc_pick_moments(u, words, dur, count)
+        except _VcError as ve:
+            return {"ok": False, "error": str(ve)}
+        if not moments:
+            return {"ok": False, "error": "Couldn't find strong moments — try a longer video with clear speech."}
+        ids = []
+        for m in moments:
+            c = _vc_new_clip(uname, vid, m["start"], m["end"], title=m["title"], aspect=aspect,
+                             captions_on=True, style=style, hook=m["hook"], remove_fillers=True)
+            _vc_update(uname, c["id"], lambda x, m=m: x.update({"score": m["score"], "reason": m["reason"]}))
+            ids.append(c["id"])
+        for cid in ids:  # sequential: keeps CPU sane, clips pop in one by one
+            _vc_render(uname, u, cid)
+        return {"ok": True, "clip_ids": ids}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key=f"shorts:{vid}")})
+
+
+@app.post("/api/vclips/suggest")
+def api_vclips_suggest():
+    """Best-moment suggestions (no rendering) — async replacement for /api/video/autoclip."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = request.get_json(silent=True) or {}
+    vid = (b.get("video_id") or "").strip()
+    src = _ve_source_path(vid)
+    if not src:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+
+    def _work():
+        try:
+            words = _ve_source_transcript(u, vid)
+            if not words:
+                return {"ok": False, "error": "No speech detected. Try a video with clear audio."}
+            dur = float(_ve_probe(src)["duration"] or words[-1]["e"])
+            return {"ok": True, "clips": _vc_pick_moments(u, words, dur, 5)}
+        except _VcError as ve:
+            return {"ok": False, "error": str(ve)}
+    return jsonify({"ok": True, "job_id": _ve_start_job(u.get("username", ""), _work, key=f"suggest:{vid}")})
+
+
+@app.post("/api/vclips/<cid>/social")
+def api_vclips_social(cid):
+    """AI post caption + hashtags in the operator's brand voice."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    key = _vc_openai_key(u)
+    if not key:
+        return jsonify({"ok": False, "error": "Writing captions needs an OpenAI key — add yours in Settings."}), 400
+    s, e = float(c["start"]), float(c["end"])
+    deleted = set(c.get("deleted") or [])
+    said = " ".join(w["w"] for i, w in enumerate(c.get("words") or [])
+                    if w["s"] >= s - 0.05 and w["e"] <= e + 0.05 and i not in deleted)[:6000]
+    op = _load_operator_profile(uname) or {}
+    voice = "; ".join(f"{k}: {str(op.get(k))[:300]}" for k in ("business", "offers", "audience", "tone", "brand_voice") if op.get(k))
+    platform = (request.get_json(silent=True) or {}).get("platform") or "Instagram Reels / TikTok"
+    prompt = (f"Write a social post for this short video on {platform}.\n"
+              f"Video title: {c.get('title')}\nOn-screen hook: {c.get('hook') or '-'}\n"
+              f"What's said: {said or '(no transcript — infer from the title)'}\n"
+              f"Brand context: {voice or 'not provided'}\n\n"
+              "Return ONLY JSON: {\"caption\": \"2-4 short lines, a scroll-stopping first line, a clear call to action, "
+              "natural emojis max 2\", \"hashtags\": [\"8-12 relevant hashtags without #, mix broad and niche\"]}")
+    try:
+        resp = OpenAI(api_key=key).chat.completions.create(
+            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=500, temperature=0.7,
+            response_format={"type": "json_object"})
+        data = json.loads(resp.choices[0].message.content or "{}")
+    except Exception as exc:
+        try:
+            _, msg = _classify_openai_error(exc)
+        except Exception:
+            msg = str(exc)
+        return jsonify({"ok": False, "error": f"Couldn't write the caption: {msg}"}), 500
+    social = {"caption": str(data.get("caption") or "").strip()[:2200],
+              "hashtags": [str(h).strip().lstrip("#").replace(" ", "")[:40] for h in (data.get("hashtags") or []) if str(h).strip()][:15]}
+    c = _vc_update(uname, cid, lambda x: x.update({"social": social}))
+    return jsonify({"ok": True, "social": social})
+
+
+@app.post("/api/vclips/<cid>/to_planner")
+def api_vclips_to_planner(cid):
+    """Drop the clip into the Content Planner as a draft post with a public media link."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not _vc_file(uname, c):
+        return jsonify({"ok": False, "error": "Clip isn't ready yet."}), 404
+    b = request.get_json(silent=True) or {}
+    soc = c.get("social") or {}
+    tags = " ".join("#" + h for h in (soc.get("hashtags") or []))
+    caption = ((soc.get("caption") or c.get("title") or "").strip() + ("\n\n" + tags if tags else "")).strip()
+    posts = _load_sp_posts(uname)
+    post = {"id": str(_uuid_mod.uuid4())[:8], "caption": caption,
+            "platforms": [p for p in (b.get("platforms") or []) if p in ("facebook", "instagram", "youtube", "tiktok", "linkedin")],
+            "media_url": _vc_public_url(uname, cid), "scheduled_at": "", "status": "draft",
+            "created_at": now_iso(), "updated_at": now_iso(), "published_ids": {}, "error": "",
+            "source": {"type": "vclip", "clip_id": cid}}
+    posts.append(post)
+    _save_sp_posts(uname, posts)
+    return jsonify({"ok": True, "post": post})
 
 
 # ═══════════════════════════════════════════════════════════════════
