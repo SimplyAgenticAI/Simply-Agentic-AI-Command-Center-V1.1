@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.6.11")
+APP_VERSION = os.getenv("APP_VERSION", "9.6.12")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -27516,7 +27516,7 @@ def _api_transcribe_inner():
                 compressed = _os.path.join(tmp_dir, "audio.mp3")
                 try:
                     proc = _sp.run(
-                        ["ffmpeg", "-y", "-i", audio_path,
+                        [_ffmpeg_bin(), "-y", "-i", audio_path,
                          "-vn",          # drop video stream
                          "-ac", "1",     # mono
                          "-ar", "16000", # 16 kHz sample rate
@@ -27603,6 +27603,112 @@ import shutil as _shutil_ve
 import tempfile as _tempfile_ve
 _VE_TEMP = Path(_tempfile_ve.gettempdir()) / "sa_video"
 
+_FFMPEG_BIN_CACHE: Optional[str] = None
+
+def _ffmpeg_bin() -> str:
+    """System ffmpeg if installed, else the static binary bundled by the
+    imageio-ffmpeg wheel — so the Video Editor never depends on what the host
+    image happens to have on PATH."""
+    global _FFMPEG_BIN_CACHE
+    if _FFMPEG_BIN_CACHE:
+        return _FFMPEG_BIN_CACHE
+    p = _shutil_ve.which("ffmpeg")
+    if not p:
+        try:
+            import imageio_ffmpeg as _iio_ff
+            p = _iio_ff.get_ffmpeg_exe()
+        except Exception:
+            p = "ffmpeg"
+    _FFMPEG_BIN_CACHE = p
+    return p
+
+# ── Background video jobs (V9.6.12) ──────────────────────────────────────
+# Export / preview transcodes can take longer than the hosting proxy allows a
+# single request to stay open, so they run in a thread and the browser polls
+# /api/video/job/<id>. veApiFetch on the client does the polling transparently.
+_VE_JOBS: Dict[str, Dict[str, Any]] = {}
+_VE_JOBS_LOCK = threading.Lock()
+
+def _ve_start_job(username: str, fn, key: str = "") -> str:
+    import time as _t
+    with _VE_JOBS_LOCK:
+        # Drop finished jobs older than 2h
+        for _jid in [j for j, v in _VE_JOBS.items() if _t.time() - v.get("ts", 0) > 7200]:
+            _VE_JOBS.pop(_jid, None)
+        if key:
+            for _jid, v in _VE_JOBS.items():
+                if v.get("key") == key and v.get("user") == username and v.get("status") == "working":
+                    return _jid  # same work already running — share it
+        jid = uuid.uuid4().hex[:12]
+        _VE_JOBS[jid] = {"status": "working", "user": username, "ts": _t.time(), "key": key}
+
+    def _run():
+        try:
+            res = fn() or {"ok": False, "error": "Job produced no result"}
+        except FileNotFoundError:
+            res = {"ok": False, "error": "Video processing isn't available on the server right now. Please contact support."}
+        except Exception as e:
+            res = {"ok": False, "error": f"Video processing failed: {str(e)[:200]}"}
+        with _VE_JOBS_LOCK:
+            if jid in _VE_JOBS:
+                _VE_JOBS[jid].update({"status": "done", "result": res})
+    threading.Thread(target=_run, daemon=True).start()
+    return jid
+
+def _ve_ffmpeg(args: List[str], timeout: int = 900) -> Tuple[bool, str]:
+    """Run ffmpeg; return (ok, stderr tail). Raises FileNotFoundError if missing."""
+    proc = _subprocess_ve.run([_ffmpeg_bin()] + args, capture_output=True, timeout=timeout)
+    tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-600:]
+    if proc.returncode != 0:
+        print(f"[VE] ffmpeg rc={proc.returncode}: {tail}", flush=True)
+    return proc.returncode == 0, tail
+
+@app.get("/api/video/job/<job_id>")
+def api_video_job(job_id):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    with _VE_JOBS_LOCK:
+        j = dict(_VE_JOBS.get(job_id) or {})
+    if not j or j.get("user") != u.get("username"):
+        return jsonify({"ok": False, "error": "Job not found — please try again."}), 404
+    if j.get("status") == "working":
+        return jsonify({"ok": True, "status": "working"})
+    res = dict(j.get("result") or {})
+    res["status"] = "done"
+    return jsonify(res)
+
+@app.post("/api/video/preview")
+def api_video_preview():
+    """Make a browser-playable H.264 proxy (preview.mp4) for files the browser
+    can't decode itself — e.g. iPhone HEVC .mov in Chrome on Windows."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    vid_id = ((request.get_json(silent=True) or {}).get("video_id") or "").strip()
+    if not re.match(r'^[a-f0-9]+$', vid_id):
+        return jsonify({"ok": False, "error": "Invalid ID"}), 400
+    vid_dir = _VE_TEMP / vid_id
+    orig_files = list(vid_dir.glob("original.*")) if vid_dir.exists() else []
+    if not orig_files:
+        return jsonify({"ok": False, "error": "Video not found — please re-upload."}), 404
+    out = vid_dir / "preview.mp4"
+    if out.exists() and out.stat().st_size > 0:
+        return jsonify({"ok": True, "ready": True})
+    orig = orig_files[0]
+
+    def _work():
+        tmp = vid_dir / "preview.part.mp4"
+        ok, tail = _ve_ffmpeg(["-y", "-i", str(orig),
+                               "-vf", "scale=-2:'min(720,ih)'",
+                               "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p",
+                               "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "-f", "mp4", str(tmp)])
+        if not ok or not tmp.exists():
+            return {"ok": False, "error": "Couldn't make a playable preview of this file — it may be corrupted."}
+        tmp.replace(out)
+        return {"ok": True, "ready": True}
+    return jsonify({"ok": True, "job_id": _ve_start_job(u.get("username", ""), _work, key=f"preview:{vid_id}")})
+
 def _ve_cleanup_old():
     try:
         import time as _t
@@ -27616,7 +27722,8 @@ def _ve_cleanup_old():
 
 _VE_MIME_MAP = {
     'mp4': 'video/mp4', 'webm': 'video/webm',
-    'mov': 'video/quicktime', 'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska'
+    'mov': 'video/quicktime', 'avi': 'video/x-msvideo', 'mkv': 'video/x-matroska',
+    'm4v': 'video/mp4', '3gp': 'video/3gpp'
 }
 
 @app.get("/api/video/stream/<vid_id>")
@@ -27634,6 +27741,8 @@ def api_video_stream(vid_id):
     orig_path = orig_files[0]
     ext  = orig_path.suffix.lstrip('.').lower()
     mime = _VE_MIME_MAP.get(ext, 'video/mp4')
+    if request.args.get("v") == "preview" and (vid_dir / "preview.mp4").exists():
+        orig_path, mime = vid_dir / "preview.mp4", "video/mp4"
     from flask import send_file as _sf
     return _sf(str(orig_path), mimetype=mime, conditional=True)
 
@@ -27689,7 +27798,7 @@ def api_video_upload():
         if len(chunk_files) != total_chunks or total_chunks == 0:
             return jsonify({"ok": False, "error": f"Upload incomplete ({len(chunk_files)}/{total_chunks} chunks). Please try again."}), 400
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "mp4"
-        if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
+        if ext not in {"mp4", "mov", "webm", "avi", "mkv", "m4v", "3gp"}:
             ext = "mp4"
         vid_id  = uuid.uuid4().hex[:16]
         vid_dir = _VE_TEMP / vid_id
@@ -27709,7 +27818,7 @@ def api_video_upload():
             return jsonify({"ok": False, "error": "No file uploaded"}), 400
         f   = request.files["file"]
         ext = (f.filename or "upload").rsplit(".", 1)[-1].lower()
-        if ext not in {"mp4", "mov", "webm", "avi", "mkv"}:
+        if ext not in {"mp4", "mov", "webm", "avi", "mkv", "m4v", "3gp"}:
             return jsonify({"ok": False, "error": f"Unsupported format .{ext}. Use MP4, MOV, or WEBM."}), 400
         vid_id  = uuid.uuid4().hex[:16]
         vid_dir = _VE_TEMP / vid_id
@@ -27748,7 +27857,7 @@ def api_video_autoclip():
     audio_path = vid_dir / "audio.mp3"
     try:
         _subprocess_ve.run(
-            ["ffmpeg", "-y", "-i", str(orig_path), "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", str(audio_path)],
+            [_ffmpeg_bin(), "-y", "-i", str(orig_path), "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", str(audio_path)],
             check=True, capture_output=True, timeout=180
         )
     except FileNotFoundError:
@@ -27835,22 +27944,21 @@ def api_video_export():
     export_id = uuid.uuid4().hex[:12]
     out_path = vid_dir / f"clip_{export_id}.mp4"
     mute = bool(body.get("mute"))
-    try:
-        ffmpeg_args = ["ffmpeg", "-y", "-i", str(orig_path),
-            "-ss", str(start), "-t", str(end - start),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23"]
-        if mute:
-            ffmpeg_args += ["-an"]  # strip audio
-        else:
-            ffmpeg_args += ["-c:a", "aac", "-b:a", "128k"]
-        ffmpeg_args += ["-movflags", "+faststart", str(out_path)]
-        _subprocess_ve.run(ffmpeg_args, check=True, capture_output=True, timeout=300)
-    except FileNotFoundError:
-        return jsonify({"ok": False, "error": "ffmpeg not available. Contact support to enable Video Editor."}), 500
-    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
-        return jsonify({"ok": False, "error": "Export failed. Video may be corrupted or too large."}), 500
-    print(f"[VE] export user={u.get('username')} vid={vid_id} clip={export_id} mute={mute} {start:.1f}-{end:.1f}s", flush=True)
-    return jsonify({"ok": True, "export_id": f"{vid_id}/{export_id}"})
+    uname = u.get("username", "")
+
+    def _work():
+        # -ss BEFORE -i = fast input seek (was after, which decoded everything
+        # up to the In point first — minutes for a clip late in a long video).
+        args = ["-y", "-ss", f"{start:.3f}", "-i", str(orig_path), "-t", f"{end - start:.3f}",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p"]
+        args += ["-an"] if mute else ["-c:a", "aac", "-b:a", "160k"]
+        args += ["-movflags", "+faststart", str(out_path)]
+        ok, _tail = _ve_ffmpeg(args)
+        if not ok or not out_path.exists():
+            return {"ok": False, "error": "Export failed — the video may be corrupted. Try re-uploading it."}
+        print(f"[VE] export user={uname} vid={vid_id} clip={export_id} mute={mute} {start:.1f}-{end:.1f}s", flush=True)
+        return {"ok": True, "export_id": f"{vid_id}/{export_id}"}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work)})
 
 @app.post("/api/video/extract_audio")
 def api_video_extract_audio():
@@ -27870,19 +27978,17 @@ def api_video_extract_audio():
     orig_path = orig_files[0]
     export_id = uuid.uuid4().hex[:12]
     out_path = vid_dir / f"clip_{export_id}.mp3"
-    duration_args = ["-t", str(end - start)] if end > start else []
-    try:
-        _subprocess_ve.run([
-            "ffmpeg", "-y", "-i", str(orig_path),
-            "-ss", str(start)] + duration_args + [
-            "-vn", "-ac", "2", "-ar", "44100", "-b:a", "192k", str(out_path)
-        ], check=True, capture_output=True, timeout=300)
-    except FileNotFoundError:
-        return jsonify({"ok": False, "error": "ffmpeg not available. Contact support to enable Video Editor."}), 500
-    except (_subprocess_ve.CalledProcessError, _subprocess_ve.TimeoutExpired):
-        return jsonify({"ok": False, "error": "Audio extraction failed."}), 500
-    print(f"[VE] extract_audio user={u.get('username')} vid={vid_id} clip={export_id}", flush=True)
-    return jsonify({"ok": True, "export_id": f"{vid_id}/{export_id}"})
+    duration_args = ["-t", f"{end - start:.3f}"] if end > start else []
+    uname = u.get("username", "")
+
+    def _work():
+        ok, _tail = _ve_ffmpeg(["-y", "-ss", f"{start:.3f}", "-i", str(orig_path)] + duration_args +
+                               ["-vn", "-ac", "2", "-ar", "44100", "-b:a", "192k", str(out_path)])
+        if not ok or not out_path.exists():
+            return {"ok": False, "error": "Audio extraction failed — does this video have sound?"}
+        print(f"[VE] extract_audio user={uname} vid={vid_id} clip={export_id}", flush=True)
+        return {"ok": True, "export_id": f"{vid_id}/{export_id}"}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work)})
 
 @app.get("/api/video/download/<path:export_id>")
 def api_video_download(export_id):
@@ -27935,7 +28041,7 @@ def api_video_convert_to_mp4():
     print(f"[CONVERT] user={u.get('username','?')} size={len(data)} id={conv_id}", flush=True)
     try:
         result = _subprocess_ve.run([
-            "ffmpeg", "-y",
+            _ffmpeg_bin(), "-y",
             "-i", str(in_path),
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",  # crf 18 = near-lossless quality
             "-c:a", "aac", "-b:a", "320k",                          # max audio quality

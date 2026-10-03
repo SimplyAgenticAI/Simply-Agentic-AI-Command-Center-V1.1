@@ -35897,8 +35897,8 @@ window.addEventListener('focus', function(){
            ondrop="veHandleDrop(event)">
         <div style="font-size:28px;margin-bottom:8px;">🎬</div>
         <div style="font-size:13px;font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
-        <div style="font-size:12.5px;color:#aab8cc;">MP4, MOV, WEBM · Max 500 MB</div>
-        <input id="veFileInput" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.avi,.mkv" style="display:none;" onchange="veLoadFile(this.files[0])"/>
+        <div style="font-size:12.5px;color:#aab8cc;">MP4, MOV, WEBM, M4V · Max 500 MB</div>
+        <input id="veFileInput" type="file" accept="video/*,.mp4,.webm,.mov,.avi,.mkv,.m4v,.3gp" style="display:none;" onchange="veLoadFile(this.files[0])"/>
       </div>
 
       <!-- Upload progress -->
@@ -36074,10 +36074,12 @@ window.addEventListener('focus', function(){
     if(!file)return;
     if(file.size>500*1024*1024){veSt('File too large — max 500 MB','err');return;}
     var ext=(file.name||'').split('.').pop().toLowerCase();
-    if(['mp4','webm','mov','avi','mkv'].indexOf(ext)<0){veSt('Use MP4, MOV or WEBM','err');return;}
+    if(['mp4','webm','mov','avi','mkv','m4v','3gp'].indexOf(ext)<0){veSt('Use MP4, MOV, WEBM, M4V, AVI or MKV','err');return;}
 
     /* reset state */
     _veVidId=null; _veDur=0; _veIn=0; _veOut=0; _veClips=[];
+    _veNeedPreview=false; _vePreviewBusy=false;
+    if(_veMetaTimer){clearTimeout(_veMetaTimer);_veMetaTimer=null;}
     if(_veBlobUrl){URL.revokeObjectURL(_veBlobUrl); _veBlobUrl=null;}
     var p=$('vePlayer');
     if(p){p.pause();p.removeAttribute('src');p.load();p.style.display='none';}
@@ -36091,6 +36093,8 @@ window.addEventListener('focus', function(){
     _veBlobUrl=URL.createObjectURL(file);
     if(p){ p.src=_veBlobUrl; p.style.display=''; p.load(); }
     $('vePlayerPlaceholder').style.display='none';
+    /* Some formats never fire metadata or error in Chrome — don't wait forever */
+    _veMetaTimer=setTimeout(function(){ _veMetaTimer=null; if(!_veDur) veRequestPreview(); }, 7000);
 
     /* upload to server in background via chunked upload
        (3 MB chunks avoid Gunicorn 30s timeout on slow mobile connections) */
@@ -36100,7 +36104,9 @@ window.addEventListener('focus', function(){
 
     var VE_CHUNK = 1*1024*1024; // 1 MB — stays under Render/nginx proxy limits
     var veTotalChunks = Math.ceil(file.size / VE_CHUNK);
-    var veUploadId = 've_'+Date.now()+'_'+(Math.random().toString(36).slice(2,8));
+    /* always 8 chars — Math.random().toString(36) can come back short, and the
+       server rejects ids whose suffix is under 4 chars ("Upload interrupted") */
+    var veUploadId = 've_'+Date.now()+'_'+(Math.random().toString(36).slice(2)+'00000000').slice(0,8);
 
     function veOnUploadDone(videoId){
       if(pw) pw.style.display='none';
@@ -36111,6 +36117,7 @@ window.addEventListener('focus', function(){
       $('veScreenshotBtn').style.display='block';
       $('veExportPanel').style.display='block';
       $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
+      if(_veNeedPreview){ veRequestPreview(); return; }
       veSt('Ready — use AI clips or set In/Out and export','ok');
     }
 
@@ -36193,6 +36200,11 @@ window.addEventListener('focus', function(){
   /* player events */
   window.veOnMeta=function(){
     var p=$('vePlayer'); if(!p)return;
+    if(_veMetaTimer){clearTimeout(_veMetaTimer);_veMetaTimer=null;}
+    /* Chrome plays HEVC audio but no picture: metadata loads with 0x0 video */
+    if(p.src.indexOf('blob:')===0 && p.videoWidth===0 && p.videoHeight===0){
+      setTimeout(function(){ if(p.videoWidth===0 && p.src.indexOf('blob:')===0) window._veRequestPreview(); }, 800);
+    }
     _veDur=isFinite(p.duration)?p.duration:0;
     _veIn=0; _veOut=_veDur;
     $('veDuration').textContent=veFmt(_veDur);
@@ -36209,14 +36221,12 @@ window.addEventListener('focus', function(){
   window.veOnEnd=function(){vePlayIcon(false);};
   window.veOnErr=function(){
     var p=$('vePlayer'),code=p&&p.error?p.error.code:0;
-    /* code 4 = codec not supported by this browser (common for HEVC/H.265 on iOS/Android)
-       — the file is still valid; ffmpeg on the server handles it fine.
-       Show a soft warning, NOT a blocking error. Upload + export still work. */
-    if(code===4){
-      veSt('Preview unavailable in this browser — video will still upload and export fine.','info');
-    } else if(code){
-      veSt('Preview failed (error '+code+') — you can still upload and export.','info');
-    }
+    if(!code) return;
+    if(_veMetaTimer){clearTimeout(_veMetaTimer);_veMetaTimer=null;}
+    /* 3/4 = decode error / codec not supported (HEVC, some MOV/AVI/MKV).
+       The file is fine — switch to a server-made H.264 preview. */
+    if(p.src.indexOf('blob:')===0){ veRequestPreview(); return; }
+    veSt('Playback failed (error '+code+') — try re-uploading the video.','err');
   };
 
   /* playback */
@@ -36381,14 +36391,61 @@ window.addEventListener('focus', function(){
     },'image/png');
   };
 
-  /* safe json fetch */
-  function veApiFetch(url,opts){
-    return fetch(url,opts).then(function(r){
-      var ct=r.headers.get('content-type')||'';
-      if(ct.indexOf('application/json')<0) return r.text().then(function(){return{ok:false,error:'Server error ('+r.status+'). Refresh and try again.'};});
-      return r.json().catch(function(){return{ok:false,error:'Bad response. Refresh and try again.'};});
+  /* safe json fetch — and if the server answers with a background job_id
+     (export / audio / preview), poll it until done so callers just get the
+     final {ok, export_id|error} like before. */
+  function veJson(r){
+    var ct=r.headers.get('content-type')||'';
+    if(ct.indexOf('application/json')<0) return r.text().then(function(){return{ok:false,error:'Server error ('+r.status+'). Refresh and try again.'};});
+    return r.json().catch(function(){return{ok:false,error:'Bad response. Refresh and try again.'};});
+  }
+  function vePollJob(jobId){
+    var started=Date.now(), misses=0;
+    return new Promise(function(resolve){
+      (function tick(){
+        fetch('/api/video/job/'+encodeURIComponent(jobId),{credentials:'same-origin'}).then(veJson).then(function(d){
+          if(d&&d.status==='working'){
+            if(Date.now()-started>20*60*1000){resolve({ok:false,error:'Still processing after 20 minutes — try a shorter clip.'});return;}
+            setTimeout(tick,1500); return;
+          }
+          resolve(d||{ok:false,error:'Processing failed'});
+        }).catch(function(){
+          if(++misses>8){resolve({ok:false,error:'Lost connection while processing — please try again.'});return;}
+          setTimeout(tick,3000);
+        });
+      })();
     });
   }
+  function veApiFetch(url,opts){
+    return fetch(url,opts).then(veJson).then(function(d){
+      return (d&&d.ok&&d.job_id) ? vePollJob(d.job_id) : d;
+    });
+  }
+
+  /* Playable-preview fallback: if this browser can't decode the file (e.g.
+     iPhone HEVC .mov in Chrome/Windows → error, or audio with a black frame),
+     have the server make an H.264 proxy and play that instead. */
+  var _veNeedPreview=false, _vePreviewBusy=false, _veMetaTimer=null;
+  function veRequestPreview(){
+    _veNeedPreview=true;
+    if(!_veVidId){ veSt('This format can\'t play in your browser — preparing a playable preview once the upload finishes…','info'); return; }
+    if(_vePreviewBusy) return;
+    _vePreviewBusy=true;
+    var vid=_veVidId;
+    veSt('Preparing a playable preview of this video… (one-time, usually under a minute)','info');
+    veApiFetch('/api/video/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_id:vid})})
+      .then(function(d){
+        _vePreviewBusy=false;
+        if(vid!==_veVidId) return; /* a different video was loaded meanwhile */
+        if(!d.ok){ veSt(d.error||'Could not prepare a preview — export still works.','err'); return; }
+        _veNeedPreview=false;
+        var p=$('vePlayer'); if(!p) return;
+        p.src='/api/video/stream/'+vid+'?v=preview'; p.style.display=''; p.load();
+        $('vePlayerPlaceholder').style.display='none';
+        veSt('Ready — use AI clips or set In/Out and export','ok');
+      }).catch(function(e){ _vePreviewBusy=false; veSt('Preview error: '+e.message,'err'); });
+  }
+  window._veRequestPreview=veRequestPreview;
 
 })();
 </script>
