@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.1")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -22250,10 +22250,17 @@ def api_today_brief_settings():
     if enabled and not (u.get("email") or "").strip():
         return jsonify({"ok": False, "error": "Your account has no email address on file."}), 400
 
+    local_now = _user_now_local(u.get("username", ""))
+
     def _mut(rec):
         s = rec.setdefault("settings", {})
         b = s.get("daily_brief") if isinstance(s.get("daily_brief"), dict) else {}
+        was_on = bool(b.get("enabled"))
         b.update({"enabled": enabled, "hour": hour})
+        if enabled and not was_on and local_now.hour >= hour:
+            # Turned on after today's send time — start tomorrow morning instead of
+            # firing a "good morning" email in the afternoon.
+            b["last_sent"] = local_now.strftime("%Y-%m-%d")
         s["daily_brief"] = b
         rec["updated_at"] = now_iso()
         return rec
@@ -28095,6 +28102,12 @@ _VC_FILLERS = {"um", "uh", "uhm", "umm", "erm", "er", "ah", "hmm", "mm", "uh-huh
 _VC_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
 _VC_FONT_NAME = os.getenv("VCLIP_FONT_NAME", "Montserrat ExtraBold")  # bundled in assets/fonts (OFL)
 _VC_MAX_LEN = 600.0
+_VC_MAX_SEGS = 60
+# (uname, cid) of clips with a live render thread in THIS process (gunicorn runs
+# one worker). A clip marked "rendering" that isn't in here was orphaned by a
+# worker recycle/deploy and gets restarted by the list endpoint.
+_VC_ACTIVE: set = set()
+_VC_ACTIVE_LOCK = threading.Lock()
 
 
 class _VcError(Exception):
@@ -28153,8 +28166,26 @@ def _vc_file(uname: str, c: Optional[Dict[str, Any]], kind: str = "file") -> Opt
 
 def _vc_public(c: Dict[str, Any]) -> Dict[str, Any]:
     out = {k: v for k, v in c.items() if k not in ("words",)}
-    out["has_words"] = bool(c.get("words"))
+    out["has_words"] = c.get("words") is not None  # [] = transcribed, no speech
     return out
+
+def _vc_reslice_words(c: Dict[str, Any], new_words: List[Dict[str, Any]]) -> None:
+    """Swap in a re-sliced word list, carrying cut words and spelling fixes over
+    by timestamp — indices shift whenever the master range changes."""
+    if c.get("words") is None:  # first transcription — nothing to remap
+        c["words"] = new_words
+        return
+    old = c.get("words") or []
+    cut_times =[(old[i]["s"], old[i]["e"]) for i in (c.get("deleted") or []) if 0 <= i < len(old)]
+    by_start = {round(w["s"], 2): w["w"] for w in old}
+    deleted = []
+    for j, w in enumerate(new_words):
+        if any(abs(w["s"] - s) < 0.06 and abs(w["e"] - e) < 0.06 for s, e in cut_times):
+            deleted.append(j)
+        fixed = by_start.get(round(w["s"], 2))
+        if fixed:
+            w["w"] = fixed
+    c["words"], c["deleted"] = new_words, deleted
 
 def _vc_signer():
     from itsdangerous import URLSafeSerializer
@@ -28269,8 +28300,13 @@ def _vc_merge(ranges: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
     return out
 
 def _vc_keep_segments(start: float, end: float, cuts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    merged = _vc_merge([(max(s, start), min(e, end)) for s, e in cuts])
+    if len(merged) >= _VC_MAX_SEGS:
+        # Too many cuts for one render: keep the longest ones (biggest time saved)
+        # rather than truncating segments — truncation silently dropped the ending.
+        merged = sorted(sorted(merged, key=lambda r: r[1] - r[0], reverse=True)[:_VC_MAX_SEGS - 1])
     keep, cur = [], start
-    for s, e in _vc_merge([(max(s, start), min(e, end)) for s, e in cuts]):
+    for s, e in merged:
         if s > cur:
             keep.append((cur, s))
         cur = max(cur, e)
@@ -28374,6 +28410,19 @@ def _vc_make_master(c: Dict[str, Any], cdir: Path) -> None:
 
 def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
     """Render one clip from its spec. Updates the index with status/result."""
+    with _VC_ACTIVE_LOCK:
+        _VC_ACTIVE.add((uname, cid))
+    try:
+        res = _vc_render_inner(uname, user, cid)
+    finally:
+        with _VC_ACTIVE_LOCK:
+            _VC_ACTIVE.discard((uname, cid))
+    if not _vc_get(uname, cid):
+        # Clip was deleted mid-render — don't leave orphaned files eating quota
+        _shutil_ve.rmtree(_vc_dir(uname) / cid, ignore_errors=True)
+    return res
+
+def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
     with _VC_RENDER_SEM:
         c = _vc_get(uname, cid)
         if not c:
@@ -28388,25 +28437,28 @@ def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
                     or end > float(c.get("m_end", 0)) + 0.01):
                 old = (c.get("m_start"), c.get("m_end"))
                 _vc_make_master(c, cdir)
-                if old != (c["m_start"], c["m_end"]):
-                    c["words"] = None  # new range → re-slice words below
+                stale_words = old != (c["m_start"], c["m_end"]) and c.get("words") is not None
+            else:
+                stale_words = False
             m0 = float(c["m_start"])
             probe = _ve_probe(master)
 
             # Words (source time) — needed for captions, filler removal, text edits
             need_words = (c.get("captions") or {}).get("on") or c.get("remove_fillers") or c.get("deleted")
-            if need_words and not c.get("words"):
+            if (need_words and c.get("words") is None) or stale_words:
                 src_cache = _ve_source_path(c.get("source_vid") or "")
                 cached = load_json(src_cache.parent / "transcript.json", None) if src_cache else None
+                new_words = None
                 if isinstance(cached, list) and cached:
-                    c["words"] = [w for w in cached if m0 - 0.05 <= w["s"] and w["e"] <= float(c["m_end"]) + 0.05]
+                    new_words = [dict(w) for w in cached if m0 - 0.05 <= w["s"] and w["e"] <= float(c["m_end"]) + 0.05]
                 else:
                     try:
                         rel = _vc_transcribe(user, master, cdir)
-                        c["words"] = [{"w": w["w"], "s": round(w["s"] + m0, 3), "e": round(w["e"] + m0, 3)} for w in rel]
+                        new_words = [{"w": w["w"], "s": round(w["s"] + m0, 3), "e": round(w["e"] + m0, 3)} for w in rel]
                     except _VcError as ve:
-                        notes.append(str(ve))
-                        c["words"] = []
+                        notes.append(str(ve))  # leave words None so it retries once a key is added
+                if new_words is not None:
+                    _vc_reslice_words(c, new_words)
             words = c.get("words") or []
             in_range = [(i, w) for i, w in enumerate(words) if w["s"] >= start - 0.05 and w["e"] <= end + 0.05]
 
@@ -28420,7 +28472,7 @@ def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
                     cuts.append((w["s"], w["e"]))
             if c.get("remove_silence") and probe["has_audio"]:
                 cuts += [(s + m0, e + m0) for s, e in _vc_silences(master)]
-            segs = _vc_keep_segments(start, end, cuts)[:60]
+            segs = _vc_keep_segments(start, end, cuts)
             if not segs:
                 raise _VcError("Nothing left to render — you've cut the whole clip.")
             total = sum(e - s for s, e in segs)
@@ -28505,12 +28557,13 @@ def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
                 try: f.unlink()
                 except Exception: pass
             size = (cdir / clip_name).stat().st_size
-            words_now = c.get("words")
+            words_now, deleted_now = c.get("words"), c.get("deleted") or []
             m_start, m_end = c["m_start"], c["m_end"]
             def _done(x):
                 x.update({"status": "ready", "error": "", "note": " ".join(notes), "size": size,
                           "duration": round(total, 2), "version": ver, "file": clip_name, "thumb": thumb_name,
-                          "width": W, "height": H, "words": words_now, "m_start": m_start, "m_end": m_end})
+                          "width": W, "height": H, "words": words_now, "deleted": deleted_now,
+                          "m_start": m_start, "m_end": m_end})
             _vc_update(uname, cid, _done)
             for f in list(cdir.glob("clip_v*.mp4")) + list(cdir.glob("thumb_v*.jpg")):
                 if f.name not in (clip_name, thumb_name):
@@ -28528,7 +28581,18 @@ def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
 
 def _vc_start_render(uname: str, user: Dict[str, Any], cid: str) -> None:
     _vc_update(uname, cid, lambda x: x.update({"status": "rendering", "error": ""}))
+    with _VC_ACTIVE_LOCK:
+        _VC_ACTIVE.add((uname, cid))  # claimed before the thread starts so the list endpoint never sees it as orphaned
     threading.Thread(target=_vc_render, args=(uname, user, cid), daemon=True).start()
+
+def _vc_recover_orphans(uname: str, user: Dict[str, Any]) -> None:
+    """Restart renders orphaned by a worker restart (status stuck on 'rendering')."""
+    with _VC_ACTIVE_LOCK:
+        active = {cid for (un, cid) in _VC_ACTIVE if un == uname}
+    for c in _vc_load(uname):
+        if c.get("status") == "rendering" and c.get("id") not in active:
+            print(f"[VC] restarting orphaned render {uname}/{c.get('id')}", flush=True)
+            _vc_start_render(uname, user, c["id"])
 
 def _vc_new_clip(uname: str, vid_id: str, start: float, end: float, **spec) -> Dict[str, Any]:
     brand = _vc_brand(uname)
@@ -28544,6 +28608,8 @@ def _vc_new_clip(uname: str, vid_id: str, start: float, end: float, **spec) -> D
         "brand": bool(spec.get("brand", brand["default_on"])), "words": None,
         "social": {"caption": "", "hashtags": []}, "size": 0, "duration": round(end - start, 2), "version": 0,
     }
+    with _VC_ACTIVE_LOCK:
+        _VC_ACTIVE.add((uname, c["id"]))  # owned by its creator until _vc_render finishes
     with _VC_LOCK:
         clips = _vc_load(uname)
         clips.insert(0, c)
@@ -28563,6 +28629,7 @@ def api_vclips_list():
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = u.get("username", "")
+    _vc_recover_orphans(uname, u)
     return jsonify({"ok": True, "clips": [_vc_public(c) for c in _vc_load(uname)],
                     "usage": _vc_usage(uname), "limit": _vc_limit(uname), "brand": _vc_brand(uname)})
 
@@ -28606,6 +28673,14 @@ def api_vclips_update(cid):
     if c.get("status") == "rendering":
         return jsonify({"ok": False, "error": "This clip is still rendering — wait a moment."}), 409
     b = request.get_json(silent=True) or {}
+    try:
+        for k in ("start", "end"):
+            if k in b:
+                b[k] = float(b[k])
+        if isinstance(b.get("word_edits"), dict):
+            b["word_edits"] = {int(k): v for k, v in b["word_edits"].items()}
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Start, end and word positions must be numbers."}), 400
     rerender = False
     def _apply(x):
         nonlocal rerender
@@ -28752,7 +28827,7 @@ def api_vclips_transcribe(cid):
     c = _vc_get(uname, cid)
     if not c:
         return jsonify({"ok": False, "error": "Clip not found"}), 404
-    if c.get("words"):
+    if c.get("words") is not None:
         return jsonify({"ok": True, "ready": True})
 
     def _work():
@@ -28786,7 +28861,9 @@ def api_vclips_zip():
     uname = u.get("username", "")
     ids = [i for i in (request.args.get("ids") or "").split(",") if re.match(r'^[a-f0-9]{6,32}$', i)]
     clips = {c["id"]: c for c in _vc_load(uname)}
-    tmp = Path(_tempfile_ve.mkstemp(suffix=".zip")[1])
+    _fd, _tmpname = _tempfile_ve.mkstemp(suffix=".zip")
+    os.close(_fd)  # ZipFile reopens by path; leaving this open leaked an fd per download
+    tmp = Path(_tmpname)
     used: set = set()
     with _zf.ZipFile(tmp, "w", _zf.ZIP_STORED) as z:
         for i in ids or list(clips.keys()):
@@ -28942,7 +29019,10 @@ def api_vclips_make_shorts():
     q = _vc_check_quota(uname)
     if q:
         return q
-    count = max(1, min(6, int(b.get("count") or 4)))
+    try:
+        count = max(1, min(6, int(b.get("count") or 4)))
+    except (TypeError, ValueError):
+        count = 4
     style = b.get("style") if b.get("style") in _VC_STYLES else "bold"
     aspect = b.get("aspect") if b.get("aspect") in _VC_ASPECTS else "9:16"
 

@@ -36341,7 +36341,8 @@ window.addEventListener('focus', function(){
       $('vcSocCap').value=(c.social&&c.social.caption)||'';
       $('vcSocTags').value=((c.social&&c.social.hashtags)||[]).map(function(h){return '#'+h;}).join(' ');
       $('vcApply').disabled=true;
-      if(full || S.words===null) loadWords(c);
+      /* reload transcript on select, first view, or after any re-render (re-trim shifts it) */
+      if(full || S.words===null || S.wordsVer!==c.version){ S.wordsVer=c.version; loadWords(c); }
     }
     $('vcApply').textContent=rendering?'⏳ Rendering…':'✔ Apply changes';
   }
@@ -36873,7 +36874,7 @@ window.addEventListener('focus', function(){
       (function tick(){
         fetch('/api/video/job/'+encodeURIComponent(jobId),{credentials:'same-origin'}).then(veJson).then(function(d){
           if(d&&d.status==='working'){
-            if(Date.now()-started>20*60*1000){resolve({ok:false,error:'Still processing after 20 minutes — try a shorter clip.'});return;}
+            if(Date.now()-started>45*60*1000){resolve({ok:false,error:'Still processing after 45 minutes — check My Clips shortly, or try a shorter video.'});return;}
             setTimeout(tick,1500); return;
           }
           resolve(d||{ok:false,error:'Processing failed'});

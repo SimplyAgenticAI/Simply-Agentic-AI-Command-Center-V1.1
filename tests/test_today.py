@@ -77,6 +77,16 @@ def test_today_aggregate_and_brief(flask_app, monkeypatch):
     r = c.post("/api/today/brief_settings", json={"enabled": True, "hour": 0}, headers=_h(c))
     assert r.get_json()["ok"] is True
 
+    # Enabled after today's send hour → no email today (first one is tomorrow morning)
+    app_module._daily_brief_tick()
+    assert sent == []
+
+    # Next morning: simulate by clearing the claimed day
+    def _next_day(rec):
+        rec["settings"]["daily_brief"].pop("last_sent", None)
+        return rec
+    app_module.update_user(uname, _next_day)
+    app_module._invalidate_users_cache()
     app_module._daily_brief_tick()
     app_module._daily_brief_tick()  # same day: must not send twice
     assert len(sent) == 1

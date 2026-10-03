@@ -148,3 +148,40 @@ def test_other_user_cannot_touch_clips(studio, flask_app):
         s["user"] = "intruder"
     assert c2.get(f"/api/vclips/{cid}/file").status_code == 404
     assert c2.post(f"/api/vclips/{cid}", headers=h2, json={"title": "x"}).status_code == 404
+
+
+def test_many_cuts_never_drop_the_ending():
+    cuts = [(i + 0.2, i + 0.6) for i in range(0, 200)]  # 200 tiny silences in a 200s clip
+    segs = app_module._vc_keep_segments(0.0, 200.0, cuts)
+    assert len(segs) <= app_module._VC_MAX_SEGS
+    assert abs(segs[-1][1] - 200.0) < 1e-6 and segs[0][0] == 0.0  # start and END both kept
+
+
+def test_reslice_keeps_cuts_and_spelling_fixes():
+    c = {"words": [{"w": "a", "s": 5.0, "e": 5.2}, {"w": "Jon", "s": 5.3, "e": 5.6}, {"w": "um", "s": 5.7, "e": 5.9}],
+         "deleted": [2]}
+    c["words"][1]["w"] = "John"  # user's spelling fix
+    wider = [{"w": "intro", "s": 1.0, "e": 1.4}, {"w": "a", "s": 5.0, "e": 5.2},
+             {"w": "Jon", "s": 5.3, "e": 5.6}, {"w": "um", "s": 5.7, "e": 5.9}]
+    app_module._vc_reslice_words(c, wider)
+    assert c["deleted"] == [3]                 # still the "um", not whatever shifted into index 2
+    assert c["words"][2]["w"] == "John"        # fix survived
+
+
+def test_orphaned_render_is_restarted(studio):
+    c, h, vid, uname = studio
+    cid = c.post("/api/vclips", headers=h, json={"video_id": vid, "start": 0, "end": 2}).get_json()["clip"]["id"]
+    assert _wait_clip(c, cid)["status"] == "ready"
+    # Simulate a worker restart mid-render: status stuck on "rendering", no live thread
+    app_module._vc_update(uname, cid, lambda x: x.update({"status": "rendering"}))
+    with app_module._VC_ACTIVE_LOCK:
+        app_module._VC_ACTIVE.discard((uname, cid))
+    assert _wait_clip(c, cid)["status"] == "ready"   # list endpoint revived it
+
+
+def test_bad_numbers_are_400_not_500(studio):
+    c, h, vid, uname = studio
+    cid = c.post("/api/vclips", headers=h, json={"video_id": vid, "start": 0, "end": 2}).get_json()["clip"]["id"]
+    _wait_clip(c, cid)
+    assert c.post(f"/api/vclips/{cid}", headers=h, json={"start": "abc"}).status_code == 400
+    assert c.post(f"/api/vclips/{cid}", headers=h, json={"word_edits": {"x": "y"}}).status_code == 400
