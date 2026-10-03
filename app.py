@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.0")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -28093,7 +28093,7 @@ _VC_ASPECTS = {"original": None, "9:16": (720, 1280), "1:1": (720, 720), "16:9":
 _VC_STYLES = ("bold", "clean", "pop")
 _VC_FILLERS = {"um", "uh", "uhm", "umm", "erm", "er", "ah", "hmm", "mm", "uh-huh"}
 _VC_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
-_VC_FONT_NAME = os.getenv("VCLIP_FONT_NAME", "Montserrat")
+_VC_FONT_NAME = os.getenv("VCLIP_FONT_NAME", "Montserrat ExtraBold")  # bundled in assets/fonts (OFL)
 _VC_MAX_LEN = 600.0
 
 
@@ -28305,7 +28305,7 @@ def _vc_build_ass(W: int, H: int, words: List[Dict[str, Any]], style: str, hook:
     base = min(W, H)
     portrait = H > W
     hl = _ass_color(color)
-    size = {"bold": 0.085, "clean": 0.058, "pop": 0.092}.get(style, 0.085) * base
+    size = {"bold": 0.095, "clean": 0.06, "pop": 0.102}.get(style, 0.095) * base
     margin_v = int(H * (0.24 if portrait else 0.09))
     if style == "clean":
         cap_style = (f"Style: Cap,{_VC_FONT_NAME},{size:.0f},&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,"
