@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.5")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17430,23 +17430,19 @@ def api_crm_clients_update(client_id: str):
         c["custom_fields"] = payload.get("custom_fields") or {}
     c["updated_at"] = now_iso()
     c = _crm_enrich_client_record(c)
+    # Pipeline rules applied inline (they're pure + instant — only ever set
+    # pipeline_stage), same as on create. They used to run in a background
+    # thread that re-loaded the WHOLE CRM and saved it back afterwards, which
+    # silently erased any task/contact/note saved in between (lost update).
+    try:
+        c = _crm_apply_pipeline_rules(uname, c)
+    except Exception:
+        pass
     clients[client_id] = c
     crm["clients"] = clients
     _crm_save(uname, crm)
     if payload.get("notes") and payload["notes"].strip():
         _crm_activity_append(uname, client_id, "note", payload["notes"].strip()[:200])
-    # Apply pipeline rules in background (they may invoke LLM — don't block the response)
-    def _bg_rules():
-        try:
-            crm2 = _crm_load(uname)
-            clients2 = crm2.get("clients") or {}
-            if client_id in clients2:
-                clients2[client_id] = _crm_apply_pipeline_rules(uname, clients2[client_id])
-                crm2["clients"] = clients2
-                _crm_save(uname, crm2)
-        except Exception:
-            pass
-    threading.Thread(target=_bg_rules, daemon=True).start()
     return jsonify({"ok": True, "client": c})
 
 @app.delete("/api/crm/clients/<client_id>")
@@ -22233,12 +22229,109 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
     }
 
 
+_RECAP_MIN_GAP_S = 3 * 3600   # "while you were away" only after a real break
+
+
+def _today_engagement(u: Dict[str, Any], p: Dict[str, Any]) -> None:
+    """Daily check-in streak, 'while you were away' recap, and yesterday's
+    'first thing tomorrow' focus. Mutates the Today payload in place. Called
+    only from the Today endpoint (not the brief email) so a streak day means
+    the person actually showed up."""
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    osd = _os_load(uname)
+    eng = osd.get("today_engagement") if isinstance(osd.get("today_engagement"), dict) else {}
+    today_s = p["date"]
+    today_d = datetime.strptime(today_s, "%Y-%m-%d").date()
+    streak, best = int(eng.get("streak") or 0), int(eng.get("best") or 0)
+    last_day = eng.get("last_day") or ""
+    if last_day != today_s:
+        yesterday = (today_d - timedelta(days=1)).strftime("%Y-%m-%d")
+        streak = streak + 1 if last_day == yesterday else 1
+    best = max(best, streak)
+
+    recap: List[Dict[str, Any]] = []
+    prev_seen = eng.get("last_seen") or ""
+    try:
+        prev_dt = datetime.fromisoformat(prev_seen.replace("Z", "")) if prev_seen else None
+    except Exception:
+        prev_dt = None
+    if prev_dt and (_utcnow() - prev_dt).total_seconds() >= _RECAP_MIN_GAP_S:
+        prev_iso = prev_dt.isoformat()
+        try:
+            away_days = max(0, (today_d - prev_dt.date()).days)
+            newly_due = [f for f in p.get("followups") or [] if f["days_overdue"] < max(1, away_days)]
+            if newly_due:
+                recap.append({"icon": "👥", "text": f"{len(newly_due)} follow-up{'s' if len(newly_due) != 1 else ''} came due",
+                              "detail": ", ".join(f["name"] for f in newly_due[:3]), "action": "people"})
+        except Exception:
+            pass
+        try:
+            done_clips = [c for c in _vc_load(uname) if c.get("status") == "ready" and str(c.get("rendered_at") or "") > prev_iso]
+            if done_clips:
+                recap.append({"icon": "🎞", "text": f"{len(done_clips)} clip{'s' if len(done_clips) != 1 else ''} finished rendering",
+                              "detail": ", ".join(c.get("title") or "Clip" for c in done_clips[:3]), "action": "clips"})
+        except Exception:
+            pass
+        try:
+            sent = 0
+            for camp in (_drip_load(uname) or {}).values():
+                for enr in ((camp or {}).get("enrollments") or {}).values():
+                    if str((enr or {}).get("last_sent_at") or "") > prev_iso:
+                        sent += 1
+            if sent:
+                recap.append({"icon": "📧", "text": f"{sent} drip email{'s' if sent != 1 else ''} went out for you", "detail": "", "action": "email"})
+        except Exception:
+            pass
+        try:
+            npath = Path(DATA_DIR) / f"notif_{uname}.json"
+            notifs = json.loads(npath.read_text(encoding="utf-8")) if npath.exists() else []
+            unread = sum(1 for n in notifs if not n.get("read"))
+            if unread:
+                recap.append({"icon": "🔔", "text": f"{unread} unread notification{'s' if unread != 1 else ''}", "detail": "", "action": "notifs"})
+        except Exception:
+            pass
+
+    nf = eng.get("next_focus") if isinstance(eng.get("next_focus"), dict) else {}
+    suggested = ""
+    if nf.get("text") and str(nf.get("day") or "") <= today_s and not p.get("objective"):
+        suggested = nf["text"]
+
+    eng.update({"streak": streak, "best": best, "last_day": today_s, "last_seen": now_iso()})
+    osd["today_engagement"] = eng
+    _os_save(uname, osd)
+    p["streak"] = {"count": streak, "best": best}
+    p["recap"] = recap
+    p["suggested_focus"] = suggested
+
+
 @app.get("/api/today")
 def api_today():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    return jsonify(_today_payload(u))
+    p = _today_payload(u)
+    try:
+        _today_engagement(u, p)
+    except Exception as e:
+        _capture_error(e, context="today_engagement")   # never break Today over the extras
+    return jsonify(p)
+
+
+@app.post("/api/today/next_focus")
+def api_today_next_focus():
+    """'What's the first thing tomorrow?' — shown as tomorrow's suggested focus."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    text = str((request.get_json(silent=True) or {}).get("text") or "").strip()[:200]
+    tomorrow = (_user_now_local(uname).date() + timedelta(days=1)).strftime("%Y-%m-%d")
+    osd = _os_load(uname)
+    eng = osd.get("today_engagement") if isinstance(osd.get("today_engagement"), dict) else {}
+    eng["next_focus"] = {"text": text, "day": tomorrow} if text else {}
+    osd["today_engagement"] = eng
+    _os_save(uname, osd)
+    return jsonify({"ok": True, "day": tomorrow})
 
 
 @app.post("/api/today/brief_settings")
@@ -28570,7 +28663,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
             words_now, deleted_now = c.get("words"), c.get("deleted") or []
             m_start, m_end = c["m_start"], c["m_end"]
             def _done(x):
-                x.update({"status": "ready", "error": "", "note": " ".join(notes), "size": size,
+                x.update({"status": "ready", "error": "", "note": " ".join(notes), "size": size, "rendered_at": now_iso(),
                           "duration": round(total, 2), "version": ver, "file": clip_name, "thumb": thumb_name,
                           "width": W, "height": H, "words": words_now, "deleted": deleted_now,
                           "m_start": m_start, "m_end": m_end})
@@ -30617,6 +30710,7 @@ def _drip_tick(uname):
 
                 if sent:
                     sends_left -= 1
+                    enr["last_sent_at"] = now.isoformat()   # feeds the Today "while you were away" recap
                     enr["step_idx"] = step_idx + 1
                     if enr["step_idx"] >= len(steps):
                         enr["done"] = True

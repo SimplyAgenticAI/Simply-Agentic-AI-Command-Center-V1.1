@@ -97,3 +97,49 @@ def test_today_aggregate_and_brief(flask_app, monkeypatch):
     # Turning it off stops sends
     c.post("/api/today/brief_settings", json={"enabled": False}, headers=_h(c))
     assert c.get("/api/today").get_json()["brief"]["enabled"] is False
+
+
+def test_streak_recap_and_tomorrow_focus(flask_app):
+    from datetime import datetime as _dt, timedelta as _td
+    c = flask_app.test_client()
+    uname = "streaktester"
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+    app_module._invalidate_users_cache()
+    h = {"X-CSRF-Token": c.get("/api/csrf_token").get_json()["csrf_token"]}
+    with c.session_transaction() as s:
+        s["user"] = uname
+
+    d = c.get("/api/today").get_json()
+    assert d["streak"]["count"] == 1 and d["recap"] == []
+
+    today = _dt.strptime(d["date"], "%Y-%m-%d").date()
+    def _set_eng(**kw):
+        osd = app_module._os_load(uname)
+        osd["today_engagement"].update(kw)
+        app_module._os_save(uname, osd)
+
+    # Came back the next day after a 20h break → streak 2, recap considered
+    _set_eng(last_day=(today - _td(days=1)).strftime("%Y-%m-%d"),
+             last_seen=(app_module._utcnow() - _td(hours=20)).isoformat() + "Z", streak=1)
+    npath = app_module.Path(app_module.DATA_DIR) / f"notif_{uname}.json"
+    npath.write_text('[{"title":"x","read":false}]', encoding="utf-8")
+    d = c.get("/api/today").get_json()
+    assert d["streak"]["count"] == 2
+    assert any("notification" in r["text"] for r in d["recap"])
+
+    # Reload a minute later → no recap again, streak unchanged
+    d = c.get("/api/today").get_json()
+    assert d["recap"] == [] and d["streak"]["count"] == 2
+
+    # Missed a day → streak resets to 1, best remembered
+    _set_eng(last_day=(today - _td(days=3)).strftime("%Y-%m-%d"), streak=6, best=6)
+    d = c.get("/api/today").get_json()
+    assert d["streak"] == {"count": 1, "best": 6}
+
+    # "First thing tomorrow" becomes the suggested focus once its day arrives
+    assert c.post("/api/today/next_focus", headers=h, json={"text": "Call Dana"}).get_json()["ok"]
+    _set_eng(next_focus={"text": "Call Dana", "day": today.strftime("%Y-%m-%d")})
+    d = c.get("/api/today").get_json()
+    assert d["suggested_focus"] == "Call Dana"

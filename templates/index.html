@@ -33812,13 +33812,40 @@ function _saEsc(s){
 .st-ask textarea{height:48px;resize:none;}
 .st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:13px;color:#cbd5e1;}
 .st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
+.st-streak{font-size:13px;font-weight:800;color:#fde68a;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:5px 11px;white-space:nowrap;}
+.st-streak.hot{background:linear-gradient(135deg,rgba(245,158,11,.3),rgba(236,72,153,.25));box-shadow:0 0 18px rgba(245,158,11,.25);}
+.st-recap{background:rgba(99,102,241,.1);border:1px solid rgba(129,140,248,.3);border-radius:14px;padding:12px 14px;margin-bottom:6px;}
+.st-recap-h{font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#a5b4fc;margin-bottom:6px;display:flex;justify-content:space-between;}
+.st-recap-i{display:flex;gap:9px;align-items:baseline;padding:5px 2px;font-size:14px;cursor:pointer;border-radius:8px;}
+.st-recap-i:hover{background:rgba(255,255,255,.04);}
+.st-recap-i .d{font-size:12px;color:#94a3b8;}
+.st-celebrate{text-align:center;background:linear-gradient(135deg,rgba(16,185,129,.14),rgba(250,204,21,.1));border:1px solid rgba(52,211,153,.4);border-radius:16px;padding:18px;margin:6px 0 4px;animation:stPop .45s cubic-bezier(.2,1.4,.4,1);}
+.st-cel-title{font-size:20px;font-weight:800;color:#f8fafc;margin-top:6px;}
+.st-cel-sub{font-size:13px;color:#cbd5e1;margin-top:3px;}
+@keyframes stPop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+.st-confetti{position:fixed;top:-12px;width:9px;height:14px;border-radius:2px;z-index:9600;pointer-events:none;animation:stFall linear forwards;}
+@keyframes stFall{to{transform:translateY(105vh) rotate(720deg);opacity:.2}}
+@media(prefers-reduced-motion:reduce){.st-confetti{display:none}.st-celebrate{animation:none}}
 @media(max-width:720px){ #saToday{padding:12px 8px 90px;}.st-card{padding:18px 16px;}.st-greet{font-size:20px;}.st-row{flex-wrap:wrap;}}
 </style>
 <div id="saToday" role="dialog" aria-modal="true" aria-label="Today">
   <div class="st-card">
     <div class="st-top">
       <div><div class="st-greet" id="stGreet">Good morning</div><div class="st-date" id="stDate"></div></div>
-      <button class="st-x" onclick="saCloseToday()" title="Close">&times;</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="stStreak" class="st-streak" style="display:none;"></div>
+        <button class="st-x" onclick="saCloseToday()" title="Close">&times;</button>
+      </div>
+    </div>
+    <div id="stRecap" class="st-recap" style="display:none;"></div>
+    <div id="stCelebrate" class="st-celebrate" style="display:none;">
+      <div style="font-size:34px;line-height:1;">🎉</div>
+      <div class="st-cel-title">Day cleared!</div>
+      <div class="st-cel-sub">Every to-do and follow-up handled. Set tomorrow up for an easy start:</div>
+      <div class="st-focus" style="margin-top:10px;">
+        <input id="stTomorrowInput" maxlength="200" placeholder="First thing tomorrow is…" />
+        <button class="st-btn pri" onclick="saTodaySaveTomorrow()">Save</button>
+      </div>
     </div>
     <div class="st-sec">
       <div class="st-h">Today's focus</div>
@@ -33847,7 +33874,49 @@ function _saEsc(s){
 <script>
 (function(){
   'use strict';
-  var _data = null;
+  var _data = null, _hadWork = false;
+
+  // Recap shortcuts — jump straight to whatever came in while you were away
+  function recapGo(action){
+    if(action==='people'){ var el=document.getElementById('stPeople'); if(el) el.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    window.saCloseToday();
+    if(action==='clips'){ if(window.showVideoEditorModal) window.showVideoEditorModal(); if(window.vcShowTab) window.vcShowTab('clips'); }
+    else if(action==='email'){ var b=document.getElementById('crmBtn'); if(b) b.click(); setTimeout(function(){ var t=document.getElementById('crmTabDrip'); if(t) t.click(); },250); }
+    else if(action==='notifs'){ if(typeof window.toggleNotifPanel==='function') window.toggleNotifPanel(); else { var nb=document.getElementById('notifBellBtn'); if(nb) nb.click(); } }
+  }
+
+  // Day cleared → celebrate + plan tomorrow's first move
+  function checkCleared(){
+    if(!_hadWork) return;
+    var rows=[].slice.call(document.querySelectorAll('#stTasks .st-row, #stPeople .st-row'));
+    if(!rows.length || rows.some(function(r){ return !r.classList.contains('st-done'); })) return;
+    var cel=document.getElementById('stCelebrate');
+    if(cel.style.display!=='none') return;
+    cel.style.display='';
+    cel.scrollIntoView({behavior:'smooth',block:'center'});
+    confetti();
+    setTimeout(function(){ var i=document.getElementById('stTomorrowInput'); if(i) i.focus(); }, 500);
+  }
+  function confetti(){
+    try{ if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; }catch(_){}
+    var cols=['#facc15','#f472b6','#34d399','#60a5fa','#a78bfa','#fb923c'];
+    for(var k=0;k<70;k++){
+      var s=document.createElement('span'); s.className='st-confetti';
+      s.style.left=(Math.random()*100)+'vw'; s.style.background=cols[k%cols.length];
+      s.style.animationDuration=(1.6+Math.random()*1.6)+'s'; s.style.animationDelay=(Math.random()*0.35)+'s';
+      s.style.transform='rotate('+(Math.random()*360)+'deg)';
+      document.body.appendChild(s);
+      setTimeout((function(n){ return function(){ n.remove(); }; })(s), 3800);
+    }
+  }
+  window.saTodaySaveTomorrow = async function(){
+    var v=(document.getElementById('stTomorrowInput').value||'').trim(); if(!v) return;
+    try{
+      var r=await fetch('/api/today/next_focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:v})});
+      var d=await r.json();
+      if(d.ok){ toast('🌅 Saved — it\'ll be waiting for you tomorrow','success'); document.getElementById('stCelebrate').innerHTML='<div style="font-size:15px;color:#d1fae5;font-weight:700;">✓ Tomorrow starts with: '+esc(v)+'</div>'; }
+    }catch(e){ toast(String(e),'error'); }
+  };
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function toast(m,t){ if(typeof window.showToast==='function') window.showToast(m,t); }
   function fmtTime(hm){ if(!hm) return ''; var p=hm.split(':'); var h=+p[0]; if(isNaN(h)) return hm; return ((h%12)||12)+':'+(p[1]||'00')+(h<12?' am':' pm'); }
@@ -33858,7 +33927,31 @@ function _saEsc(s){
     var h = d.hour;
     document.getElementById('stGreet').textContent = h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
     document.getElementById('stDate').textContent = d.date_label || '';
-    var fi = document.getElementById('stFocusInput'); if(document.activeElement!==fi) fi.value = d.objective || '';
+    var fi = document.getElementById('stFocusInput');
+    if(document.activeElement!==fi){
+      fi.value = d.objective || d.suggested_focus || '';
+      fi.title = (!d.objective && d.suggested_focus) ? 'You planned this yesterday — press Set to lock it in' : '';
+      fi.style.borderColor = (!d.objective && d.suggested_focus) ? 'rgba(250,204,21,.6)' : '';
+    }
+
+    // Streak
+    var sk = document.getElementById('stStreak'), st = d.streak || {};
+    if(st.count >= 2){ sk.style.display=''; sk.className='st-streak'+(st.count>=5?' hot':''); sk.textContent='🔥 '+st.count+'-day streak'; sk.title='Best: '+(st.best||st.count)+' days. Open Today each day to keep it going.'; }
+    else if(st.count === 1 && st.best > 1){ sk.style.display=''; sk.className='st-streak'; sk.textContent='🌱 Day 1'; sk.title='Best streak: '+st.best+' days — start a new one today'; }
+    else sk.style.display='none';
+
+    // While you were away
+    var rc = document.getElementById('stRecap');
+    if(d.recap && d.recap.length){
+      rc.style.display='';
+      rc.innerHTML = '<div class="st-recap-h"><span>While you were away</span><button class="st-x" style="font-size:16px" onclick="this.closest(\'#stRecap\').style.display=\'none\'" title="Dismiss">&times;</button></div>' +
+        d.recap.map(function(r,i){ return '<div class="st-recap-i" data-i="'+i+'"><span>'+esc(r.icon)+'</span><span>'+esc(r.text)+(r.detail?' <span class="d">· '+esc(r.detail)+'</span>':'')+'</span></div>'; }).join('');
+      [].forEach.call(rc.querySelectorAll('.st-recap-i'), function(el){
+        el.onclick = function(){ recapGo(d.recap[+el.getAttribute('data-i')].action); };
+      });
+    } else rc.style.display='none';
+    document.getElementById('stCelebrate').style.display='none';
+    _hadWork = (d.tasks.length + d.followups.length) > 0;
 
     var ev = document.getElementById('stEvents');
     if(!d.calendar_connected){
@@ -33916,7 +34009,8 @@ function _saEsc(s){
     try{
       var r = await fetch('/api/os/session_objective',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:v})});
       var d = await r.json();
-      if(d.ok){ toast('✓ Focus set'); var pill=document.getElementById('sessionObjectivePill'); if(pill) pill.textContent = v || 'No objective set'; }
+      if(d.ok){ toast('✓ Focus set'); var pill=document.getElementById('sessionObjectivePill'); if(pill) pill.textContent = v || 'No objective set';
+        var fi2=document.getElementById('stFocusInput'); if(fi2){ fi2.style.borderColor=''; fi2.title=''; } if(_data) _data.objective=v; }
       else toast(d.error||'Could not save focus','error');
     }catch(e){ toast(String(e),'error'); }
   };
@@ -33929,7 +34023,7 @@ function _saEsc(s){
     try{
       var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       var d = await r.json();
-      if(d.ok){ var row = btn.closest('.st-row'); row.style.opacity='.35'; row.style.textDecoration='line-through'; btn.textContent='✓'; }
+      if(d.ok){ var row = btn.closest('.st-row'); row.style.opacity='.35'; row.style.textDecoration='line-through'; row.classList.add('st-done'); btn.textContent='✓'; checkCleared(); }
       else { btn.disabled=false; toast(d.error||'Could not update task','error'); }
     }catch(e){ btn.disabled=false; toast(String(e),'error'); }
   };
@@ -33955,7 +34049,7 @@ function _saEsc(s){
       var d = await r.json();
       if(d.ok){
         fetch('/api/crm/clients/'+encodeURIComponent(f.id)+'/activity',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'contact',detail:'Reached out (from Today)'})}).catch(function(){});
-        var row = btn.closest('.st-row'); row.style.opacity='.35'; toast('✓ Logged — next follow-up '+localISO(next));
+        var row = btn.closest('.st-row'); row.style.opacity='.35'; row.classList.add('st-done'); toast('✓ Logged — next follow-up '+localISO(next)); checkCleared();
       } else { btn.disabled=false; toast(d.error||'Could not update contact','error'); }
     }catch(e){ btn.disabled=false; toast(String(e),'error'); }
   };
