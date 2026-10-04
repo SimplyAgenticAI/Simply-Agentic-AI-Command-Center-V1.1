@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.3")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -24077,9 +24077,14 @@ def api_dashboard():
         # emails sent from messages log
         messages = crm.get("messages") or []
         emails_sent = sum(1 for m in messages if isinstance(m, dict) and m.get("ok") and m.get("channel","email")=="email")
-        # active enrollments
-        enrollments = crm.get("enrollments") or {}
-        active_enrollments = sum(1 for e in (enrollments.values() if isinstance(enrollments, dict) else enrollments) if isinstance(e, dict) and (e.get("status") or "active")=="active")
+        # Active email automations = running Drip Campaigns. (Legacy "sequences"
+        # enrollments are never executed and have no UI — counting them showed a
+        # number for automation that wasn't actually running.)
+        try:
+            _drips = _drip_load(uname) or {}
+            active_enrollments = sum(1 for d in _drips.values() if isinstance(d, dict) and d.get("status") == "active")
+        except Exception:
+            active_enrollments = 0
         stats["crm"] = {
             "total_clients": len(clients),
             "stages": stages,

@@ -9696,6 +9696,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       ov.appendChild(chatPanel);
 
       ov.addEventListener("click", (e) => { if(e.target === ov) closeManifestView(); });
+      // The figure turns to follow the cursor (smoothed in _manifestDraw)
+      ov.addEventListener("mousemove", (e) => {
+        const r = canvas.getBoundingClientRect(); if(!r.width) return;
+        _manifestMouseX = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width/2)) / (r.width*0.9)));
+      });
+      ov.addEventListener("mouseleave", () => { _manifestMouseX = 0; });
       document.body.appendChild(ov);
       return ov;
     }
@@ -9860,38 +9866,142 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       }
       return false;
     }
+    // ── V9.7.4 HOLOGRAM MODEL ─────────────────────────────────────────────
+    // The figure is now a true 3D surface point cloud (~1,200 pts sampled on
+    // the capsule skins + head sphere, each with depth) instead of 210 flat
+    // dots. Every frame it's yawed (gentle sway + follows the mouse) and
+    // perspective-projected, so all 7 styles get depth, parallax and a
+    // readable silhouette for free. Edges/constellations use a sparse subset
+    // so the line styles stay clean rather than turning into scribble.
+    const _MF_N_BODY = 1000, _MF_N_HEAD = 110;   // head kept sparser — dense head + glow blew out to white and hid the face
+    let _mfF = {cy:1, sy:0, intro:1, breath:0, nod:0};   // per-frame transform (set in _manifestDraw)
+    let _manifestMouseX = 0, _manifestYaw = 0;
     function _manifestBuildModel(){
       if(_manifestPTS.length) return;
-      let tr=0;
-      while(_manifestPTS.length<210 && tr<24000){ tr++;
-        const x=Math.random()*186-93, y=Math.random()*364-174;
-        if(_mfInside(x,y)) _manifestPTS.push({x,y,ph:Math.random()*6.283,r:0.7+Math.random()*1.7});
+      // Area-weighted capsule surface sampling
+      const segs=_MF_SEG.map(g=>{ const vx=g[2]-g[0], vy=g[3]-g[1], L=Math.hypot(vx,vy)||1;
+        return {g, L, nx:-vy/L, ny:vx/L, w:L*(g[4]+g[5])}; });
+      const W=segs.reduce((s,x)=>s+x.w,0);
+      for(let n=0;n<_MF_N_BODY;n++){
+        let r=Math.random()*W, s=segs[0]; for(const x of segs){ if(r<x.w){ s=x; break; } r-=x.w; }
+        const g=s.g, t=Math.random(), th=Math.random()*6.283;
+        const ax=g[0]+(g[2]-g[0])*t, ay=g[1]+(g[3]-g[1])*t, rr=g[4]+(g[5]-g[4])*t;
+        _manifestPTS.push(_mfMkPt(ax+rr*Math.cos(th)*s.nx, ay+rr*Math.cos(th)*s.ny, rr*Math.sin(th), 0));
       }
-      for(let i=0;i<_manifestPTS.length;i++){ const near=[];
-        for(let j=0;j<_manifestPTS.length;j++){ if(i===j)continue;
-          const dx=_manifestPTS[i].x-_manifestPTS[j].x, dy=_manifestPTS[i].y-_manifestPTS[j].y, d=dx*dx+dy*dy;
-          if(d<27*27) near.push([d,j]); }
+      for(let n=0;n<_MF_N_HEAD;n++){
+        const u=Math.random()*2-1, th=Math.random()*6.283, s2=Math.sqrt(1-u*u), R=_MF_HEAD[2];
+        _manifestPTS.push(_mfMkPt(_MF_HEAD[0]+R*s2*Math.cos(th), _MF_HEAD[1]+R*u, R*s2*Math.sin(th), 1));
+      }
+      // Sparse network for edge/constellation styles (every 4th point, 3D-nearest)
+      const net=[]; for(let i=0;i<_manifestPTS.length;i+=4) net.push(i);
+      for(const i of net){ const near=[], P=_manifestPTS[i];
+        for(const j of net){ if(i===j) continue; const Q=_manifestPTS[j];
+          const d=(P.x-Q.x)**2+(P.y-Q.y)**2+(P.z-Q.z)**2; if(d<30*30) near.push([d,j]); }
         near.sort((a,b)=>a[0]-b[0]);
         for(let k=0;k<Math.min(3,near.length);k++){ const j=near[k][1]; if(i<j) _manifestEDGES.push([i,j]); } }
-      for(let i=0;i<_manifestPTS.length;i+=3){ let best=-1,bd=1e9;
-        for(let j=0;j<_manifestPTS.length;j++){ if(j===i)continue;
-          const dx=_manifestPTS[i].x-_manifestPTS[j].x, dy=_manifestPTS[i].y-_manifestPTS[j].y, d=dx*dx+dy*dy;
-          if(d>18*18 && d<48*48 && d<bd){bd=d;best=j;} }
+      for(let a=0;a<net.length;a+=3){ const i=net[a], P=_manifestPTS[i]; let best=-1,bd=1e9;
+        for(const j of net){ if(j===i) continue; const Q=_manifestPTS[j];
+          const d=(P.x-Q.x)**2+(P.y-Q.y)**2+(P.z-Q.z)**2; if(d>20*20 && d<52*52 && d<bd){ bd=d; best=j; } }
         if(best>=0 && i<best) _manifestCONST.push([i,best]); }
+    }
+    function _mfMkPt(x,y,z,head){
+      // start position on a big sphere → points stream in and assemble on open
+      const u=Math.random()*2-1, th=Math.random()*6.283, s=Math.sqrt(1-u*u), R=260+Math.random()*140;
+      return {x,y,z,head, ph:Math.random()*6.283, r:0.55+Math.random()*1.25,
+              sx:R*s*Math.cos(th), sy:R*u-40, sz:R*s*Math.sin(th), d:Math.random()*0.45};
     }
     function _mfRgba(hex,a){ const n=parseInt(hex.slice(1),16); return "rgba("+((n>>16)&255)+","+((n>>8)&255)+","+(n&255)+","+a+")"; }
     function _mfBrighten(hex,amt){ const n=parseInt(hex.slice(1),16);
       let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
       r=Math.round(r+(255-r)*amt); g=Math.round(g+(255-g)*amt); b=Math.round(b+(255-b)*amt);
       return "#"+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
-    function _mfP(i,t,cx,cy,sc,e){ const p=_manifestPTS[i];
-      const jx=Math.sin(t*1.6+p.ph)*(0.5+e*1.7), jy=Math.cos(t*1.3+p.ph)*(0.5+e*1.3);
-      return [cx+(p.x+jx)*sc, cy+(p.y+jy)*sc]; }
+    // Local (model) → posed 3D: breathing chest, head nod, intro assembly
+    function _mfPose(p,t,e){
+      let x=p.x, y=p.y, z=p.z;
+      if(!p.head && y>-104 && y<-4){ const k=1+_mfF.breath*0.022; x*=k; z*=k; }       // chest breathes
+      if(p.head){ y+=_mfF.nod; }                                                       // head nods/bobs
+      const jx=Math.sin(t*1.6+p.ph)*(0.25+e*1.2), jy=Math.cos(t*1.3+p.ph)*(0.25+e*0.9);
+      x+=jx; y+=jy;
+      const it=_mfF.intro;
+      if(it<1){ let q=(it-p.d)/(1-p.d); q=q<0?0:q>1?1:q; q=1-Math.pow(1-q,3);            // easeOutCubic per point
+        x=p.sx+(x-p.sx)*q; y=p.sy+(y-p.sy)*q; z=p.sz+(z-p.sz)*q; }
+      return [x,y,z];
+    }
+    // Posed 3D → screen: yaw + perspective. Returns [sx, sy, depth01, persp]
+    function _mfProj(x,y,z,cx,cy,sc){
+      const xr=x*_mfF.cy + z*_mfF.sy, zr=-x*_mfF.sy + z*_mfF.cy;
+      const f=520/(520-zr);
+      return [cx+xr*sc*f, cy+y*sc*f, Math.max(0,Math.min(1,(zr+46)/92)), f];
+    }
+    // Wireframe/constellation lines only appear once the body has assembled —
+    // during the intro they'd stretch between in-flight particles (scribble).
+    function _mfLineFade(){ const f=(_mfF.intro-0.72)/0.28; return f<0?0:f>1?1:f; }
+    function _mfP(i,t,cx,cy,sc,e){ const q=_mfPose(_manifestPTS[i],t,e); return _mfProj(q[0],q[1],q[2],cx,cy,sc); }
     function _mfBodyDots(ctx,inst,cx,cy,sc,alpha,tw2){ const tm=inst.tm, t=inst.t, e=inst.energy;
-      for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e);
-        const tw=0.5+0.5*Math.sin(t*2.4+_manifestPTS[i].ph); const bright=tw2 && tw>0.93;
-        ctx.beginPath(); ctx.arc(xy[0],xy[1],_manifestPTS[i].r*(0.9+e*0.6)*(bright?1.8:1),0,6.283);
-        ctx.fillStyle=_mfRgba(bright?tm.a:tm.c, Math.min(1,alpha*(0.4+tw*0.6)+e*0.25)); ctx.fill(); } }
+      for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e), dep=xy[2];
+        const tw=0.5+0.5*Math.sin(t*2.4+_manifestPTS[i].ph); const bright=tw2 && tw>0.95;
+        const hd=_manifestPTS[i].head?0.55:1;
+        const rad=_manifestPTS[i].r*(0.7+dep*0.75)*xy[3]*(0.9+e*0.5)*(bright?1.8:1)*(hd<1?0.8:1);
+        ctx.fillStyle=_mfRgba((bright||dep>0.82)?tm.a:tm.c, Math.min(1,(alpha*(0.35+tw*0.45)+e*0.2)*(0.3+dep*0.95)*hd));
+        ctx.beginPath(); ctx.arc(xy[0],xy[1],rad,0,6.283); ctx.fill(); } }
+    // Translucent body volume behind the points — gives a clear, solid read of
+    // the silhouette. Source-over at low alpha, redrawn per frame (no buildup).
+    function _mfHoloBody(ctx,cx,cy,sc,tm,e,t){
+      if(_mfF.intro<0.35) return;
+      const fade=Math.min(1,(_mfF.intro-0.35)/0.5);
+      ctx.save(); ctx.lineCap="round";
+      const grad=ctx.createLinearGradient(0,cy-170*sc,0,cy+160*sc);
+      grad.addColorStop(0,_mfRgba(tm.a,(0.13+e*0.05)*fade)); grad.addColorStop(0.55,_mfRgba(tm.c,(0.08+e*0.04)*fade)); grad.addColorStop(1,_mfRgba(tm.c,0.015*fade));
+      ctx.strokeStyle=grad; ctx.fillStyle=grad;
+      for(const g of _MF_SEG){
+        const ky=(g[1]>-104&&g[1]<-4)?1+_mfF.breath*0.022:1;
+        const a=_mfProj(g[0]*ky,g[1],0,cx,cy,sc), b=_mfProj(g[2]*ky,g[3],0,cx,cy,sc);
+        ctx.lineWidth=(g[4]+g[5])*sc*a[3]*0.92;
+        ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+      const h=_mfProj(_MF_HEAD[0],_MF_HEAD[1]+_mfF.nod,0,cx,cy,sc);
+      ctx.beginPath(); ctx.arc(h[0],h[1],_MF_HEAD[2]*sc*h[3]*0.97,0,6.283); ctx.fill();
+      // faint holo scanlines clipped to the body band
+      ctx.globalAlpha=0.05*fade; ctx.fillStyle=tm.a;
+      for(let yy=cy-175*sc+((t*28)%6); yy<cy+160*sc; yy+=6){ ctx.fillRect(cx-70*sc,yy,140*sc,1); }
+      ctx.restore();
+    }
+    // Eyes (blink) + a mouth that moves while the teammate is speaking.
+    function _mfFace(ctx,cx,cy,sc,tm,e,t){
+      if(_mfF.intro<0.8) return;
+      const fade=Math.min(1,(_mfF.intro-0.8)/0.2);
+      const blinkPh=(t*0.55)%4.2, blink=blinkPh<0.09?0.12:1;
+      const speaking=!!window._saTtsPlaying;
+      const mouthOpen=speaking?(0.25+0.75*Math.abs(Math.sin(t*13.0))*(0.45+0.55*Math.abs(Math.sin(t*3.1)))):0.08;
+      const R=_MF_HEAD[2], hy=_MF_HEAD[1]+_mfF.nod;
+      const feats=[[-9.5,hy-3,R*0.9,"eye"],[9.5,hy-3,R*0.9,"eye"],[0,hy+11,R*0.86,"mouth"]];
+      for(const f of feats){
+        const p=_mfProj(f[0],f[1],f[2],cx,cy,sc);
+        if(p[2]<0.55) continue;                                   // facing away → hidden
+        const vis=Math.min(1,(p[2]-0.55)/0.25)*fade, s=sc*p[3];
+        ctx.save(); ctx.globalCompositeOperation="lighter";
+        const gl=ctx.createRadialGradient(p[0],p[1],0,p[0],p[1],9*s);
+        gl.addColorStop(0,_mfRgba(tm.a,0.16*vis)); gl.addColorStop(1,_mfRgba(tm.a,0));
+        ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(p[0],p[1],9*s,0,6.283); ctx.fill(); ctx.restore();
+        ctx.fillStyle=_mfRgba("#ffffff",0.92*vis);
+        ctx.beginPath();
+        if(f[3]==="eye") ctx.ellipse(p[0],p[1],3.0*s*_mfF.cy,3.3*s*blink,0,0,6.283);
+        else ctx.ellipse(p[0],p[1],6.2*s*_mfF.cy,(0.8+mouthOpen*3.4)*s,0,0,6.283);
+        ctx.fill();
+      }
+    }
+    // Rotating hologram projector under the feet
+    function _mfPlatform(ctx,W,H,cx,cy,sc,tm,e,t){
+      const py=cy+158*sc; ctx.save(); ctx.globalCompositeOperation="lighter";
+      for(let k=0;k<3;k++){ const rx=(62+k*22)*sc, ry=rx*0.2;
+        ctx.strokeStyle=_mfRgba(k===1?tm.a:tm.c,(0.18-k*0.04)+e*0.06); ctx.lineWidth=k===0?1.6:1;
+        ctx.setLineDash(k===2?[4,7]:[]); ctx.lineDashOffset=-t*20*(k%2?1:-1);
+        ctx.beginPath(); ctx.ellipse(cx,py,rx,ry,0,0,6.283); ctx.stroke(); }
+      ctx.setLineDash([]);
+      for(let k=0;k<24;k++){ const a=t*0.4+k/24*6.283, rx=84*sc, ry=rx*0.2;
+        const x=cx+Math.cos(a)*rx, y=py+Math.sin(a)*ry;
+        ctx.fillStyle=_mfRgba(tm.a,0.22*(0.6+0.4*Math.sin(a))); ctx.fillRect(x-1,y-1,2,2); }
+      ctx.restore();
+    }
     // Soft head/heart highlights with a subtle HEARTBEAT — a gentle double-thump
     // ("lub-dub") keeping the figure alive at head & chest. Energy is CAPPED and
     // core alpha kept low with a tight mid-falloff so the additive "lighter"
@@ -9903,7 +10013,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       ctx.save(); ctx.globalCompositeOperation="lighter";
       const spots=[[-140,25],[-70,21]];
       for(const s of spots){ const gx=cx, gy=cy+s[0]*sc, R=s[1]*sc*(1+eg*0.3)*(1+0.06*hb);
-        const core=(0.13+eg*0.13)*beat;
+        const core=(0.13+eg*0.13)*beat*(s[0]===-140?0.4:1);   // head glow softened so the face reads
         const g=ctx.createRadialGradient(gx,gy,0,gx,gy,R);
         g.addColorStop(0,_mfRgba(tm.a,core)); g.addColorStop(0.5,_mfRgba(tm.a,core*0.4)); g.addColorStop(1,_mfRgba(tm.a,0));
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(gx,gy,R,0,6.283); ctx.fill(); } ctx.restore(); }
@@ -9980,7 +10090,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         for(let i=0;i<cols.length;i++){ const c=cols[i]; c.y+=c.sp*dt*(1+e*1.4);
           if(c.y>H+30) c.y=-Math.random()*90; const x=i*cw+cw*0.5;
           for(let k=0;k<13;k++){ const yy=c.y-k*cw; if(yy<-cw||yy>H+cw) continue;
-            const inb=_mfInside((x-cx)/sc,(yy-cy)/sc);
+            const inb=_mfInside((x-cx)/sc/Math.max(0.6,_mfF.cy),(yy-cy)/sc);   // un-yaw the silhouette test
             const ch=_MF_GLY[(i*7+k+((c.y*0.12)|0))%_MF_GLY.length];
             let al=k===0?0.95:Math.max(0,0.5-k*0.045);
             ctx.fillStyle=inb?_mfRgba(tm.a,Math.min(1,al+0.45)):_mfRgba(tm.c,al*0.5);
@@ -9995,11 +10105,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           ctx.fillStyle=_mfRgba(tm.a,0.25*tw*s.z); ctx.beginPath(); ctx.arc(s.x,s.y,s.z*1.3,0,6.283); ctx.fill(); }
         const hx=cx, hy=cy-140*sc, R=52*sc;
         const g=ctx.createRadialGradient(hx+8*sc,hy-6*sc,R*0.2,hx,hy,R);
-        g.addColorStop(0,_mfRgba(tm.a,0.16+e*0.12)); g.addColorStop(1,_mfRgba(tm.a,0));
+        g.addColorStop(0,_mfRgba(tm.a,0.07+e*0.06)); g.addColorStop(1,_mfRgba(tm.a,0));
         ctx.fillStyle=g; ctx.beginPath(); ctx.arc(hx,hy,R,0,6.283); ctx.fill(); ctx.restore();
         ctx.save(); ctx.globalCompositeOperation="lighter";
         for(const ed of _manifestCONST){ const a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
-          ctx.strokeStyle=_mfRgba(tm.c,0.12+e*0.2); ctx.lineWidth=0.8; ctx.beginPath();
+          ctx.strokeStyle=_mfRgba(tm.c,(0.12+e*0.2)*_mfLineFade()); ctx.lineWidth=0.8; ctx.beginPath();
           ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); } ctx.restore();
         _mfBodyDots(ctx,inst,cx,cy,sc,0.5,true);
         inst.st.shoot-=inst.dt; if(inst.st.shoot<0){ inst.st.sx=Math.random()*W*0.6; inst.st.sy=Math.random()*H*0.4;
@@ -10021,11 +10131,11 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         ctx.lineWidth=1;
         for(let ei=0;ei<_manifestEDGES.length;ei++){ const ed=_manifestEDGES[ei], a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
           const pulse=0.5+0.5*Math.sin(t*2.4 - ei*0.12);
-          ctx.strokeStyle=_mfRgba(tm.c,Math.min(0.8,0.09+pulse*0.22+e*0.3));
+          ctx.strokeStyle=_mfRgba(tm.c,Math.min(0.8,0.09+pulse*0.22+e*0.3)*_mfLineFade());
           ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
-        for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e); const hot=Math.sin(t*3+_manifestPTS[i].ph)>0.86;
-          ctx.beginPath(); ctx.arc(xy[0],xy[1],hot?2.4:1.1,0,6.283);
-          ctx.fillStyle=_mfRgba(hot?tm.a:tm.c,hot?0.95:0.5+e*0.4); ctx.fill(); }
+        for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e), dep=xy[2]; const hot=Math.sin(t*3+_manifestPTS[i].ph)>0.9;
+          ctx.beginPath(); ctx.arc(xy[0],xy[1],(hot?2.2:0.9)*(0.7+dep*0.7)*xy[3],0,6.283);
+          ctx.fillStyle=_mfRgba(hot?tm.a:tm.c,(hot?0.95:0.45+e*0.35)*(0.3+dep*0.9)); ctx.fill(); }
         _mfGlows(ctx,cx,cy,sc,tm,e*0.7); _mfGround(ctx,W,H,tm,e);
       },
       solar(ctx,W,H,inst,cx,cy,sc){ const tm=inst.tm,t=inst.t,e=inst.energy;
@@ -10053,12 +10163,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         for(let gy=0;gy<H;gy+=gs){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); } ctx.restore();
         const scanLocal=152-((t*46)%306), scanY=cy+scanLocal*sc;
         for(let ei=0;ei<_manifestEDGES.length;ei++){ const ed=_manifestEDGES[ei], a=_mfP(ed[0],t,cx,cy,sc,e), b=_mfP(ed[1],t,cx,cy,sc,e);
-          ctx.strokeStyle=_mfRgba(tm.c,0.1+e*0.24); ctx.lineWidth=0.9;
+          ctx.strokeStyle=_mfRgba(tm.c,(0.1+e*0.24)*_mfLineFade()); ctx.lineWidth=0.9;
           ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
-        for(let i=0;i<_manifestPTS.length;i++){ const xy=_mfP(i,t,cx,cy,sc,e);
-          const near=Math.max(0,1-Math.abs(xy[1]-scanY)/(22*sc)); const s=(1.4+near*2.2);
+        for(let i=0;i<_manifestPTS.length;i+=2){ const xy=_mfP(i,t,cx,cy,sc,e), dep=xy[2];
+          const near=Math.max(0,1-Math.abs(xy[1]-scanY)/(22*sc)); const s=(1.0+near*2.2)*(0.7+dep*0.6);
           ctx.beginPath(); ctx.moveTo(xy[0],xy[1]-s); ctx.lineTo(xy[0]+s,xy[1]); ctx.lineTo(xy[0],xy[1]+s); ctx.lineTo(xy[0]-s,xy[1]); ctx.closePath();
-          ctx.fillStyle=_mfRgba(near>0.3?tm.a:tm.c, 0.45+near*0.5+e*0.2); ctx.fill(); }
+          ctx.fillStyle=_mfRgba(near>0.3?tm.a:tm.c, (0.45+near*0.5+e*0.2)*(0.35+dep*0.8)); ctx.fill(); }
         ctx.save(); ctx.globalCompositeOperation="lighter"; ctx.strokeStyle=_mfRgba(tm.a,0.5); ctx.lineWidth=1.4;
         ctx.beginPath(); ctx.moveTo(cx-70*sc,scanY); ctx.lineTo(cx+70*sc,scanY); ctx.stroke(); ctx.restore();
         _mfGlows(ctx,cx,cy,sc,tm,e*0.7); _mfGround(ctx,W,H,tm,e);
@@ -10106,10 +10216,21 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       if(!_manifestPTS.length) _manifestBuildModel();
       const inst = {tm:{style:_manifestStyleKey, c:_manifestC, a:_manifestA}, t:_manifestT, energy:energy, dt:0.018, st:_manifestSt};
-      const cx = W/2, cy = H*0.55, sc = (H*0.8/340) * (1 + energy*0.04);
+      const cx = W/2, cy = H*0.53, sc = (H*0.8/340) * (1 + energy*0.03);
+      // Per-frame pose: idle sway + turn toward the cursor, breathing, head nod
+      // (nods harder while speaking), and the materialize-in intro (~1.6s).
+      const targetYaw = Math.sin(_manifestT*0.32)*0.32 + _manifestMouseX*0.55;
+      _manifestYaw += (targetYaw - _manifestYaw) * 0.05;
+      _mfF.cy = Math.cos(_manifestYaw); _mfF.sy = Math.sin(_manifestYaw);
+      _mfF.intro = Math.min(1, _manifestT/1.6);
+      _mfF.breath = Math.sin(_manifestT*1.15);
+      _mfF.nod = Math.sin(_manifestT*0.9)*1.2 + (window._saTtsPlaying ? Math.sin(_manifestT*6.5)*1.6*Math.max(0.4,energy) : 0);
+      _mfHoloBody(ctx, cx, cy, sc, inst.tm, energy, _manifestT);
+      _mfPlatform(ctx, W, H, cx, cy, sc, inst.tm, energy, _manifestT);
       ctx.save();
       (_MF_RENDER[_manifestStyleKey] || _MF_RENDER.mesh)(ctx, W, H, inst, cx, cy, sc);
       ctx.restore();
+      _mfFace(ctx, cx, cy, sc, inst.tm, energy, _manifestT);
 
       // Dissolve the square canvas edge into the void (no more "cut-out box")
       // and cap any corner glow build-up.
@@ -10248,6 +10369,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       _manifestActivity = 0;
       _manifestActivityTarget = 0;
       _manifestSt = {};              // fresh per-style state (rain/embers/stars)
+      _manifestYaw = 0; _manifestMouseX = 0;   // intro always assembles facing the user
       _manifestBuildModel();
       // Match backing store to device pixels for a crisp figure (logical 480).
       const _mcv = document.getElementById("manifestCanvas");
@@ -25870,7 +25992,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
           <div class="sa-stat-card">
             <div style="font-size:22px;margin-bottom:4px;">⚡</div>
             <div class="sa-stat-num">${fmtNum(crm.active_enrollments||0)}</div>
-            <div class="sa-stat-lbl">Active Sequences</div>
+            <div class="sa-stat-lbl">Active Drip Campaigns</div>
           </div>
           <div class="sa-stat-card">
             <div style="font-size:22px;margin-bottom:4px;">📚</div>
