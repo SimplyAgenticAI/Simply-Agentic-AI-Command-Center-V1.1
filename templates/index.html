@@ -21477,7 +21477,10 @@ window.wcalDetSaveEvent = async function(encodedId){
   const evId=decodeURIComponent(encodedId||'');
   const dateVal=document.getElementById('detDate')?.value||'';
   const startVal=document.getElementById('detStart')?.value||'09:00';
-  const endVal=document.getElementById('detEnd')?.value||'10:00';
+  // The panel has a Duration box (detDur), not an end-time field — the old code
+  // read a non-existent #detEnd and saved every event as ending at 10:00.
+  const durMinsVal=Math.max(5,parseInt(document.getElementById('detDur')?.value||'60',10)||60);
+  const endVal=document.getElementById('detEnd')?.value||'';
   const title=(document.getElementById('detTitle')?.value||'').trim();
   const desc=(document.getElementById('detDesc')?.value||'').trim();
   const loc=(document.getElementById('detLocation')?.value||'').trim();
@@ -21512,10 +21515,14 @@ window.wcalDetSaveEvent = async function(encodedId){
   // Save to Google Calendar if we have date/time
   if(dateVal && startVal){
     const startDt=new Date(dateVal+'T'+startVal+':00');
-    const endDt=new Date(dateVal+'T'+(endVal||'10:00')+':00');
+    const endDt=endVal ? new Date(dateVal+'T'+endVal+':00') : new Date(startDt.getTime()+durMinsVal*60000);
     const payload={title,start:startDt.toISOString(),end:endDt.toISOString(),timezone:cal.tz,description:desc,location:loc,attendees,use_meet:useMeet};
+    // Existing event → patch it in place (move_event). Creating here made a
+    // duplicate on Google Calendar every time an event was edited and saved.
+    const url = evId ? '/api/calendar/move_event' : '/api/calendar/create_event';
+    if(evId){ payload.event_id=evId; payload.summary=title; }
     try{
-      const res=await fetch('/api/calendar/create_event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await res.json();
       if(!d.ok) throw new Error(d.error||'Failed');
       if(st) st.innerText='Saved ✓';
@@ -31462,6 +31469,7 @@ window._saPlReset=function(){
 (function(){
   // ── Stats strip loader ────────────────────────────────────────────
   function loadStats(){
+    if(!document.getElementById('ssContacts')) return; // stats strip was removed — skip 2 wasted requests per page load
     fetch('/api/clients').then(function(r){return r.json();}).then(function(d){
       if(d.ok && d.clients) document.getElementById('ssContacts').textContent = d.clients.length;
     }).catch(function(){});

@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.2")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1933,12 +1933,6 @@ try:
 except Exception:
     pass
 
-# Load persisted login lockouts (survives restarts)
-try:
-    _load_login_attempts()
-except Exception:
-    pass
-
 
 # =========================
 # AUDIT LOG SYSTEM
@@ -2182,6 +2176,10 @@ def _load_login_attempts() -> None:
                 _LOGIN_ATTEMPTS.update(raw)
     except Exception:
         pass
+
+# Load persisted lockouts (survives restarts). Must run AFTER the def above —
+# the old call site sat ~240 lines earlier and NameError'd silently.
+_load_login_attempts()
 
 def _persist_login_attempts() -> None:
     """Atomically write lockout state to disk. Must be called inside _LOGIN_ATTEMPTS_LOCK."""
@@ -17202,7 +17200,7 @@ def _crm_tick_once() -> None:
 
             if changed:
                 crm["enrollments"] = enroll
-                _crm_save(uname, crm)  # use _crm_save to enforce messages cap
+                _crm_save(username, crm)  # use _crm_save to enforce messages cap (was `uname` → NameError, progress never saved)
 
         except Exception:
             continue
