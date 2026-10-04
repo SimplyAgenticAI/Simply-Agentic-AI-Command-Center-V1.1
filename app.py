@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.4")
+APP_VERSION = os.getenv("APP_VERSION", "9.7.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -2755,6 +2755,11 @@ def _compress_response(response):
     """Gzip compress responses >1KB for text/html, application/json, text/javascript, text/css."""
     if response.direct_passthrough:
         return response
+    if response.is_streamed:
+        # get_data() on a streamed response drains the whole generator first —
+        # that buffered Lead Lab / transcription streams end-to-end, so their
+        # queue messages and keep-alive heartbeats never reached the browser.
+        return response
     if response.status_code < 200 or response.status_code >= 300:
         return response
     if "Content-Encoding" in response.headers:
@@ -2770,7 +2775,9 @@ def _compress_response(response):
     if len(data) < 1024:
         return response
     buf = io.BytesIO()
-    with gzip.GzipFile(mode="wb", fileobj=buf, compresslevel=6) as gz:
+    # Level 4 for big bodies (the ~1.9 MB app page): ~2x faster than 6 for a ~3%
+    # larger download — this ran on every page load in the single worker.
+    with gzip.GzipFile(mode="wb", fileobj=buf, compresslevel=4 if len(data) > 200_000 else 6) as gz:
         gz.write(data)
     compressed = buf.getvalue()
     if len(compressed) >= len(data):

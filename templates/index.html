@@ -25441,7 +25441,14 @@ if(typeof maybeAutoShowOnboarding === "function"){
     wireExit();
     wireOnboardingButtons();
     setTimeout(fetchOnboarding, 450);
-    setInterval(fetchOnboarding, 12000);
+    // Poll only while the checklist can still change and the tab is visible —
+    // it used to hit the server every 12s forever (~300 req/hour per open tab),
+    // even after onboarding was finished or dismissed.
+    setInterval(function(){
+      if(document.hidden) return;
+      if(onbData && (onbData.dismissed || onbData.all_done)) return;
+      fetchOnboarding();
+    }, 15000);
     // Auto-open if arriving from Getting Started guide via ?next_step=1
     try{
       if(new URLSearchParams(window.location.search).get("next_step")==="1"){
@@ -27805,8 +27812,10 @@ document.addEventListener("click", function(e) {
   document.addEventListener("DOMContentLoaded", function(){
     setTimeout(_refreshStateCache, 800);
   });
-  // Keep cache fresh so voice setting changes are picked up
-  setInterval(_refreshStateCache, 30000);
+  // Keep cache fresh so voice setting changes are picked up — but not from a
+  // hidden tab (catch up immediately when the tab comes back instead).
+  setInterval(function(){ if(!document.hidden) _refreshStateCache(); }, 30000);
+  document.addEventListener("visibilitychange", function(){ if(!document.hidden) _refreshStateCache(); });
 
   /* ─── TTS ─────────────────────────────────────────────────────────────────── */
   /* ── TTS helpers: split text into sentences so the first plays in ~0.5s ── */
@@ -35740,13 +35749,25 @@ window.addEventListener('focus', function(){
   }
   function init(){resize();pts=[];pulses=[];for(var i=0;i<N;i++)pts.push(mkPt());}
 
+  // Perf (V9.7.5): nodes drift <0.15px/frame, so ~30fps is visually identical
+  // to 60–144fps — and there's nothing to draw while a full-screen view covers
+  // the background. Both used to burn GPU continuously.
+  var _lastDraw=0, _covers=null;
+  function covered(){
+    if(!_covers) _covers=['videoEditorModal','manifestOverlay','saToday'].map(function(id){return document.getElementById(id);});
+    for(var c=0;c<_covers.length;c++){ var el=_covers[c] || (_covers[c]=document.getElementById(['videoEditorModal','manifestOverlay','saToday'][c]));
+      if(el && (el.classList.contains('open') || (el.style.display && el.style.display!=='none'))) return true; }
+    return false;
+  }
   function frame(now){
+    if(now-_lastDraw<32 || covered()){ if(!REDUCED) requestAnimationFrame(frame); return; }
+    _lastDraw=now;
     cx.clearRect(0,0,W,H);
     var i,j,p;
     // Slow wandering drift with soft screen-wrap (no bouncing)
     for(i=0;i<N;i++){
       p=pts[i];
-      p.a+=p.va; p.x+=Math.cos(p.a)*p.sp; p.y+=Math.sin(p.a)*p.sp; p.tp+=p.ts;
+      p.a+=p.va*2; p.x+=Math.cos(p.a)*p.sp*2; p.y+=Math.sin(p.a)*p.sp*2; p.tp+=p.ts*2;   // ×2: same speed at ~30fps
       if(p.x<-30)p.x=W+28; if(p.x>W+30)p.x=-28;
       if(p.y<-30)p.y=H+28; if(p.y>H+30)p.y=-28;
     }
@@ -35783,7 +35804,7 @@ window.addEventListener('focus', function(){
       pulses.push({a:e2[0],b:e2[1],p:0,sp:0.007+Math.random()*0.007});
     }
     for(i=pulses.length-1;i>=0;i--){
-      var pu=pulses[i];pu.p+=pu.sp;
+      var pu=pulses[i];pu.p+=pu.sp*2;
       if(pu.p>=1){
         var qq=quiet(pu.b.x,pu.b.y);
         cx.strokeStyle='rgba(34,211,238,'+(0.35*qq).toFixed(3)+')';cx.lineWidth=1.2;
@@ -35848,14 +35869,18 @@ window.addEventListener('focus', function(){
            tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
   }
 
-  function frame(){
+  var _lastT=0;
+  function frame(now){
+    // ~30fps is indistinguishable for this slow drift and halves the O(N²) work
+    if(now && now-_lastT<32){ animId=requestAnimationFrame(frame); return; }
+    _lastT=now||0;
     cx.clearRect(0,0,W,H);
     var i,j,p,dx,dy,d,la;
     for(i=0;i<N;i++){
-      p=pts[i];p.x+=p.vx;p.y+=p.vy;
+      p=pts[i];p.x+=p.vx*2;p.y+=p.vy*2;   // ×2 per frame at half the frame rate = same on-screen speed
       if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
       if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}
-      p.tp+=p.ts;
+      p.tp+=p.ts*2;
     }
     for(i=0;i<N;i++){
       for(j=i+1;j<N;j++){
@@ -35923,12 +35948,16 @@ window.addEventListener('focus', function(){
              r:Math.random()*1.8+0.9,c:c,al:Math.random()*0.35+0.28,
              tp:Math.random()*Math.PI*2,ts:Math.random()*0.007+0.003};
     }
-    function frame(){
+    var lastT=0;
+    function frame(now){
+      // ~30fps: same on-screen speed (×2 step), half the O(N²) link work
+      if(now && now-lastT<32){ animId=requestAnimationFrame(frame); return; }
+      lastT=now||0;
       cx.clearRect(0,0,W,H);
       var i,j,p,dx,dy,d,la,ci,tw;
-      for(i=0;i<N;i++){p=pts[i];p.x+=p.vx;p.y+=p.vy;
+      for(i=0;i<N;i++){p=pts[i];p.x+=p.vx*2;p.y+=p.vy*2;
         if(p.x<0){p.x=0;p.vx*=-1;}if(p.x>W){p.x=W;p.vx*=-1;}
-        if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}p.tp+=p.ts;}
+        if(p.y<0){p.y=0;p.vy*=-1;}if(p.y>H){p.y=H;p.vy*=-1;}p.tp+=p.ts*2;}
       for(i=0;i<N;i++)for(j=i+1;j<N;j++){
         dx=pts[i].x-pts[j].x;dy=pts[i].y-pts[j].y;d=Math.sqrt(dx*dx+dy*dy);
         if(d<MAXD){la=0.22*(1-d/MAXD);ci=pts[i].c;
