@@ -4165,7 +4165,7 @@ label {
                           emptyTitle:'No signals found yet',
                           emptySub:'Describe what you sell above to find companies actively signaling they need it right now.'},
     emailConsoleForm:    {icon:'📧',name:'Email Console',    tag:'Smart Outreach',           badge:'Live'},
-    crmForm:             {icon:'👥',name:'Client CRM',       tag:'Relationship Hub',         badge:'Live'},
+    crmForm:             {icon:'👥',name:'Contacts',         tag:'Relationship Hub',         badge:'Live'},
     leadHandoffForm:     {icon:'🤝',name:'Lead Handoff',     tag:'Teammate Outreach',        badge:'AI-Powered'},
     teamForm:            {icon:'🏆',name:'Your Team',        tag:'Seats & Invites',          badge:'Live'},
   };
@@ -5778,7 +5778,7 @@ label {
 </div>
 
 <div class="modalForm" id="crmForm" style="display:none;">
-  <div class="tiny" style="margin-bottom:10px;">Client Command Center. Clients and broadcasts without leaving the Round Table.</div>
+  <div class="tiny" style="margin-bottom:10px;">Your contacts, pipeline and broadcasts — without leaving the Round Table.</div>
 
   <div class="pillRow" id="crmNavTabs" style="justify-content:flex-start; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
     <button class="btn btnMini" id="crmTabPipeline">Pipeline</button>
@@ -5883,7 +5883,7 @@ label {
       <div class="formGrid2">
         <div><label>Audience</label>
           <select id="crmAudience">
-            <option value="all">All clients</option><option value="tag">Tag</option>
+            <option value="all">All contacts</option><option value="tag">Tag</option>
             <option value="stage">Pipeline stage</option><option value="status">Status</option>
             <option value="selected">Selected client IDs</option>
           </select>
@@ -6173,12 +6173,12 @@ label {
     </div>
 
     <div style="margin-top:12px; border:1px solid rgba(255,255,255,.18); border-radius:14px; padding:10px; background: rgba(0,0,0,.18);">
-      <div class="tiny" style="margin-bottom:8px;">Enroll client</div>
+      <div class="tiny" style="margin-bottom:8px;">Enroll contact</div>
       <div class="grid">
         <div>
-          <label>Client</label>
+          <label>Contact</label>
           <select id="crmEnrollClient" style="width:100%;background:rgba(7,10,20,.6);border:1px solid rgba(42,58,106,.6);border-radius:7px;padding:6px 8px;font-size:12px;color:#e2e8f0;outline:none;box-sizing:border-box;">
-            <option value="">-- Select client --</option>
+            <option value="">-- Select contact --</option>
           </select>
         </div>
         <div>
@@ -17956,7 +17956,7 @@ Challenge weak assumptions. Surface risks.`;
       setTimeout(()=>ed.scrollIntoView({behavior:'smooth', block:'nearest'}), 50);
       crmEditingClientId = id || null;
       const c = (crmCache.clients||[]).find(x=>x.id===id) || {name:'',email:'',phone:'',tags:[],status:'lead',pipeline_stage:'' ,notes:''};
-      $("crmEditTitle").innerText = id ? 'Edit client' : 'Add client';
+      $("crmEditTitle").innerText = id ? 'Edit contact' : 'Add contact';
       $("crmName").value = c.name || '';
       $("crmEmail").value = c.email || '';
       $("crmPhone").value = c.phone || '';
@@ -18052,7 +18052,7 @@ Challenge weak assumptions. Surface risks.`;
         await crmFetchClients();
         crmRenderClients();
         crmRenderPipelineBoard();
-        showToast('Client deleted');
+        showToast('Contact deleted');
       }catch(e){
         showToast('Delete failed');
       }
@@ -18448,7 +18448,11 @@ Challenge weak assumptions. Surface risks.`;
       const el=$("dripList"); if(!el) return;
       const keys = Object.keys(_dripCampaigns);
       if(!keys.length){
-        el.innerHTML='<div style="text-align:center;padding:32px 0;opacity:.45;font-size:13px;">No campaigns yet — click <strong>+ New Campaign</strong> to start.</div>';
+        el.innerHTML='<div style="text-align:center;padding:40px 20px;color:#a8b4c8;">'
+          +'<div style="font-size:32px;margin-bottom:10px;">💧</div>'
+          +'<div style="font-size:15px;font-weight:600;color:#cbd5e1;margin-bottom:6px;">No drip campaigns yet</div>'
+          +'<div style="font-size:13px;margin-bottom:16px;max-width:380px;margin-left:auto;margin-right:auto;">A drip sends a series of emails on a schedule — set it once and your follow-ups go out automatically.</div>'
+          +'<button class="btn btnPrimary" style="font-size:13px;" onclick="if(typeof dripOpenBuilder===\'function\')dripOpenBuilder();">+ New Campaign</button></div>';
         return;
       }
       const statusColor = {active:'#4ade80',paused:'#fbbf24',draft:'#cbd5e1'};
@@ -18657,7 +18661,11 @@ Challenge weak assumptions. Surface risks.`;
       if(!box) return;
       const list = crmCache.tasks || [];
       if(!list.length){
-        box.innerHTML = '<div class="tiny" style="opacity:.9;">No tasks yet.</div>';
+        box.innerHTML = '<div style="text-align:center;padding:36px 20px;color:#a8b4c8;">'
+          + '<div style="font-size:32px;margin-bottom:10px;">✅</div>'
+          + '<div style="font-size:15px;font-weight:600;color:#cbd5e1;margin-bottom:6px;">No tasks yet</div>'
+          + '<div style="font-size:13px;margin-bottom:16px;">Tasks with a due date show up on your ☀️ Today screen so nothing slips.</div>'
+          + '<button class="btn btnPrimary" style="font-size:13px;" onclick="var b=document.getElementById(\'crmNewTaskBtn\');if(b)b.click();">+ New task</button></div>';
         return;
       }
       box.innerHTML = list.map(t=>{
@@ -18811,7 +18819,7 @@ Challenge weak assumptions. Surface risks.`;
     function crmPopulateEnrollDropdowns(){
       var cs=$("crmEnrollClient"); var ss=$("crmEnrollSeq");
       if(cs){ var cv=cs.value;
-        cs.innerHTML='<option value="">-- Select client --</option>'
+        cs.innerHTML='<option value="">-- Select contact --</option>'
           +(crmCache.clients||[]).map(function(c){ return '<option value="'+escapeHtml(c.id||'')+'"'+(c.id===cv?' selected':'')+'>'+escapeHtml(c.name||c.email||c.id||'')+'</option>'; }).join('');
       }
       if(ss){ var sv=ss.value;
@@ -18823,11 +18831,11 @@ Challenge weak assumptions. Surface risks.`;
     async function crmEnroll(){
       const client_id = ($("crmEnrollClient").value||'').trim();
       const sequence_id = ($("crmEnrollSeq").value||'').trim();
-      if(!client_id||!sequence_id){ showToast('Select a client and sequence first.'); return; }
+      if(!client_id||!sequence_id){ showToast('Select a contact and sequence first.'); return; }
       // Show preview before enrolling
       const client = (crmCache.clients||[]).find(c=>c.id===client_id);
       const seq = (crmCache.sequences||[]).find(s=>s.id===sequence_id);
-      if(!client||!seq){ showToast('Could not find client or sequence.'); return; }
+      if(!client||!seq){ showToast('Could not find contact or sequence.'); return; }
       // Parse steps
       let steps = [];
       try{ steps = JSON.parse(seq.steps_json||'[]'); }catch(_){ try{ steps = JSON.parse(seq.steps||'[]'); }catch(_){} }
@@ -19806,7 +19814,7 @@ window.crmPipelineOpenClient = function(clientId){
     // ── One-click AI outreach draft ────────────────────────────
     window.crmPipelineDraft = function(clientId){
       const c = (crmCache.clients||[]).find(x=>x.id===clientId);
-      if(!c){ showToast('Client not found'); return; }
+      if(!c){ showToast('Contact not found'); return; }
       const hasEmail = !!(c.email||'').trim();
       const hasPhone = !!(c.phone||'').trim();
       // Show dialog asking what to draft before running
@@ -20897,7 +20905,7 @@ function wcalShowTaskDetail(task){
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <div class="wcal-detail-label">Pick a contact (auto-fills name &amp; email)</div>
       <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
         <option value="">— Select from CRM (optional) —</option>
       </select>
@@ -20905,9 +20913,9 @@ function wcalShowTaskDetail(task){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
       <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${task.on_complete_client_name||''}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${task.on_complete_client_email||''}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
@@ -21037,7 +21045,7 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <div class="wcal-detail-label">Pick a contact (auto-fills name &amp; email)</div>
       <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
         <option value="">— Select from CRM (optional) —</option>
       </select>
@@ -21045,9 +21053,9 @@ function wcalShowGcalTaskDetail(ev){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
       <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
@@ -21176,7 +21184,7 @@ function wcalShowEventDetail(ev){
     <input type="hidden" id="detMeet" value="${meetLink?'meet':''}" />
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
-      <div class="wcal-detail-label">Pick a CRM client (auto-fills name &amp; email)</div>
+      <div class="wcal-detail-label">Pick a contact (auto-fills name &amp; email)</div>
       <select class="wcal-detail-field" id="detCrmClient" onchange="wcalDetFillClientFromCRM(this.value)">
         <option value="">— Select from CRM (optional) —</option>
       </select>
@@ -21184,9 +21192,9 @@ function wcalShowEventDetail(ev){
       <select class="wcal-detail-field" id="detAutoTeammate">
         <option value="">— No email draft —</option>
       </select>
-      <div class="wcal-detail-label" style="margin-top:6px;">Client name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact name <span style="opacity:.6;font-weight:400;">(used in greeting)</span></div>
       <input class="wcal-detail-field" id="detAutoClientName" type="text" placeholder="e.g. Sarah" value="${(meta.on_complete_client_name||'').replace(/"/g,'&quot;')}" autocomplete="off" />
-      <div class="wcal-detail-label" style="margin-top:6px;">Client email address</div>
+      <div class="wcal-detail-label" style="margin-top:6px;">Contact email address</div>
       <input class="wcal-detail-field" id="detAutoEmail" type="email" placeholder="client@example.com" value="${(meta.on_complete_client_email||'').replace(/"/g,'&quot;')}" autocomplete="off" />
       <div class="wcal-automail-status" id="detAutoStatus"></div>
     </div>
@@ -24868,7 +24876,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
       const stages = await loadPipelineStages();
       const clientsRes = await fetch("/api/crm/clients");
       const clientsData = await clientsRes.json();
-      if(!clientsData.ok) throw new Error(clientsData.error||"Failed to load clients");
+      if(!clientsData.ok) throw new Error(clientsData.error||"Failed to load contacts");
       const clients = clientsData.clients || [];
       const board = document.getElementById("ccPipelineBoard");
       if(!board) return;
@@ -33246,6 +33254,7 @@ function openFullChat(){
   /* Delegate to the unified bottom sheet (saOpenSheet) */
   if(typeof window.saOpenSheet==='function' && _nm){ window.saOpenSheet(_nm); return; }
 }
+window.openFullChat = openFullChat;  // the mobile preview strip's inline onclick needs a global (was a dead tap)
 
 function closeFullChat(){
   var fc=ge('mobFullChat'); if(!fc) return;
@@ -34225,7 +34234,7 @@ function _saEsc(s){
   <div class="sa5-wbh"><div class="sa5-wbt">👋 Welcome to Simply Agentic!</div><button class="btn btnMini" onclick="sa5DismissBanner()">✕</button></div>
   <div class="sa5-wbs">You're a few steps away from your AI command center. Let's get your team set up.</div>
   <div class="sa5-wba">
-    <button class="btn btnPrimary" onclick="sa5DismissBanner();setTimeout(function(){if(typeof openOnboarding==='function')openOnboarding();},100);">Get Started →</button>
+    <button class="btn btnPrimary" onclick="sa5DismissBanner();setTimeout(function(){if(typeof window.onboardingOpen==='function')window.onboardingOpen();},100);">Get Started →</button>
     <button class="btn" onclick="sa5DismissBanner()">Maybe later</button>
   </div>
 </div>
