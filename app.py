@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.7.11")
+APP_VERSION = os.getenv("APP_VERSION", "9.8.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -22224,7 +22224,7 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
         "tasks": tasks[:20],
         "followups": followups[:8],
         "followups_total": len(followups),
-        "brief": {"enabled": bool(brief.get("enabled")), "hour": int(brief.get("hour") or 8),
+        "brief": {"enabled": bool(brief.get("enabled")), "hour": int(brief.get("hour") if brief.get("hour") is not None else 8),
                   "email": (u.get("email") or "").strip() if isinstance(u, dict) else ""},
     }
 
@@ -22413,7 +22413,7 @@ def _daily_brief_tick() -> None:
                 continue
             local_now = _user_now_local(uname)
             today_str = local_now.strftime("%Y-%m-%d")
-            if b.get("last_sent") == today_str or local_now.hour < int(b.get("hour") or 8):
+            if b.get("last_sent") == today_str or local_now.hour < int(b.get("hour") if b.get("hour") is not None else 8):
                 continue
             # Claim the day atomically (check + set under update_user's lock) so a
             # slow send or a concurrent tick can never send twice
@@ -28498,7 +28498,79 @@ def _vc_brand(uname: str) -> Dict[str, Any]:
     return {"color": d.get("color") or "#FFD400", "default_on": bool(d.get("default_on")),
             "logo": logo.name if logo else ""}
 
+_REC_LAYOUTS = ("bubble", "stacked", "screen", "cam")
+_REC_CORNERS = ("tl", "tr", "bl", "br")
+_REC_SIZES = {"s": 200, "m": 260, "l": 340}
+
+def _vc_rec_build_master(c: Dict[str, Any], cdir: Path) -> None:
+    """Build master.mp4 for a RECORDED clip by compositing its persistent
+    screen/camera tracks with the clip's layout. Tracks live in the clip dir,
+    so recorded clips can always be re-trimmed or re-laid-out."""
+    scr, cam = cdir / "rec_screen.mkv", cdir / "rec_cam.mkv"
+    has_s, has_c = scr.exists(), cam.exists()
+    if not (has_s or has_c):
+        raise _VcError("This recording's original tracks are missing — please record again.")
+    lay = c.get("layout") or {}
+    kind = lay.get("type") if lay.get("type") in _REC_LAYOUTS else ("bubble" if has_s and has_c else ("screen" if has_s else "cam"))
+    if kind in ("bubble", "stacked") and not (has_s and has_c):
+        kind = "screen" if has_s else "cam"
+    if kind == "screen" and not has_s:
+        kind = "cam"
+    if kind == "cam" and not has_c:
+        kind = "screen"
+    s, e = float(c["start"]), float(c["end"])
+    inputs, idx = [], {}
+    for name, path, use in (("s", scr, kind in ("bubble", "stacked", "screen")), ("c", cam, kind in ("bubble", "stacked", "cam"))):
+        if use:
+            idx[name] = len(inputs) // 6
+            inputs += ["-ss", f"{s:.3f}", "-t", f"{e - s:.3f}", "-i", str(path)]
+    bg = "0x0b0f1e"
+    if kind == "screen":
+        g = f"[{idx['s']}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[v]"
+    elif kind == "cam":
+        if has_s:   # camera-only view of a screen recording → vertical talking head for shorts
+            g = f"[{idx['c']}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1[v]"
+        else:       # a plain camera take keeps its own shape
+            g = f"[{idx['c']}:v]scale='min(1920,iw)':-2,scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[v]"
+    elif kind == "stacked":
+        g = (f"[{idx['s']}:v]scale=720:560:force_original_aspect_ratio=decrease,pad=720:560:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[top];"
+             f"[{idx['c']}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[bot];"
+             f"[top][bot]vstack=inputs=2[v]")
+    else:  # bubble
+        D = _REC_SIZES.get(lay.get("size") or "m", 260)
+        corner = lay.get("corner") if lay.get("corner") in _REC_CORNERS else "br"
+        m = 28
+        x = f"{m}" if corner in ("tl", "bl") else f"main_w-overlay_w-{m}"
+        y = f"{m}" if corner in ("tl", "tr") else f"main_h-overlay_h-{m}"
+        shape = "if(lte(hypot(X-W/2,Y-H/2),W/2),255,0)" if (lay.get("shape") or "circle") == "circle" else "255"
+        g = (f"[{idx['s']}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[bg];"
+             f"[{idx['c']}:v]crop='min(iw,ih)':'min(iw,ih)',scale={D}:{D},format=yuva420p,"
+             f"geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='{shape}'[cb];"
+             f"[bg][cb]overlay={x}:{y}:format=auto[v]")
+    # Audio lives on the screen track for screen modes, on the camera track for camera takes
+    a_src = None
+    if has_s and _ve_probe(scr)["has_audio"] and "s" in idx:
+        a_src = idx["s"]
+    elif has_c and "c" in idx and _ve_probe(cam)["has_audio"]:
+        a_src = idx["c"]
+    elif has_s and _ve_probe(scr)["has_audio"]:
+        inputs += ["-ss", f"{s:.3f}", "-t", f"{e - s:.3f}", "-i", str(scr)]
+        a_src = len(inputs) // 6 - 1
+    tmp = cdir / "master.part.mp4"
+    args = ["-y"] + inputs + ["-filter_complex", g, "-map", "[v]"]
+    args += (["-map", f"{a_src}:a:0", "-c:a", "aac", "-b:a", "192k"] if a_src is not None else ["-an"])
+    args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-r", "30",
+             "-shortest", "-movflags", "+faststart", str(tmp)]
+    ok, tail = _ve_ffmpeg(args, timeout=3600)
+    if not ok or not tmp.exists():
+        raise _VcError("Couldn't build this recording's layout — try a different layout or record again.")
+    tmp.replace(cdir / "master.mp4")
+    c["m_start"], c["m_end"] = s, e
+
+
 def _vc_make_master(c: Dict[str, Any], cdir: Path) -> None:
+    if c.get("rec"):
+        return _vc_rec_build_master(c, cdir)
     src = _ve_source_path(c.get("source_vid") or "")
     if not src:
         raise _VcError("The original upload has expired — you can only trim inside this clip's current range. Re-upload the video to extend it.")
@@ -28793,7 +28865,8 @@ def api_vclips_update(cid):
             s = float(b.get("start", x["start"])); e = float(b.get("end", x["end"]))
             if e - s < 0.5 or e - s > _VC_MAX_LEN or s < 0:
                 raise _VcError("Clip length must be between 0.5 seconds and 10 minutes.")
-            if (x.get("m_start") is not None and (s < float(x["m_start"]) - 0.01 or e > float(x["m_end"]) + 0.01)
+            if (not x.get("rec") and x.get("m_start") is not None
+                    and (s < float(x["m_start"]) - 0.01 or e > float(x["m_end"]) + 0.01)
                     and not _ve_source_path(x.get("source_vid") or "")):
                 raise _VcError("The original upload has expired, so this clip can only be trimmed shorter. "
                                "Re-upload the video to extend it.")
@@ -28802,6 +28875,17 @@ def api_vclips_update(cid):
                 rerender = True
         if "aspect" in b and b["aspect"] in _VC_ASPECTS and b["aspect"] != x.get("aspect"):
             x["aspect"] = b["aspect"]; rerender = True
+        if "layout" in b and isinstance(b["layout"], dict) and x.get("rec"):
+            cur = dict(x.get("layout") or {})
+            new = dict(cur)
+            if b["layout"].get("type") in _REC_LAYOUTS: new["type"] = b["layout"]["type"]
+            if b["layout"].get("corner") in _REC_CORNERS: new["corner"] = b["layout"]["corner"]
+            if b["layout"].get("size") in _REC_SIZES: new["size"] = b["layout"]["size"]
+            if b["layout"].get("shape") in ("circle", "square"): new["shape"] = b["layout"]["shape"]
+            if new != cur:
+                x["layout"] = new; rerender = True
+                try: (_vc_dir(uname) / cid / "master.mp4").unlink()   # force re-composite
+                except Exception: pass
         for k in ("mute", "remove_silence", "remove_fillers", "brand"):
             if k in b and bool(b[k]) != bool(x.get(k)):
                 x[k] = bool(b[k]); rerender = True
@@ -29242,6 +29326,192 @@ def api_vclips_to_planner(cid):
     posts.append(post)
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True, "post": post})
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  RECORD STUDIO (V9.8) — screen / screen+camera / camera recordings.
+#  The browser records the screen and the camera as SEPARATE tracks and
+#  streams chunks here while recording (nothing lost on a crash). Finish
+#  remuxes the tracks into seekable .mkv, keeps them in the clip dir, and
+#  composites them per the clip's layout (bubble / stacked / screen / cam),
+#  so the layout can be changed after recording.
+# ═══════════════════════════════════════════════════════════════════
+_REC_MODES = ("screen_cam", "screen", "cam")
+_REC_MAX_BYTES = 3 * _GB            # per recording, all tracks
+_REC_ID_RE = re.compile(r"^r[a-f0-9]{12}$")
+
+
+def _rec_dir(uname: str, rid: str) -> Path:
+    return _vc_dir(uname) / f"_rec_{rid}"
+
+
+def _rec_sweep(uname: str) -> None:
+    """Drop abandoned recording sessions older than 24h."""
+    import time as _t
+    for d in _vc_dir(uname).glob("_rec_*"):
+        try:
+            if d.is_dir() and _t.time() - d.stat().st_mtime > 86400:
+                _shutil_ve.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+
+@app.post("/api/rec/start")
+def api_rec_start():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    mode = b.get("mode") if b.get("mode") in _REC_MODES else "screen_cam"
+    q = _vc_check_quota(uname)
+    if q:
+        return q
+    _rec_sweep(uname)
+    rid = "r" + uuid.uuid4().hex[:12]
+    d = _rec_dir(uname, rid)
+    d.mkdir(parents=True, exist_ok=True)
+    save_json(d / "meta.json", {"mode": mode, "started": now_iso(), "next": {}, "bytes": 0,
+                                "title": (str(b.get("title") or "").strip() or "")[:80],
+                                "layout": b.get("layout") if isinstance(b.get("layout"), dict) else {}})
+    return jsonify({"ok": True, "rec_id": rid})
+
+
+@app.post("/api/rec/chunk")
+def api_rec_chunk():
+    """Append one chunk to a track. Chunks per track must arrive in order;
+    a re-sent chunk (retry after a lost response) is acknowledged, not re-appended."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    rid = (request.form.get("rec_id") or "").strip()
+    track = (request.form.get("track") or "").strip()
+    try:
+        idx = int(request.form.get("idx") or -1)
+    except ValueError:
+        idx = -1
+    f = request.files.get("chunk")
+    if not _REC_ID_RE.match(rid) or track not in ("screen", "cam") or idx < 0 or not f:
+        return jsonify({"ok": False, "error": "Bad chunk"}), 400
+    d = _rec_dir(uname, rid)
+    meta_p = d / "meta.json"
+    if not meta_p.exists():
+        return jsonify({"ok": False, "error": "Recording session not found"}), 404
+    with _VC_LOCK:
+        meta = load_json(meta_p, {}) or {}
+        nxt = int((meta.get("next") or {}).get(track, 0))
+        if idx < nxt:
+            return jsonify({"ok": True, "next": nxt, "dup": True})
+        if idx > nxt:
+            return jsonify({"ok": False, "error": "Out of order", "next": nxt}), 409
+        data = f.read()
+        if int(meta.get("bytes") or 0) + len(data) > _REC_MAX_BYTES:
+            return jsonify({"ok": False, "error": "Recording is too large (3 GB max)."}), 413
+        with open(d / f"{track}.webm", "ab") as out:
+            out.write(data)
+        meta.setdefault("next", {})[track] = nxt + 1
+        meta["bytes"] = int(meta.get("bytes") or 0) + len(data)
+        save_json(meta_p, meta)
+    return jsonify({"ok": True, "next": nxt + 1})
+
+
+@app.post("/api/rec/finish")
+def api_rec_finish():
+    """Seal a recording → clip in My Clips (background job; rendering follows)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    rid = (b.get("rec_id") or "").strip()
+    if not _REC_ID_RE.match(rid):
+        return jsonify({"ok": False, "error": "Bad recording id"}), 400
+    d = _rec_dir(uname, rid)
+    meta = load_json(d / "meta.json", None) if d.exists() else None
+    if not isinstance(meta, dict):
+        return jsonify({"ok": False, "error": "Recording session not found"}), 404
+    title = (str(b.get("title") or meta.get("title") or "").strip() or f"Recording {datetime.now().strftime('%b %d, %I:%M %p')}")[:80]
+
+    def _work():
+        tracks = {}
+        for t in ("screen", "cam"):
+            raw = d / f"{t}.webm"
+            if raw.exists() and raw.stat().st_size > 0:
+                mkv = d / f"rec_{t}.mkv"
+                # Remux (no re-encode) — MediaRecorder WebM has no seek index;
+                # mkv written by ffmpeg does, so trims/re-layouts seek fast.
+                ok, _ = _ve_ffmpeg(["-y", "-fflags", "+genpts", "-i", str(raw), "-c", "copy", str(mkv)], timeout=1800)
+                if not ok or not mkv.exists():
+                    ok, _ = _ve_ffmpeg(["-y", "-fflags", "+genpts", "-i", str(raw), "-c:v", "libx264", "-preset", "veryfast",
+                                        "-crf", "20", "-c:a", "aac", str(mkv)], timeout=3600)
+                if ok and mkv.exists():
+                    tracks[t] = mkv
+        if not tracks:
+            _shutil_ve.rmtree(d, ignore_errors=True)
+            return {"ok": False, "error": "The recording came through empty — check screen/camera permissions and try again."}
+        dur = max(_ve_probe(p)["duration"] for p in tracks.values())
+        if dur < 0.5:
+            _shutil_ve.rmtree(d, ignore_errors=True)
+            return {"ok": False, "error": "The recording was too short."}
+        mode = meta.get("mode") or "screen_cam"
+        lay = meta.get("layout") or {}
+        default_type = "bubble" if ("screen" in tracks and "cam" in tracks) else ("screen" if "screen" in tracks else "cam")
+        layout = {"type": lay.get("type") if lay.get("type") in _REC_LAYOUTS else default_type,
+                  "corner": lay.get("corner") if lay.get("corner") in _REC_CORNERS else "br",
+                  "size": lay.get("size") if lay.get("size") in _REC_SIZES else "m",
+                  "shape": "circle"}
+        c = _vc_new_clip(uname, "", 0.0, round(dur, 3), title=title, aspect="original")
+        cdir = _vc_dir(uname) / c["id"]
+        cdir.mkdir(parents=True, exist_ok=True)
+        for t, p in tracks.items():
+            p.replace(cdir / f"rec_{t}.mkv")
+        _shutil_ve.rmtree(d, ignore_errors=True)
+        _vc_update(uname, c["id"], lambda x: x.update({"rec": {"mode": mode, "tracks": sorted(tracks)}, "layout": layout}))
+        _vc_render(uname, u, c["id"])
+        done = _vc_get(uname, c["id"]) or {}
+        if done.get("status") != "ready":
+            return {"ok": False, "error": done.get("error") or "Rendering failed", "clip_id": c["id"]}
+        return {"ok": True, "clip_id": c["id"]}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key=f"rec:{rid}")})
+
+
+@app.post("/api/rec/script")
+def api_rec_script():
+    """AI-written teleprompter script for a recording."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = request.get_json(silent=True) or {}
+    topic = str(b.get("topic") or "").strip()[:600]
+    if not topic:
+        return jsonify({"ok": False, "error": "Tell me what the video is about."}), 400
+    try:
+        secs = max(15, min(600, int(b.get("seconds") or 60)))
+    except (TypeError, ValueError):
+        secs = 60
+    key = _vc_openai_key(u)
+    if not key:
+        return jsonify({"ok": False, "error": "Writing a script needs an OpenAI key — add yours in Settings."}), 400
+    op = _load_operator_profile(u.get("username", "")) or {}
+    voice = "; ".join(f"{k}: {str(op.get(k))[:300]}" for k in ("business", "offers", "audience", "tone", "brand_voice") if op.get(k))
+    words = int(secs * 2.3)
+    prompt = (f"Write a spoken script for a {secs}-second video about: {topic}\n"
+              f"Brand context: {voice or 'not provided'}\n"
+              f"About {words} words. Start with a scroll-stopping hook in the first sentence, keep sentences short and "
+              "conversational (it will be read aloud from a teleprompter), one idea per line, end with a clear call to action. "
+              "Return ONLY the script text — no headings, no stage directions, no quotes.")
+    try:
+        resp = OpenAI(api_key=key).chat.completions.create(
+            model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], max_tokens=1600, temperature=0.75)
+        text = (resp.choices[0].message.content or "").strip()
+    except Exception as exc:
+        try:
+            _, msg = _classify_openai_error(exc)
+        except Exception:
+            msg = str(exc)
+        return jsonify({"ok": False, "error": f"Couldn't write the script: {msg}"}), 500
+    return jsonify({"ok": True, "script": text})
 
 
 # ═══════════════════════════════════════════════════════════════════

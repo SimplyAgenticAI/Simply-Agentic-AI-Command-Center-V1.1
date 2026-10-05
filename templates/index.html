@@ -4430,7 +4430,7 @@ label {
 
           <div class="saMoreCol" id="saCreateDrop">
             <div class="saMoreHead">Create</div>
-            <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎙 Teleprompter</button>
+            <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎥 Record (screen · camera)</button>
             <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
             <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
             <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
@@ -16886,6 +16886,7 @@ Challenge weak assumptions. Surface risks.`;
       var _tpCtrlTimer=null, _tpCtrlVisible=true, _tpLastBlobUrl=null;
       var _tpPaused=false, _tpRecTimer=null, _tpRecSeconds=0, _tpBlobMime='', _tpClosing=false, _tpCamPending=false;
       var _tpLastBlob=null, _tpAutoSaveClose=false, _tpRestarting=false, _tpMicStream=null;
+      window._tpGetLastTake = function(){ return _tpLastBlob; };   // Record Studio: "Send to My Clips"
       var _tpIsIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
       // Voice-activated scroll pause state
       var _tpVoiceEnabled=false, _tpVoicePaused=false;
@@ -34470,10 +34471,10 @@ window.toggleNotifPanel = function(){
   <div style="position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden;">
   <div class="sa-float-header" style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(124,58,237,.3);background:rgba(7,9,26,.92);backdrop-filter:blur(12px);flex-shrink:0;">
     <div style="display:flex;align-items:center;gap:12px;">
-      <div style="font-size:calc(20px * var(--fs,1.1));">🎙</div>
+      <div style="font-size:calc(20px * var(--fs,1.1));">🎥</div>
       <div>
-        <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">Teleprompter</div>
-        <div style="font-size:calc(14.5px * var(--fs,1.1));color:#b0bdd0;">Read your script hands-free · camera preview · record &amp; download</div>
+        <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">Record</div>
+        <div style="font-size:calc(14.5px * var(--fs,1.1));color:#b0bdd0;">Camera, screen, or screen + you · teleprompter script · straight into My Clips</div>
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
@@ -34483,8 +34484,23 @@ window.toggleNotifPanel = function(){
     </div>
   </div>
   <div style="flex:1;overflow-y:auto;padding:24px;width:100%;box-sizing:border-box;">
+    <!-- Record Studio: what are we recording? -->
+    <div style="font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#cbd5e1;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">What are you recording?</div>
+    <div class="sr-modes" id="srModes">
+      <button data-m="cam"><span class="sr-mi">🎤</span><b>Camera</b><span>You + your script</span></button>
+      <button data-m="screen_cam"><span class="sr-mi">🖥️</span><b>Screen + me</b><span>Screen with your face bubble</span></button>
+      <button data-m="screen"><span class="sr-mi">🖥</span><b>Screen only</b><span>Screen + voiceover</span></button>
+    </div>
+    <div id="srScreenNote" class="sr-note" style="display:none;">A small floating window keeps your script, timer and stop button on top of every app while you record. Works in Chrome or Edge on a computer. Tip: share a single window or tab to keep the floating window out of your video.</div>
+
+    <div class="sr-ai">
+      <input id="srTopic" maxlength="600" placeholder="✨ What's the video about? e.g. 3 mistakes new coaches make with pricing">
+      <select id="srLen"><option value="30">30s</option><option value="60" selected>60s</option><option value="120">2 min</option><option value="300">5 min</option></select>
+      <button id="srWriteBtn" onclick="srWriteScript()">✨ Write my script</button>
+    </div>
+
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-      <div style="font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#cbd5e1;text-transform:uppercase;letter-spacing:.06em;">Your Script</div>
+      <div style="font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#cbd5e1;text-transform:uppercase;letter-spacing:.06em;">Your Script <span style="text-transform:none;letter-spacing:0;font-weight:400;color:#8a96aa;">(optional for screen recordings)</span></div>
       <button onclick="document.getElementById('tpScript').value='';if(typeof tpUpdateMeta==='function')tpUpdateMeta('');try{localStorage.removeItem('tp_script');}catch(e){}" style="font-size:calc(14.5px * var(--fs,1.1));color:#aab8cc;background:none;border:none;cursor:pointer;padding:2px 6px;">Clear</button>
     </div>
     <textarea id="tpScript" placeholder="Paste or type your script here..." style="width:100%;height:220px;background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;padding:12px 14px;font-size:calc(15px * var(--fs,1.1));color:#e2e8f0;resize:vertical;font-family:inherit;outline:none;box-sizing:border-box;line-height:1.7;" oninput="tpUpdateMeta(this.value)"></textarea>
@@ -34510,7 +34526,7 @@ window.toggleNotifPanel = function(){
       </div>
     </div>
     <div style="margin-top:24px;text-align:center;">
-      <button onclick="tpLaunch()" style="display:inline-flex;align-items:center;gap:8px;padding:13px 32px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:0 4px 18px rgba(124,58,237,.4);">&#128640; Launch Teleprompter</button>
+      <button id="srLaunchBtn" onclick="srLaunch()" style="display:inline-flex;align-items:center;gap:8px;padding:13px 32px;border-radius:12px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:0 4px 18px rgba(124,58,237,.4);">&#128640; Launch Teleprompter</button>
     </div>
     <!-- Recovery: an unsaved take survives here until it is saved or discarded -->
     <div id="tpLastTakeRow" style="display:none;margin-top:16px;padding:13px 15px;background:rgba(16,185,129,.10);border:1px solid rgba(16,185,129,.38);border-radius:10px;align-items:center;gap:12px;flex-wrap:wrap;">
@@ -34518,6 +34534,7 @@ window.toggleNotifPanel = function(){
         <div style="font-size:calc(14.5px * var(--fs,1.1));font-weight:700;color:#6ee7b7;">&#127909; Your last take is still here</div>
         <div id="tpLastTakeSize" style="font-size:calc(14px * var(--fs,1.1));color:#aab8cc;margin-top:2px;"></div>
       </div>
+      <button onclick="window.srSendTakeToClips&&window.srSendTakeToClips()" style="padding:11px 16px;border-radius:10px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;cursor:pointer;white-space:nowrap;">&#127902; Send to My Clips</button>
       <button onclick="window.tpSave()" style="padding:11px 20px;border-radius:10px;background:linear-gradient(135deg,#059669,#047857);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;cursor:pointer;white-space:nowrap;">&#128190; Save to Device</button>
       <button onclick="window.tpDiscardTake()" style="padding:11px 14px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#aab8cc;font-size:calc(14px * var(--fs,1.1));cursor:pointer;white-space:nowrap;">Discard</button>
     </div>
@@ -34607,11 +34624,336 @@ window.toggleNotifPanel = function(){
       <div style="color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));margin-top:2px;"><span id="tpSaveBarSize"></span></div>
     </div>
     <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button onclick="window.srSendTakeToClips&&window.srSendTakeToClips()" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:10px;padding:13px 18px;font-size:calc(15px * var(--fs,1.1));font-weight:800;cursor:pointer;white-space:nowrap;box-shadow:0 4px 16px rgba(124,58,237,.4);" title="Captions, cut ums, vertical shorts, post">&#127902; Send to My Clips</button>
       <button onclick="window.tpSave()" style="background:linear-gradient(135deg,#059669,#047857);color:#fff;border:none;border-radius:10px;padding:13px 26px;font-size:calc(15px * var(--fs,1.1));font-weight:800;cursor:pointer;white-space:nowrap;box-shadow:0 4px 16px rgba(16,185,129,.4);">&#128190; Save to Device</button>
       <button onclick="window.tpDismissSaveBar()" title="Hide (the take stays in the Teleprompter window)" style="background:rgba(255,255,255,.08);color:#cbd5e1;border:1px solid rgba(255,255,255,.20);border-radius:10px;padding:10px 14px;font-size:calc(15px * var(--fs,1.1));cursor:pointer;">&#10005;</button>
     </div>
   </div>
 </div>
+
+<!-- ═══ RECORD STUDIO (V9.8): screen / screen + me recorder ═══ -->
+<style>
+.sr-modes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+.sr-modes button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;padding:14px;border-radius:14px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.12);color:#e2e8f0;cursor:pointer;font-size:calc(15px * var(--fs,1.1));}
+.sr-modes button span{font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;}
+.sr-modes button .sr-mi{font-size:calc(22px * var(--fs,1.1));color:inherit;}
+.sr-modes button.on{border-color:#a78bfa;background:rgba(124,58,237,.18);box-shadow:0 0 0 3px rgba(167,139,250,.18);}
+.sr-note{font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:10px;padding:10px 12px;margin-bottom:12px;line-height:1.5;}
+.sr-ai{display:flex;gap:8px;margin:4px 0 16px;flex-wrap:wrap;}
+.sr-ai input{flex:1;min-width:220px;background:rgba(14,22,48,.85);border:1px solid rgba(124,58,237,.4);border-radius:10px;padding:10px 12px;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));}
+.sr-ai select{background:rgba(14,22,48,.85);border:1px solid rgba(42,58,106,.6);border-radius:10px;color:#e2e8f0;padding:8px;font-size:calc(14px * var(--fs,1.1));}
+.sr-ai button{background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:10px;color:#fff;font-weight:800;padding:10px 16px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));white-space:nowrap;}
+#srReady,#srBusy{position:fixed;inset:0;z-index:9999960;background:rgba(2,6,16,.82);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:16px;font-family:system-ui,sans-serif;}
+.sr-card{background:#0d1328;border:1px solid rgba(124,58,237,.45);border-radius:18px;padding:22px;width:min(640px,100%);color:#e2e8f0;box-shadow:0 30px 80px rgba(0,0,0,.6);}
+.sr-prev{display:flex;gap:10px;margin:12px 0 16px;align-items:flex-end;}
+.sr-prev video{background:#000;border-radius:10px;}
+.sr-big{background:linear-gradient(135deg,#ef4444,#db2777);border:none;border-radius:12px;color:#fff;font-weight:800;padding:13px 26px;cursor:pointer;font-size:calc(16px * var(--fs,1.1));}
+.sr-sec{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:12px;color:#e2e8f0;padding:12px 18px;cursor:pointer;font-size:calc(15px * var(--fs,1.1));}
+#srBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999970;display:none;align-items:center;gap:10px;background:rgba(10,12,26,.96);border:1.5px solid rgba(239,68,68,.55);border-radius:999px;padding:7px 9px 7px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-family:system-ui,sans-serif;color:#fecaca;font-size:calc(15px * var(--fs,1.1));font-weight:700;}
+#srBar button{border:none;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:calc(14px * var(--fs,1.1));}
+.sr-dot{width:10px;height:10px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;}
+#srCount{position:fixed;inset:0;z-index:9999980;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font:900 calc(150px * var(--fs,1.1))/1 system-ui,sans-serif;color:#fff;text-shadow:0 0 80px rgba(124,58,237,.9);}
+@media(max-width:640px){.sr-modes{grid-template-columns:1fr;}}
+</style>
+<div id="srReady"><div class="sr-card">
+  <div style="font-size:calc(20px * var(--fs,1.1));font-weight:800;">Ready to record</div>
+  <div id="srReadySub" style="color:#a8b4c8;margin-top:4px;font-size:calc(15px * var(--fs,1.1));"></div>
+  <div class="sr-prev"><video id="srPrevScreen" muted playsinline autoplay style="width:68%;max-height:240px;"></video><video id="srPrevCam" muted playsinline autoplay style="width:30%;transform:scaleX(-1);"></video></div>
+  <div id="srMicRow" style="font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;margin-bottom:14px;"></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <button class="sr-big" onclick="srBegin()">● Start recording</button>
+    <button class="sr-sec" onclick="srCancel()">Cancel</button>
+  </div>
+</div></div>
+<div id="srBusy"><div class="sr-card" style="text-align:center;">
+  <div class="vc-spin" style="margin:6px auto 14px;"></div>
+  <div id="srBusyTitle" style="font-size:calc(19px * var(--fs,1.1));font-weight:800;">Processing your recording…</div>
+  <div id="srBusySub" style="color:#a8b4c8;margin-top:6px;font-size:calc(15px * var(--fs,1.1));">Finishing the upload, then building your clip. You can keep working — it'll be in My Clips.</div>
+  <button class="sr-sec" style="margin-top:16px;" onclick="document.getElementById('srBusy').style.display='none'">Keep working</button>
+</div></div>
+<div id="srBar"><span class="sr-dot"></span><span id="srBarTime">0:00</span><span id="srBarUp" style="color:#a8b4c8;font-weight:600;"></span>
+  <button id="srBarPause" style="background:rgba(251,191,36,.2);color:#fde68a;" onclick="srTogglePause()">❚❚ Pause</button>
+  <button style="background:#ef4444;color:#fff;" onclick="srStop()">■ Stop</button></div>
+<div id="srCount"></div>
+<script>
+(function(){
+  'use strict';
+  var MAX_MS = 30*60*1000, SLICE = 2000;
+  var R = null;   // active recording state
+  function $(id){ return document.getElementById(id); }
+  function toast(m,t){ if(window.showToast) window.showToast(m,t); }
+  function fmt(ms){ var s=Math.floor(ms/1000), m=Math.floor(s/60); s%=60; return m+':'+(s<10?'0':'')+s; }
+  async function jpost(url, body){ var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); return r.json(); }
+
+  /* ── mode picker ─────────────────────────────────── */
+  function mode(){ try{ return localStorage.getItem('sr_mode')||'cam'; }catch(_){ return 'cam'; } }
+  function paintMode(){
+    var m=mode();
+    [].forEach.call(document.querySelectorAll('#srModes button'),function(b){ b.classList.toggle('on', b.getAttribute('data-m')===m); });
+    var lb=$('srLaunchBtn'); if(lb) lb.innerHTML = m==='cam' ? '&#128640; Launch Teleprompter' : '&#9679; Set up screen recording';
+    var n=$('srScreenNote'); if(n) n.style.display = m==='cam' ? 'none' : '';
+  }
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('#srModes button'); if(!b) return;
+    try{ localStorage.setItem('sr_mode', b.getAttribute('data-m')); }catch(_){}
+    paintMode();
+  });
+  paintMode();
+  window.srLaunch=function(){ var m=mode(); if(m==='cam'){ if(window.tpLaunch) window.tpLaunch(); return; } srPrepare(m); };
+
+  /* ── AI script ───────────────────────────────────── */
+  window.srWriteScript=async function(){
+    var topic=($('srTopic').value||'').trim(); if(!topic){ toast('Tell me what the video is about first','warning'); $('srTopic').focus(); return; }
+    var b=$('srWriteBtn'); b.disabled=true; b.textContent='⏳ Writing…';
+    try{
+      var d=await jpost('/api/rec/script',{topic:topic, seconds:+$('srLen').value});
+      if(!d.ok){ toast(d.error||'Could not write a script','error'); return; }
+      var ta=$('tpScript'); ta.value=d.script; if(window.tpUpdateMeta) window.tpUpdateMeta(d.script);
+      try{ localStorage.setItem('tp_script', d.script); }catch(_){}
+      toast('✨ Script ready — edit it however you like','success');
+    }catch(e){ toast(String(e),'error'); }
+    finally{ b.disabled=false; b.textContent='✨ Write my script'; }
+  };
+
+  /* ── step 1: pick screen + get camera/mic (user gesture) ── */
+  async function srPrepare(m){
+    if(!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) || !window.MediaRecorder){
+      toast('Screen recording needs Chrome or Edge on a computer','error'); return; }
+    if(R){ toast('A recording is already running','warning'); return; }
+    var ctl=null; try{ if(window.CaptureController) ctl=new CaptureController(); }catch(_){}
+    var screen;
+    try{
+      var opts={video:{frameRate:{ideal:30,max:30},width:{ideal:1920},height:{ideal:1080}}, audio:true,
+                selfBrowserSurface:'exclude', surfaceSwitching:'include', systemAudio:'include'};
+      if(ctl) opts.controller=ctl;
+      screen=await navigator.mediaDevices.getDisplayMedia(opts);
+      try{ if(ctl) ctl.setFocusBehavior('focus-capturing-application'); }catch(_){}   // stay here to press Start
+    }catch(e){ if(e && e.name!=='NotAllowedError') toast('Screen share failed: '+(e.message||e),'error'); return; }
+    var cam=null, mic=null;
+    var aud={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+    try{
+      if(m==='screen_cam'){
+        var s2=await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720},facingMode:'user'},audio:aud});
+        cam=new MediaStream(s2.getVideoTracks()); mic=new MediaStream(s2.getAudioTracks());
+      } else {
+        mic=await navigator.mediaDevices.getUserMedia({audio:aud});
+      }
+    }catch(e){
+      if(m==='screen_cam'){
+        try{ mic=await navigator.mediaDevices.getUserMedia({audio:aud}); }catch(_){}
+        toast('Camera unavailable — recording screen'+(mic?' + mic':'')+' only','warning'); m='screen';
+      } else toast('Microphone unavailable — recording without voice','warning');
+    }
+    R={mode:m, screen:screen, cam:cam, mic:mic, recs:{}, q:{screen:[],cam:[]}, idx:{screen:0,cam:0}, busy:{screen:false,cam:false},
+       up:0, startAt:0, pausedMs:0, pauseAt:0, paused:false, stopping:false, rid:null, pip:null, ac:null, timer:null, stoppedCount:0};
+    screen.getVideoTracks()[0].addEventListener('ended', function(){ if(R && R.startAt) srStop(); else srCancel(); });
+    $('srPrevScreen').srcObject=screen;
+    var pc=$('srPrevCam'); pc.style.display=cam?'':'none'; if(cam) pc.srcObject=cam;
+    $('srReadySub').textContent = m==='screen_cam' ? 'Your screen and camera are recorded separately — choose the layout (bubble, stacked, screen or camera) after.' : 'Your screen'+(mic?' and voice':'')+' will be recorded.';
+    var sysAudio = screen.getAudioTracks().length>0;
+    $('srMicRow').textContent = '🎙 ' + (mic?'Microphone on':'No microphone') + (sysAudio?' · 🔊 including tab/system audio':'');
+    $('srReady').style.display='flex';
+  }
+  window.srCancel=function(){ $('srReady').style.display='none'; teardown(); };
+
+  /* ── step 2: start (second gesture → floating window allowed) ── */
+  window.srBegin=async function(){
+    if(!R) return;
+    $('srReady').style.display='none';
+    await openPip();
+    var st;
+    try{ st=await jpost('/api/rec/start',{mode:R.mode}); }catch(e){ st={ok:false,error:String(e)}; }
+    if(!st.ok){ toast(st.error||'Could not start recording','error'); teardown(); return; }
+    R.rid=st.rec_id;
+    // Audio: mic + any tab/system audio mixed into the screen track
+    var vt=R.screen.getVideoTracks()[0], tracks=[vt];
+    var sa=R.screen.getAudioTracks(), ma=R.mic?R.mic.getAudioTracks():[];
+    if(sa.length && ma.length){
+      try{ R.ac=new (window.AudioContext||window.webkitAudioContext)(); var dst=R.ac.createMediaStreamDestination();
+        R.ac.createMediaStreamSource(new MediaStream(sa)).connect(dst); R.ac.createMediaStreamSource(new MediaStream(ma)).connect(dst);
+        tracks.push(dst.stream.getAudioTracks()[0]); }catch(_){ tracks.push(ma[0]); }
+    } else if(ma.length) tracks.push(ma[0]); else if(sa.length) tracks.push(sa[0]);
+    var vmime=['video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm'].find(function(x){ try{return MediaRecorder.isTypeSupported(x);}catch(_){return false;} })||'';
+    var cmime=['video/webm;codecs=vp8','video/webm'].find(function(x){ try{return MediaRecorder.isTypeSupported(x);}catch(_){return false;} })||'';
+    try{
+      R.recs.screen=new MediaRecorder(new MediaStream(tracks), vmime?{mimeType:vmime,videoBitsPerSecond:4500000,audioBitsPerSecond:160000}:{});
+      if(R.cam) R.recs.cam=new MediaRecorder(new MediaStream(R.cam.getVideoTracks()), cmime?{mimeType:cmime,videoBitsPerSecond:2000000}:{});
+    }catch(e){ toast('Recording not supported here: '+(e.message||e),'error'); teardown(); return; }
+    Object.keys(R.recs).forEach(function(t){
+      var rec=R.recs[t];
+      rec.ondataavailable=function(e){ if(e.data && e.data.size){ R.q[t].push(e.data); pump(t); } };
+      rec.onstop=function(){ R.stoppedCount++; };
+    });
+    await countdown();
+    if(!R) return;
+    Object.keys(R.recs).forEach(function(t){ R.recs[t].start(SLICE); });
+    R.startAt=Date.now();
+    $('srBar').style.display='flex';
+    R.timer=setInterval(tick, 500);
+    window.addEventListener('beforeunload', warnUnload);
+    pipStartScroll();
+  };
+
+  function elapsed(){ if(!R||!R.startAt) return 0; return (R.paused?R.pauseAt:Date.now())-R.startAt-R.pausedMs; }
+  function tick(){
+    if(!R) return;
+    var ms=elapsed(), t=fmt(ms)+(ms>MAX_MS-60000?' / 30:00':'');
+    $('srBarTime').textContent=t;
+    $('srBarUp').textContent = R.up>0 ? '· '+(R.up/1048576).toFixed(0)+' MB saved' : '';
+    if(R.pip){ var e=R.pip.document.getElementById('pTime'); if(e) e.textContent=t; }
+    if(ms>=MAX_MS && !R.stopping){ toast('30-minute limit reached — saving','info'); srStop(); }
+  }
+  function warnUnload(e){ if(R && R.startAt && !R.done){ e.preventDefault(); e.returnValue=''; } }
+
+  window.srTogglePause=function(){
+    if(!R||!R.startAt||R.stopping) return;
+    R.paused=!R.paused;
+    Object.keys(R.recs).forEach(function(t){ try{ R.paused?R.recs[t].pause():R.recs[t].resume(); }catch(_){} });
+    if(R.paused) R.pauseAt=Date.now(); else { R.pausedMs+=Date.now()-R.pauseAt; }
+    var lbl=R.paused?'▶ Resume':'❚❚ Pause';
+    $('srBarPause').textContent=lbl;
+    if(R.pip){ var b=R.pip.document.getElementById('pPause'); if(b) b.textContent=lbl; }
+  };
+
+  /* ── live chunk upload: sequential per track, retried, never dropped ── */
+  async function pump(t){
+    if(!R || R.busy[t] || !R.q[t].length) return;
+    R.busy[t]=true;
+    var blob=R.q[t][0], tries=0;
+    while(R){
+      try{
+        var fd=new FormData(); fd.append('rec_id',R.rid); fd.append('track',t); fd.append('idx',String(R.idx[t])); fd.append('chunk',blob,'c.webm');
+        var res=await fetch('/api/rec/chunk',{method:'POST',body:fd}); var d=await res.json();
+        if(d.ok){ R.q[t].shift(); R.idx[t]++; R.up+=blob.size; break; }
+        if(res.status===409 && d.next>R.idx[t]){ R.q[t].shift(); R.idx[t]++; break; }   // already stored
+        if(res.status===413){ toast(d.error,'error'); srStop(); R.q[t].length=0; break; }
+        throw new Error(d.error||('HTTP '+res.status));
+      }catch(e){
+        if(++tries%5===0) toast('Upload hiccup — retrying (your recording is safe)','warning');
+        await new Promise(function(r){ setTimeout(r, Math.min(15000, 1500*tries)); });
+      }
+    }
+    if(R) R.busy[t]=false;
+    if(R && R.q[t].length) pump(t);
+  }
+  function drained(){ return R && !R.q.screen.length && !R.q.cam.length && !R.busy.screen && !R.busy.cam; }
+
+  /* ── stop → finish → My Clips ─────────────────────── */
+  window.srStop=async function(){
+    if(!R||R.stopping) return;
+    if(!R.startAt){ srCancel(); return; }
+    R.stopping=true;
+    clearInterval(R.timer); pipStopScroll();
+    var n=Object.keys(R.recs).length;
+    Object.keys(R.recs).forEach(function(t){ try{ if(R.recs[t].state!=='inactive'){ R.recs[t].requestData(); R.recs[t].stop(); } else R.stoppedCount++; }catch(_){ R.stoppedCount++; } });
+    $('srBar').style.display='none';
+    $('srBusyTitle').textContent='Processing your recording…'; $('srBusy').style.display='flex';
+    closePip();
+    var t0=Date.now();
+    while(R && (R.stoppedCount<n || !drained()) && Date.now()-t0<15*60*1000){ await new Promise(function(r){ setTimeout(r,400); }); }
+    var rid=R.rid, title='Recording '+new Date().toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    R.done=true; teardown();
+    try{
+      var d=await (window._veApiFetch ? window._veApiFetch('/api/rec/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rec_id:rid,title:title})}) : jpost('/api/rec/finish',{rec_id:rid,title:title}));
+      $('srBusy').style.display='none';
+      if(!d.ok){ toast(d.error||'Could not process the recording','error'); if(d.clip_id) openClip(d.clip_id); return; }
+      toast('🎬 Recording ready in My Clips','success');
+      openClip(d.clip_id);
+    }catch(e){ $('srBusy').style.display='none'; toast('Processing error: '+e,'error'); }
+  };
+  function openClip(id){
+    try{ if(window.closeTeleprompterModal) window.closeTeleprompterModal(); }catch(_){}
+    if(window.showVideoEditorModal) window.showVideoEditorModal();
+    if(window.vcOpenClip) window.vcOpenClip(id); else if(window.vcShowTab) window.vcShowTab('clips');
+  }
+  function teardown(){
+    if(!R) return;
+    window.removeEventListener('beforeunload', warnUnload);
+    try{ clearInterval(R.timer); }catch(_){}
+    [R.screen,R.cam,R.mic].forEach(function(s){ if(s) s.getTracks().forEach(function(tr){ try{tr.stop();}catch(_){} }); });
+    try{ if(R.ac) R.ac.close(); }catch(_){}
+    closePip();
+    $('srBar').style.display='none';
+    $('srPrevScreen').srcObject=null; $('srPrevCam').srcObject=null;
+    R=null;
+  }
+
+  /* ── 3-2-1 (page + floating window) ───────────────── */
+  function countdown(){
+    return new Promise(function(done){
+      var n=3, el=$('srCount'); el.style.display='flex'; el.textContent=n;
+      var pe=R&&R.pip?R.pip.document.getElementById('pCount'):null; if(pe){ pe.style.display='flex'; pe.textContent=n; }
+      var iv=setInterval(function(){ n--; if(n<=0){ clearInterval(iv); el.style.display='none'; if(pe) pe.style.display='none'; done(); }
+        else { el.textContent=n; if(pe) pe.textContent=n; } }, 1000);
+    });
+  }
+
+  /* ── floating control window (Document Picture-in-Picture) ── */
+  async function openPip(){
+    if(!window.documentPictureInPicture){ toast('Tip: Chrome/Edge show a floating control window here — using the bar at the top instead','info'); return; }
+    var script=($('tpScript')&&$('tpScript').value||'').trim();
+    try{ R.pip=await documentPictureInPicture.requestWindow({width:380, height:script?560:R.cam?300:150}); }catch(_){ R.pip=null; return; }
+    var w=R.pip, d=w.document;
+    d.body.style.cssText='margin:0;background:#0b0f1e;color:#e2e8f0;font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;';
+    d.body.innerHTML=
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08);">'
+      +'<span style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></span><b id="pTime" style="font-size:17px;color:#fecaca;min-width:58px;">0:00</b>'
+      +'<span style="flex:1"></span><button id="pPause" style="border:none;border-radius:999px;padding:8px 14px;font-weight:800;background:rgba(251,191,36,.2);color:#fde68a;cursor:pointer;font-size:14px;">❚❚ Pause</button>'
+      +'<button id="pStop" style="border:none;border-radius:999px;padding:8px 14px;font-weight:800;background:#ef4444;color:#fff;cursor:pointer;font-size:14px;">■ Stop</button></div>'
+      +(R.cam?'<video id="pCam" muted playsinline autoplay style="width:132px;height:100px;object-fit:cover;border-radius:10px;margin:10px auto 0;transform:scaleX(-1);background:#000;"></video>':'')
+      +(script?'<div style="display:flex;gap:6px;align-items:center;padding:8px 12px 0;font-size:13px;color:#a8b4c8;">Script<span style="flex:1"></span>'
+        +'<button id="pSlow" style="border:1px solid rgba(255,255,255,.2);background:none;color:#e2e8f0;border-radius:6px;padding:3px 9px;cursor:pointer;">−</button>'
+        +'<button id="pPlay" style="border:1px solid rgba(255,255,255,.2);background:none;color:#e2e8f0;border-radius:6px;padding:3px 9px;cursor:pointer;">❚❚</button>'
+        +'<button id="pFast" style="border:1px solid rgba(255,255,255,.2);background:none;color:#e2e8f0;border-radius:6px;padding:3px 9px;cursor:pointer;">+</button></div>'
+        +'<div id="pScript" style="flex:1;overflow:hidden;padding:10px 14px 60%;font-size:24px;line-height:1.5;font-weight:600;white-space:pre-wrap;"></div>':'')
+      +'<div id="pCount" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);font:900 110px/1 system-ui;color:#fff;"></div>';
+    if(script) d.getElementById('pScript').textContent=script;
+    if(R.cam){ var v=d.getElementById('pCam'); v.srcObject=R.cam; }
+    d.getElementById('pPause').onclick=function(){ window.srTogglePause(); };
+    d.getElementById('pStop').onclick=function(){ window.srStop(); };
+    if(script){
+      R.spd=1.0; R.scrollOn=false;
+      d.getElementById('pPlay').onclick=function(){ R.scrollOn=!R.scrollOn; this.textContent=R.scrollOn?'❚❚':'▶'; };
+      d.getElementById('pSlow').onclick=function(){ R.spd=Math.max(0.3,R.spd-0.25); };
+      d.getElementById('pFast').onclick=function(){ R.spd=Math.min(4,R.spd+0.25); };
+    }
+    w.addEventListener('pagehide', function(){ if(R) R.pip=null; });
+  }
+  function pipStartScroll(){
+    if(!R||!R.pip) return; var el=R.pip.document.getElementById('pScript'); if(!el) return;
+    R.scrollOn=true; var acc=0;
+    (function step(){ if(!R||!R.pip) return;
+      if(R.scrollOn && !R.paused){ acc+=0.55*R.spd; if(acc>=1){ el.scrollTop+=Math.floor(acc); acc-=Math.floor(acc); } }
+      R.raf=R.pip.requestAnimationFrame(step); })();
+  }
+  function pipStopScroll(){ try{ if(R&&R.pip&&R.raf) R.pip.cancelAnimationFrame(R.raf); }catch(_){} }
+  function closePip(){ try{ if(R&&R.pip) R.pip.close(); }catch(_){} if(R) R.pip=null; }
+
+  /* ── camera takes → My Clips (single 'cam' track) ──── */
+  window.srSendTakeToClips=async function(){
+    var blob=window._tpGetLastTake?window._tpGetLastTake():null;
+    if(!blob||!blob.size){ toast('No take yet — record one first','warning'); return; }
+    var sb=$('tpSaveBar'); if(sb) sb.style.display='none';
+    $('srBusyTitle').textContent='Sending your take to My Clips…'; $('srBusy').style.display='flex';
+    try{
+      var st=await jpost('/api/rec/start',{mode:'cam'}); if(!st.ok) throw new Error(st.error||'Could not start');
+      var CH=2*1024*1024, n=Math.ceil(blob.size/CH);
+      for(var i=0;i<n;i++){
+        var fd=new FormData(); fd.append('rec_id',st.rec_id); fd.append('track','cam'); fd.append('idx',String(i)); fd.append('chunk',blob.slice(i*CH,(i+1)*CH),'c.webm');
+        var ok=false;
+        for(var tries=0;tries<5&&!ok;tries++){ try{ var r=await fetch('/api/rec/chunk',{method:'POST',body:fd}); var d0=await r.json(); ok=!!d0.ok; if(!ok&&r.status===409&&d0.next>i) ok=true; }catch(_){ await new Promise(function(z){setTimeout(z,1500);}); } }
+        if(!ok) throw new Error('Upload failed — check your connection');
+        $('srBusySub').textContent='Uploading '+Math.round((i+1)/n*100)+'%…';
+      }
+      $('srBusySub').textContent='Building your clip…';
+      var d=await (window._veApiFetch ? window._veApiFetch('/api/rec/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rec_id:st.rec_id,title:'Camera take '+new Date().toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})})}) : jpost('/api/rec/finish',{rec_id:st.rec_id}));
+      $('srBusy').style.display='none';
+      if(!d.ok){ toast(d.error||'Could not build the clip','error'); return; }
+      toast('🎬 Take is in My Clips','success'); openClip(d.clip_id);
+    }catch(e){ $('srBusy').style.display='none'; toast(String(e.message||e),'error'); }
+  };
+})();
+</script>
 
 <!-- Notification panel — direct body child so backdrop-filter on nav bar cannot trap it -->
 <div id="notifPanel" style="display:none;position:fixed;width:320px;max-width:calc(100vw - 24px);max-height:400px;overflow-y:auto;background:rgba(10,14,30,.98);border:1px solid rgba(124,58,237,.3);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.5);z-index:99999;">
@@ -36094,6 +36436,7 @@ window.addEventListener('focus', function(){
       <div class="vc-tabs" role="tablist" style="margin-left:14px;">
         <button id="vcTabSource" class="vc-tab on" onclick="vcShowTab('source')">🎬 Source</button>
         <button id="vcTabClips" class="vc-tab" onclick="vcShowTab('clips')">🎞 My Clips <span id="vcClipCount" class="vc-count"></span></button>
+        <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showTeleprompterModal)showTeleprompterModal()" title="Record your screen, camera, or both">🎥 Record</button>
       </div>
     </div>
     <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;cursor:pointer;">✕ Close</button>
@@ -36258,6 +36601,17 @@ window.addEventListener('focus', function(){
             </div>
 
             <div class="vc-pane" id="vcPaneEdit">
+              <div id="vcLayoutBox" style="display:none;">
+                <div class="vc-lbl">Layout <span class="vc-hint">(how your screen and camera are arranged)</span></div>
+                <div class="vc-chips" id="vcLayout"><button data-v="bubble">◳ Bubble</button><button data-v="stacked">📱 Stacked</button><button data-v="screen">🖥 Screen</button><button data-v="cam">🙂 Camera</button></div>
+                <div id="vcBubbleOpts">
+                  <div class="vc-lbl">Bubble</div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <div class="vc-chips" id="vcCorner"><button data-v="tl" title="Top left">↖</button><button data-v="tr" title="Top right">↗</button><button data-v="bl" title="Bottom left">↙</button><button data-v="br" title="Bottom right">↘</button></div>
+                    <div class="vc-chips" id="vcBubSize"><button data-v="s">Small</button><button data-v="m">Medium</button><button data-v="l">Large</button></div>
+                  </div>
+                </div>
+              </div>
               <div class="vc-lbl">Format</div>
               <div class="vc-chips" id="vcAspect">
                 <button data-v="9:16">📱 9:16</button><button data-v="1:1">⬛ 1:1</button><button data-v="16:9">🖥 16:9</button><button data-v="original">Original</button>
@@ -36436,6 +36790,7 @@ window.addEventListener('focus', function(){
     else { var q=$('vcPlayer'); if(q&&!q.paused) q.pause(); }
   };
   window.vcOnOpen=function(){ load(); }; /* called by showVideoEditorModal */
+  window.vcOpenClip=function(id){ S.sel=id; S.words=null; vcShowTab('clips'); };   /* Record Studio hand-off */
 
   /* ── data ───────────────────────────────────────── */
   function load(){
@@ -36523,10 +36878,11 @@ window.addEventListener('focus', function(){
   function showEditor(c){ $('vcEmpty').style.display=c?'none':''; $('vcEdit').style.display=c?'':'none'; }
   function setChips(box,val){ [].forEach.call($(box).querySelectorAll('button'),function(b){ b.classList.toggle('on',b.getAttribute('data-v')===val); }); }
   function chipVal(box){ var b=$(box).querySelector('button.on'); return b?b.getAttribute('data-v'):null; }
-  ['vcAspect','vcCapStyle'].forEach(function(box){
+  ['vcAspect','vcCapStyle','vcLayout','vcCorner','vcBubSize'].forEach(function(box){
     document.addEventListener('click',function(e){
       var b=e.target.closest('#'+box+' button'); if(!b) return;
       setChips(box,b.getAttribute('data-v')); vcDirty();
+      if(box==='vcLayout'){ var bo=$('vcBubbleOpts'); if(bo) bo.style.display=b.getAttribute('data-v')==='bubble'?'':'none'; }
       if(box==='vcCapStyle' && !$('vcCapOn').checked){ $('vcCapOn').checked=true; vcDirty(); }
     });
   });
@@ -36545,6 +36901,15 @@ window.addEventListener('focus', function(){
     if(full || (!rendering && $('vcApply').disabled)){
       if(document.activeElement!==$('vcTitle')) $('vcTitle').value=c.title||'';
       setChips('vcAspect',c.aspect||'original');
+      // Recorded clips: layout controls, limited to the tracks this recording has
+      var tr=(c.rec&&c.rec.tracks)||[], lb=$('vcLayoutBox');
+      if(lb){
+        var both=tr.indexOf('screen')>-1 && tr.indexOf('cam')>-1;
+        lb.style.display=(c.rec && both)?'':'none';
+        var L=c.layout||{};
+        setChips('vcLayout',L.type||'bubble'); setChips('vcCorner',L.corner||'br'); setChips('vcBubSize',L.size||'m');
+        $('vcBubbleOpts').style.display=(L.type||'bubble')==='bubble'?'':'none';
+      }
       $('vcStart').value=(+c.start).toFixed(1); $('vcEnd').value=(+c.end).toFixed(1);
       $('vcHook').value=c.hook||'';
       $('vcSilence').checked=!!c.remove_silence; $('vcFillers').checked=!!c.remove_fillers;
@@ -36577,6 +36942,7 @@ window.addEventListener('focus', function(){
       brand:$('vcBrand').checked, mute:$('vcMute').checked,
       captions:{on:$('vcCapOn').checked, style:chipVal('vcCapStyle')||'bold'}
     };
+    if(c.rec) body.layout={type:chipVal('vcLayout')||'bubble', corner:chipVal('vcCorner')||'br', size:chipVal('vcBubSize')||'m'};
     if(S.pendingDeleted) body.deleted=S.pendingDeleted;
     if(Object.keys(S.wordEdits).length) body.word_edits=S.wordEdits;
     if(body.brand && !(S.brand&&S.brand.logo)){ toast('Add your logo in 🎨 Brand kit first','warning'); vcOpenBrand(); return; }
