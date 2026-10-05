@@ -35364,7 +35364,7 @@ function saUseGlyph(){
     <!-- Center: platform pills -->
     <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;">
       <div id="cpPlatformPills" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;"></div>
-      <div style="font-size:calc(14.5px * var(--fs,1.1));font-weight:700;letter-spacing:.08em;color:#f59e0b;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:20px;padding:2px 10px;">🚧 COMING SOON — Platform connections in progress</div>
+      <div id="cpLcStatus"></div>
     </div>
 
     <!-- Right: controls -->
@@ -35477,8 +35477,12 @@ function saUseGlyph(){
         <!-- Media URL -->
         <div>
           <div class="cp-label">Media URL <span style="font-weight:400;text-transform:none;color:#8a96aa;">(image / video)</span></div>
-          <input id="cpMediaUrl" type="url" placeholder="https://…" class="cp-input"/>
-          <div style="font-size:calc(14.5px * var(--fs,1.1));color:#8a96aa;margin-top:4px;">Required for Instagram · Optional for Facebook</div>
+          <div style="display:flex;gap:6px;">
+            <input id="cpMediaUrl" type="url" placeholder="https://…" class="cp-input" style="flex:1;"/>
+            <button type="button" class="cp-btn" onclick="cpPickClip()" title="Use one of your clips from My Clips" style="white-space:nowrap;">🎞 My Clips</button>
+          </div>
+          <div id="cpClipPick" style="display:none;margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid rgba(124,58,237,.3);border-radius:10px;"></div>
+          <div id="cpMediaHint" style="font-size:calc(14.5px * var(--fs,1.1));color:#8a96aa;margin-top:4px;">Required for Instagram · Optional for Facebook</div>
         </div>
 
         <input type="hidden" id="cpEditingPostId" value="" />
@@ -35563,9 +35567,135 @@ async function cpLoadState(){
   }
 }
 
+/* ── LeadConnector (HighLevel Social Planner) ─────────────────────────── */
+var _LC_ICON = {facebook:'𝔣',instagram:'◎',linkedin:'in',google:'G',tiktok:'♪',youtube:'▶',twitter:'𝕏',x:'𝕏',pinterest:'P',threads:'@',bluesky:'🦋',community:'👥'};
+function _lcInfo(){ return (_cpConns && _cpConns.leadconnector) || {}; }
+function _lcOn(){ return !!_lcInfo().connected; }
+function cpRenderLcStatus(){
+  var el=$('cpLcStatus'); if(!el) return;
+  var lc=_lcInfo();
+  if(lc.connected){
+    var n=(lc.accounts||[]).length;
+    el.innerHTML='<span style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#6ee7b7;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);border-radius:20px;padding:3px 12px;">✓ LeadConnector · '+n+' account'+(n===1?'':'s')+'</span>'
+      +' <button class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:3px 10px;" onclick="cpLcRefresh()" title="Re-sync accounts from HighLevel">↻</button>'
+      +' <button class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:3px 10px;color:#fca5a5;" onclick="cpLcDisconnect()">Disconnect</button>';
+  } else {
+    el.innerHTML='<button class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:6px 14px;" onclick="cpLcConnect()">🔗 Connect LeadConnector — post to every platform</button>';
+  }
+}
+window.cpLcRefresh=async function(){
+  try{ var r=await fetch('/api/social/lc/refresh',{method:'POST'}); var d=await r.json();
+    if(!d.ok){ alert(d.error||'Could not refresh'); return; } if(window.showToast) showToast('✓ Accounts synced from HighLevel'); cpLoadState(); }catch(e){ alert(String(e)); }
+};
+window.cpLcDisconnect=async function(){
+  if(!confirm('Disconnect LeadConnector? Posts already scheduled in HighLevel will still go out.')) return;
+  await fetch('/api/social/disconnect/leadconnector',{method:'POST'}); cpLoadState();
+};
+window.cpLcConnect=function(){
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+  var fs=function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
+  ov.innerHTML='<div style="background:#0f1629;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px 22px;width:min(540px,100%);box-shadow:0 24px 80px rgba(0,0,0,.7);max-height:92vh;overflow-y:auto;color:#e2e8f0;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;"><div style="'+fs(18)+'font-weight:800;color:#c4b5fd;">🔗 Connect LeadConnector</div><button id="_lcX" style="background:none;border:none;color:#a8b4c8;'+fs(20)+'cursor:pointer;">✕</button></div>'
+    +'<div style="'+fs(14.5)+'color:#b0bdd0;margin:4px 0 16px;">One connection posts to every account in your HighLevel Social Planner — Facebook, Instagram, LinkedIn, Google Business, TikTok, YouTube, X, Pinterest, Threads and more.</div>'
+    +'<div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:14px 16px;'+fs(14)+'line-height:1.7;color:#cbd5e1;margin-bottom:16px;">'
+    +'<b style="color:#c4b5fd;">Setup (about 2 minutes):</b><br>'
+    +'1. In HighLevel, open your sub-account → <b>Marketing → Social Planner</b> and connect your social accounts there.<br>'
+    +'2. Go to <b>Settings → Private Integrations → Create new integration</b>. Name it “Simply Agentic” and tick the <b>Social Planner</b> scopes (view/edit posts and view accounts).<br>'
+    +'3. Copy the token it shows (starts with <code>pit-</code>).<br>'
+    +'4. Your <b>Location ID</b> is in the browser address bar: <code>…/location/<b>THIS-PART</b>/…</code> (also under Settings → Business Profile).</div>'
+    +'<label style="'+fs(14)+'font-weight:700;display:block;margin-bottom:5px;">Private Integration token</label>'
+    +'<input id="_lcTok" type="password" autocomplete="off" placeholder="pit-…" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:9px;padding:10px 12px;color:#e2e8f0;'+fs(14)+'font-family:monospace;">'
+    +'<label style="'+fs(14)+'font-weight:700;display:block;margin:12px 0 5px;">Location ID</label>'
+    +'<input id="_lcLoc" type="text" autocomplete="off" placeholder="e.g. ve9EPM428h8vShlRW1KT" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:9px;padding:10px 12px;color:#e2e8f0;'+fs(14)+'">'
+    +'<div id="_lcErr" style="display:none;color:#fca5a5;'+fs(14)+'margin-top:10px;line-height:1.5;"></div>'
+    +'<div style="display:flex;gap:10px;margin-top:18px;"><button id="_lcGo" class="cp-btn cp-btn-primary" style="flex:1;padding:11px;'+fs(15)+'font-weight:800;">Connect &amp; load my accounts</button>'
+    +'<button id="_lcCancel" class="cp-btn" style="padding:11px 18px;'+fs(14)+'">Cancel</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.querySelector('#_lcX').onclick=close; ov.querySelector('#_lcCancel').onclick=close;
+  ov.onclick=function(e){ if(e.target===ov) close(); };
+  ov.querySelector('#_lcGo').onclick=async function(){
+    var tok=ov.querySelector('#_lcTok').value.trim(), loc=ov.querySelector('#_lcLoc').value.trim(), err=ov.querySelector('#_lcErr');
+    var m=loc.match(/location\/([A-Za-z0-9_-]+)/); if(m) loc=m[1];      // they pasted the whole URL
+    if(!tok||!loc){ err.textContent='Paste both the token and the Location ID.'; err.style.display='block'; return; }
+    this.disabled=true; this.textContent='Connecting…'; err.style.display='none';
+    try{
+      var r=await fetch('/api/social/lc/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok,location_id:loc})});
+      var d=await r.json();
+      if(!d.ok){ err.textContent=d.error||'Could not connect'; err.style.display='block'; this.disabled=false; this.textContent='Connect & load my accounts'; return; }
+      close();
+      if(window.showToast) showToast('✅ LeadConnector connected — '+(d.accounts||[]).length+' accounts ready');
+      cpLoadState();
+    }catch(e){ err.textContent='Network error — try again.'; err.style.display='block'; this.disabled=false; this.textContent='Connect & load my accounts'; }
+  };
+};
+/* Composer targets: HighLevel accounts when connected, legacy platform boxes otherwise */
+function cpRenderComposerTargets(post){
+  var box=$('cpPlatformChecks'); if(!box) return;
+  if(!_lcOn()){ if(box.dataset.mode==='lc'){ box.innerHTML=box.dataset.legacy||box.innerHTML; } box.dataset.mode='legacy';
+    var plats=post?(post.platforms||[]):[];
+    box.querySelectorAll('input').forEach(function(cb){ cb.checked=plats.indexOf(cb.value)>=0; });
+    return; }
+  if(box.dataset.mode!=='lc'){ box.dataset.legacy=box.innerHTML; box.dataset.mode='lc'; }
+  var accts=(_lcInfo().accounts||[]);
+  var chosen=post?(post.lc_accounts||[]):[], plats2=post?(post.platforms||[]):[];
+  if(!accts.length){ box.innerHTML='<div style="grid-column:1/-1;font-size:calc(14px * var(--fs,1.1));color:#fbbf24;">No accounts in your HighLevel Social Planner yet — connect them in HighLevel, then press ↻.</div>'; return; }
+  box.innerHTML=accts.map(function(a){
+    var on=chosen.length?chosen.indexOf(a.id)>=0:(plats2.indexOf(a.platform)>=0);
+    return '<label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#e2e8f0;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — reconnect in HighLevel':'')+'">'
+      +'<input type="checkbox" data-lc="1" data-platform="'+_esc(a.platform)+'" value="'+_esc(a.id)+'"'+(on&&!a.expired?' checked':'')+(a.expired?' disabled':'')+' style="accent-color:#a78bfa;width:15px;height:15px;">'
+      +'<span style="font-weight:800;min-width:16px;text-align:center;">'+(_LC_ICON[a.platform]||'•')+'</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+_esc(a.name||a.platform)+'</span></label>';
+  }).join('');
+}
+function cpTargets(){
+  var out={platforms:[], lc_accounts:[]};
+  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){
+    if(cb.getAttribute('data-lc')){ out.lc_accounts.push(cb.value); var p=cb.getAttribute('data-platform'); if(p && out.platforms.indexOf(p)<0) out.platforms.push(p); }
+    else out.platforms.push(cb.value);
+  });
+  return out;
+}
+window.cpPickClip=async function(){
+  var box=$('cpClipPick'); if(!box) return;
+  if(box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='block'; box.innerHTML='<div style="padding:10px;color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));">Loading your clips…</div>';
+  try{
+    var d=await (await fetch('/api/vclips')).json();
+    var ready=(d.clips||[]).filter(function(c){ return c.status==='ready'; });
+    if(!ready.length){ box.innerHTML='<div style="padding:10px;color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));">No finished clips yet — make one in Video Editor → My Clips.</div>'; return; }
+    box.innerHTML=ready.map(function(c){
+      return '<div data-id="'+_esc(c.id)+'" style="display:flex;gap:10px;align-items:center;padding:7px 9px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.06);font-size:calc(14px * var(--fs,1.1));">'
+        +'<img src="/api/vclips/'+_esc(c.id)+'/thumb?v='+(c.version||0)+'" style="width:44px;height:56px;object-fit:cover;border-radius:6px;background:#111;">'
+        +'<div style="flex:1;min-width:0;"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+_esc(c.title||'Clip')+'</div>'
+        +'<div style="color:#94a3b8;">'+Math.round(c.duration||0)+'s · '+_esc(c.aspect||'')+'</div></div></div>';
+    }).join('');
+    box.querySelectorAll('[data-id]').forEach(function(row){
+      row.onclick=async function(){
+        var id=row.getAttribute('data-id');
+        var r=await (await fetch('/api/vclips/'+encodeURIComponent(id)+'/public_link')).json();
+        if(!r.ok){ alert(r.error||'Could not get a link for that clip'); return; }
+        $('cpMediaUrl').value=r.url; box.style.display='none';
+        var c=ready.find(function(x){ return x.id===id; });
+        var cap=$('cpCaption'); if(cap && !cap.value.trim() && c && c.social && c.social.caption){
+          cap.value=c.social.caption+((c.social.hashtags||[]).length?'\n\n'+c.social.hashtags.map(function(h){return '#'+h;}).join(' '):''); cpUpdateCharCount(); }
+      };
+    });
+  }catch(e){ box.innerHTML='<div style="padding:10px;color:#fca5a5;">'+_esc(String(e))+'</div>'; }
+};
+function cpUtc(local){ if(!local) return ''; var d=new Date(local); return isNaN(d.getTime())?'':d.toISOString(); }
+
 function cpRenderPlatformPills(){
+  cpRenderLcStatus();
   var el = $('cpPlatformPills');
   if(!el) return;
+  if(_lcOn()){
+    el.innerHTML=(_lcInfo().accounts||[]).map(function(a){
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.35);color:#f1f5f9;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — connection expired, reconnect in HighLevel':'')+'">'
+        +'<span>'+(_LC_ICON[a.platform]||'•')+'</span><span>'+_esc(a.name||a.platform)+'</span>'+(a.expired?' ⚠':'')+'</div>';
+    }).join('');
+    return;
+  }
   var platforms = ['facebook','instagram','youtube','tiktok'];
   var icons = {facebook:'𝔣', instagram:'◎', youtube:'▶', tiktok:'♪'};
   el.innerHTML = platforms.map(function(p){
@@ -35861,7 +35991,10 @@ function cpRenderQueue(){
         +platDots
         +'<span style="font-size:calc(14px * var(--fs,1.1));color:#aab8cc;display:flex;align-items:center;gap:3px;"><span>🕐</span>'+dt+'</span>'
         +'<span style="font-size:calc(14.5px * var(--fs,1.1));font-weight:700;background:'+statusColor+'22;border:1px solid '+statusColor+'44;border-radius:5px;padding:1px 7px;color:'+statusColor+';">'+statusLabel+'</span>'
-        +'</div></div>'
+        +((p.lc_post_id||p.scheduled_via==='leadconnector')?'<span style="font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;">via HighLevel</span>':'')
+        +'</div>'
+        +(p.error?'<div style="font-size:calc(14px * var(--fs,1.1));color:#fca5a5;margin-top:6px;line-height:1.45;">⚠ '+_esc(p.error)+'</div>':'')
+        +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">'
         +'<button onclick="cpOpenComposer(\''+p.id+'\')" class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;">Edit</button>'
         +(p.status!=='published'?'<button onclick="cpPublishNowById(\''+p.id+'\')" class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;">Publish</button>':'')
@@ -35905,12 +36038,9 @@ window.cpOpenComposer = function(postId, prefillDate){
   var idEl = $('cpEditingPostId');
   if(idEl) idEl.value = _cpEditingId || '';
 
-  // Set platform checkboxes
-  var plats = post ? (post.platforms||[]) : [];
-  ['facebook','instagram','youtube','tiktok'].forEach(function(p){
-    var cb = document.querySelector('#cpPlatform'+_cap(p)+' input, #cpPlatformChecks input[value="'+p+'"]');
-    if(cb) cb.checked = plats.indexOf(p) >= 0;
-  });
+  // Targets: HighLevel accounts when LeadConnector is connected, else platform boxes
+  cpRenderComposerTargets(post);
+  var mh=$('cpMediaHint'); if(mh) mh.textContent = _lcOn() ? 'Image or video link — HighLevel attaches it to each post. Use 🎞 to pick one of your clips.' : 'Required for Instagram · Optional for Facebook';
 
   var delWrap = $('cpDeleteWrap');
   if(delWrap) delWrap.style.display = post ? 'block' : 'none';
@@ -35941,11 +36071,11 @@ window.cpSavePost = async function(status){
   var caption = ($('cpCaption')||{}).value || '';
   if(!caption.trim()){ cpSetStatus('Caption is required'); return; }
 
-  var platforms = [];
-  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
-  if(!platforms.length && status !== 'draft'){ cpSetStatus('Select at least one platform'); return; }
+  var tg = cpTargets(), platforms = tg.platforms;
+  if(!platforms.length && !tg.lc_accounts.length && status !== 'draft'){ cpSetStatus(_lcOn()?'Pick at least one account':'Select at least one platform'); return; }
 
   var scheduledAt = ($('cpScheduledAt')||{}).value || '';
+  if(status === 'scheduled' && scheduledAt && new Date(scheduledAt).getTime() < Date.now()-60000){ cpSetStatus('That time is in the past — pick a future time'); return; }
   if(status === 'scheduled' && !scheduledAt){ cpSetStatus('Select a date/time to schedule'); return; }
 
   var mediaUrl = ($('cpMediaUrl')||{}).value || '';
@@ -35957,8 +36087,10 @@ window.cpSavePost = async function(status){
       id: postId || undefined,
       caption: caption,
       platforms: platforms,
+      lc_accounts: tg.lc_accounts,
       media_url: mediaUrl,
       scheduled_at: scheduledAt ? (scheduledAt.length===16 ? scheduledAt+':00' : scheduledAt) : '',
+      scheduled_utc: cpUtc(scheduledAt),
       status: status,
     };
     var res = await fetch('/api/social/posts', {
@@ -35966,10 +36098,10 @@ window.cpSavePost = async function(status){
       body: JSON.stringify(body),
     });
     var d = await res.json();
-    if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }
-    cpSetStatus('✓ Saved');
+    if(!d.ok){ cpSetStatus(d.error||'Save failed'); await cpLoadState(); return; }
+    cpSetStatus(status==='scheduled' && tg.lc_accounts.length ? '✓ Scheduled in HighLevel — it will post automatically' : '✓ Saved');
     await cpLoadState();
-    setTimeout(cpCloseComposer, 800);
+    setTimeout(cpCloseComposer, 1100);
   } catch(e){
     cpSetStatus('Error: '+e.message);
   }
@@ -35981,15 +36113,15 @@ window.cpPublishNow = async function(){
     // Save first then publish
     var caption = ($('cpCaption')||{}).value || '';
     if(!caption.trim()){ cpSetStatus('Caption is required'); return; }
-    var platforms = [];
-    document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
-    if(!platforms.length){ cpSetStatus('Select at least one platform'); return; }
+    var tg2 = cpTargets(), platforms = tg2.platforms;
+    if(!platforms.length && !tg2.lc_accounts.length){ cpSetStatus(_lcOn()?'Pick at least one account':'Select at least one platform'); return; }
     var mediaUrl = ($('cpMediaUrl')||{}).value || '';
     cpSetStatus('Saving…');
     try{
+      // Saved as a draft first (was 'scheduled' with no time), then published
       var res = await fetch('/api/social/posts', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({caption:caption, platforms:platforms, media_url:mediaUrl, status:'scheduled'}),
+        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, media_url:mediaUrl, status:'draft'}),
       });
       var d = await res.json();
       if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }
@@ -36032,8 +36164,7 @@ window.cpDraftWithAI = async function(){
   if(!topic.trim()){ $('cpAiStatus').textContent='Enter a topic first.'; return; }
   var teammate = ($('cpAiTeammate')||{}).value || 'Luna';
   var tone = ($('cpAiTone')||{}).value || 'engaging';
-  var platforms = [];
-  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){ platforms.push(cb.value); });
+  var platforms = cpTargets().platforms;
   if(!platforms.length) platforms = ['facebook'];
 
   var btn = $('cpAiDraftBtn');

@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.8.1")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -29359,6 +29359,19 @@ def api_vclips_social(cid):
     return jsonify({"ok": True, "social": social})
 
 
+@app.get("/api/vclips/<cid>/public_link")
+def api_vclips_public_link(cid):
+    """Signed public URL of a rendered clip (for the Content Planner media field)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not _vc_file(uname, c):
+        return jsonify({"ok": False, "error": "Clip isn't ready yet."}), 404
+    return jsonify({"ok": True, "url": _vc_public_url(uname, cid)})
+
+
 @app.post("/api/vclips/<cid>/to_planner")
 def api_vclips_to_planner(cid):
     """Drop the clip into the Content Planner as a draft post with a public media link."""
@@ -29374,8 +29387,11 @@ def api_vclips_to_planner(cid):
     tags = " ".join("#" + h for h in (soc.get("hashtags") or []))
     caption = ((soc.get("caption") or c.get("title") or "").strip() + ("\n\n" + tags if tags else "")).strip()
     posts = _load_sp_posts(uname)
-    post = {"id": str(_uuid_mod.uuid4())[:8], "caption": caption,
-            "platforms": [p for p in (b.get("platforms") or []) if p in ("facebook", "instagram", "youtube", "tiktok", "linkedin")],
+    plats = [p for p in (b.get("platforms") or []) if p in ("facebook", "instagram", "youtube", "tiktok", "linkedin")]
+    lc = _lc_conn(uname)
+    lc_ids = [a["id"] for a in ((lc or {}).get("accounts") or []) if a.get("platform") in plats and not a.get("expired")] if lc else []
+    post = {"id": str(_uuid_mod.uuid4())[:8], "caption": caption, "lc_accounts": lc_ids,
+            "platforms": plats,
             "media_url": _vc_public_url(uname, cid), "scheduled_at": "", "status": "draft",
             "created_at": now_iso(), "updated_at": now_iso(), "published_ids": {}, "error": "",
             "source": {"type": "vclip", "clip_id": cid}}
@@ -31938,6 +31954,10 @@ def _save_sp_conns(uname: str, conns: dict) -> None:
 def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
     fb = conns.get("facebook") or {}
     pages = fb.get("pages") or []
+    if not pages and fb.get("page_id") and fb.get("access_token"):
+        # Pasted-token connections store a single page directly (the publisher
+        # used to look only for `pages`, so every Facebook publish failed).
+        pages = [{"id": fb["page_id"], "access_token": fb["access_token"], "name": fb.get("page_name") or ""}]
     if not pages:
         return False, "No Facebook Pages connected"
     page = pages[0]
@@ -32010,23 +32030,50 @@ def api_sp_posts_create():
     posts = _load_sp_posts(uname)
     post_id = (body.get("id") or "").strip() or str(_uuid_mod.uuid4())[:8]
     idx = next((i for i, p in enumerate(posts) if p.get("id") == post_id), -1)
+    prev = posts[idx] if idx >= 0 else {}
     post = {
         "id": post_id,
         "caption": (body.get("caption") or "").strip(),
         "platforms": body.get("platforms") or [],
+        "lc_accounts": [str(a) for a in (body.get("lc_accounts") or []) if a][:40],
         "media_url": (body.get("media_url") or "").strip(),
         "scheduled_at": (body.get("scheduled_at") or "").strip(),
+        "scheduled_utc": (body.get("scheduled_utc") or "").strip(),   # browser-computed UTC instant
         "status": body.get("status") or "draft",
-        "created_at": body.get("created_at") or now_iso(),
+        "created_at": prev.get("created_at") or body.get("created_at") or now_iso(),
         "updated_at": now_iso(),
-        "published_ids": body.get("published_ids") or {},
+        "published_ids": prev.get("published_ids") or body.get("published_ids") or {},
         "error": "",
     }
+    # Keep server-owned fields across edits (they used to be wiped on every save)
+    for k in ("lc_post_id", "published_at", "publish_results", "source"):
+        if prev.get(k):
+            post[k] = prev[k]
+    if body.get("source") and not post.get("source"):
+        post["source"] = body.get("source")
+    note = ""
+    # Scheduling through HighLevel: hand it over now — HighLevel publishes it on time
+    if post["status"] == "scheduled" and post["lc_accounts"]:
+        ok, info = _lc_push(uname, post, "scheduled")
+        if not ok:
+            post["status"], post["error"] = "draft", info
+            note = info
+        else:
+            post["status"] = "scheduled"
+            post["scheduled_via"] = "leadconnector"
+    elif post["status"] == "draft" and prev.get("lc_post_id") and prev.get("scheduled_via") == "leadconnector":
+        # Moved back to draft → pull it out of HighLevel's schedule
+        conn = _lc_conn(uname)
+        if conn:
+            _lc_request(conn, "DELETE", f"/social-media-posting/{conn['location_id']}/posts/{prev['lc_post_id']}")
+        post.pop("lc_post_id", None)
     if idx >= 0:
         posts[idx] = post
     else:
         posts.append(post)
     _save_sp_posts(uname, posts)
+    if note:
+        return jsonify({"ok": False, "error": "Saved as a draft — HighLevel didn't accept the schedule: " + note, "post": post}), 400
     return jsonify({"ok": True, "post": post})
 
 @app.delete("/api/social/posts/<post_id>")
@@ -32034,7 +32081,13 @@ def api_sp_post_delete(post_id):
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    posts = [p for p in _load_sp_posts(uname) if p.get("id") != post_id]
+    all_posts = _load_sp_posts(uname)
+    gone = next((p for p in all_posts if p.get("id") == post_id), None)
+    if gone and gone.get("lc_post_id") and gone.get("status") == "scheduled":
+        conn = _lc_conn(uname)     # also cancel it in HighLevel so it doesn't still go out
+        if conn:
+            _lc_request(conn, "DELETE", f"/social-media-posting/{conn['location_id']}/posts/{gone['lc_post_id']}")
+    posts = [p for p in all_posts if p.get("id") != post_id]
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True})
 
@@ -32048,6 +32101,16 @@ def api_sp_publish(post_id):
     post = next((p for p in posts if p.get("id") == post_id), None)
     if not post:
         return jsonify({"ok": False, "error": "Post not found"}), 404
+    if post.get("lc_accounts"):
+        # One call — HighLevel publishes to every selected account
+        ok, info = _lc_push(uname, post, "published")
+        results = {"leadconnector": {"ok": ok, "info": info}}
+        post["status"] = "published" if ok else "failed"
+        post["error"] = "" if ok else info
+        post["published_at"] = now_iso()
+        post["publish_results"] = results
+        _save_sp_posts(uname, posts)
+        return jsonify({"ok": ok, "results": results, "status": post["status"], "error": "" if ok else info})
     platforms = post.get("platforms") or []
     results: dict = {}
     for platform in platforms:
@@ -32067,6 +32130,68 @@ def api_sp_publish(post_id):
     post["publish_results"] = results
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True, "results": results, "status": post["status"]})
+
+def _sp_tick() -> None:
+    """Publish due scheduled posts that are NOT handled by HighLevel (legacy
+    direct Facebook/Instagram tokens). Before this, 'Schedule' only put posts
+    on the calendar — nothing ever published them. Max 10 sends per tick."""
+    sends = 0
+    now = _utcnow()
+    for uname in list((load_users().get("users") or {}).keys()):
+        if sends >= 10:
+            break
+        try:
+            posts = _load_sp_posts(uname)
+            changed = False
+            for post in posts:
+                if post.get("status") != "scheduled" or post.get("scheduled_via") == "leadconnector" or post.get("lc_accounts"):
+                    continue
+                due = None
+                try:
+                    if post.get("scheduled_utc"):
+                        due = datetime.fromisoformat(post["scheduled_utc"].replace("Z", "+00:00")).replace(tzinfo=None)
+                    elif post.get("scheduled_at"):
+                        # legacy local time → compare in the user's local clock
+                        due_local = datetime.fromisoformat(post["scheduled_at"][:19])
+                        local_now = _user_now_local(uname)
+                        if due_local > local_now:
+                            continue
+                        due = now - (local_now - due_local)   # keep the real overdue amount
+                except Exception:
+                    continue
+                if not due or due > now:
+                    continue
+                if (now - due).total_seconds() > 2 * 3600:
+                    # Overdue from before auto-publishing existed (or a long outage) —
+                    # never blast stale posts out; flag them for a human instead.
+                    post["status"] = "failed"
+                    post["error"] = "Missed its scheduled time — review and publish manually or reschedule."
+                    changed = True
+                    continue
+                conns = _load_sp_conns(uname)
+                results = {}
+                for platform in post.get("platforms") or []:
+                    if platform == "facebook":
+                        ok, info = _sp_publish_facebook(post, conns)
+                    elif platform == "instagram":
+                        ok, info = _sp_publish_instagram(post, conns)
+                    else:
+                        ok, info = False, f"{platform.title()} needs LeadConnector to auto-publish."
+                    results[platform] = {"ok": ok, "info": info}
+                any_ok = any(r["ok"] for r in results.values())
+                all_ok = bool(results) and all(r["ok"] for r in results.values())
+                post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
+                post["published_at"] = now_iso()
+                post["publish_results"] = results
+                changed = True
+                sends += 1
+                if sends >= 10:
+                    break
+            if changed:
+                _save_sp_posts(uname, posts)
+        except Exception as e:
+            _log("WARNING", "Scheduled post tick failed", user=uname, error=str(e)[:200])
+
 
 @app.post("/api/social/import_csv")
 def api_sp_import_csv():
@@ -32108,6 +32233,166 @@ def api_sp_import_csv():
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True, "imported": imported, "errors": errors})
 
+# ═══════════════════════════════════════════════════════════════════
+#  LEADCONNECTOR (HighLevel Social Planner) — one connection, every platform
+#  the sub-account has connected (Facebook, Instagram, LinkedIn, Google
+#  Business, TikTok, YouTube, X, Pinterest, Threads, Bluesky…). HighLevel
+#  does the actual publishing and scheduling.
+# ═══════════════════════════════════════════════════════════════════
+_LC_BASE = "https://services.leadconnectorhq.com"
+_LC_VERSIONS = ("2021-07-28", "v3")   # docs show both; whichever the token accepts is remembered
+
+
+def _lc_request(conn: Dict[str, Any], method: str, path: str, body: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
+    """Call the LeadConnector API. Tries the remembered Version header first,
+    then the other one if the API rejects the version."""
+    versions = [conn.get("version")] if conn.get("version") in _LC_VERSIONS else []
+    versions += [v for v in _LC_VERSIONS if v not in versions]
+    last = (0, {"message": "No response"})
+    for v in versions:
+        try:
+            r = requests.request(method, _LC_BASE + path, timeout=30, json=body,
+                                 headers={"Authorization": f"Bearer {conn.get('token','')}", "Version": v,
+                                          "Accept": "application/json", "Content-Type": "application/json"})
+            try:
+                data = r.json() if r.content else {}
+            except Exception:
+                data = {"message": r.text[:300]}
+            if not isinstance(data, dict):
+                data = {"data": data}
+            last = (r.status_code, data)
+            if r.status_code < 400:
+                conn["version"] = v
+                return last
+            msg = json.dumps(data).lower()
+            if r.status_code in (401, 403) or "version" not in msg:
+                return last       # a real error, not a version mismatch — don't retry
+        except Exception as e:
+            last = (0, {"message": str(e)[:300]})
+    return last
+
+
+def _lc_error(status: int, data: Dict[str, Any]) -> str:
+    msg = data.get("message") or data.get("error") or data.get("msg") or ""
+    if isinstance(msg, list):
+        msg = "; ".join(str(x) for x in msg)
+    if status in (401, 403):
+        return ("HighLevel rejected the token — make sure it's a Private Integration token for THIS sub-account "
+                "with the Social Planner scopes, and that the Location ID matches. " + (str(msg)[:160] if msg else ""))
+    return (str(msg) or f"HighLevel API error (HTTP {status or 'network'})")[:300]
+
+
+def _lc_accounts(conn: Dict[str, Any]) -> Tuple[bool, Any]:
+    st, data = _lc_request(conn, "GET", f"/social-media-posting/{conn['location_id']}/accounts")
+    if st >= 400 or st == 0:
+        return False, _lc_error(st, data)
+    res = data.get("results") if isinstance(data.get("results"), dict) else data
+    accts = []
+    for a in (res.get("accounts") or []):
+        if not isinstance(a, dict) or not a.get("id"):
+            continue
+        accts.append({"id": str(a["id"]), "name": str(a.get("name") or a.get("displayName") or "")[:80],
+                      "platform": str(a.get("platform") or "").lower(), "type": str(a.get("type") or ""),
+                      "avatar": a.get("avatar") or a.get("profilePicture") or "",
+                      "expired": bool(a.get("isExpired") or a.get("expired"))})
+    return True, accts
+
+
+def _lc_conn(uname: str) -> Optional[Dict[str, Any]]:
+    c = (_load_sp_conns(uname) or {}).get("leadconnector")
+    return c if isinstance(c, dict) and c.get("token") and c.get("location_id") else None
+
+
+def _lc_media(url: str) -> List[Dict[str, Any]]:
+    if not url:
+        return []
+    low = url.lower().split("?")[0]
+    mt = ("video/mp4" if low.endswith((".mp4", ".mov", ".m4v")) else
+          "image/png" if low.endswith(".png") else "image/gif" if low.endswith(".gif") else
+          "image/webp" if low.endswith(".webp") else "image/jpeg")
+    return [{"url": url, "type": mt}]
+
+
+def _lc_push(uname: str, post: Dict[str, Any], status: str) -> Tuple[bool, str]:
+    """Create (or update) the post in HighLevel. status: 'published' | 'scheduled'."""
+    conn = _lc_conn(uname)
+    if not conn:
+        return False, "LeadConnector isn't connected."
+    ids = [a for a in (post.get("lc_accounts") or []) if a]
+    if not ids:
+        return False, "Pick at least one account to post to."
+    body: Dict[str, Any] = {"accountIds": ids, "summary": post.get("caption") or "", "status": status, "type": "post",
+                            "media": _lc_media(post.get("media_url") or "")}
+    if status == "scheduled":
+        when = post.get("scheduled_utc") or ""
+        if not when:
+            return False, "Pick a date and time to schedule."
+        body["scheduleDate"] = when
+    if conn.get("user_id"):
+        body["createdBy"] = conn["user_id"]
+    loc = conn["location_id"]
+    if post.get("lc_post_id"):
+        st, data = _lc_request(conn, "PUT", f"/social-media-posting/{loc}/posts/{post['lc_post_id']}", body)
+    else:
+        st, data = _lc_request(conn, "POST", f"/social-media-posting/{loc}/posts", body)
+    _lc_save_version(uname, conn)
+    if st >= 400 or st == 0:
+        return False, _lc_error(st, data)
+    res = data.get("results") if isinstance(data.get("results"), dict) else {}
+    pid = ((res.get("post") or {}).get("_id") or (res.get("post") or {}).get("id")
+           or data.get("id") or post.get("lc_post_id") or "")
+    if pid:
+        post["lc_post_id"] = str(pid)
+    return True, str(pid or "ok")
+
+
+def _lc_save_version(uname: str, conn: Dict[str, Any]) -> None:
+    conns = _load_sp_conns(uname)
+    if isinstance(conns.get("leadconnector"), dict) and conns["leadconnector"].get("version") != conn.get("version"):
+        conns["leadconnector"]["version"] = conn.get("version")
+        _save_sp_conns(uname, conns)
+
+
+@app.post("/api/social/lc/connect")
+def api_lc_connect():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    token = str(b.get("token") or "").strip()
+    loc = str(b.get("location_id") or "").strip()
+    if not token or not loc:
+        return jsonify({"ok": False, "error": "Paste both your Private Integration token and your Location ID."}), 400
+    if not re.match(r"^[A-Za-z0-9_-]{6,64}$", loc):
+        return jsonify({"ok": False, "error": "That Location ID doesn't look right — it's the ID in your HighLevel sub-account URL."}), 400
+    conn = {"token": token, "location_id": loc}
+    ok, accts = _lc_accounts(conn)
+    if not ok:
+        return jsonify({"ok": False, "error": accts}), 400
+    conns = _load_sp_conns(uname)
+    conns["leadconnector"] = {"token": token, "location_id": loc, "version": conn.get("version"),
+                              "accounts": accts, "connected_at": now_iso(), "user_id": str(b.get("user_id") or "").strip()}
+    _save_sp_conns(uname, conns)
+    return jsonify({"ok": True, "accounts": accts})
+
+
+@app.post("/api/social/lc/refresh")
+def api_lc_refresh():
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    conn = _lc_conn(uname)
+    if not conn:
+        return jsonify({"ok": False, "error": "LeadConnector isn't connected."}), 400
+    ok, accts = _lc_accounts(conn)
+    if not ok:
+        return jsonify({"ok": False, "error": accts}), 400
+    conns = _load_sp_conns(uname)
+    conns["leadconnector"].update({"accounts": accts, "version": conn.get("version")})
+    _save_sp_conns(uname, conns)
+    return jsonify({"ok": True, "accounts": accts})
+
+
 @app.get("/api/social/connections")
 def api_sp_connections():
     u = current_user()
@@ -32124,6 +32409,10 @@ def api_sp_connections():
             "name": c.get("name") or "",
             "page_name": page_name,
         }
+    lc = conns.get("leadconnector") if isinstance(conns.get("leadconnector"), dict) else {}
+    summary["leadconnector"] = {"connected": bool(lc.get("token") and lc.get("location_id")),
+                                "location_id": lc.get("location_id") or "",
+                                "accounts": lc.get("accounts") or [], "connected_at": lc.get("connected_at") or ""}
     return jsonify({"ok": True, "connections": summary})
 
 @app.post("/api/social/disconnect/<platform>")
@@ -32683,6 +32972,12 @@ def _bg_schedule_tick():
         try:
             with app.app_context():
                 _daily_brief_tick()
+        except Exception:
+            pass
+        # Scheduled social posts not handled by HighLevel (V9.9)
+        try:
+            with app.app_context():
+                _sp_tick()
         except Exception:
             pass
         # Every 10 minutes: prune logs + evict old image jobs
