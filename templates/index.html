@@ -35567,70 +35567,12 @@ async function cpLoadState(){
   }
 }
 
-/* ── LeadConnector (HighLevel Social Planner) ─────────────────────────── */
-var _LC_ICON = {facebook:'𝔣',instagram:'◎',linkedin:'in',google:'G',tiktok:'♪',youtube:'▶',twitter:'𝕏',x:'𝕏',pinterest:'P',threads:'@',bluesky:'🦋',community:'👥'};
-function _lcInfo(){ return (_cpConns && _cpConns.leadconnector) || {}; }
-function _lcOn(){ return !!_lcInfo().connected; }
-function cpRenderLcStatus(){
-  var el=$('cpLcStatus'); if(!el) return;
-  var lc=_lcInfo();
-  if(lc.connected){
-    var n=(lc.accounts||[]).length;
-    el.innerHTML='<span style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#6ee7b7;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35);border-radius:20px;padding:3px 12px;">✓ LeadConnector · '+n+' account'+(n===1?'':'s')+'</span>'
-      +' <button class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:3px 10px;" onclick="cpLcRefresh()" title="Re-sync accounts from HighLevel">↻</button>'
-      +' <button class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:3px 10px;color:#fca5a5;" onclick="cpLcDisconnect()">Disconnect</button>';
-  } else {
-    el.innerHTML='<button class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:6px 14px;" onclick="cpLcConnect()">🔗 Connect LeadConnector — post to every platform</button>';
-  }
-}
-window.cpLcRefresh=async function(){
-  try{ var r=await fetch('/api/social/lc/refresh',{method:'POST'}); var d=await r.json();
-    if(!d.ok){ alert(d.error||'Could not refresh'); return; } if(window.showToast) showToast('✓ Accounts synced from HighLevel'); cpLoadState(); }catch(e){ alert(String(e)); }
-};
-window.cpLcDisconnect=async function(){
-  if(!confirm('Disconnect LeadConnector? Posts already scheduled in HighLevel will still go out.')) return;
-  await fetch('/api/social/disconnect/leadconnector',{method:'POST'}); cpLoadState();
-};
-window.cpLcConnect=function(){
-  var ov=document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
-  var fs=function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
-  ov.innerHTML='<div style="background:#0f1629;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px 22px;width:min(540px,100%);box-shadow:0 24px 80px rgba(0,0,0,.7);max-height:92vh;overflow-y:auto;color:#e2e8f0;">'
-    +'<div style="display:flex;justify-content:space-between;align-items:center;"><div style="'+fs(18)+'font-weight:800;color:#c4b5fd;">🔗 Connect LeadConnector</div><button id="_lcX" style="background:none;border:none;color:#a8b4c8;'+fs(20)+'cursor:pointer;">✕</button></div>'
-    +'<div style="'+fs(14.5)+'color:#b0bdd0;margin:4px 0 16px;">One connection posts to every account in your HighLevel Social Planner — Facebook, Instagram, LinkedIn, Google Business, TikTok, YouTube, X, Pinterest, Threads and more.</div>'
-    +'<div style="background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);border-radius:12px;padding:14px 16px;'+fs(14)+'line-height:1.7;color:#cbd5e1;margin-bottom:16px;">'
-    +'<b style="color:#c4b5fd;">Setup (about 2 minutes):</b><br>'
-    +'1. In HighLevel, open your sub-account → <b>Marketing → Social Planner</b> and connect your social accounts there.<br>'
-    +'2. Go to <b>Settings → Private Integrations → Create new integration</b>. Name it “Simply Agentic” and tick the <b>Social Planner</b> scopes (view/edit posts and view accounts).<br>'
-    +'3. Copy the token it shows (starts with <code>pit-</code>).<br>'
-    +'4. Your <b>Location ID</b> is in the browser address bar: <code>…/location/<b>THIS-PART</b>/…</code> (also under Settings → Business Profile).</div>'
-    +'<label style="'+fs(14)+'font-weight:700;display:block;margin-bottom:5px;">Private Integration token</label>'
-    +'<input id="_lcTok" type="password" autocomplete="off" placeholder="pit-…" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:9px;padding:10px 12px;color:#e2e8f0;'+fs(14)+'font-family:monospace;">'
-    +'<label style="'+fs(14)+'font-weight:700;display:block;margin:12px 0 5px;">Location ID</label>'
-    +'<input id="_lcLoc" type="text" autocomplete="off" placeholder="e.g. ve9EPM428h8vShlRW1KT" style="width:100%;box-sizing:border-box;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,180,.4);border-radius:9px;padding:10px 12px;color:#e2e8f0;'+fs(14)+'">'
-    +'<div id="_lcErr" style="display:none;color:#fca5a5;'+fs(14)+'margin-top:10px;line-height:1.5;"></div>'
-    +'<div style="display:flex;gap:10px;margin-top:18px;"><button id="_lcGo" class="cp-btn cp-btn-primary" style="flex:1;padding:11px;'+fs(15)+'font-weight:800;">Connect &amp; load my accounts</button>'
-    +'<button id="_lcCancel" class="cp-btn" style="padding:11px 18px;'+fs(14)+'">Cancel</button></div></div>';
-  document.body.appendChild(ov);
-  function close(){ ov.remove(); }
-  ov.querySelector('#_lcX').onclick=close; ov.querySelector('#_lcCancel').onclick=close;
-  ov.onclick=function(e){ if(e.target===ov) close(); };
-  ov.querySelector('#_lcGo').onclick=async function(){
-    var tok=ov.querySelector('#_lcTok').value.trim(), loc=ov.querySelector('#_lcLoc').value.trim(), err=ov.querySelector('#_lcErr');
-    var m=loc.match(/location\/([A-Za-z0-9_-]+)/); if(m) loc=m[1];      // they pasted the whole URL
-    if(!tok||!loc){ err.textContent='Paste both the token and the Location ID.'; err.style.display='block'; return; }
-    this.disabled=true; this.textContent='Connecting…'; err.style.display='none';
-    try{
-      var r=await fetch('/api/social/lc/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:tok,location_id:loc})});
-      var d=await r.json();
-      if(!d.ok){ err.textContent=d.error||'Could not connect'; err.style.display='block'; this.disabled=false; this.textContent='Connect & load my accounts'; return; }
-      close();
-      if(window.showToast) showToast('✅ LeadConnector connected — '+(d.accounts||[]).length+' accounts ready');
-      cpLoadState();
-    }catch(e){ err.textContent='Network error — try again.'; err.style.display='block'; this.disabled=false; this.textContent='Connect & load my accounts'; }
-  };
-};
-/* Composer targets: HighLevel accounts when connected, legacy platform boxes otherwise */
+/* Platform connections are the planner's own (Facebook/Instagram tokens etc.). */
+var _LC_ICON = {};
+function _lcInfo(){ return {}; }
+function _lcOn(){ return false; }
+function cpRenderLcStatus(){ var el=$('cpLcStatus'); if(el) el.innerHTML=''; }
+/* Composer targets: platform checkboxes */
 function cpRenderComposerTargets(post){
   var box=$('cpPlatformChecks'); if(!box) return;
   if(!_lcOn()){ if(box.dataset.mode==='lc'){ box.innerHTML=box.dataset.legacy||box.innerHTML; } box.dataset.mode='legacy';
@@ -35640,10 +35582,10 @@ function cpRenderComposerTargets(post){
   if(box.dataset.mode!=='lc'){ box.dataset.legacy=box.innerHTML; box.dataset.mode='lc'; }
   var accts=(_lcInfo().accounts||[]);
   var chosen=post?(post.lc_accounts||[]):[], plats2=post?(post.platforms||[]):[];
-  if(!accts.length){ box.innerHTML='<div style="grid-column:1/-1;font-size:calc(14px * var(--fs,1.1));color:#fbbf24;">No accounts in your HighLevel Social Planner yet — connect them in HighLevel, then press ↻.</div>'; return; }
+  if(!accts.length){ return; }
   box.innerHTML=accts.map(function(a){
     var on=chosen.length?chosen.indexOf(a.id)>=0:(plats2.indexOf(a.platform)>=0);
-    return '<label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#e2e8f0;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — reconnect in HighLevel':'')+'">'
+    return '<label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#e2e8f0;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — reconnect':'')+'">'
       +'<input type="checkbox" data-lc="1" data-platform="'+_esc(a.platform)+'" value="'+_esc(a.id)+'"'+(on&&!a.expired?' checked':'')+(a.expired?' disabled':'')+' style="accent-color:#a78bfa;width:15px;height:15px;">'
       +'<span style="font-weight:800;min-width:16px;text-align:center;">'+(_LC_ICON[a.platform]||'•')+'</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+_esc(a.name||a.platform)+'</span></label>';
   }).join('');
@@ -35691,7 +35633,7 @@ function cpRenderPlatformPills(){
   if(!el) return;
   if(_lcOn()){
     el.innerHTML=(_lcInfo().accounts||[]).map(function(a){
-      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.35);color:#f1f5f9;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — connection expired, reconnect in HighLevel':'')+'">'
+      return '<div style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.35);color:#f1f5f9;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — connection expired':'')+'">'
         +'<span>'+(_LC_ICON[a.platform]||'•')+'</span><span>'+_esc(a.name||a.platform)+'</span>'+(a.expired?' ⚠':'')+'</div>';
     }).join('');
     return;
@@ -35991,7 +35933,6 @@ function cpRenderQueue(){
         +platDots
         +'<span style="font-size:calc(14px * var(--fs,1.1));color:#aab8cc;display:flex;align-items:center;gap:3px;"><span>🕐</span>'+dt+'</span>'
         +'<span style="font-size:calc(14.5px * var(--fs,1.1));font-weight:700;background:'+statusColor+'22;border:1px solid '+statusColor+'44;border-radius:5px;padding:1px 7px;color:'+statusColor+';">'+statusLabel+'</span>'
-        +((p.lc_post_id||p.scheduled_via==='leadconnector')?'<span style="font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;">via HighLevel</span>':'')
         +'</div>'
         +(p.error?'<div style="font-size:calc(14px * var(--fs,1.1));color:#fca5a5;margin-top:6px;line-height:1.45;">⚠ '+_esc(p.error)+'</div>':'')
         +'</div>'
@@ -36038,9 +35979,9 @@ window.cpOpenComposer = function(postId, prefillDate){
   var idEl = $('cpEditingPostId');
   if(idEl) idEl.value = _cpEditingId || '';
 
-  // Targets: HighLevel accounts when LeadConnector is connected, else platform boxes
+  // Targets: platform checkboxes
   cpRenderComposerTargets(post);
-  var mh=$('cpMediaHint'); if(mh) mh.textContent = _lcOn() ? 'Image or video link — HighLevel attaches it to each post. Use 🎞 to pick one of your clips.' : 'Required for Instagram · Optional for Facebook';
+  var mh=$('cpMediaHint'); if(mh) mh.textContent = 'Image or video link — use 🎞 to pick one of your clips. Required for Instagram.';
 
   var delWrap = $('cpDeleteWrap');
   if(delWrap) delWrap.style.display = post ? 'block' : 'none';
@@ -36099,7 +36040,7 @@ window.cpSavePost = async function(status){
     });
     var d = await res.json();
     if(!d.ok){ cpSetStatus(d.error||'Save failed'); await cpLoadState(); return; }
-    cpSetStatus(status==='scheduled' && tg.lc_accounts.length ? '✓ Scheduled in HighLevel — it will post automatically' : '✓ Saved');
+    cpSetStatus(status==='scheduled' && tg.lc_accounts.length ? '✓ Scheduled — it will post automatically' : '✓ Saved');
     await cpLoadState();
     setTimeout(cpCloseComposer, 1100);
   } catch(e){
