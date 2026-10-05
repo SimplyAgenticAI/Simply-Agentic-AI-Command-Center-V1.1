@@ -36601,6 +36601,7 @@ window.addEventListener('focus', function(){
             </div>
 
             <div class="vc-pane" id="vcPaneEdit">
+              <button class="vc-btn" id="vcPolishBtn" onclick="vcPolish()" title="Captions on + remove silences, ums and retakes — in one go" style="width:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));padding:11px;">✨ One-tap Polish</button>
               <div id="vcLayoutBox" style="display:none;">
                 <div class="vc-lbl">Layout <span class="vc-hint">(how your screen and camera are arranged)</span></div>
                 <div class="vc-chips" id="vcLayout"><button data-v="bubble">◳ Bubble</button><button data-v="stacked">📱 Stacked</button><button data-v="screen">🖥 Screen</button><button data-v="cam">🙂 Camera</button></div>
@@ -36626,6 +36627,7 @@ window.addEventListener('focus', function(){
               <div class="vc-toggles">
                 <label><input type="checkbox" id="vcSilence" onchange="vcDirty()"> ✂️ Remove silences</label>
                 <label><input type="checkbox" id="vcFillers" onchange="vcDirty()"> 🤐 Remove “um” &amp; “uh”</label>
+                <label title="When you restart a sentence, keep only your final take"><input type="checkbox" id="vcRetakes" onchange="vcDirty()"> 🔁 Remove retakes</label>
                 <label><input type="checkbox" id="vcBrand" onchange="vcDirty()"> 🎨 Add my logo</label>
                 <label><input type="checkbox" id="vcMute" onchange="vcDirty()"> 🔇 Mute audio</label>
               </div>
@@ -36912,7 +36914,7 @@ window.addEventListener('focus', function(){
       }
       $('vcStart').value=(+c.start).toFixed(1); $('vcEnd').value=(+c.end).toFixed(1);
       $('vcHook').value=c.hook||'';
-      $('vcSilence').checked=!!c.remove_silence; $('vcFillers').checked=!!c.remove_fillers;
+      $('vcSilence').checked=!!c.remove_silence; $('vcFillers').checked=!!c.remove_fillers; $('vcRetakes').checked=!!c.remove_retakes;
       $('vcBrand').checked=!!c.brand; $('vcMute').checked=!!c.mute;
       $('vcCapOn').checked=!!(c.captions&&c.captions.on); setChips('vcCapStyle',(c.captions&&c.captions.style)||'bold');
       $('vcSocCap').value=(c.social&&c.social.caption)||'';
@@ -36938,7 +36940,7 @@ window.addEventListener('focus', function(){
     var c=byId(S.sel); if(!c) return;
     var body={
       aspect:chipVal('vcAspect')||c.aspect, start:+$('vcStart').value, end:+$('vcEnd').value,
-      hook:$('vcHook').value, remove_silence:$('vcSilence').checked, remove_fillers:$('vcFillers').checked,
+      hook:$('vcHook').value, remove_silence:$('vcSilence').checked, remove_fillers:$('vcFillers').checked, remove_retakes:$('vcRetakes').checked,
       brand:$('vcBrand').checked, mute:$('vcMute').checked,
       captions:{on:$('vcCapOn').checked, style:chipVal('vcCapStyle')||'bold'}
     };
@@ -36953,6 +36955,15 @@ window.addEventListener('focus', function(){
       if(!d.rerender) toast('Nothing changed','info');
       load();
     });
+  };
+  /* One-tap Polish: captions + cut silences, ums and retakes, then render */
+  window.vcPolish=function(){
+    var c=byId(S.sel); if(!c) return;
+    if(c.status==='rendering'){ toast('Still rendering — try again in a moment','warning'); return; }
+    $('vcCapOn').checked=true; if(!chipVal('vcCapStyle')) setChips('vcCapStyle','bold');
+    $('vcSilence').checked=true; $('vcFillers').checked=true; $('vcRetakes').checked=true;
+    toast('✨ Polishing — captions on, silences, ums and retakes removed','info');
+    vcApply();
   };
   window.vcSaveTitle=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id,{title:$('vcTitle').value}).then(function(d){ if(d.ok){ c.title=d.clip.title; renderGrid(); } }); };
   window.vcDownload=function(){ var c=byId(S.sel); if(!c||c.status!=='ready'){ toast('Clip is still rendering','warning'); return; } location.href='/api/vclips/'+c.id+'/file?download=1'; };

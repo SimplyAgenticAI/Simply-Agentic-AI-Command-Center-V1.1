@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.8.0")
+APP_VERSION = os.getenv("APP_VERSION", "9.8.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -28393,6 +28393,36 @@ def _vc_silences(media: Path) -> List[Tuple[float, float]]:
             out.append((s2, e2))
     return out
 
+def _vc_retake_cuts(words: List[Dict[str, Any]], k: int = 4, look: int = 30, max_gap_s: float = 40.0) -> List[Tuple[float, float]]:
+    """Find abandoned takes: when a run of k+ words recurs shortly after
+    ("so the first thing … so the first thing you need to do"), the speaker
+    restarted — cut from the first attempt up to the restart, keep the last."""
+    norm = [re.sub(r"[^a-z0-9']", "", (w.get("w") or "").lower()) for w in words]
+    cuts: List[Tuple[float, float]] = []
+    i, n = 0, len(words)
+    while i < n - k:
+        key = norm[i:i + k]
+        if not all(key) or len(set(key)) == 1:
+            i += 1
+            continue
+        hit = -1
+        for j in range(i + k, min(n - k + 1, i + k + look)):
+            if norm[j:j + k] != key or words[j]["s"] - words[i]["s"] > max_gap_s:
+                continue
+            # A real restart is preceded by a hesitation (pause or filler);
+            # deliberate parallel phrasing ("you need to do X, you need to do Y")
+            # flows straight on — don't cut that.
+            hesitated = (float(words[j]["s"]) - float(words[j - 1]["e"]) >= 0.45) or (norm[j - 1] in _VC_FILLERS)
+            if hesitated:
+                hit = j          # keep scanning: the LAST restart within reach wins
+        if hit > 0:
+            cuts.append((float(words[i]["s"]) - 0.05, float(words[hit]["s"]) - 0.08))
+            i = hit
+        else:
+            i += 1
+    return cuts
+
+
 def _vc_merge(ranges: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
     out: List[Tuple[float, float]] = []
     for s, e in sorted(r for r in ranges if r[1] > r[0]):
@@ -28536,17 +28566,39 @@ def _vc_rec_build_master(c: Dict[str, Any], cdir: Path) -> None:
         g = (f"[{idx['s']}:v]scale=720:560:force_original_aspect_ratio=decrease,pad=720:560:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[top];"
              f"[{idx['c']}:v]scale=720:720:force_original_aspect_ratio=increase,crop=720:720,setsar=1[bot];"
              f"[top][bot]vstack=inputs=2[v]")
-    else:  # bubble
+    else:  # bubble — camera disc + ring + soft drop shadow (V9.8.1)
         D = _REC_SIZES.get(lay.get("size") or "m", 260)
         corner = lay.get("corner") if lay.get("corner") in _REC_CORNERS else "br"
-        m = 28
-        x = f"{m}" if corner in ("tl", "bl") else f"main_w-overlay_w-{m}"
-        y = f"{m}" if corner in ("tl", "tr") else f"main_h-overlay_h-{m}"
-        shape = "if(lte(hypot(X-W/2,Y-H/2),W/2),255,0)" if (lay.get("shape") or "circle") == "circle" else "255"
-        g = (f"[{idx['s']}:v]scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[bg];"
+        circle = (lay.get("shape") or "circle") == "circle"
+        W, H, m, ring, sh = 1280, 720, 30, 5, 22          # frame, margin, ring width, shadow spread
+        R, S = D + 2 * ring, D + 2 * sh
+        left, top = corner in ("tl", "bl"), corner in ("tl", "tr")
+        cx = m + ring if left else W - m - ring - D       # camera disc top-left
+        cy = m + ring if top else H - m - ring - D
+        rx, ry = cx - ring, cy - ring
+        sx, sy = cx - sh, cy - sh + 6                      # shadow sits slightly low
+        dur = f"{max(0.1, e - s):.3f}"
+        def _mask(edge_px: int, alpha: int) -> str:
+            if not circle:
+                return f"if(lte(abs(X-W/2),W/2-{edge_px})*lte(abs(Y-H/2),H/2-{edge_px}),{alpha},0)"
+            return f"if(lte(hypot(X-W/2,Y-H/2),W/2-{edge_px}),{alpha},0)"
+        # Ring = your Brand-kit accent if you've set one, otherwise clean white
+        ring_hex = "#ffffff"
+        if c.get("_owner"):
+            try:
+                _bj = load_json(_vc_dir(c["_owner"]) / "brand.json", {}) or {}
+                if re.match(r"^#[0-9a-fA-F]{6}$", str(_bj.get("color") or "")):
+                    ring_hex = _bj["color"]
+            except Exception:
+                pass
+        ring_col = "0x" + ring_hex.lstrip("#")[:6] if re.match(r"^#[0-9a-fA-F]{6}$", ring_hex or "") else "white"
+        g = (f"[{idx['s']}:v]scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={bg},setsar=1[bg];"
+             f"color=c=black:s={S}x{S}:d={dur},format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='{_mask(sh - 4, 120)}',boxblur=9:2[shd];"
+             f"color=c={ring_col}:s={R}x{R}:d={dur},format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='{_mask(0, 255)}'[rng];"
              f"[{idx['c']}:v]crop='min(iw,ih)':'min(iw,ih)',scale={D}:{D},format=yuva420p,"
-             f"geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='{shape}'[cb];"
-             f"[bg][cb]overlay={x}:{y}:format=auto[v]")
+             f"geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='{_mask(0, 255)}'[cb];"
+             f"[bg][shd]overlay={sx}:{sy}:format=auto[b1];[b1][rng]overlay={rx}:{ry}:format=auto[b2];"
+             f"[b2][cb]overlay={cx}:{cy}:format=auto:shortest=1[v]")
     # Audio lives on the screen track for screen modes, on the camera track for camera takes
     a_src = None
     if has_s and _ve_probe(scr)["has_audio"] and "s" in idx:
@@ -28602,6 +28654,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
         c = _vc_get(uname, cid)
         if not c:
             return {"ok": False, "error": "Clip not found"}
+        c["_owner"] = uname          # transient (never saved) — lets the compositor read the brand kit
         cdir = _vc_dir(uname) / cid
         cdir.mkdir(parents=True, exist_ok=True)
         notes: List[str] = []
@@ -28619,7 +28672,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
             probe = _ve_probe(master)
 
             # Words (source time) — needed for captions, filler removal, text edits
-            need_words = (c.get("captions") or {}).get("on") or c.get("remove_fillers") or c.get("deleted")
+            need_words = (c.get("captions") or {}).get("on") or c.get("remove_fillers") or c.get("remove_retakes") or c.get("deleted")
             if (need_words and c.get("words") is None) or stale_words:
                 src_cache = _ve_source_path(c.get("source_vid") or "")
                 cached = load_json(src_cache.parent / "transcript.json", None) if src_cache else None
@@ -28645,6 +28698,9 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
                     cuts.append((w["s"], w["e"]))
                 elif c.get("remove_fillers") and re.sub(r"[^a-z\-]", "", w["w"].lower()) in _VC_FILLERS:
                     cuts.append((w["s"], w["e"]))
+            if c.get("remove_retakes"):
+                kept = [w for i, w in in_range if i not in deleted]
+                cuts += _vc_retake_cuts(kept)
             if c.get("remove_silence") and probe["has_audio"]:
                 cuts += [(s + m0, e + m0) for s, e in _vc_silences(master)]
             segs = _vc_keep_segments(start, end, cuts)
@@ -28886,7 +28942,7 @@ def api_vclips_update(cid):
                 x["layout"] = new; rerender = True
                 try: (_vc_dir(uname) / cid / "master.mp4").unlink()   # force re-composite
                 except Exception: pass
-        for k in ("mute", "remove_silence", "remove_fillers", "brand"):
+        for k in ("mute", "remove_silence", "remove_fillers", "remove_retakes", "brand"):
             if k in b and bool(b[k]) != bool(x.get(k)):
                 x[k] = bool(b[k]); rerender = True
         if "captions" in b and isinstance(b["captions"], dict):

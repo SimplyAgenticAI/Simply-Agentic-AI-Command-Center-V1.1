@@ -185,3 +185,27 @@ def test_bad_numbers_are_400_not_500(studio):
     _wait_clip(c, cid)
     assert c.post(f"/api/vclips/{cid}", headers=h, json={"start": "abc"}).status_code == 400
     assert c.post(f"/api/vclips/{cid}", headers=h, json={"word_edits": {"x": "y"}}).status_code == 400
+
+
+def _w(seq):
+    out, t = [], 0.0
+    for tok in seq:
+        if tok == "|":           # a hesitation pause
+            t += 0.8
+            continue
+        out.append({"w": tok, "s": round(t, 2), "e": round(t + 0.25, 2)}); t += 0.3
+    return out
+
+
+def test_retake_detected_after_hesitation():
+    words = _w("so the first thing you | um so the first thing you need to do is price".split())
+    cuts = app_module._vc_retake_cuts(words)
+    assert len(cuts) == 1
+    s, e = cuts[0]
+    restart = next(w for i, w in enumerate(words) if w["w"] == "so" and i > 0)
+    assert s < words[0]["s"] + 0.01 and abs(e - (restart["s"] - 0.08)) < 1e-6
+
+
+def test_parallel_phrasing_is_not_a_retake():
+    words = _w("you need to do this and you need to do that every single day".split())
+    assert app_module._vc_retake_cuts(words) == []
