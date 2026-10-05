@@ -35465,6 +35465,9 @@ function saUseGlyph(){
             <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(238,29,82,.08);border:1px solid rgba(238,29,82,.24);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#fda4af;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
               <input type="checkbox" value="tiktok" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#EE1D52;width:14px;height:14px;"> ♪ TikTok
             </label>
+            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(10,102,194,.10);border:1px solid rgba(10,102,194,.3);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#93c5fd;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
+              <input type="checkbox" value="linkedin" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#0A66C2;width:14px;height:14px;"> in LinkedIn
+            </label>
           </div>
         </div>
 
@@ -35525,6 +35528,7 @@ var PLAT_COLORS = {
   instagram: {bg:'rgba(225,48,108,.15)', border:'rgba(225,48,108,.35)', dot:'#E1306C', label:'Instagram'},
   youtube:   {bg:'rgba(255,0,0,.12)',    border:'rgba(255,0,0,.3)',     dot:'#FF0000', label:'YouTube'},
   tiktok:    {bg:'rgba(238,29,82,.12)',  border:'rgba(238,29,82,.3)',   dot:'#EE1D52', label:'TikTok'},
+  linkedin:  {bg:'rgba(10,102,194,.16)', border:'rgba(10,102,194,.4)',  dot:'#0A66C2', label:'LinkedIn'},
 };
 
 var STATUS_COLORS = {
@@ -35542,7 +35546,7 @@ window.showContentPlannerModal = function(){
   var m = $('contentPlannerModal');
   if(!m) return;
   m.style.display = 'flex';
-  cpLoadState();
+  cpLoadState().then(cpWatchPublishing);
 };
 
 window.closeContentPlannerModal = function(){
@@ -35638,8 +35642,8 @@ function cpRenderPlatformPills(){
     }).join('');
     return;
   }
-  var platforms = ['facebook','instagram','youtube','tiktok'];
-  var icons = {facebook:'𝔣', instagram:'◎', youtube:'▶', tiktok:'♪'};
+  var platforms = ['facebook','instagram','youtube','tiktok','linkedin'];
+  var icons = {facebook:'𝔣', instagram:'◎', youtube:'▶', tiktok:'♪', linkedin:'in'};
   el.innerHTML = platforms.map(function(p){
     var c = _cpConns[p] || {};
     var connected = c.connected;
@@ -35660,14 +35664,67 @@ function cpRenderPlatformPills(){
   }).join('');
 }
 
-window.cpConnect = function(platform){
-  if(platform === 'facebook' || platform === 'instagram'){
-    cpConnectMetaToken(platform);
+/* Direct platform connections: each platform's own sign-in in a popup.
+   If the platform's developer keys aren't on the server yet, admins get the
+   exact setup steps; everyone else gets a friendly "not available yet". */
+var _cpSetup = null;
+async function cpGetSetup(){ if(_cpSetup) return _cpSetup; try{ _cpSetup=await (await fetch('/api/social/setup')).json(); }catch(_){ _cpSetup={ready:{}}; } return _cpSetup; }
+window.addEventListener('message', function(e){ if(e && e.data && e.data.spConnected){ if(window.showToast) showToast('✅ Connected!'); cpLoadState(); } });
+window.cpConnect = async function(platform){
+  var s = await cpGetSetup();
+  if(s.ready && s.ready[platform]){
+    var path = platform==='instagram' ? 'facebook' : platform;
+    var w = window.open('/social/connect/'+path, 'spConnect', 'width=620,height=760');
+    if(!w){ location.href='/social/connect/'+path; return; }
+    var iv=setInterval(function(){ if(w.closed){ clearInterval(iv); cpLoadState(); } }, 1000);
     return;
   }
-  window.open('/social/connect/'+platform, '_blank', 'width=600,height=700');
-  setTimeout(function(){ cpLoadState(); }, 4000);
+  if(!s.admin){ alert(PLAT_COLORS[platform].label+' connections aren\'t available yet.'); return; }
+  cpShowSetupGuide(platform, s);
 };
+var _CP_GUIDE = {
+  facebook: {title:'Facebook & Instagram', steps:[
+    'Go to <a href="https://developers.facebook.com/apps" target="_blank" style="color:#818cf8">developers.facebook.com/apps</a> → <b>Create App</b> → type <b>Business</b>.',
+    'Add the <b>Facebook Login for Business</b> product. Under its settings add the redirect URL below.',
+    'In <b>App Settings → Basic</b> copy the <b>App ID</b> and <b>App Secret</b>.',
+    'Request <b>Advanced Access</b> for <code>pages_manage_posts</code>, <code>pages_show_list</code>, <code>instagram_basic</code>, <code>instagram_content_publish</code> (App Review — Meta usually takes a few days to two weeks). Until approved, it works for you and anyone you add as a tester.',
+    'Instagram posting needs an Instagram <b>Business or Creator</b> account linked to a Facebook Page.']},
+  youtube: {title:'YouTube', steps:[
+    'Use your existing Google Cloud project (the one Calendar/Gmail already use) at <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" style="color:#818cf8">console.cloud.google.com</a> → enable <b>YouTube Data API v3</b>.',
+    'In <b>APIs & Services → Credentials</b>, open your OAuth client and add the redirect URL below.',
+    'On the <b>OAuth consent screen</b>, add the scope <code>youtube.force-ssl</code>. Google verification for public use can take a few weeks; until then add yourself and testers as test users.']},
+  tiktok: {title:'TikTok', steps:[
+    'Create an app at <a href="https://developers.tiktok.com/apps" target="_blank" style="color:#818cf8">developers.tiktok.com</a>, add <b>Login Kit</b> and <b>Content Posting API</b> (Direct Post).',
+    'Add the redirect URL below and request the scopes <code>user.info.basic</code>, <code>video.upload</code>, <code>video.publish</code>.',
+    'Submit for review. Until TikTok audits the app, posts can only be published as private.']},
+  linkedin: {title:'LinkedIn', steps:[
+    'Create an app at <a href="https://www.linkedin.com/developers/apps" target="_blank" style="color:#818cf8">linkedin.com/developers/apps</a> (it needs a LinkedIn Company Page to attach to).',
+    'Under <b>Products</b> add <b>Sign In with LinkedIn using OpenID Connect</b> and <b>Share on LinkedIn</b> (both are instant).',
+    'In <b>Auth</b>, add the redirect URL below and copy the <b>Client ID</b> and <b>Client Secret</b>.']}
+};
+function cpShowSetupGuide(platform, s){
+  var key = platform==='instagram' ? 'facebook' : platform, g=_CP_GUIDE[key];
+  var envs=(s.env&&s.env[platform])||[], redirect=(s.redirects&&s.redirects[platform])||'';
+  var ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;z-index:9999999;background:rgba(4,8,24,.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+  var f=function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
+  ov.innerHTML='<div style="background:#0f1629;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px 22px;width:min(580px,100%);max-height:92vh;overflow-y:auto;color:#e2e8f0;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;"><div style="'+f(18)+'font-weight:800;color:#c4b5fd;">Set up '+g.title+' (one time)</div><button id="_cpGX" style="background:none;border:none;color:#a8b4c8;'+f(20)+'cursor:pointer;">✕</button></div>'
+    +'<div style="'+f(14)+'color:#a8b4c8;margin:4px 0 14px;">Only you (the admin) see this. Once the keys are on the server, everyone just clicks Connect and signs in.</div>'
+    +'<ol style="'+f(14.5)+'line-height:1.65;padding-left:20px;margin:0 0 14px;">'+g.steps.map(function(x){ return '<li style="margin-bottom:8px;">'+x+'</li>'; }).join('')+'</ol>'
+    +'<div style="'+f(14)+'font-weight:700;margin-bottom:4px;">Redirect URL to register</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:14px;"><code id="_cpGR" style="flex:1;background:#1e293b;padding:8px 10px;border-radius:8px;'+f(14)+'word-break:break-all;">'+_esc(redirect)+'</code><button class="cp-btn" id="_cpGC">Copy</button></div>'
+    +'<div style="'+f(14)+'font-weight:700;margin-bottom:4px;">Then add these on Render → your service → Environment</div>'
+    +'<div style="'+f(14)+'line-height:1.8;">'+envs.map(function(e){ return '<code style="background:#1e293b;padding:3px 8px;border-radius:5px;">'+_esc(e)+'</code>'; }).join(' ')+'</div>'
+    +'<div style="'+f(14)+'color:#a8b4c8;margin-top:10px;">Render redeploys automatically; then Connect works for everyone.</div>'
+    +(key==='facebook'?'<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);'+f(14)+'">In a hurry? <a href="#" id="_cpGTok" style="color:#818cf8">Connect a single Facebook Page with a page token instead</a></div>':'')
+    +'</div>';
+  document.body.appendChild(ov);
+  var close=function(){ ov.remove(); };
+  ov.querySelector('#_cpGX').onclick=close; ov.onclick=function(e){ if(e.target===ov) close(); };
+  ov.querySelector('#_cpGC').onclick=function(){ try{ navigator.clipboard.writeText(redirect); this.textContent='Copied'; }catch(_){} };
+  var tk=ov.querySelector('#_cpGTok'); if(tk) tk.onclick=function(e){ e.preventDefault(); close(); cpConnectMetaToken('facebook'); };
+}
 
 // ── Connect Facebook / Instagram via pasted Page Access Token ──────────────
 window.cpConnectMetaToken = function(platform){
@@ -36079,6 +36136,11 @@ window.cpPublishNowById = async function(postId){
     var res = await fetch('/api/social/publish/'+postId, {method:'POST'});
     var d = await res.json();
     if(!d.ok){ cpSetStatus(d.error||'Publish failed'); return; }
+    if(d.status==='publishing'){
+      cpSetStatus('⏳ Uploading your video — the Queue will update when it\'s live');
+      await cpLoadState(); cpWatchPublishing();
+      return;
+    }
     var msgs = [];
     Object.keys(d.results||{}).forEach(function(p){
       var r = d.results[p];
@@ -36091,6 +36153,17 @@ window.cpPublishNowById = async function(postId){
   }
 };
 
+var _cpWatchT=null;
+function cpWatchPublishing(){
+  clearTimeout(_cpWatchT);
+  var t0=Date.now();
+  (function tick(){
+    var busy=(_cpPosts||[]).some(function(p){ return p.status==='publishing'; });
+    var open=$('contentPlannerModal') && $('contentPlannerModal').style.display!=='none';
+    if(!busy || !open || Date.now()-t0>20*60*1000) return;
+    _cpWatchT=setTimeout(function(){ cpLoadState().then(tick); }, 5000);
+  })();
+}
 window.cpDeleteCurrentPost = async function(){
   if(!_cpEditingId || !confirm('Delete this post?')) return;
   try{

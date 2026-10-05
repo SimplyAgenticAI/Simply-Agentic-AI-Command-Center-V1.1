@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.1")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -488,6 +488,8 @@ META_APP_ID      = os.getenv("META_APP_ID", "")
 META_APP_SECRET  = os.getenv("META_APP_SECRET", "")
 TIKTOK_CLIENT_KEY    = os.getenv("TIKTOK_CLIENT_KEY", "")
 TIKTOK_CLIENT_SECRET = os.getenv("TIKTOK_CLIENT_SECRET", "")
+LINKEDIN_CLIENT_ID     = os.getenv("LINKEDIN_CLIENT_ID", "")
+LINKEDIN_CLIENT_SECRET = os.getenv("LINKEDIN_CLIENT_SECRET", "")
 
 # =========================
 # STRIPE BILLING
@@ -32112,22 +32114,40 @@ def api_sp_publish(post_id):
         _save_sp_posts(uname, posts)
         return jsonify({"ok": ok, "results": results, "status": post["status"], "error": "" if ok else info})
     platforms = post.get("platforms") or []
-    results: dict = {}
-    for platform in platforms:
-        if platform == "facebook":
-            ok, info = _sp_publish_facebook(post, conns)
-        elif platform == "instagram":
-            ok, info = _sp_publish_instagram(post, conns)
-        elif platform in ("youtube", "tiktok"):
-            ok, info = False, f"{platform.title()} auto-publish not supported — copy content and post manually."
-        else:
-            ok, info = False, f"Unknown platform: {platform}"
-        results[platform] = {"ok": ok, "info": info}
-    all_ok = all(r["ok"] for r in results.values()) if results else False
-    any_ok = any(r["ok"] for r in results.values())
-    post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
-    post["published_at"] = now_iso()
-    post["publish_results"] = results
+    if not platforms:
+        return jsonify({"ok": False, "error": "Pick at least one platform."}), 400
+    if post.get("status") == "publishing":
+        return jsonify({"ok": True, "status": "publishing"})
+    if "youtube" in platforms:
+        # Video uploads can take minutes — publish in the background; the
+        # Queue shows "Publishing…" and updates when it's done.
+        post["status"] = "publishing"
+        _save_sp_posts(uname, posts)
+
+        def _bg(pid=post_id):
+            try:
+                ps = _load_sp_posts(uname)
+                p = next((x for x in ps if x.get("id") == pid), None)
+                if not p:
+                    return
+                _sp_apply_results(p, _sp_publish_one(uname, p))
+                # Re-read (the user may have edited other posts meanwhile) and save
+                # ONLY if our post is found — a failed/empty read must never be
+                # written back over the user's whole post list.
+                for _attempt in range(5):
+                    ps2 = _load_sp_posts(uname)
+                    idx2 = next((i for i, x in enumerate(ps2) if x.get("id") == pid), -1)
+                    if idx2 >= 0:
+                        ps2[idx2] = p
+                        _save_sp_posts(uname, ps2)
+                        break
+                    time.sleep(0.2)
+            except Exception as e:
+                _log("WARNING", "Background publish failed", user=uname, error=str(e)[:200])
+        threading.Thread(target=_bg, daemon=True).start()
+        return jsonify({"ok": True, "status": "publishing", "background": True})
+    results = _sp_publish_one(uname, post)
+    _sp_apply_results(post, results)
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True, "results": results, "status": post["status"]})
 
@@ -32168,21 +32188,7 @@ def _sp_tick() -> None:
                     post["error"] = "Missed its scheduled time — review and publish manually or reschedule."
                     changed = True
                     continue
-                conns = _load_sp_conns(uname)
-                results = {}
-                for platform in post.get("platforms") or []:
-                    if platform == "facebook":
-                        ok, info = _sp_publish_facebook(post, conns)
-                    elif platform == "instagram":
-                        ok, info = _sp_publish_instagram(post, conns)
-                    else:
-                        ok, info = False, f"{platform.title()} needs LeadConnector to auto-publish."
-                    results[platform] = {"ok": ok, "info": info}
-                any_ok = any(r["ok"] for r in results.values())
-                all_ok = bool(results) and all(r["ok"] for r in results.values())
-                post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
-                post["published_at"] = now_iso()
-                post["publish_results"] = results
+                _sp_apply_results(post, _sp_publish_one(uname, post))
                 changed = True
                 sends += 1
                 if sends >= 10:
@@ -32400,7 +32406,7 @@ def api_sp_connections():
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     conns = _load_sp_conns(uname)
     summary = {}
-    for platform in ("facebook", "instagram", "youtube", "tiktok"):
+    for platform in ("facebook", "instagram", "youtube", "tiktok", "linkedin"):
         c = conns.get(platform) or {}
         pages = c.get("pages") or []
         page_name = c.get("page_name") or (pages[0].get("name") if pages else "") or c.get("name") or ""
@@ -32633,7 +32639,7 @@ def sp_callback_facebook():
             f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
             f"<h2 style='color:#6ee7b7;'>✓ Facebook Connected!</h2>"
             f"<p>{len(pages)} page(s) connected.{ig_note}</p>"
-            f"<p style='color:#64748b;'>Redirecting…</p>"
+            f"<p style='color:#64748b;'>Redirecting…</p>{_SP_POPUP_JS}"
             f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
     except Exception as e:
         return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
@@ -32713,7 +32719,7 @@ def sp_callback_youtube():
         f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
         f"<h2 style='color:#6ee7b7;'>✓ YouTube Connected!</h2>"
         f"<p>Channel: <strong>{channel_name}</strong></p>"
-        f"<p style='color:#64748b;'>Redirecting…</p>"
+        f"<p style='color:#64748b;'>Redirecting…</p>{_SP_POPUP_JS}"
         f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
 
 # ── OAuth: TikTok ──
@@ -32802,12 +32808,285 @@ def sp_callback_tiktok():
             f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
             f"<h2 style='color:#6ee7b7;'>✓ TikTok Connected!</h2>"
             f"<p>Account: <strong>{display_name}</strong></p>"
-            f"<p style='color:#64748b;'>Redirecting…</p>"
+            f"<p style='color:#64748b;'>Redirecting…</p>{_SP_POPUP_JS}"
             f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a></body></html>")
     except Exception as e:
         return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
                              f"<h2>TikTok connect error</h2><p>{e}</p>"
                              f"<a href='/' style='color:#818cf8;'>← Back</a></body></html>", 500)
+
+
+# =============================================================================
+# DIRECT PLATFORM CONNECTIONS (V9.9.2) — the planner's own integrations:
+# LinkedIn login, YouTube uploads, connection/setup status, safe media fetch.
+# =============================================================================
+_SP_POPUP_JS = ("<script>try{if(window.opener){window.opener.postMessage({spConnected:true},'*');"
+                "setTimeout(function(){window.close();},900);}}catch(e){}</script>")
+
+
+def _sp_page(title: str, body: str, ok: bool = True, status: int = 200):
+    color = "#6ee7b7" if ok else "#f87171"
+    return make_response(
+        "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+        "<body style='font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:40px 24px;text-align:center;line-height:1.6;'>"
+        f"<h2 style='color:{color};'>{title}</h2><p>{body}</p>"
+        f"<a href='/' style='color:#818cf8;'>← Back to Simply Agentic</a>{_SP_POPUP_JS if ok else ''}</body></html>", status)
+
+
+@app.get("/api/social/setup")
+def api_sp_setup():
+    """Which platforms are ready to connect, plus (for admins) what to register."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    base = (PUBLIC_BASE_URL or request.host_url or "").rstrip("/")
+    ready = {
+        "facebook": bool(META_APP_ID and META_APP_SECRET),
+        "instagram": bool(META_APP_ID and META_APP_SECRET),
+        "youtube": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET),
+        "tiktok": bool(TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET),
+        "linkedin": bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET),
+    }
+    out: Dict[str, Any] = {"ok": True, "ready": ready, "admin": _is_admin_user(u)}
+    if out["admin"]:
+        out["redirects"] = {
+            "facebook": f"{base}/social/callback/facebook", "instagram": f"{base}/social/callback/facebook",
+            "youtube": f"{base}/social/callback/youtube", "tiktok": f"{base}/social/callback/tiktok",
+            "linkedin": f"{base}/social/callback/linkedin",
+        }
+        out["env"] = {"facebook": ["META_APP_ID", "META_APP_SECRET"], "instagram": ["META_APP_ID", "META_APP_SECRET"],
+                      "youtube": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
+                      "tiktok": ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
+                      "linkedin": ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"]}
+    return jsonify(out)
+
+
+# ── OAuth: LinkedIn (personal profile posting) ──
+@app.get("/social/connect/linkedin")
+def sp_connect_linkedin():
+    u = current_user()
+    if not u: return redirect("/login")
+    if not LINKEDIN_CLIENT_ID or not LINKEDIN_CLIENT_SECRET:
+        return _sp_page("LinkedIn isn't set up yet", "Set LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET on the server.", ok=False, status=400)
+    state = secrets.token_urlsafe(24)
+    session["sp_li_state"] = state
+    session.modified = True
+    try: _store_oauth_state("sp_li_" + state, u.get("username", ""))
+    except Exception: pass
+    from urllib.parse import urlencode
+    params = {"response_type": "code", "client_id": LINKEDIN_CLIENT_ID,
+              "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/linkedin", "state": state,
+              "scope": "openid profile w_member_social"}
+    return redirect("https://www.linkedin.com/oauth/v2/authorization?" + urlencode(params))
+
+
+@app.get("/social/callback/linkedin")
+def sp_callback_linkedin():
+    u = current_user()
+    if not u: return redirect("/login")
+    uname = u.get("username", "")
+    if request.args.get("error"):
+        return _sp_page("LinkedIn connect cancelled", request.args.get("error_description") or "", ok=False)
+    state = request.args.get("state", "")
+    state_ok = session.get("sp_li_state") == state
+    if not state_ok:
+        try: state_ok = bool(_consume_oauth_state("sp_li_" + state))
+        except Exception: pass
+    if not state_ok:
+        return _sp_page("Please try connecting again", "The sign-in session expired.", ok=False, status=400)
+    try:
+        r = requests.post("https://www.linkedin.com/oauth/v2/accessToken", timeout=20, data={
+            "grant_type": "authorization_code", "code": request.args.get("code", ""),
+            "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/linkedin",
+            "client_id": LINKEDIN_CLIENT_ID, "client_secret": LINKEDIN_CLIENT_SECRET})
+        tok = r.json() if r.content else {}
+        if not tok.get("access_token"):
+            return _sp_page("LinkedIn sign-in failed", str(tok.get("error_description") or tok)[:300], ok=False, status=400)
+        me = requests.get("https://api.linkedin.com/v2/userinfo", timeout=15,
+                          headers={"Authorization": f"Bearer {tok['access_token']}"}).json()
+        sub = me.get("sub") or ""
+        if not sub:
+            return _sp_page("LinkedIn sign-in failed", "Couldn't read your LinkedIn profile.", ok=False, status=400)
+        conns = _load_sp_conns(uname)
+        conns["linkedin"] = {"access_token": tok["access_token"], "refresh_token": tok.get("refresh_token", ""),
+                             "expires_at": _now_epoch() + int(tok.get("expires_in") or 5184000) - 60,
+                             "person_urn": f"urn:li:person:{sub}", "name": me.get("name") or "LinkedIn",
+                             "connected_at": now_iso()}
+        _save_sp_conns(uname, conns)
+        return _sp_page("✓ LinkedIn connected!", f"Posting as <strong>{_html_escape(me.get('name') or 'you')}</strong>.")
+    except Exception as e:
+        return _sp_page("LinkedIn connect error", _html_escape(str(e)[:300]), ok=False, status=500)
+
+
+def _html_escape(s: str) -> str:
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _sp_media_file(uname: str, url: str) -> Tuple[Optional[Path], bool, str]:
+    """Return (local_path, is_temp, error) for a post's media URL. Our own
+    signed clip links resolve straight to the file on disk; other https URLs
+    are downloaded (size-capped, public hosts only — no internal addresses)."""
+    url = (url or "").strip()
+    if not url:
+        return None, False, "This post has no video attached."
+    m = re.search(r"/vclip/([^/?#]+)\.mp4", url)
+    if m:
+        try:
+            owner, cid = _vc_signer().loads(m.group(1))
+            p = _vc_file(str(owner), _vc_get(str(owner), str(cid)))
+            if p and str(owner) == uname:
+                return p, False, ""
+        except Exception:
+            pass
+    from urllib.parse import urlparse
+    import ipaddress, socket
+    pu = urlparse(url)
+    if pu.scheme != "https" or not pu.hostname:
+        return None, False, "Media link must be an https:// address."
+    try:
+        for info in socket.getaddrinfo(pu.hostname, 443):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return None, False, "That media link isn't publicly reachable."
+    except Exception:
+        return None, False, "Couldn't reach the media link."
+    tmp = Path(_tempfile_ve.mkstemp(suffix=".mp4")[1])
+    try:
+        with requests.get(url, stream=True, timeout=60) as r:
+            if r.status_code >= 400:
+                return None, False, f"Couldn't download the media (HTTP {r.status_code})."
+            total = 0
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    total += len(chunk)
+                    if total > 1024 * 1024 * 1024:
+                        return None, False, "Media is larger than 1 GB."
+                    f.write(chunk)
+        return tmp, True, ""
+    except Exception as e:
+        return None, False, f"Couldn't download the media: {str(e)[:120]}"
+
+
+def _sp_youtube_token(uname: str, conns: Dict[str, Any]) -> Tuple[Optional[str], str]:
+    yt = conns.get("youtube") or {}
+    if not yt.get("access_token"):
+        return None, "YouTube isn't connected."
+    tok, refreshed, err = _get_access_token_from_store(
+        yt, ["https://www.googleapis.com/auth/youtube.force-ssl"])
+    if not tok:
+        if "__INVALID_GRANT__" in (err or ""):
+            return None, "YouTube access expired — reconnect YouTube."
+        return None, err or "YouTube token error."
+    if refreshed:
+        yt.update({"access_token": refreshed.get("access_token"), "expires_at": refreshed.get("expires_at"),
+                   "refresh_token": refreshed.get("refresh_token") or yt.get("refresh_token")})
+        all_c = _load_sp_conns(uname)
+        all_c["youtube"] = yt
+        _save_sp_conns(uname, all_c)
+    return tok, ""
+
+
+def _sp_publish_youtube(uname: str, post: Dict[str, Any], conns: Dict[str, Any]) -> Tuple[bool, str]:
+    tok, err = _sp_youtube_token(uname, conns)
+    if not tok:
+        return False, err
+    path, is_tmp, err = _sp_media_file(uname, post.get("media_url") or "")
+    if not path:
+        return False, err or "YouTube needs a video."
+    try:
+        caption = (post.get("caption") or "").strip()
+        first = re.sub(r"[<>]", "", (caption.splitlines() or ["New video"])[0]).strip() or "New video"
+        title = first[:100]
+        body = {"snippet": {"title": title, "description": caption[:4900], "categoryId": "22"},
+                "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}}
+        size = path.stat().st_size
+        init = requests.post(
+            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+            headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=UTF-8",
+                     "X-Upload-Content-Type": "video/*", "X-Upload-Content-Length": str(size)},
+            data=json.dumps(body), timeout=30)
+        loc = init.headers.get("Location")
+        if init.status_code >= 400 or not loc:
+            try:
+                msg = (init.json().get("error") or {}).get("message")
+            except Exception:
+                msg = init.text[:200]
+            return False, f"YouTube refused the upload: {msg}"
+        with open(path, "rb") as f:
+            up = requests.put(loc, data=f, headers={"Content-Type": "video/*", "Content-Length": str(size)}, timeout=3600)
+        if up.status_code >= 400:
+            try:
+                msg = (up.json().get("error") or {}).get("message")
+            except Exception:
+                msg = up.text[:200]
+            return False, f"YouTube upload failed: {msg}"
+        vid = (up.json() or {}).get("id") or ""
+        return True, (f"https://youtu.be/{vid}" if vid else "uploaded")
+    except Exception as e:
+        return False, f"YouTube upload error: {str(e)[:200]}"
+    finally:
+        if is_tmp:
+            try: path.unlink()
+            except Exception: pass
+
+
+def _sp_publish_linkedin(uname: str, post: Dict[str, Any], conns: Dict[str, Any]) -> Tuple[bool, str]:
+    li = conns.get("linkedin") or {}
+    if not li.get("access_token") or not li.get("person_urn"):
+        return False, "LinkedIn isn't connected."
+    if int(li.get("expires_at") or 0) and int(li.get("expires_at") or 0) < _now_epoch():
+        return False, "LinkedIn access expired — reconnect LinkedIn."
+    text = (post.get("caption") or "").strip()
+    media_url = (post.get("media_url") or "").strip()
+    if media_url and not re.search(r"/vclip/", media_url):
+        text = (text + "\n\n" + media_url).strip()      # link preview for non-clip media (native video upload: next step)
+    body = {"author": li["person_urn"], "lifecycleState": "PUBLISHED",
+            "specificContent": {"com.linkedin.ugc.ShareContent": {
+                "shareCommentary": {"text": text[:2900]}, "shareMediaCategory": "NONE"}},
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}}
+    try:
+        r = requests.post("https://api.linkedin.com/v2/ugcPosts", json=body, timeout=30,
+                          headers={"Authorization": f"Bearer {li['access_token']}", "X-Restli-Protocol-Version": "2.0.0"})
+        if r.status_code >= 400:
+            try:
+                msg = r.json().get("message")
+            except Exception:
+                msg = r.text[:200]
+            if r.status_code == 401:
+                return False, "LinkedIn access expired — reconnect LinkedIn."
+            return False, f"LinkedIn refused the post: {msg}"
+        return True, r.headers.get("x-restli-id") or "posted"
+    except Exception as e:
+        return False, f"LinkedIn error: {str(e)[:200]}"
+
+
+def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
+    """Publish one post to each of its platforms. Returns per-platform results."""
+    conns = _load_sp_conns(uname)
+    results: Dict[str, Any] = {}
+    for platform in post.get("platforms") or []:
+        if platform == "facebook":
+            ok, info = _sp_publish_facebook(post, conns)
+        elif platform == "instagram":
+            ok, info = _sp_publish_instagram(post, conns)
+        elif platform == "youtube":
+            ok, info = _sp_publish_youtube(uname, post, conns)
+        elif platform == "linkedin":
+            ok, info = _sp_publish_linkedin(uname, post, conns)
+        elif platform == "tiktok":
+            ok, info = False, "TikTok posting is coming in the next update — download the clip and post it in the TikTok app for now."
+        else:
+            ok, info = False, f"Unknown platform: {platform}"
+        results[platform] = {"ok": ok, "info": info}
+    return results
+
+
+def _sp_apply_results(post: Dict[str, Any], results: Dict[str, Any]) -> None:
+    all_ok = bool(results) and all(r["ok"] for r in results.values())
+    any_ok = any(r["ok"] for r in results.values())
+    post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
+    post["published_at"] = now_iso()
+    post["publish_results"] = results
+    post["error"] = "" if all_ok else "; ".join(f"{p}: {r['info']}" for p, r in results.items() if not r["ok"])[:600]
 
 
 # =============================================================================
