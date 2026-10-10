@@ -4431,22 +4431,27 @@ label {
           <div class="saMoreCol" id="saCreateDrop">
             <div class="saMoreHead">Create</div>
             <button class="saDropItem" id="teleprompterBtn" onclick="saToggleDrop('saCreateDrop');showTeleprompterModal()">🎥 Record (screen · camera)</button>
-            <button class="saDropItem" id="socialStudioBtn">📣 Social Studio</button>
-            <button class="saDropItem" id="offerBuilderBtn">🎯 Offer Builder</button>
-            <button class="saDropItem" id="growthPlaybookBtn">📋 Growth Playbook</button>
+            <button class="saDropItem" id="socialStudioBtn" style="display:none;">📣 Social Studio</button>
+            <button class="saDropItem" id="offerBuilderBtn" style="display:none;">🎯 Offer Builder</button>
+            <button class="saDropItem" id="growthPlaybookBtn" style="display:none;">📋 Growth Playbook</button>
             <button class="saDropItem" id="notepadBtn" onclick="showNotepadModal()">📝 Notepad</button>
-            <button class="saDropItem" id="videoTranscriptBtn">🎬 Video to Transcript</button>
+            <button class="saDropItem" id="videoTranscriptBtn" style="display:none;">🎬 Video to Transcript</button>
             <button class="saDropItem" id="videoEditorBtn" onclick="saToggleDrop('saCreateDrop');showVideoEditorModal()">✂️ Video Editor</button>
           </div>
 
           <div class="saMoreCol" id="saResearchDrop">
-            <div class="saMoreHead">Research</div>
-            <button class="saDropItem" id="leadLabBtn">🔬 Find Leads</button>
-            <button class="saDropItem" id="siteAnalyzerBtn" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
-            <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="prospectDossierBtn" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
-            <button class="saDropItem" id="marketScannerBtn" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
-            <button class="saDropItem" id="intentSignalsBtn" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
+            <div class="saMoreHead">Ask a teammate</div>
+            <div style="font-size:calc(14px * var(--fs,1.1));color:#94a3b8;line-height:1.45;padding:2px 10px 6px;">Your teammates do this right in chat now. Try:</div>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');saAbilityChip('Find 10 leads: [type of business] in [city, state]')">📡 Find leads</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');saAbilityChip('Analyze this website and score it: ')">🔍 Analyze a website</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');saAbilityChip('Scan the market for [your niche]: top players, pricing, gaps')">📊 Scan a market</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');saAbilityChip('Build me an offer for [who it is for] who want [result], delivered by [how]')">🎯 Build an offer</button>
+            <button class="saDropItem" onclick="saToggleDrop('saResearchDrop');saAbilityChip('Write a week of [platform] posts about [topic]')">📣 Write posts</button>
+            <button class="saDropItem" id="leadLabBtn" style="display:none;">🔬 Find Leads</button>
+            <button class="saDropItem" id="siteAnalyzerBtn" style="display:none;" onclick="showSiteAnalyzerModal()">🌐 Site Analyzer</button>
+            <button class="saDropItem" id="prospectDossierBtn" style="display:none;" onclick="saToggleDrop('saResearchDrop');showProspectDossierModal()">🎯 Prospect Dossier</button>
+            <button class="saDropItem" id="marketScannerBtn" style="display:none;" onclick="saToggleDrop('saResearchDrop');showMarketScannerModal()">📊 Market Scanner</button>
+            <button class="saDropItem" id="intentSignalsBtn" style="display:none;" onclick="saToggleDrop('saResearchDrop');showIntentSignalsModal()">📡 Intent Signals</button>
           </div>
 
           <div class="saMoreCol" id="saManageDrop">
@@ -4456,8 +4461,9 @@ label {
             <button class="saDropItem" id="crmBtn" style="display:none;">👥 Contacts</button>
             <button class="saDropItem" id="calendarBtn" style="display:none;">📅 Calendar</button>
             <button class="saDropItem" id="emailConsoleBtn" style="display:none;">📧 Email Console</button>
-            <button class="saDropItem" id="promptLibraryBtn">📚 Prompt Library</button>
-            <button class="saDropItem" id="responseVaultBtn">🗄️ Response Vault</button>
+            <button class="saDropItem" onclick="saToggleDrop('saManageDrop');saOpenSaved('replies')">⭐ Saved</button>
+            <button class="saDropItem" id="promptLibraryBtn" style="display:none;">📚 Prompt Library</button>
+            <button class="saDropItem" id="responseVaultBtn" style="display:none;">🗄️ Response Vault</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Media Library</button>
@@ -4573,13 +4579,9 @@ label {
             <span>✍️ Create</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showTeleprompterModal,200);">🎙 Teleprompter</button>
-            <button class="btn" data-click="socialStudioBtn" onclick="closeMobileDrawer()">📣 Social Studio</button>
-            <button class="btn" data-click="offerBuilderBtn" onclick="closeMobileDrawer()">🎯 Offer Builder</button>
-            <button class="btn" data-click="growthPlaybookBtn" onclick="closeMobileDrawer()">📋 Growth Playbook</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(showTeleprompterModal,200);">🎥 Record</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showNotepadModal,200);">📝 Notepad</button>
             <button class="btn" data-click="imageLibBtn" onclick="closeMobileDrawer()">🖼 Media Library</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoTranscriptModal,200);">🎬 Video to Transcript</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showVideoEditorModal,200);">✂️ Video Editor</button>
           </div>
         </div>
@@ -4587,14 +4589,14 @@ label {
         <!-- 🔍 Research -->
         <div class="mdGroup">
           <button class="mdGroupHead" onclick="mdToggle(this)">
-            <span>🔍 Research</span><span class="mdChevron">▾</span>
+            <span>🔍 Ask a teammate</span><span class="mdChevron">▾</span>
           </button>
           <div class="mdGroupBody">
-            <button class="btn" data-click="leadLabBtn" onclick="closeMobileDrawer()">🔬 Find Leads</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showSiteAnalyzerModal,200);">🌐 Site Analyzer</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showProspectDossierModal,200);">🎯 Prospect Dossier</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showMarketScannerModal,200);">📊 Market Scanner</button>
-            <button class="btn" onclick="closeMobileDrawer();setTimeout(showIntentSignalsModal,200);">📡 Intent Signals</button>
+            <button class="btn" onclick="closeMobileDrawer();saAbilityChip('Find 10 leads: [type of business] in [city, state]')">📡 Find leads</button>
+            <button class="btn" onclick="closeMobileDrawer();saAbilityChip('Analyze this website and score it: ')">🔍 Analyze a website</button>
+            <button class="btn" onclick="closeMobileDrawer();saAbilityChip('Scan the market for [your niche]: top players, pricing, gaps')">📊 Scan a market</button>
+            <button class="btn" onclick="closeMobileDrawer();saAbilityChip('Build me an offer for [who it is for] who want [result], delivered by [how]')">🎯 Build an offer</button>
+            <button class="btn" onclick="closeMobileDrawer();saAbilityChip('Write a week of [platform] posts about [topic]')">📣 Write posts</button>
           </div>
         </div>
 
@@ -4607,8 +4609,7 @@ label {
             <button class="btn" data-click="crmBtn" onclick="closeMobileDrawer()">👥 Contacts</button>
             <button class="btn" data-click="calendarBtn" onclick="closeMobileDrawer()">📅 Calendar</button>
             <button class="btn" data-click="emailConsoleBtn" onclick="closeMobileDrawer()">📧 Email Console</button>
-            <button class="btn" data-click="promptLibraryBtn" onclick="closeMobileDrawer()">📚 Prompt Library</button>
-            <button class="btn" data-click="responseVaultBtn" onclick="closeMobileDrawer()">🗄️ Response Vault</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){saOpenSaved('replies');},200);">⭐ Saved</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(showContentPlannerModal,200);">📅 Content Planner</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(function(){var p=document.getElementById('notifPanel');if(p){p.style.position='fixed';p.style.top='0';p.style.left='0';p.style.right='0';p.style.bottom='0';p.style.width='100%';p.style.maxHeight='100vh';p.style.borderRadius='0';p.style.zIndex='99999';p.style.display='block';if(typeof loadNotifs==='function')loadNotifs();}},200);">🔔 Notifications</button>
           </div>
@@ -11313,11 +11314,53 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // Rich result cards for teammate abilities (V9.9.3). Built with textContent
     // only: lead/site data comes from the open web and is attacker-controlled.
     // Ability chips under the chat: prefill a starter and select the first [placeholder].
-    window.saAbilityChip = function(text){
+    window.saAbilityChip = async function(text){
+      // From a menu with no chat open: open the first teammate so there's a box to fill.
+      if(!window.selectedSeat || window.selectedSeat === 'Operator'){
+        const s = Array.from(document.querySelectorAll('.seat[data-name]')).map(function(e){ return e.dataset.name; }).find(function(n){ return n && n !== 'Operator'; });
+        if(s && typeof window.selectSeat === 'function'){ try{ await window.selectSeat(s); }catch(_){} }
+        else if(typeof showToast === 'function'){ showToast('Add a teammate first, then ask them.'); return; }
+      }
+      try{ if(typeof hideModal === 'function' && document.getElementById('overlay')?.classList.contains('show')) hideModal(); }catch(_){}
       const fm = document.getElementById('followMsg'); if(!fm) return;
+      try{ fm.scrollIntoView({behavior:'smooth', block:'nearest'}); }catch(_){}
       fm.value = text; fm.focus();
       const i = text.indexOf('['), j = text.indexOf(']', i);
       try{ if(i >= 0 && j > i) fm.setSelectionRange(i, j + 1); else fm.setSelectionRange(text.length, text.length); }catch(_){}
+    };
+
+    // ⭐ Saved = Response Vault (replies) + Prompt Library (prompts) behind one
+    // entry, with a tab strip on top of each to flip between them.
+    function _saSavedTabs(formId, active){
+      const form = document.getElementById(formId); if(!form) return;
+      let bar = form.querySelector(':scope > .saSavedTabs');
+      if(!bar){
+        bar = document.createElement('div');
+        bar.className = 'saSavedTabs';
+        bar.style.cssText = 'display:flex;gap:6px;padding:8px 10px;flex-shrink:0;';
+        [['replies','🗄️ Saved replies'],['prompts','📚 Saved prompts']].forEach(function(t){
+          const b = document.createElement('button');
+          b.className = 'btn btnMini'; b.dataset.tab = t[0]; b.textContent = t[1];
+          b.style.cssText = 'font-size:calc(14.5px * var(--fs,1.1));';
+          b.onclick = function(){ window.saOpenSaved(t[0]); };
+          bar.appendChild(b);
+        });
+        form.insertBefore(bar, form.firstChild);
+      }
+      bar.querySelectorAll('button').forEach(function(b){
+        const on = b.dataset.tab === active;
+        b.style.background = on ? 'rgba(124,58,237,.3)' : '';
+        b.style.borderColor = on ? 'rgba(167,139,250,.6)' : '';
+      });
+    }
+    window.saOpenSaved = function(which){
+      const btn = document.getElementById(which === 'prompts' ? 'promptLibraryBtn' : 'responseVaultBtn');
+      if(btn) btn.click();
+      setTimeout(function(){
+        _saSavedTabs(which === 'prompts' ? 'promptLibraryForm' : 'responseVaultForm', which === 'prompts' ? 'prompts' : 'replies');
+        const t = document.getElementById('modalTitle');
+        if(t) t.innerText = which === 'prompts' ? '⭐ Saved · Prompts' : '⭐ Saved · Replies';
+      }, 0);
     };
 
     function _saResultCard(rc){
@@ -36692,6 +36735,7 @@ window.addEventListener('focus', function(){
         <button id="vcTabSource" class="vc-tab on" onclick="vcShowTab('source')">🎬 Source</button>
         <button id="vcTabClips" class="vc-tab" onclick="vcShowTab('clips')">🎞 My Clips <span id="vcClipCount" class="vc-count"></span></button>
         <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showTeleprompterModal)showTeleprompterModal()" title="Record your screen, camera, or both">🎥 Record</button>
+        <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showVideoTranscriptModal)showVideoTranscriptModal()" title="Turn any video or audio file into a written transcript">📝 Transcript</button>
       </div>
     </div>
     <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;cursor:pointer;">✕ Close</button>
@@ -37892,16 +37936,11 @@ function saWinClose(key){
   var CMDS=[
     {icon:'👥',label:'Create Teammate',fn:function(){var b=document.getElementById('createTeamBtn');if(b)b.click();}},
     {icon:'✏️',label:'Edit Teammates',fn:function(){var b=document.getElementById('editTeammatesBtn');if(b)b.click();}},
-    {icon:'🔬',label:'Find Leads — Lead Lab',fn:function(){var b=document.getElementById('leadLabBtn');if(b)b.click();}},
-    {icon:'📣',label:'Social Studio',fn:function(){var b=document.getElementById('socialStudioBtn');if(b)b.click();}},
-    {icon:'🎯',label:'Offer Builder',fn:function(){var b=document.getElementById('offerBuilderBtn');if(b)b.click();}},
-    {icon:'📋',label:'Growth Playbook',fn:function(){var b=document.getElementById('growthPlaybookBtn');if(b)b.click();}},
-    {icon:'🌐',label:'Site Analyzer',fn:function(){if(window.showSiteAnalyzerModal)window.showSiteAnalyzerModal();}},
     {icon:'📝',label:'Notepad',fn:function(){if(window.showNotepadModal)window.showNotepadModal();}},
-    {icon:'🎙',label:'Teleprompter',fn:function(){if(window.showTeleprompterModal)window.showTeleprompterModal();}},
-    {icon:'🎯',label:'Prospect Dossier',fn:function(){if(window.showProspectDossierModal)window.showProspectDossierModal();}},
-    {icon:'📊',label:'Market Scanner',fn:function(){if(window.showMarketScannerModal)window.showMarketScannerModal();}},
-    {icon:'📡',label:'Intent Signals',fn:function(){if(window.showIntentSignalsModal)window.showIntentSignalsModal();}},
+    {icon:'🎥',label:'Record',fn:function(){if(window.showTeleprompterModal)window.showTeleprompterModal();}},
+    {icon:'📡',label:'Find leads (ask a teammate)',fn:function(){if(window.saAbilityChip)saAbilityChip('Find 10 leads: [type of business] in [city, state]');}},
+    {icon:'🔍',label:'Analyze a website (ask a teammate)',fn:function(){if(window.saAbilityChip)saAbilityChip('Analyze this website and score it: ');}},
+    {icon:'⭐',label:'Saved replies & prompts',fn:function(){if(window.saOpenSaved)saOpenSaved('replies');}},
     {icon:'✂️',label:'Video Editor',fn:function(){if(window.showVideoEditorModal)window.showVideoEditorModal();}},
     {icon:'⚙️',label:'Settings',fn:function(){var b=document.getElementById('settingsBtn');if(b)b.click();}},
     {icon:'🧑‍💼',label:'Operator Profile',fn:function(){var b=document.getElementById('operatorProfileBtn');if(b)b.click();}},
