@@ -7411,6 +7411,12 @@ input[type="range"]::-moz-range-progress {
             <button id="dmAutoBtn"  title="Auto length (default)" onclick="window._saSetLengthMode('auto')"  style="padding:2px 9px;font-size:calc(14px * var(--fs,1.1));border-radius:6px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#c4b5fd;cursor:pointer;transition:all .15s;">Auto</button>
             <button id="dmDeepBtn"  title="Deep / detailed replies" onclick="window._saSetLengthMode('deep')"  style="padding:2px 9px;font-size:calc(14px * var(--fs,1.1));border-radius:6px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#cbd5e1;cursor:pointer;transition:all .15s;">Deep</button>
           </div>
+          <div id="saAbilityChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Analyze this website and score it: ')">🔍 Analyze a website</button>
+            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Find 10 leads: [type of business] in [city, state]')">📡 Find buyers</button>
+            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Build me an offer for [who it is for] who want [result], delivered by [how]')">🎯 Build an offer</button>
+            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="if(window.showVideoEditorModal)window.showVideoEditorModal();if(window.vcShowTab)window.vcShowTab('source');">🎬 Make shorts</button>
+          </div>
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
           <div class="pillRow" style="margin-top:5px;display:flex;align-items:center;gap:6px;">
             <input type="file" id="dmFiles" multiple style="display:none" />
@@ -11304,6 +11310,104 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // Build a Confirm/Cancel card for a teammate's proposed confirm-risk action
     // (e.g. send_email). Confirm/Cancel both hit /api/teammate/action/execute,
     // which runs (or cancels) it, neutralizes the pending block, and we refresh.
+    // Rich result cards for teammate abilities (V9.9.3). Built with textContent
+    // only: lead/site data comes from the open web and is attacker-controlled.
+    // Ability chips under the chat: prefill a starter and select the first [placeholder].
+    window.saAbilityChip = function(text){
+      const fm = document.getElementById('followMsg'); if(!fm) return;
+      fm.value = text; fm.focus();
+      const i = text.indexOf('['), j = text.indexOf(']', i);
+      try{ if(i >= 0 && j > i) fm.setSelectionRange(i, j + 1); else fm.setSelectionRange(text.length, text.length); }catch(_){}
+    };
+
+    function _saResultCard(rc){
+      if(!rc || typeof rc !== 'object') return null;
+      const mk = function(tag, css, text){ const e=document.createElement(tag); if(css) e.style.cssText=css; if(text!=null) e.textContent=String(text); return e; };
+      const card = mk('div', 'margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.07);');
+      const fs = function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
+      if(rc.type === 'site'){
+        const sc = Math.max(0, Math.min(100, parseInt(rc.score,10)||0));
+        const col = sc>=75 ? '#4ade80' : sc>=50 ? '#fbbf24' : '#f87171';
+        const top = mk('div','display:flex;align-items:center;gap:12px;margin-bottom:8px;');
+        const ring = mk('div','flex-shrink:0;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;'+fs(20)+'color:'+col+';border:3px solid '+col+';', sc);
+        const hd = mk('div','min-width:0;');
+        hd.appendChild(mk('div','font-weight:700;'+fs(15)+'color:#e2e8f0;', 'Website score' + (rc.grade ? ' · ' + rc.grade : '')));
+        const a = mk('a','color:#7dd3fc;'+fs(14)+'word-break:break-all;', rc.url||'');
+        if(/^https?:\/\//i.test(rc.url||'')){ a.href = rc.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+        hd.appendChild(a);
+        top.appendChild(ring); top.appendChild(hd); card.appendChild(top);
+        if(rc.summary) card.appendChild(mk('div', fs(14.5)+'color:#cbd5e1;line-height:1.5;margin-bottom:8px;', rc.summary));
+        const cats = rc.categories || {};
+        const keys = Object.keys(cats);
+        if(keys.length){
+          const grid = mk('div','display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px 12px;margin-bottom:8px;');
+          keys.forEach(function(k){
+            const v = Math.max(0, Math.min(10, Number(cats[k])||0));
+            const row = mk('div', fs(14)+'color:#94a3b8;');
+            row.appendChild(mk('span','', k.replace(/_/g,' ') + ' '));
+            row.appendChild(mk('b','color:'+(v>=7?'#4ade80':v>=5?'#fbbf24':'#f87171')+';', v + '/10'));
+            grid.appendChild(row);
+          });
+          card.appendChild(grid);
+        }
+        const wins = Array.isArray(rc.quick_wins) ? rc.quick_wins : [];
+        if(wins.length){
+          card.appendChild(mk('div', 'font-weight:700;'+fs(14)+'color:#fcd34d;margin-bottom:4px;', '⚡ Quick wins'));
+          wins.forEach(function(w){ card.appendChild(mk('div', fs(14.5)+'color:#e2e8f0;line-height:1.45;margin-bottom:3px;', '• ' + (w.action||'') + (w.impact ? '  (' + w.impact + ' impact)' : ''))); });
+        }
+        return card;
+      }
+      if(rc.type === 'leads'){
+        const leads = Array.isArray(rc.leads) ? rc.leads : [];
+        const head = mk('div','display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;');
+        head.appendChild(mk('div','font-weight:700;'+fs(15)+'color:#e2e8f0;flex:1;min-width:0;', '📡 ' + leads.length + ' leads' + (rc.niche ? ' · ' + rc.niche : '') + (rc.location ? ' · ' + rc.location : '')));
+        const addAll = mk('button','', '➕ Add all to Contacts'); addAll.className = 'btn btnMini';
+        head.appendChild(addAll); card.appendChild(head);
+        const addOne = async function(it, btn){
+          if(btn){ btn.disabled = true; btn.textContent = 'Adding…'; }
+          try{
+            const res = await fetch('/api/crm/clients',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+              name: it.name||it.company||'New lead', company: it.company||'', email: it.email||'', phone: it.phone||'',
+              status:'lead', pipeline_stage:'Lead', tags:['found-by-teammate', rc.niche||'', rc.location||''].filter(Boolean),
+              notes:[it.warm_reason||'', it.website ? 'Website: '+it.website : ''].filter(Boolean).join('\n')})});
+            const d = await res.json();
+            if(!d.ok) throw new Error(d.error||'Add failed');
+            if(btn) btn.textContent = '✓ Added';
+            return true;
+          }catch(e){ if(btn){ btn.disabled = false; btn.textContent = '➕ Add'; } return false; }
+        };
+        const btns = [];
+        const list = mk('div','display:flex;flex-direction:column;gap:6px;max-height:420px;overflow:auto;');
+        leads.forEach(function(it){
+          const row = mk('div','display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);');
+          const info = mk('div','flex:1;min-width:0;');
+          info.appendChild(mk('div','font-weight:700;'+fs(14.5)+'color:#e2e8f0;', it.company||it.name||'Business'));
+          const contact = [it.phone, it.email].filter(Boolean).join(' · ');
+          if(contact) info.appendChild(mk('div', fs(14)+'color:#cbd5e1;word-break:break-all;', contact));
+          if(it.website){
+            const w = mk('a', fs(14)+'color:#7dd3fc;word-break:break-all;', it.website);
+            if(/^https?:\/\//i.test(it.website)){ w.href = it.website; w.target = '_blank'; w.rel = 'noopener noreferrer'; }
+            info.appendChild(w);
+          }
+          if(it.warm_reason) info.appendChild(mk('div', fs(14)+'color:#94a3b8;margin-top:2px;', it.warm_reason));
+          const b = mk('button','flex-shrink:0;', '➕ Add'); b.className = 'btn btnMini';
+          b.onclick = function(){ addOne(it, b).then(function(ok){ showToast(ok ? 'Added to Contacts' : 'Could not add lead'); try{ crmFetchClients(); }catch(_){} }); };
+          btns.push([it, b]);
+          row.appendChild(info); row.appendChild(b); list.appendChild(row);
+        });
+        addAll.onclick = async function(){
+          addAll.disabled = true; let n = 0;
+          for(const [it, b] of btns){ if(!b.disabled && await addOne(it, b)) n++; }
+          addAll.textContent = '✓ Added ' + n;
+          showToast('Added ' + n + ' leads to Contacts');
+          try{ crmFetchClients(); }catch(_){}
+        };
+        card.appendChild(list);
+        return card;
+      }
+      return null;
+    }
+
     function _saConfirmCard(ca){
       const card = document.createElement("div");
       card.style.cssText = "margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.08);";
@@ -11766,7 +11870,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             // A teammate may propose a confirm-risk action via a [confirm_action]
             // block — strip it from the visible text and render an approval card.
             const _caMatch = raw.match(/\[confirm_action\]([\s\S]*?)\[\/confirm_action\]/);
-            const _rawNoCa = _caMatch ? raw.replace(_caMatch[0], '').trim() : raw;
+            // Ability results (site score, lead table) arrive as [result_card] blocks.
+            const _rcs = [];
+            let _rawNoCa = (_caMatch ? raw.replace(_caMatch[0], '') : raw).replace(/\[result_card\]([\s\S]*?)\[\/result_card\]/g, function(_m, j){
+              try{ _rcs.push(JSON.parse(j)); }catch(_e){}
+              return '';
+            }).trim();
             const _ep2 = (typeof window.saParseEmailBlocks==='function')
               ? window.saParseEmailBlocks(_rawNoCa)
               : {cleanText: _rawNoCa, emails: []};
@@ -11775,6 +11884,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             if(_ep2.emails.length > 0 && typeof window._saEmailCard==='function'){
               _ep2.emails.forEach(function(em2){ content.appendChild(window._saEmailCard(em2, window.selectedSeat||'')); });
             }
+            _rcs.forEach(function(rc){ try{ const el = _saResultCard(rc); if(el) content.appendChild(el); }catch(_rcErr){} });
             if(_caMatch && typeof _saConfirmCard === 'function'){
               try{ content.appendChild(_saConfirmCard(JSON.parse(_caMatch[1]))); }catch(_caErr){}
             }

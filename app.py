@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.2")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23619,12 +23619,6 @@ def api_analyze_website():
     url = (data.get("url") or "").strip()
     if not url: return jsonify({"ok": False, "error": "URL required"}), 400
 
-    system = (
-        "You are an expert conversion rate optimizer, competitive intelligence analyst, and digital marketing strategist. "
-        "Analyze the provided website content and return a structured JSON analysis. "
-        "Respond ONLY with valid JSON, no markdown, no explanation outside the JSON."
-    )
-
     def _generate():
         _done = [False]
         _result = [None]
@@ -23633,11 +23627,42 @@ def api_analyze_website():
         def _worker():
           with app.app_context():
             try:
-                content, err = _fetch_url_content(url, max_chars=10000)
-                if err or not content:
-                    _error[0] = err or "Could not fetch page content"
-                    return
-                prompt = f"""Analyze this website content from {url} and return JSON in exactly this format:
+                _result[0], _error[0] = _analyze_website_core(url)
+                if _result[0]:
+                    try: _increment_msg_usage(uname)
+                    except Exception: pass
+            finally:
+                _done[0] = True
+
+        t = _thr2.Thread(target=_worker, daemon=True)
+        t.start()
+        while not _done[0]:
+            yield (": heartbeat\n\n" + " " * 512 + "\n")
+            _ti2.sleep(4)
+        t.join(timeout=2)
+
+        if _error[0]:
+            yield _json2.dumps({"ok": False, "error": _error[0]}) + "\n"
+        else:
+            yield _json2.dumps({"ok": True, "url": url, "analysis": _result[0]}) + "\n"
+
+    return _Resp2(stream_with_context(_generate()), content_type="text/plain; charset=utf-8",
+                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+def _analyze_website_core(url: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Fetch a page and score it 1-100. Shared by the Site Analyzer route and
+    the analyze_website teammate ability. Returns (analysis, "") or (None, error)."""
+    system = (
+        "You are an expert conversion rate optimizer, competitive intelligence analyst, and digital marketing strategist. "
+        "Analyze the provided website content and return a structured JSON analysis. "
+        "Respond ONLY with valid JSON, no markdown, no explanation outside the JSON."
+    )
+    try:
+        content, err = _fetch_url_content(url, max_chars=10000)
+        if err or not content:
+            return None, (err or "Could not fetch page content")
+        prompt = f"""Analyze this website content from {url} and return JSON in exactly this format:
 {{
   "score": <integer 1-100>,
   "grade": "<A/B/C/D/F>",
@@ -23668,38 +23693,21 @@ def api_analyze_website():
 
 Website content:
 {content[:6000]}"""
-                raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2)
-                raw = raw.strip()
-                if raw.startswith("```"):
-                    raw = raw.split("```")[1]
-                    if raw.startswith("json"):
-                        raw = raw[4:]
-                result = _json2.loads(raw)
-                _result[0] = result
-                try: _increment_msg_usage(uname)
-                except Exception: pass
-            except _json2.JSONDecodeError:
-                _error[0] = "Could not parse AI response. Try again."
-            except Exception as ex:
-                _, msg = _classify_openai_error(ex)
-                _error[0] = msg
-            finally:
-                _done[0] = True
-
-        t = _thr2.Thread(target=_worker, daemon=True)
-        t.start()
-        while not _done[0]:
-            yield (": heartbeat\n\n" + " " * 512 + "\n")
-            _ti2.sleep(4)
-        t.join(timeout=2)
-
-        if _error[0]:
-            yield _json2.dumps({"ok": False, "error": _error[0]}) + "\n"
-        else:
-            yield _json2.dumps({"ok": True, "url": url, "analysis": _result[0]}) + "\n"
-
-    return _Resp2(stream_with_context(_generate()), content_type="text/plain; charset=utf-8",
-                  headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        if not isinstance(result, dict):
+            return None, "Could not parse AI response. Try again."
+        return result, ""
+    except json.JSONDecodeError:
+        return None, "Could not parse AI response. Try again."
+    except Exception as ex:
+        _, msg = _classify_openai_error(ex)
+        return None, msg
 
 def _analyze_reports_path(uname: str) -> Path:
     # DATA is the Path object; DATA_DIR is its str twin and cannot be joined
@@ -24830,7 +24838,10 @@ _TOOLISH_RE = re.compile(
     # Calendar / meeting vocabulary — natural phrasings like "put a google meet
     # on my calendar" or "create a calendar event" matched none of the above,
     # so the teammate was never offered book_meeting and hallucinated success.
-    r"calendar|meeting|meet|invite|appointment|event)\b"
+    r"calendar|meeting|meet|invite|appointment|event|"
+    # Abilities that replaced the old tool screens (V9.9.3)
+    r"leads|prospects?|buyers?|customers?|website|site|audit|score|grade|"
+    r"offer|build|playbook|plan|market|competitors?|posts?|content)\b"
     r"|https?://|www\.",
     re.I,
 )
@@ -25441,6 +25452,82 @@ def _tool_book_meeting(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[
         return {"ok": False, "summary": f"Couldn't book the meeting: {msg[:200]}"}
 
 
+def _tool_analyze_website(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Score a website 1-100 with quick wins (the Site Analyzer, as a teammate ability)."""
+    url = (args.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "summary": "Need a website URL to analyze."}
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    analysis, err = _analyze_website_core(url)
+    if not analysis:
+        return {"ok": False, "summary": f"Couldn't analyze {url}: {err}"}
+    try:
+        score = int(analysis.get("score") or 0)
+    except Exception:
+        score = 0
+    cats = analysis.get("categories") if isinstance(analysis.get("categories"), dict) else {}
+    wins = [w for w in (analysis.get("quick_wins") or []) if isinstance(w, dict)][:3]
+    card = {"type": "site", "url": url, "score": score, "grade": str(analysis.get("grade") or "")[:2],
+            "summary": str(analysis.get("summary") or "")[:600],
+            "quick_wins": [{"action": str(w.get("action") or "")[:240], "impact": str(w.get("impact") or "")[:10]} for w in wins],
+            "categories": {str(k)[:20]: v for k, v in list(cats.items())[:8] if isinstance(v, (int, float))}}
+    return {"ok": True, "analysis": analysis, "card": card,
+            "summary": f"Scored {url}: {score}/100" + (f" ({card['grade']})" if card["grade"] else "")}
+
+
+def _tool_find_leads(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Find real local businesses with contact info (Lead Lab, as a teammate ability).
+    Shares Lead Lab's daily allowance and concurrency cap."""
+    niche = (args.get("niche") or "").strip()
+    location = (args.get("location") or "").strip()
+    if not niche and not location:
+        return {"ok": False, "summary": "Need a niche (and ideally a location) to find leads."}
+    try:
+        count = max(1, min(15, int(args.get("count") or 10)))
+    except Exception:
+        count = 10
+    ok, _used, limit = _check_lead_lab_limit(uname, _get_user_plan(uname))
+    if not ok:
+        return {"ok": False, "summary": f"You've used all {limit} lead searches for today. They reset at midnight UTC."}
+    with _LL_STATE_LOCK:
+        if _LL_STATE["active"] >= _LL_MAX_CONCURRENT:
+            return {"ok": False, "summary": "Lead search is busy with other runs right now. Try again in a minute."}
+        _LL_STATE["active"] += 1
+    try:
+        _increment_ll_usage(uname)
+        have = set()
+        try:
+            for c in ((_crm_load(uname) or {}).get("clients") or {}).values():
+                w = (c.get("website") or "").strip() if isinstance(c, dict) else ""
+                if w:
+                    have.add(w)
+        except Exception:
+            pass
+        found = _crm_discover_public_leads(niche, location, count, "balanced", existing_domains=have,
+                                           require_contact="phone_or_email", min_score=1)
+    except Exception as e:
+        return {"ok": False, "summary": f"Lead search failed: {e}"}
+    finally:
+        with _LL_STATE_LOCK:
+            _LL_STATE["active"] = max(0, _LL_STATE["active"] - 1)
+    leads = []
+    for it in found[:count]:
+        if not it.get("warm_reason"):
+            try:
+                it["warm_reason"] = _crm_warm_reason(it, niche, location)
+            except Exception:
+                pass
+        leads.append({k: str(it.get(k) or "")[:200] for k in
+                      ("name", "company", "website", "email", "phone", "warm_reason")})
+    if not leads:
+        return {"ok": True, "leads": [], "summary": f"No leads with contact info found for {niche} {location}".strip()}
+    where = f" in {location}" if location else ""
+    return {"ok": True, "leads": leads,
+            "card": {"type": "leads", "niche": niche[:80], "location": location[:80], "leads": leads},
+            "summary": f"Found {len(leads)} {niche or 'business'} leads{where}"}
+
+
 def _confirm_summary(name: str, args: Dict[str, Any]) -> str:
     """Human-readable one-liner describing a confirm-risk action for the card."""
     if name == "send_email":
@@ -25523,6 +25610,18 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
      "description": "Scan a whole niche/market: top players, pricing, what customers love/hate, gaps, and best channels. Real web search + synthesis. Use when the operator asks about a market, industry, or competitive landscape.",
      "parameters": {"type": "object", "properties": {
          "niche": {"type": "string", "description": "The niche or market to scan, e.g. 'NJ real estate agents' or 'meal-prep delivery'."}},
+         "required": ["niche"]}},
+    {"name": "analyze_website", "risk": "auto", "executor": _tool_analyze_website,
+     "description": "Score a website or landing page 1-100 with strengths, weaknesses, quick wins, and how to compete. Use when the operator asks to analyze, audit, review, grade, or score a website (theirs or a competitor's). The operator sees a score card automatically, so keep your reply to the key takeaways.",
+     "parameters": {"type": "object", "properties": {
+         "url": {"type": "string", "description": "The website URL or domain."}},
+         "required": ["url"]}},
+    {"name": "find_leads", "risk": "auto", "executor": _tool_find_leads,
+     "description": "Find real businesses (prospects) with a phone or email, e.g. 'roofers in Austin TX'. Use when the operator asks to find leads, prospects, buyers, or businesses to contact. The operator sees a lead table with Add to Contacts buttons automatically, so don't re-list every lead; summarize and suggest next steps.",
+     "parameters": {"type": "object", "properties": {
+         "niche": {"type": "string", "description": "Type of business, e.g. 'dentists' or 'HVAC contractors'."},
+         "location": {"type": "string", "description": "City/region, e.g. 'Austin, TX'."},
+         "count": {"type": "integer", "description": "How many leads, 1-15. Default 10."}},
          "required": ["niche"]}},
     {"name": "find_intent_signals", "risk": "auto", "executor": _tool_find_intent_signals,
      "description": "Find active buyer-intent signals for an offer: where warm buyers gather, the phrases they use, and a hook. Real web search + synthesis. Use when the operator wants to know where/how to find ready-to-buy prospects.",
@@ -25607,7 +25706,37 @@ def _tool_risk(name: str) -> str:
 # changing "auto" tool is escalated to "confirm" — so prompt injection inside a
 # web page / document can't silently trigger a CRM write. (send_email is already
 # confirm-risk.)
-_EXTERNAL_CONTENT_TOOLS = {"read_url", "research", "research_prospect", "scan_market", "find_intent_signals"}
+_EXTERNAL_CONTENT_TOOLS = {"read_url", "research", "research_prospect", "scan_market", "find_intent_signals",
+                           "analyze_website", "find_leads"}
+# Slow web tools run in a side thread while the chat stream sends SSE comment
+# heartbeats, so the connection never sits silent for a minute.
+_SLOW_TOOLS = {"analyze_website", "find_leads", "research_prospect", "scan_market", "find_intent_signals"}
+
+
+def _run_tool_streaming(name: str, args: Dict[str, Any], uname: str, teammate: str):
+    """Generator: yields SSE comment heartbeats while a slow tool runs, then
+    returns its result (use with `yield from`). Fast tools run inline."""
+    if name not in _SLOW_TOOLS:
+        return _execute_teammate_tool(name, args, uname, teammate)
+    box: Dict[str, Any] = {}
+
+    def _work():
+        with app.app_context():
+            box["r"] = _execute_teammate_tool(name, args, uname, teammate)
+    th = threading.Thread(target=_work, daemon=True)
+    th.start()
+    while True:
+        th.join(4)
+        if not th.is_alive():
+            break
+        yield ": working\n\n"
+    return box.get("r") or {"ok": False, "summary": f"Tool '{name}' failed"}
+
+
+def _result_card_blocks(cards: List[Dict[str, Any]]) -> str:
+    """Machine-readable [result_card] blocks the chat renders as rich cards."""
+    return "".join("\n[result_card]" + json.dumps(c, ensure_ascii=False).replace("[/", "[\\/") + "[/result_card]"
+                   for c in cards if isinstance(c, dict))
 _MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook", "add_to_notepad"}
 
 
@@ -26375,6 +26504,7 @@ def api_followup_stream():
                 _final = ""
                 _did_tool = False
                 _tool_notes = []
+                _tool_cards = []
                 _pending_confirm = None
                 _external_used = False
                 try:
@@ -26420,7 +26550,10 @@ def api_followup_stream():
                             except Exception:
                                 _args = {}
                             if _effective_tool_risk(_nm, _external_used) == "auto":
-                                _res = _execute_teammate_tool(_nm, _args, uname, name)
+                                _res = yield from _run_tool_streaming(_nm, _args, uname, name)
+                                _card = _res.pop("card", None) if isinstance(_res, dict) else None
+                                if _card:
+                                    _tool_cards.append(_card)
                                 if _nm in _EXTERNAL_CONTENT_TOOLS:
                                     _external_used = True
                                 _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
@@ -26448,7 +26581,7 @@ def api_followup_stream():
                     _visible = _pre + _pending_confirm["summary"]
                     for _i in range(0, len(_visible), 80):
                         yield "data: " + json.dumps({"token": _visible[_i:_i + 80]}) + "\n\n"
-                    _stored = (_visible + "\n[confirm_action]"
+                    _stored = (_visible + _result_card_blocks(_tool_cards) + "\n[confirm_action]"
                                + json.dumps(_pending_confirm, ensure_ascii=False)
                                + "[/confirm_action]")
                     try:
@@ -26469,7 +26602,7 @@ def api_followup_stream():
                         yield "data: " + json.dumps({"token": _body[_i:_i + 80]}) + "\n\n"
                     try:
                         save_thread(name, pre_thread + [{"role": "user", "content": msg2},
-                                                        {"role": "assistant", "content": _body}], uname)
+                                                        {"role": "assistant", "content": _body + _result_card_blocks(_tool_cards)}], uname)
                     except Exception:
                         pass
                     _persisted = True
@@ -26491,6 +26624,7 @@ def api_followup_stream():
                     _final = ""
                     _did_tool = False
                     _tool_notes = []
+                    _tool_cards = []
                     _pending_confirm = None
                     _external_used = False
                     try:
@@ -26541,7 +26675,10 @@ def api_followup_stream():
                                 _nm = _tu.name
                                 _args = _tu.input if isinstance(_tu.input, dict) else {}
                                 if _effective_tool_risk(_nm, _external_used) == "auto":
-                                    _res = _execute_teammate_tool(_nm, _args, uname, name)
+                                    _res = yield from _run_tool_streaming(_nm, _args, uname, name)
+                                    _card = _res.pop("card", None) if isinstance(_res, dict) else None
+                                    if _card:
+                                        _tool_cards.append(_card)
                                     if _nm in _EXTERNAL_CONTENT_TOOLS:
                                         _external_used = True
                                     _tool_notes.append("🔧 " + (_res.get("summary") or _nm))
@@ -26567,7 +26704,7 @@ def api_followup_stream():
                         _visible = _pre + _pending_confirm["summary"]
                         for _i in range(0, len(_visible), 80):
                             yield "data: " + json.dumps({"token": _visible[_i:_i + 80]}) + "\n\n"
-                        _stored = (_visible + "\n[confirm_action]"
+                        _stored = (_visible + _result_card_blocks(_tool_cards) + "\n[confirm_action]"
                                    + json.dumps(_pending_confirm, ensure_ascii=False) + "[/confirm_action]")
                         try:
                             save_thread(name, pre_thread + [{"role": "user", "content": msg2},
@@ -26583,7 +26720,7 @@ def api_followup_stream():
                             yield "data: " + json.dumps({"token": _body[_i:_i + 80]}) + "\n\n"
                         try:
                             save_thread(name, pre_thread + [{"role": "user", "content": msg2},
-                                                            {"role": "assistant", "content": _body}], uname)
+                                                            {"role": "assistant", "content": _body + _result_card_blocks(_tool_cards)}], uname)
                         except Exception:
                             pass
                         _persisted = True
