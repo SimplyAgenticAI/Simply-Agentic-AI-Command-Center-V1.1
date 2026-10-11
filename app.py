@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.2")
+APP_VERSION = os.getenv("APP_VERSION", "10.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3326,7 +3326,7 @@ def _handle_413(e):
 def _auth_guard() -> Optional[Any]:
     if request.path in ("/login", "/setup", "/reset", "/reset/confirm", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
         return None
-    if request.path.startswith("/static/"):
+    if request.path.startswith("/static/") or request.path.startswith("/appjs/"):
         return None
     if request.path.startswith("/stripe/"):
         return None
@@ -3871,14 +3871,16 @@ ONBOARDING_DIR = DATA / "onboarding"
 ONBOARDING_DIR.mkdir(parents=True, exist_ok=True)
 
 ONBOARDING_STEPS: List[Dict[str, str]] = [
-    {"key": "operator_profile",  "title": "Complete Your Operator Profile"},
-    {"key": "preferred_ai",      "title": "Add Your Own API Key (Optional)"},
-    {"key": "full_team",         "title": "Install the Full Team"},
-    {"key": "session_goal",      "title": "Set a Session Goal"},
-    {"key": "email_connected",   "title": "Connect Email"},
-    {"key": "calendar_connected","title": "Connect Calendar"},
-    {"key": "first_prompt",      "title": "Send Your First Message"},
-    {"key": "crm_contact",       "title": "Add Your First CRM Contact"},
+    # Ordered by what gets a new customer to value fastest (V10.3). Keys are
+    # stored per user, so titles/order can change freely.
+    {"key": "operator_profile",  "title": "Tell your team about your business"},
+    {"key": "session_goal",      "title": "Set today's focus"},
+    {"key": "crm_contact",       "title": "Add your first contact"},
+    {"key": "email_connected",   "title": "Connect Gmail so you can send"},
+    {"key": "first_prompt",      "title": "Ask a teammate for something"},
+    {"key": "calendar_connected","title": "Connect Google Calendar"},
+    {"key": "full_team",         "title": "Install the full team"},
+    {"key": "preferred_ai",      "title": "Use your own AI key (optional)"},
 ]
 
 def _onboarding_path_for_user(username: str) -> Path:
@@ -3911,6 +3913,8 @@ def _mark_onboarding_step(username: str, key: str, done: bool = True) -> None:
     try:
         st = _load_onboarding(username)
         st.setdefault("steps", {})
+        if bool((st["steps"].get(key) or {}).get("done")) == bool(done):
+            return   # already in that state — skip the write (status is polled)
         st["steps"].setdefault(key, {"done": False, "at": None})
         st["steps"][key]["done"] = bool(done)
         if done:
@@ -3972,6 +3976,20 @@ def _reconcile_onboarding_from_truth(u: Optional[Dict[str, Any]]) -> Dict[str, A
     try:
         if _user_calendar_oauth(u):
             _mark_onboarding_step(username, "calendar_connected", True)
+    except Exception:
+        pass
+
+    # Profile + first contact: the first-run quickstart fills both without going
+    # through the routes that used to tick these, so read them from the data.
+    try:
+        _op = _load_operator_profile(username) or {}
+        if any((str(_op.get(k) or "")).strip() for k in ("business", "offers", "audience", "goals", "notes")):
+            _mark_onboarding_step(username, "operator_profile", True)
+    except Exception:
+        pass
+    try:
+        if (_crm_load(username).get("clients") or {}):
+            _mark_onboarding_step(username, "crm_contact", True)
     except Exception:
         pass
 
@@ -4701,9 +4719,33 @@ def _summarize_thread_segment(msgs: List[Dict[str, Any]]) -> str:
         return "; ".join(topics[:5]) if topics else "earlier conversation"
 
 
+_RESULT_CARD_RE = re.compile(r"\n?\[result_card\]([\s\S]*?)\[/result_card\]")
+
+
+def _compact_result_cards(text: str) -> str:
+    """Swap stored [result_card] JSON (lead tables, site scores) for a one-line
+    note before history goes back to the model: it keeps the context without
+    re-sending kilobytes of card data on every later message."""
+    def _one(m):
+        try:
+            c = json.loads(m.group(1))
+        except Exception:
+            return ""
+        if c.get("type") == "leads":
+            names = ", ".join((l.get("company") or l.get("name") or "")[:40] for l in (c.get("leads") or [])[:10])
+            return f"\n[Shown to the operator: a table of {len(c.get('leads') or [])} leads ({names})]"
+        if c.get("type") == "site":
+            return f"\n[Shown to the operator: a score card for {c.get('url', '')}: {c.get('score', '?')}/100]"
+        return ""
+    return _RESULT_CARD_RE.sub(_one, text) if "[result_card]" in text else text
+
+
 def _truncate_thread_with_note(thread: List[Dict[str, Any]], max_messages: int = 14) -> List[Dict[str, Any]]:
     """Keep max_messages most-recent turns. Dropped context is summarized via LLM
     and pinned as a system-style note so the AI retains the thread's history."""
+    thread = [dict(m, content=_compact_result_cards(m["content"]))
+              if isinstance(m, dict) and isinstance(m.get("content"), str) and "[result_card]" in m["content"] else m
+              for m in thread]
     if len(thread) <= max_messages:
         return thread
     dropped = thread[:-max_messages]
@@ -16681,8 +16723,59 @@ def api_operator_profile_set():
 # Main app template loaded from file so the 1.6 MB raw string is NOT baked
 # into the bytecode constant pool. del _html_src lets Python GC reclaim it.
 _html_src = (Path(__file__).parent / "templates" / "index.html").read_text(encoding="utf-8")
+
+# Inline <script> blocks (~1.4 MB) were re-sent and re-parsed on every page
+# load because the page is no-store. At startup each block becomes an external
+# script at the SAME position (classic, non-async → same execution order),
+# served from memory under a content hash with a one-year immutable cache and
+# pre-gzipped. Only the CSRF token needed templating; it moves to a tiny inline
+# script placed right before the block that used it.
+_APPJS: Dict[str, Tuple[bytes, bytes]] = {}
+_CSRF_JINJA = "window._csrfToken = window._csrfToken || '{{ csrf_token|default(\"\", true) }}';"
+
+
+def _externalize_inline_scripts(src: str) -> str:
+    out, pos = [], 0
+    for m in re.finditer(r"<script>([\s\S]*?)</script>", src):
+        body = m.group(1)
+        prefix = ""
+        if _CSRF_JINJA in body:
+            body = body.replace(_CSRF_JINJA, "", 1)
+            prefix = "<script>window._csrfToken='{{ csrf_token|default(\"\", true) }}';</script>"
+        if "{{" in body or "{%" in body or len(body) < 2048:
+            continue   # keep small or still-templated blocks inline, untouched
+        raw = body.encode("utf-8")
+        h = hashlib.sha256(raw).hexdigest()[:16]
+        _APPJS[h] = (raw, gzip.compress(raw, 9))
+        out.append(src[pos:m.start()])
+        out.append(prefix + f'<script src="/appjs/{h}.js"></script>')
+        pos = m.end()
+    out.append(src[pos:])
+    return "".join(out)
+
+
+try:
+    _html_src = _externalize_inline_scripts(_html_src)
+except Exception as _ext_err:   # never block startup — fall back to inline
+    _APPJS.clear()
+    print("[STARTUP] script externalizing skipped:", _ext_err, flush=True)
 _INDEX_TEMPLATE = app.jinja_env.from_string(_html_src)
 del _html_src
+
+
+@app.get("/appjs/<h>.js")
+def appjs(h: str):
+    item = _APPJS.get(h)
+    if not item:
+        return "", 404
+    gz = "gzip" in (request.headers.get("Accept-Encoding") or "")
+    resp = make_response(item[1] if gz else item[0])
+    resp.headers["Content-Type"] = "text/javascript; charset=utf-8"
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    resp.headers["Vary"] = "Accept-Encoding"
+    if gz:
+        resp.headers["Content-Encoding"] = "gzip"
+    return resp
 
 
 # =========================

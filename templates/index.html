@@ -7396,8 +7396,8 @@ input[type="range"]::-moz-range-progress {
         <div id="byokPrompt" style="display:none;flex-shrink:0;margin-bottom:6px;padding:10px 12px;background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(14,165,233,.08));border:1px solid rgba(124,58,237,.35);border-radius:10px;">
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
             <div style="flex:1;">
-              <div style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#c4b5fd;margin-bottom:4px;">🔑 Connect your own API key</div>
-              <div style="font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;line-height:1.5;">Unlock <strong style="color:#e2e8f0;">unlimited messages</strong>, <strong style="color:#e2e8f0;">GPT-4o &amp; Claude</strong>, and all premium models — free to connect, you only pay OpenAI/Anthropic directly at cost.</div>
+              <div style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#c4b5fd;margin-bottom:4px;">🔑 Running low on AI messages this month</div>
+              <div style="font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;line-height:1.5;">Connect your own OpenAI or Anthropic key for <strong style="color:#e2e8f0;">unlimited messages</strong> and every model, including Claude. You pay them directly, at cost.</div>
             </div>
             <button id="byokPromptDismiss" title="Dismiss" style="background:none;border:none;color:#94a3b8;font-size:calc(15px * var(--fs,1.1));cursor:pointer;padding:0;flex-shrink:0;line-height:1;">✕</button>
           </div>
@@ -12469,7 +12469,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         if(byokEl){
           if(d.has_own_key){
             byokEl.style.display='none';
-          } else if(!sessionStorage.getItem('sa_byok_dismissed')){
+          } else if(d.messages && d.messages.pct >= 70 && !sessionStorage.getItem('sa_byok_dismissed')){   // only when it matters: running low
             byokEl.style.display='block';
             const ctaBtn = document.getElementById('byokPromptCta');
             const dismissBtn = document.getElementById('byokPromptDismiss');

@@ -72,3 +72,24 @@ def test_slow_tool_heartbeats_then_returns(monkeypatch):
 def test_new_phrasings_offer_tools():
     for msg in ("find me 10 roofing leads in Austin", "audit my website", "build an offer for coaches"):
         assert app_module._msg_may_need_tools(msg), msg
+
+
+def test_history_sent_to_model_compacts_result_cards():
+    stored = "Here you go." + app_module._result_card_blocks([{"type": "leads", "leads": [
+        {"company": "Bob's Roofing", "email": "b@x.example", "warm_reason": "x" * 500}] * 3}])
+    thread = [{"role": "user", "content": "find roofers"}, {"role": "assistant", "content": stored}]
+    out = app_module._truncate_thread_with_note(thread, max_messages=20)
+    assert "[result_card]" not in out[1]["content"] and "table of 3 leads" in out[1]["content"]
+    assert thread[1]["content"] == stored                       # stored thread untouched
+    assert len(out[1]["content"]) < 200
+
+
+def test_onboarding_ticks_profile_and_contact_from_data(flask_app, monkeypatch):
+    uname = "onbtruth"
+    monkeypatch.setattr(app_module, "_load_operator_profile", lambda u: {"business": "Websites"})
+    monkeypatch.setattr(app_module, "_crm_load", lambda u: {"clients": {"c1": {"name": "A"}}})
+    with flask_app.test_request_context():
+        p = app_module._onboarding_status_payload({"username": uname, "settings": {}})
+    done = {s["key"]: s["done"] for s in p["steps"]}
+    assert done["operator_profile"] and done["crm_contact"]
+    assert p["steps"][-1]["key"] == "preferred_ai"            # API key step is last + optional
