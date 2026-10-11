@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.9")
+APP_VERSION = os.getenv("APP_VERSION", "10.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -415,6 +415,14 @@ MODEL = os.getenv("MODEL", "gpt-4o")
 # synthesis on tool-using messages runs on the cheaper one. Enable this and the
 # per-plan message caps can be raised well above their current values at 85%.
 TOOL_LOOP_MODEL = (os.getenv("TOOL_LOOP_MODEL", "") or "").strip()
+# Users on the platform key (no own key) get PLATFORM_CHAT_MODEL for the reply
+# they read, until their month's chat spend reaches 70% of their plan's AI budget
+# (see _platform_chat_model) — then gpt-4o-mini, so the 85% margin holds.
+# Tool-loop rounds after the first always use the cheap model for them.
+# Set PLATFORM_CHAT_MODEL=gpt-4o-mini to turn the upgrade off.
+PLATFORM_CHAT_MODEL  = (os.getenv("PLATFORM_CHAT_MODEL", "gpt-4o") or "").strip()
+PLATFORM_CHEAP_MODEL = "gpt-4o-mini"
+_PLATFORM_STRONG_SHARE = 0.7
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 PORT = int(os.getenv("PORT", "5000"))
@@ -7335,6 +7343,54 @@ _USAGE_LOCK = threading.Lock()
 def _usage_log_path(username: str) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", username or "anon")
     return LOGS_DIR / f"usage_{safe}.json"
+
+
+def _plan_chat_budget_usd(plan_key: str) -> float:
+    """Monthly chat-token budget (USD) that keeps the plan at 85% margin after
+    Stripe and the plan's image allowance. Teams splits it per seat (members
+    log usage separately) so a full team can't overrun the pooled budget."""
+    k = _normalize_plan_key(plan_key)
+    plan = PLANS.get(k) or PLANS["solo"]
+    budget = (float(plan.get("price") or 0) * 0.121 - 0.30
+              - IMAGE_LIMITS.get(k, 15) * _IMAGE_COST_USD["gpt-image-1"]["medium"])
+    seats = max(1, int(plan.get("team_seats") or 1)) if k == "teams" else 1
+    return max(0.0, budget / seats)
+
+
+_MONTH_SPEND_CACHE: Dict[str, Tuple[float, str, float]] = {}
+
+
+def _month_chat_spend_usd(username: str) -> float:
+    """This calendar month's logged chat spend for one user (cached 60s)."""
+    month = _utcnow().strftime("%Y-%m")
+    hit = _MONTH_SPEND_CACHE.get(username)
+    if hit and hit[1] == month and time.time() - hit[0] < 60:
+        return hit[2]
+    total = 0.0
+    try:
+        path = _usage_log_path(username)
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+        for e in rows if isinstance(rows, list) else []:
+            if isinstance(e, dict) and str(e.get("ts") or "").startswith(month) and (e.get("kind") or "chat") == "chat":
+                total += float(e.get("cost_usd") or 0)
+    except Exception:
+        pass
+    _MONTH_SPEND_CACHE[username] = (time.time(), month, total)
+    return total
+
+
+def _platform_chat_model(username: str) -> str:
+    """Model for a platform-key user's reply: the strong model while they're
+    under 70% of their plan's monthly chat budget, else the cheap one."""
+    if not PLATFORM_CHAT_MODEL or PLATFORM_CHAT_MODEL == PLATFORM_CHEAP_MODEL:
+        return PLATFORM_CHEAP_MODEL
+    try:
+        budget = _plan_chat_budget_usd(_get_user_plan(username))
+        if _month_chat_spend_usd(username) < budget * _PLATFORM_STRONG_SHARE:
+            return PLATFORM_CHAT_MODEL
+    except Exception:
+        pass
+    return PLATFORM_CHEAP_MODEL
 
 def _log_token_usage(username: str, model: str, input_tokens: int, output_tokens: int,
                       teammate: str = "", kind: str = "chat", cost_usd: Optional[float] = None,
@@ -26510,9 +26566,10 @@ def api_followup_stream():
     _user_api_key = _decrypt_field(_raw_key.strip()) if _raw_key else ""
     _effective_key = _user_api_key or OPENAI_API_KEY or ""
     oai_client = OpenAI(api_key=_effective_key) if _effective_key else None
-    # Protect platform key: if user has no own key, restrict to gpt-4o-mini
+    # Platform key: strong model while under the plan's monthly AI budget,
+    # gpt-4o-mini after that (and always for tool-loop follow-up rounds).
     if not _user_api_key:
-        preferred_model = "gpt-4o-mini"
+        preferred_model = _platform_chat_model(uname)
         _use_claude = False
 
     # Snapshot the FULL (untruncated) thread before streaming — this is what gets
@@ -26604,6 +26661,8 @@ def api_followup_stream():
                         # tool selection); later rounds may use the cheaper
                         # TOOL_LOOP_MODEL when configured. Default: no change.
                         _loop_model = TOOL_LOOP_MODEL if (_round > 0 and TOOL_LOOP_MODEL) else preferred_model
+                        if _round > 0 and not _user_api_key:
+                            _loop_model = PLATFORM_CHEAP_MODEL
                         _r = oai_client.chat.completions.create(
                             model=_loop_model, messages=_tmsgs,
                             tools=_tools_openai_schema(), tool_choice="auto",
