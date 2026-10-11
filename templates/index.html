@@ -56,7 +56,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
-  <meta name="description" content="Simply Agentic AI — a full team of specialised AI teammates, built-in CRM, broadcasts, calendar sync, Lead Lab, and more. One interface, zero juggling."/>
+  <meta name="description" content="Simply Agentic AI — a full team of specialised AI teammates, built-in CRM, broadcasts, calendar sync, lead finding, video clips, and more. One interface, zero juggling."/>
   <meta name="theme-color" content="#0f1629"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -12042,7 +12042,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             pinBtn.style.cssText = "font-size:calc(14px * var(--fs,1.1));opacity:.65;padding:2px 9px;";
             pinBtn.innerText = "🗄️ Save to Vault";
             pinBtn.dataset.saRaw = raw;
-            pinBtn.title = "Save this response to your Response Vault";
+            pinBtn.title = "Save this reply to Saved";
             pinBtn.onclick = async (e) => {
               e.stopPropagation();
               pinBtn.innerText = "⏳ Saving…";
@@ -12057,7 +12057,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
                 if(d.ok){
                   pinBtn.innerText = "✅ Saved to Vault";
                   pinBtn.style.opacity = "1";
-                  if(window.showToast) showToast("🗄️ Saved to Response Vault");
+                  if(window.showToast) showToast("⭐ Saved");
                 } else {
                   pinBtn.innerText = "🗄️ Save to Vault";
                   if(window.showToast) showToast("⚠️ " + (d.error || "Save failed"));
@@ -14591,19 +14591,11 @@ function _saJobNotify(seatName, status){
       const FEATURE_MAP = {
         calendar:         { icon:'📅', label:'Calendar',          fn:'showCalendarModal' },
         crm:              { icon:'👥', label:'CRM',               fn:'showCRMModal' },
-        lead_lab:         { icon:'🔬', label:'Lead Lab',          fn:'showLeadLabModal' },
-        social_studio:    { icon:'📣', label:'Social Studio',     fn:'showSocialStudioModal' },
-        offer_builder:    { icon:'💡', label:'Offer Builder',     fn:'showOfferBuilderModal' },
-        growth_playbook:  { icon:'📈', label:'Playbook',          fn:'showGrowthPlaybookModal' },
         image_lib:        { icon:'🖼', label:'Image Lib',         fn:'showImageLibraryModal' },
         email_console:    { icon:'✉️', label:'Email',             fn:'showEmailConsoleModal' },
         dashboard:        { icon:'📊', label:'Dashboard',         fn:'saOpenDashboard' },
         notepad:          { icon:'📝', label:'Notepad',           fn:'showNotepadModal' },
-        site_analyzer:    { icon:'🌐', label:'Site Analyzer',     fn:'showSiteAnalyzerModal' },
-        prospect_dossier: { icon:'🎯', label:'Prospect Dossier',  fn:'showProspectDossierModal' },
-        market_scanner:   { icon:'📊', label:'Market Scanner',    fn:'showMarketScannerModal' },
-        intent_signals:   { icon:'📡', label:'Intent Signals',    fn:'showIntentSignalsModal' },
-        response_vault:   { icon:'🗄️', label:'Response Vault',    fn:'openResponseVault' },
+        response_vault:   { icon:'⭐', label:'Saved',             fn:'saOpenSaved' },
       };
 
       let _pinned = [];
@@ -15240,14 +15232,14 @@ function _saJobNotify(seatName, status){
         };
 
         // Save to Response Vault
-        const vaultBtn = mk("🗄️ Vault", "Save this response to your Response Vault");
+        const vaultBtn = mk("⭐ Save", "Save this reply to Saved");
         vaultBtn.onclick = async function(){
           vaultBtn.disabled = true; vaultBtn.textContent = "⏳ Saving…";
           try{
             const label = name + " — " + new Date().toISOString().slice(0,10);
             const r = await fetch("/api/vault/save", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({text: raw, label: label, teammate: name})});
             const d = await r.json();
-            if(d.ok){ vaultBtn.textContent = "✅ Saved"; if(window.showToast) showToast("🗄️ Saved to Response Vault"); setTimeout(function(){ vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; }, 1600); }
+            if(d.ok){ vaultBtn.textContent = "✅ Saved"; if(window.showToast) showToast("⭐ Saved"); setTimeout(function(){ vaultBtn.textContent = "⭐ Save"; vaultBtn.disabled = false; }, 1600); }
             else { vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; if(window.showToast) showToast("⚠️ " + (d.error || "Save failed")); }
           }catch(_){ vaultBtn.textContent = "🗄️ Vault"; vaultBtn.disabled = false; }
         };
@@ -16527,7 +16519,7 @@ Challenge weak assumptions. Surface risks.`;
       function openResponseVault(){
         saToggleDrop('saManageDrop');
         // Use the shared full-screen modal system (same as Calendar, Email Console, etc.)
-        if(typeof showModal === 'function') showModal('🗄️ Response Vault', '');
+        if(typeof showModal === 'function') showModal('⭐ Saved · Replies', '');
         if(typeof hideAllModalForms === 'function') hideAllModalForms();
         var form = document.getElementById('responseVaultForm');
         if(form) form.style.display = 'flex';
@@ -16699,7 +16691,7 @@ Challenge weak assumptions. Surface risks.`;
               _vaultEntries = _vaultEntries.filter(function(e){ return e.id!==id; });
               var q = (document.getElementById('_rvSearch')||{}).value||'';
               renderVaultList(q.toLowerCase());
-              if(typeof showToast==='function') showToast('Deleted from Response Vault');
+              if(typeof showToast==='function') showToast('Deleted from Saved');
             }
           }).catch(function(){});
       };
@@ -17116,11 +17108,11 @@ Challenge weak assumptions. Surface risks.`;
             try{localStorage.setItem('tp_fontsize',fsEl.value);}catch(e){}
           });
         }
-        if(m.classList.contains('sa-minimized')){ saWinRestore('teleprompterModal::🎙 Teleprompter'); return; }
+        if(m.classList.contains('sa-minimized')){ saWinRestore('teleprompterModal::🎥 Record'); return; }
         if(!m._wmReady){
           m._wmReady=true;
           var hdr=m.querySelector('div[style*="justify-content:space-between"]');
-          if(window.saWM){ saWM.attachFloat(m,function(){return '🎙 Teleprompter';},'🎙',window.closeTeleprompterModal); }
+          if(window.saWM){ saWM.attachFloat(m,function(){return '🎥 Record';},'🎥',window.closeTeleprompterModal); }
           var maxBtn=document.getElementById('tpMaxBtn');
           if(maxBtn){maxBtn.title='Full screen';maxBtn.textContent='⛶';}
         }
@@ -23393,7 +23385,7 @@ function showVideoTranscriptModal() {
     '</div>' +
     '<div id="vtError" style="display:none;margin-top:12px;color:#f87171;font-size:calc(14px * var(--fs,1.1));padding:10px 14px;background:rgba(248,113,113,.08);border-radius:8px;border:1px solid rgba(248,113,113,.3);"></div>' +
   '</div>';
-  showModal("🎬 Video to Transcript", "");
+  showModal("📝 Transcript", "");
   var modalBody = document.getElementById('modalBody');
   if(modalBody) modalBody.innerHTML = html;
 
@@ -23436,7 +23428,7 @@ function vtStartTranscribe(file) {
         try{
           var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text,label:'Video Transcript — '+new Date().toISOString().slice(0,10),teammate:'Video to Transcript'})});
           var d=await r.json();
-          if(d.ok){b.textContent='✅ Saved';if(typeof showToast==='function')showToast('🗄️ Saved to Response Vault');}
+          if(d.ok){b.textContent='✅ Saved';if(typeof showToast==='function')showToast('⭐ Saved');}
           else b.textContent='🗄️ Save to Vault';
         }catch(e){b.textContent='🗄️ Save to Vault';}
       };
@@ -24088,7 +24080,7 @@ $("saveFramework").onclick = async () => {
       box.appendChild(title);
       const groups = [
         { label:'Teammates', rows:[['1 – 7','Activate teammate by seat number'],['Ctrl+K','Focus teammate message box'],['Ctrl+Enter','Send message']] },
-        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find Leads'],['S','Social Studio'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
+        { label:'Tools (press again to close)', rows:[['C','Calendar'],['L','Find leads (teammate chat)'],['S','Saved'],['E','Email Broadcast'],['G','Focus Group Console'],['R','CRM'],['N','Notepad'],['K','Knowledge Base (RAG)']] },
         { label:'Navigation', rows:[['Esc','Close modal / deselect seat'],['?','Show this cheat sheet'],['Ctrl+/','Show this cheat sheet']] },
       ];
       groups.forEach(g => {
@@ -24167,11 +24159,11 @@ $("saveFramework").onclick = async () => {
           break;
         case 'l':
           e.preventDefault();
-          toggleTool('lead lab',function(){ if(typeof showLeadLabModal==='function') showLeadLabModal(); else if(typeof window.showLeadLabModal==='function') window.showLeadLabModal(); hkToast('⌨ Find Leads'); });
+          if(window.saAbilityChip) window.saAbilityChip('Find 10 leads: [type of business] in [city, state]'); hkToast('⌨ Find leads');
           break;
         case 's':
           e.preventDefault();
-          toggleTool('social studio',function(){ if(typeof showSocialStudioModal==='function') showSocialStudioModal(); else if(typeof window.showSocialStudioModal==='function') window.showSocialStudioModal(); hkToast('⌨ Social Studio'); });
+          if(window.saOpenSaved) window.saOpenSaved('replies'); hkToast('⌨ Saved');
           break;
         case 'e':
           e.preventDefault();
@@ -28200,7 +28192,7 @@ document.addEventListener("click", function(e) {
     pinBtn.className = "btn btnMini";
     pinBtn.style.cssText = "font-size:calc(14px * var(--fs,1.1));opacity:.65;padding:2px 9px;";
     pinBtn.innerText = "🗄️ Save to Vault";
-    pinBtn.title = "Save this response to your Response Vault";
+    pinBtn.title = "Save this reply to Saved";
     pinBtn.addEventListener("click", async function(e){
       e.stopPropagation();
       pinBtn.innerText = "⏳ Saving…";
@@ -28215,7 +28207,7 @@ document.addEventListener("click", function(e) {
         if(d.ok){
           pinBtn.innerText = "✅ Saved";
           pinBtn.style.opacity = "1";
-          if(typeof showToast==="function") showToast("🗄️ Saved to Response Vault");
+          if(typeof showToast==="function") showToast("⭐ Saved");
         } else {
           pinBtn.innerText = "🗄️ Save to Vault";
           if(typeof showToast==="function") showToast("⚠️ " + (d.error || "Save failed"));
@@ -29439,7 +29431,7 @@ document.addEventListener("click", function(e) {
       ['Run Orchestra Mode','50 pts'],['Run Fusion Mode','80 pts'],
       ['Submit an idea','20 pts'],['Idea gets approved','75 pts'],
       ['Idea gets upvoted','5 pts each'],['Idea gets shipped','200 pts'],
-      ['Complete onboarding step','25 pts'],['Run Lead Lab','10–60 pts'],
+      ['Complete onboarding step','25 pts'],['Find leads','10–60 pts'],
     ];
     ways.forEach(function(w){
       html+='<div style="display:flex;justify-content:space-between;font-size:calc(14px * var(--fs,1.1));padding:3px 0;border-bottom:1px solid rgba(42,58,106,.2);">';
@@ -29950,7 +29942,7 @@ document.addEventListener("click", function(e) {
     <div id="scoutMsgs" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;"></div>
     <div style="padding:10px 14px 6px;display:flex;flex-wrap:wrap;gap:5px;border-top:1px solid rgba(42,58,106,.4);">
       <button class="sqBtn" onclick="scoutAsk('How do I add a new teammate?')">Add teammate?</button>
-      <button class="sqBtn" onclick="scoutAsk('How does Lead Lab work?')">Lead Lab?</button>
+      <button class="sqBtn" onclick="scoutAsk('How do I find leads?')">Find leads?</button>
       <button class="sqBtn" onclick="scoutAsk('My Google Calendar events are not showing')">Calendar not syncing?</button>
       <button class="sqBtn" onclick="scoutAsk('What can the CRM do?')">CRM features?</button>
       <button class="sqBtn" onclick="scoutAsk('How do I use Voice Mode?')">Voice Mode?</button>
@@ -30036,7 +30028,8 @@ document.addEventListener("click", function(e) {
 /* ═══ SCOUT ═══ */
 (function(){
   const SYSTEM=`You are Compass, the built-in help assistant for Simply Agentic AI.
-Features: Round Table AI teammates (CMO/CFO/CTO etc.), Group Console (broadcast to all), Lead Lab (B2B lead gen, real web scraping only — no hallucinated contacts), CRM/Client Center, Calendar (syncs Google Calendar + Motion), Email Console (Gmail), Community Hub, Voice Mode, Dashboard, Settings.
+Features: Today (home screen), Round Table AI teammates, Group Console (broadcast to all), Contacts/CRM, Calendar (syncs Google Calendar + Motion), Email (Gmail + drips), Content Planner, Video Editor/Clip Studio (includes Transcript), Record (screen + camera), Notepad, Media Library, Saved (saved replies + prompts), Community Hub, Voice Mode, Dashboard, Settings (under ⚙ Account).
+Research is done by asking a teammate in chat, not on separate screens: finding leads (real web results only, shown as a table with Add to Contacts), scoring a website, researching a company, scanning a market, building an offer, growth plans, and writing posts. More → Ideas lists what teammates can do.
 IMPORTANT CALENDAR NOTE: If a user says their Google Calendar events are not showing, tell them: "Go to Settings → Disconnect Google Calendar → Reconnect Google Calendar. This grants full sync permissions including Motion and other calendars. This is required after the recent update."
 Be concise. Give step-by-step answers.`;
   const hist=[];let opened=false;
@@ -32788,7 +32781,7 @@ window._saPlReset=function(){
       }).then(function(r){return r.json();}).then(function(d){
         if(d.ok){
           btn.textContent='✅ Saved to Vault';
-          if(typeof showToast==='function') showToast('🗄️ Saved to Response Vault');
+          if(typeof showToast==='function') showToast('⭐ Saved');
         } else {
           btn.textContent='🗄️ Save to Vault';
           if(typeof showToast==='function') showToast('⚠️ '+(d.error||'Save failed'));
@@ -34667,7 +34660,7 @@ window.toggleNotifPanel = function(){
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      <button onclick="saWinMin('teleprompterModal','🎙 Teleprompter','🎙')" title="Minimize" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fbbf24;border-radius:8px;padding:6px 12px;font-size:calc(14px * var(--fs,1.1));font-weight:700;cursor:pointer;">—</button>
+      <button onclick="saWinMin('teleprompterModal','🎥 Record','🎥')" title="Minimize" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fbbf24;border-radius:8px;padding:6px 12px;font-size:calc(14px * var(--fs,1.1));font-weight:700;cursor:pointer;">—</button>
       <button id="tpMaxBtn" onclick="saWM&&saWM.maximize(document.getElementById('teleprompterModal'))" title="Full screen" style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.35);color:#6ee7b7;border-radius:8px;padding:6px 12px;font-size:calc(14px * var(--fs,1.1));font-weight:700;cursor:pointer;">⛶</button>
       <button onclick="closeTeleprompterModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;cursor:pointer;">&#10005; Close</button>
     </div>

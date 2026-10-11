@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.6")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -538,16 +538,16 @@ PLANS: Dict[str, Any] = {
         "team_seats":       2,
         "founder":          True,
         "features": [
-            "All 7 built-in AI teammates — frontier GPT & Claude models",
+            "All 7 built-in AI teammates — AI included, or plug in your own GPT/Claude key for top models",
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
             "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
-            "Lead Lab, Social Studio & Offer Builder",
+            "Ask any teammate to find leads, score websites, build offers & write posts",
+            "Clip Studio, screen recording & Content Planner",
             "AI Notepad — write, improve, expand & summarize",
-            "Website & landing page analyzer (scored 1–100)",
             "Calendar, tasks & Gmail sync",
             "2 team seats — bring a partner",
             "Price locked forever — never increases",
@@ -571,9 +571,9 @@ PLANS: Dict[str, Any] = {
             "AI memory — your teammates learn your business, offers & clients over time",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
-            "Lead Lab, Social Studio & Offer Builder",
+            "Ask any teammate to find leads, score websites, build offers & write posts",
+            "Clip Studio, screen recording & Content Planner",
             "AI Notepad — write, improve, expand & summarize",
-            "Website & landing page analyzer (scored 1–100)",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
             "350 AI messages per month included",
@@ -1330,7 +1330,7 @@ def og_image():
   <text x="600" y="355" font-family="system-ui,sans-serif" font-size="28" font-weight="400"
         fill="rgba(196,181,253,0.85)" text-anchor="middle">Your AI-powered business command center</text>
   <text x="600" y="420" font-family="system-ui,sans-serif" font-size="22"
-        fill="rgba(247,211,106,0.7)" text-anchor="middle">7 AI Teammates · CRM · Broadcasts · Calendar · Lead Lab</text>
+        fill="rgba(247,211,106,0.7)" text-anchor="middle">7 AI Teammates · CRM · Lead Finding · Video Clips · Calendar</text>
 </svg>"""
     return svg, 200, {"Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400"}
 
@@ -3218,7 +3218,7 @@ def pwa_manifest():
         "id": "/",
         "name": APP_TITLE,
         "short_name": "Simply Agentic",
-        "description": "Your AI-powered business command centre — 7 AI teammates, CRM, Lead Lab, and more.",
+        "description": "Your AI-powered business command centre — 7 AI teammates, CRM, lead finding, video clips, and more.",
         "start_url": "/",
         "scope": "/",
         "display": "standalone",
@@ -6922,19 +6922,17 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     # ── Phase 3: Platform tools awareness block ───────────────────────────────
     _tools_block = (
         "PLATFORM TOOLS YOU CAN REFERENCE\n"
-        "The operator has access to these built-in tools — you can mention, recommend, or reference them naturally when relevant:\n"
-        "- **Lead Lab**: finds real businesses + contact info by niche and location\n"
-        "- **Site Analyzer**: scores any website 1–100 with conversion + SEO insights\n"
-        "- **Prospect Dossier**: deep research report on any company or person\n"
-        "- **Market Scanner**: maps competitors, trends, and market gaps for a niche\n"
-        "- **Intent Signals**: finds companies actively showing buying signals right now\n"
+        "The operator has these built-in screens — mention them naturally when relevant:\n"
+        "- **Today**: the home screen with their day, follow-ups, and a morning brief\n"
+        "- **Contacts**: CRM + pipeline\n"
+        "- **Calendar** and **Email**: scheduling, Gmail, and drip emails\n"
         "- **Content Planner**: schedule and publish social posts across platforms\n"
-        "- **Video Editor**: trim, clip, and export video with AI-generated clip suggestions\n"
-        "- **Video to Transcript**: transcribes any uploaded video or audio file\n"
-        "- **Email Console**: draft and send emails directly from the command center\n"
-        "- **Response Vault**: saved AI responses the operator can reuse\n"
-        "- **Media Library**: all AI-generated images in one place\n"
-        "When a user's need clearly maps to one of these tools, say so: e.g. 'Want me to run a Lead Lab search on that?' or 'The Site Analyzer would give you a full breakdown in seconds.'\n"
+        "- **Video Editor / Clip Studio**: turn long videos into captioned clips and shorts; also transcribes video\n"
+        "- **Record**: screen and camera recording that lands in their clips\n"
+        "- **Notepad**, **Media Library**, and **Saved** (saved replies and prompts)\n"
+        "Finding leads, scoring websites, researching companies, scanning markets, building offers, "
+        "growth plans, and writing posts are things YOU do right here in chat — never send the operator "
+        "to a separate screen for those; just do it (or offer to).\n"
     )
 
     # ── Phase 1d: live ACTIONS block — only injected when the agentic tool loop is
@@ -6959,12 +6957,14 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "concrete YYYY-MM-DD date and HH:MM start. A Confirm card is shown before anything is booked, so it's safe.\n"
             "- research_prospect — deep-research a specific company/lead (name or URL): pain points + outreach angle.\n"
             "- scan_market — scan a whole niche/market: top players, pricing, gaps, best channels.\n"
+            "- analyze_website — score a website 1-100 with quick wins (a score card shows automatically).\n"
+            "- find_leads — find real businesses with a phone/email by niche + location (a lead table with Add buttons shows automatically).\n"
             "- find_intent_signals — find where warm buyers for an offer are gathering and the language they use.\n"
             "- build_offer — write a complete ready-to-use offer package (statement, promise, bullets, CTA, DM, post).\n"
             "- build_growth_playbook — generate and save a step-by-step growth playbook for a goal + timeline.\n"
             "- create_social_content — write ready-to-post content (content pack, week plan, DM pack, comments, launch).\n"
             "- draft_social_post — save a specific post as a DRAFT in the Content Planner (never publishes; the operator publishes).\n"
-            "- save_to_vault — save a great reply/template/draft to the Response Vault for reuse.\n"
+            "- save_to_vault — save a great reply/template/draft to the operator's Saved replies for reuse.\n"
             "- read_notepad — open and read the operator's Notepad. When they say open/show/check my notepad, CALL this (it also opens the Notepad on their screen).\n"
             "- add_to_notepad — jot a note into the operator's Notepad when they ask you to note something down.\n"
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
@@ -13061,7 +13061,7 @@ footer a{color:var(--pl);text-decoration:none;}
   <div class="hglow"></div>
   <div class="badge a1">&#10024; AI-Powered Business Command Center</div>
   <h1 class="a2">7 Specialists.<br/>One Command Center.</h1>
-  <p class="hero-p a3">Stop stitching tools together. Simply Agentic gives you a full team of specialized AI teammates, a built-in CRM, Lead Lab, Social Studio, email broadcast, calendar sync, and more &mdash; one interface, zero juggling.</p>
+  <p class="hero-p a3">Stop stitching tools together. Simply Agentic gives you a full team of specialized AI teammates, a built-in CRM, lead finding, content and video tools, email broadcast, calendar sync, and more &mdash; one interface, zero juggling.</p>
   <div class="hbtns a4">
     <a href="/pricing" class="bp">&#128640; Start Free Trial</a>
     <a href="#roundtable" class="bs">See the Interface &darr;</a>
@@ -13149,11 +13149,11 @@ footer a{color:var(--pl);text-decoration:none;}
   <div class="ctr">
     <span class="lbl">Tools in Action</span>
     <h2 class="h2">Watch the Features Work</h2>
-    <p class="sub">Animated live demos of the four core tools, running in real time inside the actual interface.</p>
+    <p class="sub">Animated demos of what your teammates and workspace do, running in real time.</p>
   </div>
   <div class="demos">
-    <div class="dc a5"><div class="dc-hdr"><span class="recdot"></span> &#128302; Lead Lab &mdash; Generating Leads</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:8px;"><div class="lf">real estate agents</div><div class="lf">New Jersey</div><div class="lf" style="flex:0 0 auto;">25 leads</div></div><div id="llBox"></div></div></div>
-    <div class="dc a6"><div class="dc-hdr"><span class="recdot"></span> &#128227; Social Studio &mdash; Writing Content</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:10px;"><div class="lf" style="flex:0 0 auto;">LinkedIn</div><div class="lf">Content pack</div></div><div class="ss-post"><div class="ss-lbl" id="ssLbl">&#129379; Hook Post</div><div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div></div><div style="display:flex;gap:6px;"><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128172; DM Script</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#127919; CTA Pack</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128640; Launch Set</div></div></div></div>
+    <div class="dc a5"><div class="dc-hdr"><span class="recdot"></span> &#128302; Ask a Teammate &mdash; Finding Leads</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:8px;"><div class="lf">real estate agents</div><div class="lf">New Jersey</div><div class="lf" style="flex:0 0 auto;">10 leads</div></div><div id="llBox"></div></div></div>
+    <div class="dc a6"><div class="dc-hdr"><span class="recdot"></span> &#128227; Ask a Teammate &mdash; Writing Posts</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:10px;"><div class="lf" style="flex:0 0 auto;">LinkedIn</div><div class="lf">Content pack</div></div><div class="ss-post"><div class="ss-lbl" id="ssLbl">&#129379; Hook Post</div><div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div></div><div style="display:flex;gap:6px;"><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128172; DM Script</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#127919; CTA Pack</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128640; Launch Set</div></div></div></div>
     <div class="dc a7"><div class="dc-hdr"><span class="recdot"></span> &#128203; CRM Pipeline &mdash; Moving Deals</div><div class="dc-body"><div class="pipeline"><div class="pstage"><div class="pslbl">Lead</div><div id="ps0"></div></div><div class="pstage"><div class="pslbl">Interested</div><div id="ps1"></div></div><div class="pstage"><div class="pslbl">Call Booked</div><div id="ps2"></div></div><div class="pstage"><div class="pslbl">Client</div><div id="ps3"></div></div></div><div style="margin-top:10px;font-size:11px;color:var(--pl);font-weight:600;" id="crmMsg">Watching Morgan Lee move through the pipeline...</div><div style="margin-top:8px;"><button style="width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;font-size:11px;font-weight:700;cursor:default;">&#9889; AI Draft Outreach</button></div></div></div>
     <div class="dc a8"><div class="dc-hdr"><span class="recdot"></span> &#127897; Group Console &mdash; All Teammates Reply</div><div class="dc-body"><div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#cbd5e1;margin-bottom:10px;">"Help me build a lead engine for NJ real estate &mdash; strategy, outreach, and automation."</div><div id="gcBox"></div></div></div>
   </div>
@@ -13181,15 +13181,15 @@ footer a{color:var(--pl);text-decoration:none;}
 <section class="sec a5" id="features" style="padding-top:20px;">
   <div class="ctr"><span class="lbl">Features</span><h2 class="h2">Everything Built In. Nothing Extra to Buy.</h2></div>
   <div class="fgg">
-    <div class="fgc a5"><span class="fgc-i">&#128302;</span><div class="fgc-n">Lead Lab</div><div class="fgc-d">Scored, contact-ready leads from the web. Filter by niche, location, count, and contact type. One-click to CRM or Sunshine.</div></div>
-    <div class="fgc a6"><span class="fgc-i">&#128203;</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email broadcast, and client sequences &mdash; no extra tools required.</div></div>
-    <div class="fgc a7"><span class="fgc-i">&#128227;</span><div class="fgc-n">Social Studio</div><div class="fgc-d">Posts, hooks, DMs, comment scripts, and launch packs for LinkedIn, Facebook, Instagram, and X.</div></div>
-    <div class="fgc a5"><span class="fgc-i">&#127919;</span><div class="fgc-n">Offer Builder</div><div class="fgc-d">Sharpen positioning, clarify your offer, and generate launch-ready copy from one structured form.</div></div>
-    <div class="fgc a6"><span class="fgc-i">&#128218;</span><div class="fgc-n">Prompt Library</div><div class="fgc-d">200+ expert prompts organized by teammate. Click to fire instantly. Save custom prompts for reuse.</div></div>
-    <div class="fgc a7"><span class="fgc-i">&#128197;</span><div class="fgc-n">Calendar &amp; Gmail Sync</div><div class="fgc-d">Full motion calendar with Google sync. Teammate-drafted emails pass through a review console first.</div></div>
-    <div class="fgc a5"><span class="fgc-i">&#128200;</span><div class="fgc-n">Growth Playbooks</div><div class="fgc-d">Step-by-step action plans for getting clients, booking calls, launching offers, and reactivating leads.</div></div>
+    <div class="fgc a5"><span class="fgc-i">&#9889;</span><div class="fgc-n">Teammates That Take Action</div><div class="fgc-d">Just ask: find contact-ready leads, score any website, research a company, build an offer, write a week of posts. Results land right in chat.</div></div>
+    <div class="fgc a6"><span class="fgc-i">&#128203;</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email broadcast, and drip sequences &mdash; no extra tools required.</div></div>
+    <div class="fgc a7"><span class="fgc-i">&#127916;</span><div class="fgc-n">Clip Studio &amp; Record</div><div class="fgc-d">Record your screen and camera, then turn long videos into captioned vertical shorts with one tap.</div></div>
+    <div class="fgc a5"><span class="fgc-i">&#128467;</span><div class="fgc-n">Content Planner</div><div class="fgc-d">Plan, schedule, and publish posts to Facebook, Instagram, YouTube, and LinkedIn from one calendar.</div></div>
+    <div class="fgc a6"><span class="fgc-i">&#9728;</span><div class="fgc-n">Today Screen</div><div class="fgc-d">Open the app to your day: meetings, follow-ups due, and a morning brief from your team.</div></div>
+    <div class="fgc a7"><span class="fgc-i">&#128197;</span><div class="fgc-n">Calendar &amp; Gmail Sync</div><div class="fgc-d">Full calendar with Google sync. Teammate-drafted emails wait for your OK before they send.</div></div>
+    <div class="fgc a5"><span class="fgc-i">&#11088;</span><div class="fgc-n">Saved Prompts &amp; Replies</div><div class="fgc-d">200+ expert prompts by teammate, plus every great reply you want to keep, in one place.</div></div>
     <div class="fgc a6"><span class="fgc-i">&#127897;</span><div class="fgc-n">Voice Mode &amp; TTS</div><div class="fgc-d">Speak to your teammates directly. Every teammate reads responses aloud via OpenAI TTS.</div></div>
-    <div class="fgc a7"><span class="fgc-i">&#128273;</span><div class="fgc-n">Your Key. Your Data.</div><div class="fgc-d">Connect your OpenAI or Anthropic key. Direct GPT-4o access &mdash; zero markup, zero throttling.</div></div>
+    <div class="fgc a7"><span class="fgc-i">&#128273;</span><div class="fgc-n">Your Key. Your Data.</div><div class="fgc-d">AI is included with your plan. Or connect your own OpenAI or Anthropic key for top models with no message cap.</div></div>
   </div>
 </section>
 
@@ -13224,10 +13224,10 @@ footer a{color:var(--pl);text-decoration:none;}
   var stxt='Score by: recency of listings (past 90 days), active social presence, personal domain vs brokerage-only site, and online engagement rate. Minimum score of 65 to qualify for outreach.';
   var sel=document.getElementById('sideTyped'),scur=document.getElementById('sideCursor');
   if(sel){var si=0;setTimeout(function t(){if(si<stxt.length){sel.textContent+=stxt[si++];setTimeout(t,22+Math.random()*16);}else if(scur)scur.style.display='none';},1400);}
-  // Lead Lab demo
+  // Lead finding demo
   var leads=[{name:'Jamie Cole',co:'Garden State Realty - Broker',info:'(201) 555-0182 / jcole@gsrealty.com',score:92},{name:'Morgan Lee',co:'BrightPath Investors - Founder',info:'morgan@brightpath.com',score:85},{name:'Taylor Adams',co:'Northshore Lending - Loan Officer',info:'(973) 555-0247',score:78}];
   var llb=document.getElementById('llBox');if(llb){var li=0;function addLead(){if(li>=leads.length){setTimeout(function(){llb.innerHTML='';li=0;setTimeout(addLead,600);},2200);return;}var l=leads[li++];var d=document.createElement('div');d.className='ll-lead';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.info+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="margin-top:7px;"><button class="lbtn">+ CRM</button><button class="lbtn2">Email</button><button class="lbtn2">Text</button></div>';llb.appendChild(d);setTimeout(addLead,1000);}setTimeout(addLead,600);}
-  // Social Studio demo
+  // Post writing demo
   var posts=[{lbl:'Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that never convert.\n\nHere is the system I use to only talk to buyers already warm.'},{lbl:'DM Script',txt:'Hey [Name] -- saw your post about Hoboken. Are most of your leads from referrals, or are you building an online channel too?'},{lbl:'CTA Post',txt:'If you are a NJ agent doing 10+ deals a year but spending more time on admin than relationships -- comment SYSTEM.'}];
   var pi=0,ci=0,lbl=document.getElementById('ssLbl'),stxt2=document.getElementById('ssTxt'),scur2=document.getElementById('ssCur');
   if(stxt2){function nextPost(){var p=posts[pi%posts.length];pi++;if(lbl)lbl.textContent=p.lbl;ci=0;stxt2.textContent='';if(scur2)scur2.style.display='inline';var ps=p.txt;(function t(){if(ci<ps.length){stxt2.textContent+=ps[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(scur2)scur2.style.display='none';setTimeout(nextPost,3000);}})();}setTimeout(nextPost,600);}
@@ -13235,7 +13235,7 @@ footer a{color:var(--pl);text-decoration:none;}
   var ps=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];var cmsg=document.getElementById('crmMsg');
   if(ps[0]){var ph=0;function setState(p){if(p===0){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span><span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>';ps[1].innerHTML='';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan Lee just entered as a new Lead.';}else if(p===1){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span>';ps[1].innerHTML='<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan showed interest -- moved to Interested!';}else{ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span>';ps[1].innerHTML='';ps[2].innerHTML='<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan booked a call -- AI drafting follow-up now!';}setTimeout(function(){ph=(ph+1)%3;setState(ph);},2400);}setTimeout(function(){setState(0);},600);}
   // Group Console demo
-  var gcr=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly Lead Lab run, CRM import, Sunshine sequence. Zero manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe to be about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}];
+  var gcr=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly lead search, CRM import, Sunshine sequence. Zero manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe to be about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}];
   var gcb=document.getElementById('gcBox');if(gcb){var gi=0;function addR(){if(gi>=gcr.length){setTimeout(function(){gcb.innerHTML='';gi=0;setTimeout(addR,800);},2000);return;}var r=gcr[gi++];var d=document.createElement('div');d.className='gc-rep';d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';gcb.appendChild(d);setTimeout(addR,1100);}setTimeout(addR,600);}
 })();
 </script>
@@ -15026,7 +15026,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 <!-- GUARANTEE -->
 <div class='guarantee'>
   <div class='guarantee-icon'>&#9989;</div>
-  <div class='guarantee-text'><strong>No lock-in. No hidden fees.</strong> Cancel anytime from your account. Every plan includes access to all 7 AI teammates, CRM, broadcasts, calendar, Lead Lab, and more — from day one.</div>
+  <div class='guarantee-text'><strong>No lock-in. No hidden fees.</strong> Cancel anytime from your account. Every plan includes access to all 7 AI teammates, CRM, broadcasts, calendar, lead finding, video clips, and more — from day one.</div>
 </div>
 
 <!-- API NOTE -->
@@ -25342,7 +25342,7 @@ def _tool_save_to_vault(uname: str, teammate: str, args: Dict[str, Any]) -> Dict
         entries.insert(0, entry)
         _vault_save(uname, entries)
         return {"ok": True, "id": entry["id"],
-                "summary": f"Saved to your Response Vault{(' as “' + label + '”') if label else ''}."}
+                "summary": f"Saved to your Saved replies{(' as “' + label + '”') if label else ''}."}
     except Exception as e:
         return {"ok": False, "summary": f"Could not save to vault: {e}"}
 
@@ -25668,7 +25668,7 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "title": {"type": "string", "description": "Optional short title."}},
          "required": ["content"]}},
     {"name": "save_to_vault", "risk": "auto", "executor": _tool_save_to_vault,
-     "description": "Save a useful piece of text (a great reply, template, or draft) to the operator's Response Vault for reuse. Use when the operator says to save/keep/store something.",
+     "description": "Save a useful piece of text (a great reply, template, or draft) to the operator's Saved replies for reuse. Use when the operator says to save/keep/store something.",
      "parameters": {"type": "object", "properties": {
          "text": {"type": "string", "description": "The text to save."},
          "label": {"type": "string", "description": "Optional short label."}},
@@ -33739,7 +33739,7 @@ var EPISODES = {
     num:'EP 01', title:'Getting started',
     steps:[
       {t:'Your AI is <strong>already on</strong>', d:'On most plans your monthly AI credits are included — your 7 teammates are ready to go, no setup required.'},
-      {t:'(Optional) Open <strong>Settings</strong>', d:'Want unlimited use or to run your own model? Click the Settings dropdown in the top navigation bar.'},
+      {t:'(Optional) Open <strong>Settings</strong>', d:'Want unlimited use or to run your own model? Click ⚙ Account in the top right, then User Settings.'},
       {t:'(Optional) Add an <strong>API key</strong>', d:'Paste an OpenAI (sk-...) or Anthropic (sk-ant-...) key to run on your own account with no message limit. You can skip this and use the included credits.'},
       {t:'Click <strong>Save settings</strong>', d:'A green "Connected" badge confirms it.'},
       {t:'You\'re ready!', d:'All 7 AI teammates are powered up. Click any seat at the round table to start.'},
@@ -33761,7 +33761,7 @@ var EPISODES = {
   3: {
     num:'EP 03', title:'Managing contacts',
     steps:[
-      {t:'Open <strong>Contacts</strong>', d:'Click Manage in the nav, then select Contacts from the dropdown.'},
+      {t:'Open <strong>Contacts</strong>', d:'Click Contacts in the top bar.'},
       {t:'Click <strong>+ Add Contact</strong>', d:'Fill in the name, email, phone and any notes about this person.'},
       {t:'Send a <strong>message</strong>', d:'Open any contact and hit Message to draft a personalised email with AI help.'},
       {t:'Add <strong>tags & notes</strong>', d:'Tag contacts by type (Lead, Client, Partner) and write private notes.'},
@@ -33773,7 +33773,7 @@ var EPISODES = {
   4: {
     num:'EP 04', title:'Email broadcasts',
     steps:[
-      {t:'Open <strong>Contacts → Broadcast</strong>', d:'Go to Manage → Contacts, then switch to the Email Broadcast tab.'},
+      {t:'Open <strong>Contacts → Broadcast</strong>', d:'Click Contacts in the top bar, then switch to the Email Broadcast tab.'},
       {t:'Choose your <strong>recipients</strong>', d:'Send to all contacts or filter by tag — e.g. all Leads, or just Clients.'},
       {t:'Write your <strong>subject & message</strong>', d:'Type naturally. Use {{first_name}} to personalise each email automatically.'},
       {t:'Click <strong>Send broadcast</strong>', d:'Review the preview, then hit Send. Each contact gets a personalised copy.'},
@@ -33784,18 +33784,18 @@ var EPISODES = {
   5: {
     num:'EP 05', title:'Finding leads',
     steps:[
-      {t:'Open <strong>Find Leads</strong>', d:'Click Research in the top nav, then select Find Leads from the dropdown.'},
-      {t:'Describe your <strong>ideal customer</strong>', d:'Write naturally: "SaaS founders in NYC raising a seed round" works perfectly.'},
-      {t:'Set your <strong>filters</strong>', d:'Optionally set company size, location, industry, or funding stage.'},
-      {t:'Click <strong>Find leads</strong>', d:'The AI searches the web and returns scored prospects with contact details.'},
-      {t:'<strong>Add to Contacts</strong>', d:'Hit the + button next to any lead to add them straight to your Contacts.'},
+      {t:'Open a <strong>teammate chat</strong>', d:'Click any teammate, Sunshine is great for sales. Or open More → Ideas and tap Find leads.'},
+      {t:'Ask for <strong>leads</strong>', d:'Write naturally: "Find 10 roofers in Austin, TX" works perfectly.'},
+      {t:'Be <strong>specific</strong>', d:'Name the type of business and the city or region. Up to 15 leads per ask.'},
+      {t:'Get a <strong>lead table</strong>', d:'Your teammate searches the web and shows real businesses with a phone or email.'},
+      {t:'<strong>Add to Contacts</strong>', d:'Hit + Add next to any lead, or Add all, to put them straight into Contacts.'},
     ],
     ani: buildEP5
   },
   6: {
     num:'EP 06', title:'Calendar & scheduling',
     steps:[
-      {t:'Open <strong>Calendar</strong>', d:'Go to Manage in the nav, then select Calendar.'},
+      {t:'Open <strong>Calendar</strong>', d:'Click Calendar in the top bar.'},
       {t:'Connect <strong>Google Calendar</strong>', d:'Click Connect Calendar and sign in with Google. Your events will sync.'},
       {t:'Click a <strong>date</strong> to create an event', d:'Click any day on the calendar to open the new event form.'},
       {t:'Fill in the <strong>details</strong>', d:'Add title, time, location and attendees. AI can draft descriptions for you.'},
@@ -33817,7 +33817,7 @@ var EPISODES = {
   8: {
     num:'EP 08', title:'Chrome extension',
     steps:[
-      {t:'Install the <strong>extension</strong>', d:'Go to Settings → Get the Chrome Extension. Download and install it.'},
+      {t:'Install the <strong>extension</strong>', d:'Click ⚙ Account in the top right, then Help → Chrome Extension. Download and install it.'},
       {t:'Connect your <strong>account</strong>', d:'Click the extension icon and paste in your Simply Agentic key to link it.'},
       {t:'Browse <strong>Facebook</strong>', d:'Visit any Facebook profile or Messenger conversation.'},
       {t:'Click <strong>Import to Contacts</strong>', d:'The extension popup detects the person. One click imports their details.'},
