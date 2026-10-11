@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.4")
+APP_VERSION = os.getenv("APP_VERSION", "10.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17447,6 +17447,65 @@ def _crm_activity_append(uname: str, client_id: str, event_type: str, detail: st
     save_json(_crm_activity_path(uname, client_id), log[-200:])  # keep last 200 events
 
 
+def _group_lane_block(defn: Dict[str, Any], n: int) -> str:
+    """Instruction for one teammate answering a Send-to-all question, so the
+    team gives N different angles instead of N copies of the same advice."""
+    role = (defn.get("job_title") or defn.get("role") or "").strip()
+    return (
+        f"TEAM QUESTION — {n} teammates are answering this same message at the same time, "
+        "and the operator will read all of you together.\n"
+        f"- Answer ONLY from your own lane{(' as ' + role) if role else ''}: the angle, specifics and "
+        "next step only you would bring. Leave other areas to the teammates who own them.\n"
+        "- Skip general advice anyone would give; it will already be covered.\n"
+        "- Lead with your single most useful point. Keep it under about 150 words.\n"
+        "- If your role genuinely has nothing distinct to add, say so in one sentence.\n"
+        "- If you disagree with the obvious approach, say so plainly and why."
+    )
+
+
+@app.post("/api/group/synthesize")
+def api_group_synthesize():
+    """One combined answer on top of a Send-to-all question: the plan, where
+    the teammates disagree, and next steps with owners."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    question = str(b.get("question") or "").strip()[:3000]
+    raw = b.get("answers") if isinstance(b.get("answers"), dict) else {}
+    answers = {str(k)[:40]: str(v).strip()[:2500] for k, v in list(raw.items())[:12]
+               if isinstance(v, str) and v.strip() and v.strip() not in ("…", "(error)", "(timed out)")}
+    if not question or len(answers) < 2:
+        return jsonify({"ok": False, "error": "Need the question and at least two answers."}), 400
+    allowed, _used, _limit, _iu, _il, _own = _check_msg_limit(uname, _get_user_plan(uname))
+    if not allowed:
+        return jsonify({"ok": False, "error": "You've used this month's AI messages."}), 429
+    system = (
+        "You lead a team of AI specialists who each just answered the operator's question from their own role. "
+        "Combine their answers into one decision the operator can act on. Use only what the teammates said; "
+        "do not invent facts. Write in plain, direct language. Format exactly:\n"
+        "**The plan** — 2-4 sentences: one clear recommendation built from the strongest points.\n"
+        "**Where they disagree** — bullets naming who said what and which way you'd lean; if they agree, one line saying so.\n"
+        "**Next steps** — 3-5 numbered steps, each ending with who owns it (a teammate's name, or You).\n"
+        "Stay under 250 words."
+    )
+    body = f"Question: {question}\n\n" + "\n\n".join(f"### {k}\n{v}" for k, v in answers.items())
+    try:
+        text = call_llm(system, [{"role": "user", "content": body}], temperature=0.3)
+    except Exception as e:
+        try:
+            _, msg = _classify_openai_error(e)
+        except Exception:
+            msg = str(e)
+        return jsonify({"ok": False, "error": msg}), 500
+    try:
+        _increment_msg_usage(uname)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "text": (text or "").strip()})
+
+
 def _crm_clients_mentioned(uname: str, msg: str, limit: int = 3) -> List[Dict[str, Any]]:
     """Contacts the operator named in a chat message: full name or company
     anywhere (case-insensitive), or a first name alone when exactly one contact
@@ -26785,8 +26844,20 @@ def api_followup_stream():
         _tools_on = SAAI_TOOLS_ENABLED or _is_admin_user(current_user())
     except Exception:
         _tools_on = SAAI_TOOLS_ENABLED
+    # Team question (Send to all): every teammate answers at once. Keep each in
+    # their own lane, and don't let 7 teammates each run the same action
+    # (7 lead searches, 7 emails) — actions stay in one-to-one chats.
+    _group_n = 0
+    if data.get("group"):
+        try:
+            _group_n = max(2, min(12, int(data.get("group_size") or 2)))
+        except (TypeError, ValueError):
+            _group_n = 2
+        _tools_on = False
 
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s, tools_enabled=_tools_on)
+    if _group_n:
+        sys_prompt += "\n\n" + _group_lane_block(defn, _group_n)
     _mentioned_s = _crm_mentioned_context(uname, msg)   # contacts named in the message
     if _mentioned_s:
         sys_prompt += "\n\n" + _mentioned_s

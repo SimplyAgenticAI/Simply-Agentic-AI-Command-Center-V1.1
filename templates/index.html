@@ -12557,6 +12557,24 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       };
     })();
 
+    // Send-to-all: one combined team answer (plan, disagreements, next steps)
+    // fetched after every teammate has replied. window._saGroupSynth =
+    // {status:'working'|'done'|'error', text}.
+    window._saGroupSynth = null;
+    async function _saSynthesizeGroup(question, outputs, drafts, images){
+      const good = {};
+      Object.keys(outputs||{}).forEach(function(k){ const v = outputs[k]; if(v && v !== "…" && v !== "(error)" && v !== "(timed out)") good[k] = v; });
+      if(Object.keys(good).length < 2){ window._saGroupSynth = null; return; }
+      window._saGroupSynth = {status:'working', text:''};
+      renderGroupReplies(outputs, drafts, images);
+      try{
+        const r = await fetch('/api/group/synthesize', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({question: question, answers: good})});
+        const d = await r.json();
+        window._saGroupSynth = d.ok ? {status:'done', text:d.text} : {status:'error', text:d.error||'Could not combine the answers.'};
+      }catch(e){ window._saGroupSynth = {status:'error', text:String(e)}; }
+      renderGroupReplies(outputs, drafts, images);
+    }
+
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
       box.innerHTML = "";
@@ -12568,6 +12586,43 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         t.innerText = "No group replies yet. Use the center Group Console.";
         box.appendChild(t);
         return;
+      }
+
+      let target = box;
+      const syn = window._saGroupSynth;
+      if(syn && keys.length > 1){
+        const card = document.createElement("div");
+        card.className = "replyItem";
+        card.style.cssText = "border:1px solid rgba(167,139,250,.5);background:rgba(124,58,237,.1);";
+        const hd = document.createElement("div");
+        hd.className = "replyTop";
+        const nm = document.createElement("div");
+        nm.className = "replyName"; nm.innerText = "🧭 Team answer";
+        hd.appendChild(nm);
+        if(syn.status === 'done'){
+          const cp = document.createElement("button");
+          cp.className = "btn"; cp.innerText = "Copy";
+          cp.onclick = async () => { try{ await navigator.clipboard.writeText(syn.text); showToast("Copied"); }catch(e){} };
+          const bx = document.createElement("div"); bx.className = "replyBtns"; bx.appendChild(cp); hd.appendChild(bx);
+        }
+        card.appendChild(hd);
+        const bd = document.createElement("div");
+        bd.className = "replyBody";
+        if(syn.status === 'working') bd.innerText = "Combining everyone's answers into one plan…";
+        else if(syn.status === 'error') bd.innerText = "Couldn't combine the answers: " + syn.text;
+        else bd.innerHTML = (typeof saMarkdown === 'function') ? saMarkdown(syn.text) : "";
+        if(syn.status === 'done' && typeof saMarkdown !== 'function') bd.innerText = syn.text;
+        card.appendChild(bd);
+        box.appendChild(card);
+        if(syn.status === 'done'){
+          const det = document.createElement("details");
+          const sm = document.createElement("summary");
+          sm.style.cssText = "cursor:pointer;color:#c4b5fd;font-weight:600;font-size:calc(14.5px * var(--fs,1.1));margin:6px 0;";
+          sm.textContent = "Each teammate's take (" + keys.length + ")";
+          det.appendChild(sm);
+          box.appendChild(det);
+          target = det;
+        }
       }
 
       keys.forEach((name) => {
@@ -12652,7 +12707,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
         item.appendChild(top);
         item.appendChild(body);
-        box.appendChild(item);
+        target.appendChild(item);
       });
     }
 
@@ -13632,6 +13687,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const _imgMode = _saLooksLikeImageRequest(msg);
         order.forEach(n=>{try{setSeatLive(n,"thinking",_imgMode);}catch(_){}});
         const outputs={},drafts={},images={};
+        window._saGroupSynth=null;
         order.forEach(n=>{outputs[n]="…";});
         try{renderGroupReplies(outputs,drafts,images);}catch(_){}
         await Promise.all(order.map(async n=>{
@@ -13641,7 +13697,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
             const res=await fetch("/api/followup/stream",{
               method:"POST",
               headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({name:n,message:msg,
+              body:JSON.stringify({name:n,message:msg,group:order.length>1,group_size:order.length,
                 file_ids:(typeof groupFileIds!=="undefined"?groupFileIds:[])}),
               signal:ctrl.signal
             });
@@ -13670,6 +13726,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           }catch(e){ try{setSeatLive(n,"waiting");}catch(_){} }
         }));
         try{lastGroupOutputs=outputs;renderGroupReplies(outputs,drafts,images);}catch(_){}
+        if(order.length>1&&!_imgMode){ try{ await _saSynthesizeGroup(msg,outputs,drafts,images); }catch(_){} }
         try{setOpStatus("Complete");}catch(_){}
       }catch(e){ showToast("⚠️ Group voice send error"); }
       if(alwaysOn&&hud){hud.classList.add("listening");_whisperSetStatus("Listening...");}
@@ -14400,6 +14457,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const images = {};
 
       // Initialize all seats to thinking immediately
+      window._saGroupSynth = null;
       const _imgMode = _saLooksLikeImageRequest(prompt);
       order.forEach(n => { outputs[n] = "…"; setSeatLive(n, "thinking", _imgMode); });
       renderGroupReplies(outputs, drafts, images);
@@ -14411,7 +14469,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const res = await fetch("/api/followup/stream", {
             method: "POST",
             headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn}),
+            body: JSON.stringify({name: n, message: prompt, file_ids: groupFileIds, lighting_mode: !!lightingModeOn,
+                                  group: order.length > 1, group_size: order.length}),
             signal: controller.signal
           });
           clearTimeout(t);
@@ -14457,6 +14516,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       lastGroupOutputs = outputs;
       renderGroupReplies(outputs, drafts, images);
+      if(order.length > 1 && !_imgMode){ await _saSynthesizeGroup(prompt, outputs, drafts, images); }
       // Show Save to Playbooks when there are group replies
       var savePbBtn = document.getElementById('saveToPlaybooksBtn');
       if(savePbBtn) savePbBtn.style.display = Object.keys(outputs||{}).length > 0 ? 'inline-block' : 'none';
