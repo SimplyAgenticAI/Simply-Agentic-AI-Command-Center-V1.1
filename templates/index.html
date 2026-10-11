@@ -8212,6 +8212,7 @@ function applyModalPos(){
       if($("promptLibraryForm")) $("promptLibraryForm").style.display = "none";
       if($("teamForm")) $("teamForm").style.display = "none";
       if($("responseVaultForm")) $("responseVaultForm").style.display = "none";
+      if($("savedPlaybooksForm")) $("savedPlaybooksForm").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       // Restore scroll for non-library modals
       const sc = $("modalScroll");
@@ -11374,7 +11375,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         bar = document.createElement('div');
         bar.className = 'saSavedTabs';
         bar.style.cssText = 'display:flex;gap:6px;padding:8px 10px;flex-shrink:0;';
-        [['replies','🗄️ Saved replies'],['prompts','📚 Saved prompts']].forEach(function(t){
+        [['replies','🗄️ Saved replies'],['prompts','📚 Saved prompts'],['playbooks','📋 Playbooks']].forEach(function(t){
           const b = document.createElement('button');
           b.className = 'btn btnMini'; b.dataset.tab = t[0]; b.textContent = t[1];
           b.style.cssText = 'font-size:calc(14.5px * var(--fs,1.1));';
@@ -11389,7 +11390,60 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         b.style.borderColor = on ? 'rgba(167,139,250,.6)' : '';
       });
     }
+    // Playbooks a teammate built (saved_playbooks_<user>.json) — read, copy, delete.
+    function _saOpenPlaybooks(){
+      showModal('⭐ Saved · Playbooks', '');
+      hideAllModalForms();
+      const body = document.getElementById('modalBody'); if(body) body.style.display = 'none';
+      let form = document.getElementById('savedPlaybooksForm');
+      if(!form){
+        const anchor = document.getElementById('responseVaultForm');
+        if(!anchor || !anchor.parentNode) return;
+        form = document.createElement('div');
+        form.id = 'savedPlaybooksForm'; form.className = 'modalForm';
+        anchor.parentNode.insertBefore(form, anchor.nextSibling);
+      }
+      form.style.cssText = 'display:flex;flex-direction:column;height:100%;padding:0;';
+      form.innerHTML = '';
+      _saSavedTabs('savedPlaybooksForm', 'playbooks');
+      const list = document.createElement('div');
+      list.style.cssText = 'flex:1;overflow:auto;padding:6px 18px 18px;';
+      form.appendChild(list);
+      const note = function(t){ list.innerHTML = ''; const d = document.createElement('div'); d.style.cssText = 'color:#94a3b8;padding:16px 4px;font-size:calc(15px * var(--fs,1.1));'; d.textContent = t; list.appendChild(d); };
+      note('Loading…');
+      fetch('/api/playbooks/list').then(function(r){ return r.json(); }).then(function(d){
+        const pbs = (d && d.ok && Array.isArray(d.playbooks)) ? d.playbooks : [];
+        if(!pbs.length){ note('No playbooks yet. Ask any teammate: "Make me a 30-day plan to get 5 new clients."'); return; }
+        list.innerHTML = '';
+        pbs.forEach(function(pb){
+          const card = document.createElement('details');
+          card.style.cssText = 'border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.04);padding:10px 12px;margin-bottom:8px;';
+          const sum = document.createElement('summary');
+          sum.style.cssText = 'cursor:pointer;font-weight:700;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));';
+          sum.textContent = (pb.title || 'Playbook') + (pb.created_at ? '  ·  ' + String(pb.created_at).slice(0,10) : '');
+          card.appendChild(sum);
+          const txt = document.createElement('div');
+          txt.style.cssText = 'margin-top:8px;color:#cbd5e1;line-height:1.55;font-size:calc(14.5px * var(--fs,1.1));';
+          txt.innerHTML = (typeof saMarkdown === 'function') ? saMarkdown(String(pb.content || '')) : '';
+          if(typeof saMarkdown !== 'function') txt.textContent = String(pb.content || '');
+          card.appendChild(txt);
+          const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
+          const cp = document.createElement('button'); cp.className = 'btn btnMini'; cp.textContent = '📋 Copy';
+          cp.onclick = function(){ try{ navigator.clipboard.writeText(String(pb.content || '')); showToast('Copied'); }catch(_){} };
+          const del = document.createElement('button'); del.className = 'btn btnMini'; del.textContent = '🗑 Delete';
+          del.onclick = function(){
+            if(!confirm('Delete this playbook?')) return;
+            fetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: pb.id})})
+              .then(function(){ card.remove(); showToast('Deleted'); }).catch(function(){});
+          };
+          row.appendChild(cp); row.appendChild(del); card.appendChild(row);
+          list.appendChild(card);
+        });
+      }).catch(function(){ note('Could not load playbooks.'); });
+    }
+
     window.saOpenSaved = function(which){
+      if(which === 'playbooks'){ _saOpenPlaybooks(); return; }
       const btn = document.getElementById(which === 'prompts' ? 'promptLibraryBtn' : 'responseVaultBtn');
       if(btn) btn.click();
       setTimeout(function(){

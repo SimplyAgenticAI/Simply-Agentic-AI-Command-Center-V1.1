@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.7")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -550,6 +550,8 @@ PLANS: Dict[str, Any] = {
             "AI Notepad — write, improve, expand & summarize",
             "Calendar, tasks & Gmail sync",
             "2 team seats — bring a partner",
+            "150 AI messages per month included — unlimited with your own key",
+            "5 lead searches per day",
             "Price locked forever — never increases",
         ],
     },
@@ -576,7 +578,8 @@ PLANS: Dict[str, Any] = {
             "AI Notepad — write, improve, expand & summarize",
             "Calendar, tasks & Gmail sync",
             "Dashboard & analytics",
-            "350 AI messages per month included",
+            "350 AI messages per month included — unlimited with your own key",
+            "3 lead searches per day",
         ],
     },
     "teams": {
@@ -596,7 +599,8 @@ PLANS: Dict[str, Any] = {
             "Full CRM + pipeline (up to 2,500 contacts)",
             "Email broadcasts (up to 1,000 recipients)",
             "3 team seats — run with a crew",
-            "1,000 AI messages per month included",
+            "1,000 AI messages per month included — unlimited with your own key",
+            "10 lead searches per day",
             "Advanced pipeline automation",
             "Priority support",
         ],
@@ -13184,7 +13188,7 @@ footer a{color:var(--pl);text-decoration:none;}
     <div class="fgc a5"><span class="fgc-i">&#9889;</span><div class="fgc-n">Teammates That Take Action</div><div class="fgc-d">Just ask: find contact-ready leads, score any website, research a company, build an offer, write a week of posts. Results land right in chat.</div></div>
     <div class="fgc a6"><span class="fgc-i">&#128203;</span><div class="fgc-n">CRM &amp; Pipeline</div><div class="fgc-d">Contacts, kanban board, email broadcast, and drip sequences &mdash; no extra tools required.</div></div>
     <div class="fgc a7"><span class="fgc-i">&#127916;</span><div class="fgc-n">Clip Studio &amp; Record</div><div class="fgc-d">Record your screen and camera, then turn long videos into captioned vertical shorts with one tap.</div></div>
-    <div class="fgc a5"><span class="fgc-i">&#128467;</span><div class="fgc-n">Content Planner</div><div class="fgc-d">Plan, schedule, and publish posts to Facebook, Instagram, YouTube, and LinkedIn from one calendar.</div></div>
+    <div class="fgc a5"><span class="fgc-i">&#128467;</span><div class="fgc-n">Content Planner</div><div class="fgc-d">Plan and schedule a month of posts on one calendar, then publish to the platforms you connect.</div></div>
     <div class="fgc a6"><span class="fgc-i">&#9728;</span><div class="fgc-n">Today Screen</div><div class="fgc-d">Open the app to your day: meetings, follow-ups due, and a morning brief from your team.</div></div>
     <div class="fgc a7"><span class="fgc-i">&#128197;</span><div class="fgc-n">Calendar &amp; Gmail Sync</div><div class="fgc-d">Full calendar with Google sync. Teammate-drafted emails wait for your OK before they send.</div></div>
     <div class="fgc a5"><span class="fgc-i">&#11088;</span><div class="fgc-n">Saved Prompts &amp; Replies</div><div class="fgc-d">200+ expert prompts by teammate, plus every great reply you want to keep, in one place.</div></div>
