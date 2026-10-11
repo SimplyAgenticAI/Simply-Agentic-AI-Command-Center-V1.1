@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "9.9.8")
+APP_VERSION = os.getenv("APP_VERSION", "9.9.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17680,6 +17680,7 @@ def api_crm_draft_outreach(client_id: str):
         f"Notes about this client: {notes}"                            if notes        else None,
         f"Operator: {op_name}" + (f" at {business}" if business else ""),
         f"Our offer / service: {offers}"                               if offers       else None,
+        f"Why we're writing now: {str(payload.get('context'))[:300]}"  if payload.get("context") else None,
     ]
     context = "\n".join(l for l in context_lines if l)
 
@@ -17724,14 +17725,16 @@ def api_crm_draft_outreach(client_id: str):
         _, msg = _classify_openai_error(e)
         return jsonify({"ok": False, "error": msg}), 500
 
-    # Auto-set last_contact = today so the CRM stays current
-    try:
-        crm2 = _crm_load(uname)
-        if client_id in (crm2.get("clients") or {}):
-            crm2["clients"][client_id]["last_contact"] = today_str
-            _crm_save(uname, crm2)
-    except Exception:
-        pass
+    # Auto-set last_contact = today so the CRM stays current — except for Today's
+    # new-lead intros, which only count as contacted once actually sent.
+    if payload.get("mark_contacted", True) is not False:
+        try:
+            crm2 = _crm_load(uname)
+            if client_id in (crm2.get("clients") or {}):
+                crm2["clients"][client_id]["last_contact"] = today_str
+                _crm_save(uname, crm2)
+        except Exception:
+            pass
 
     draft = extract_email_draft(raw)
     if not draft:
@@ -22193,6 +22196,21 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
                           "suggestion": _next_followup_suggestion(c)})
     followups.sort(key=lambda x: -x["days_overdue"])
 
+    # New leads that have never heard from you (e.g. added from a teammate's
+    # lead table): recent, have an email, never contacted, not skipped.
+    new_leads: List[Dict[str, Any]] = []
+    cutoff = (today - timedelta(days=_NEW_LEAD_DAYS)).strftime("%Y-%m-%d")
+    for c in (crm.get("clients") or {}).values():
+        if not isinstance(c, dict) or c.get("intro_skipped"):
+            continue
+        if (c.get("pipeline_stage") or "Lead") != "Lead" or (c.get("last_contact") or "").strip():
+            continue
+        if not EMAIL_RE.match((c.get("email") or "").strip()) or str(c.get("created_at") or "")[:10] < cutoff:
+            continue
+        new_leads.append({"id": c.get("id"), "name": c.get("name") or "Lead", "company": c.get("company") or "",
+                          "email": c.get("email"), "created_at": c.get("created_at") or ""})
+    new_leads.sort(key=lambda x: x["created_at"], reverse=True)
+
     # Calendar events (only if Google Calendar is connected; never fail the page)
     events: List[Dict[str, Any]] = []
     calendar_connected = False
@@ -22230,6 +22248,8 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
         "tasks": tasks[:20],
         "followups": followups[:8],
         "followups_total": len(followups),
+        "new_leads": new_leads[:8],
+        "new_leads_total": len(new_leads),
         "brief": {"enabled": bool(brief.get("enabled")), "hour": int(brief.get("hour") if brief.get("hour") is not None else 8),
                   "email": (u.get("email") or "").strip() if isinstance(u, dict) else ""},
     }
@@ -22321,6 +22341,68 @@ def api_today():
     except Exception as e:
         _capture_error(e, context="today_engagement")   # never break Today over the extras
     return jsonify(p)
+
+
+_NEW_LEAD_DAYS = 14
+_INTRO_FOLLOWUP_DAYS = 3
+
+
+@app.post("/api/today/send_intro")
+def api_today_send_intro():
+    """Send a reviewed first-touch email to a new lead, then log it, move the
+    lead to Conversation, and schedule a follow-up so it shows up on Today."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    p = request.get_json(silent=True) or {}
+    cid = str(p.get("id") or "")
+    subject = str(p.get("subject") or "").strip()[:300]
+    body = str(p.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "The email is empty."}), 400
+    client = (_crm_load(uname).get("clients") or {}).get(cid)
+    if not isinstance(client, dict):
+        return jsonify({"ok": False, "error": "Contact not found"}), 404
+    to = (client.get("email") or "").strip()
+    if not EMAIL_RE.match(to):
+        return jsonify({"ok": False, "error": "This contact has no valid email."}), 400
+    ok, _provider, err = _crm_send_email_to(u, to, subject, body)
+    if not ok:
+        return jsonify({"ok": False, "error": err or "Email isn't set up — connect Gmail in Settings."}), 400
+    today = _user_now_local(uname).date()
+    nxt = (today + timedelta(days=_INTRO_FOLLOWUP_DAYS)).strftime("%Y-%m-%d")
+    crm = _crm_load(uname)   # re-read: the send took time
+    c = (crm.get("clients") or {}).get(cid)
+    if isinstance(c, dict):
+        c["last_contact"] = today.strftime("%Y-%m-%d")
+        c["next_followup"] = nxt
+        if (c.get("pipeline_stage") or "Lead") == "Lead" and "Conversation" in ((crm.get("pipeline") or {}).get("stages") or []):
+            c["pipeline_stage"] = "Conversation"
+        c["updated_at"] = now_iso()
+        _crm_save(uname, crm)
+    try:
+        _crm_activity_append(uname, cid, "email", f"Intro email sent: {subject or '(no subject)'}")
+    except Exception:
+        pass
+    return jsonify({"ok": True, "next_followup": nxt})
+
+
+@app.post("/api/today/skip_lead")
+def api_today_skip_lead():
+    """Hide a new lead from Today's intro list without contacting them."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    cid = str((request.get_json(silent=True) or {}).get("id") or "")
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(cid)
+    if not isinstance(c, dict):
+        return jsonify({"ok": False, "error": "Contact not found"}), 404
+    c["intro_skipped"] = True
+    _crm_save(uname, crm)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/today/next_focus")

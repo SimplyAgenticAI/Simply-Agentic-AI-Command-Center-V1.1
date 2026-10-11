@@ -34006,6 +34006,9 @@ function _saEsc(s){
 .st-empty{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;padding:6px 2px;}
 .st-ask{display:flex;gap:8px;align-items:flex-end;}
 .st-ask textarea{height:48px;resize:none;}
+.st-draft{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px;padding:10px;border-radius:10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);}
+.st-draft input,.st-draft textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px 10px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
+.st-draft textarea{min-height:130px;resize:vertical;line-height:1.5;}
 .st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;}
 .st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
 .st-streak{font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#fde68a;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:5px 11px;white-space:nowrap;}
@@ -34052,6 +34055,7 @@ function _saEsc(s){
     </div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
+    <div class="st-sec" id="stLeadsSec" style="display:none;"><div class="st-h"><span>New leads to welcome</span><button id="stLeadsAll" onclick="saTodayDraftAllIntros()">✍ Draft all</button></div><div id="stLeads"></div></div>
     <div class="st-sec"><div class="st-h"><span>People to reach out to</span><button onclick="saCloseToday();document.getElementById('crmBtn').click()">All contacts →</button></div><div id="stPeople"></div></div>
     <div class="st-sec">
       <div class="st-h">Ask your team</div>
@@ -34084,7 +34088,7 @@ function _saEsc(s){
   // Day cleared → celebrate + plan tomorrow's first move
   function checkCleared(){
     if(!_hadWork) return;
-    var rows=[].slice.call(document.querySelectorAll('#stTasks .st-row, #stPeople .st-row'));
+    var rows=[].slice.call(document.querySelectorAll('#stTasks .st-row, #stPeople .st-row, #stLeads .st-lead'));
     if(!rows.length || rows.some(function(r){ return !r.classList.contains('st-done'); })) return;
     var cel=document.getElementById('stCelebrate');
     if(cel.style.display!=='none') return;
@@ -34177,6 +34181,16 @@ function _saEsc(s){
       }).join('') + (d.followups_total > d.followups.length ? '<div class="st-empty">…and '+(d.followups_total-d.followups.length)+' more in Contacts.</div>' : '');
     }
 
+    // New leads that have never heard from you → draft a first hello, review, send
+    var nl = d.new_leads || [], ls = document.getElementById('stLeadsSec');
+    ls.style.display = nl.length ? '' : 'none';
+    document.getElementById('stLeadsAll').style.display = nl.length > 1 ? '' : 'none';
+    document.getElementById('stLeads').innerHTML = nl.map(function(l,i){
+      return '<div class="st-lead" data-i="'+i+'"><div class="st-row"><div class="st-t">'+esc(l.name)+(l.company && l.company!==l.name?' <span style="color:#94a3b8">· '+esc(l.company)+'</span>':'')+'<div class="st-sub">'+esc(l.email)+'</div></div>'+
+        '<button class="st-btn pri" onclick="saTodayDraftIntro('+i+',this)">✍ Draft intro</button><button class="st-btn" title="Hide from this list" onclick="saTodaySkipLead('+i+',this)">Skip</button></div><div class="st-intro"></div></div>';
+    }).join('') + (d.new_leads_total > nl.length ? '<div class="st-empty">…and '+(d.new_leads_total-nl.length)+' more new leads in Contacts.</div>' : '');
+    if(nl.length) _hadWork = true;
+
     var sel = document.getElementById('stBriefHour');
     if(!sel.options.length){ for(var hr=5; hr<=11; hr++){ var o=document.createElement('option'); o.value=hr; o.textContent=hr+':00 am'; sel.appendChild(o);} }
     document.getElementById('stBriefOn').checked = !!(d.brief && d.brief.enabled);
@@ -34234,6 +34248,64 @@ function _saEsc(s){
       else toast('Draft failed: '+(d.error||'unknown error'),'error');
     }catch(e){ toast(String(e),'error'); }
     btn.textContent=orig; btn.disabled=false;
+  };
+
+  function leadRow(i){ return document.querySelector('#stLeads .st-lead[data-i="'+i+'"]'); }
+  function leadDone(i, msg){
+    var row = leadRow(i); if(!row) return;
+    row.querySelector('.st-intro').innerHTML = '';
+    row.style.opacity = '.35'; row.classList.add('st-done');
+    [].forEach.call(row.querySelectorAll('button'), function(b){ b.disabled = true; });
+    if(msg) toast(msg); checkCleared();
+  }
+  window.saTodayDraftIntro = async function(i, btn){
+    var l = _data && (_data.new_leads||[])[i]; if(!l) return;
+    var row = leadRow(i), box = row && row.querySelector('.st-intro'); if(!box) return;
+    var orig = btn ? btn.textContent : ''; if(btn){ btn.textContent = 'Drafting…'; btn.disabled = true; }
+    try{
+      var r = await fetch('/api/crm/clients/'+encodeURIComponent(l.id)+'/draft_outreach',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({channel:'email', mark_contacted:false, context:'First hello to a brand-new lead who has never heard from us. Say briefly why we are reaching out to them specifically and offer one small, useful next step.'})});
+      var d = await r.json();
+      if(!d.ok || !d.email_draft){ toast('Draft failed: '+(d.error||'unknown error'),'error'); return; }
+      box.innerHTML = '<div class="st-draft"><input class="st-dsub" maxlength="300" /><textarea class="st-dbody"></textarea>'+
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri">📨 Send to '+esc(l.email)+'</button><button class="st-btn">Close</button></div></div>';
+      box.querySelector('.st-dsub').value = d.email_draft.subject || '';
+      box.querySelector('.st-dbody').value = d.email_draft.body || '';
+      var bs = box.querySelectorAll('button');
+      bs[0].onclick = function(){ saTodaySendIntro(i, bs[0]); };
+      bs[1].onclick = function(){ box.innerHTML = ''; };
+    }catch(e){ toast(String(e),'error'); }
+    finally{ if(btn){ btn.textContent = orig; btn.disabled = false; } }
+  };
+  window.saTodaySendIntro = async function(i, btn){
+    var l = _data && (_data.new_leads||[])[i]; var row = leadRow(i); if(!l || !row) return;
+    var subj = row.querySelector('.st-dsub').value.trim(), body = row.querySelector('.st-dbody').value.trim();
+    if(!body){ toast('The email is empty','error'); return; }
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try{
+      var r = await fetch('/api/today/send_intro',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:l.id, subject:subj, body:body})});
+      var d = await r.json();
+      if(d.ok) leadDone(i, '📨 Sent to '+l.name+' — follow-up set for '+d.next_followup);
+      else { btn.disabled = false; btn.textContent = '📨 Send to '+l.email; toast(d.error||'Send failed','error'); }
+    }catch(e){ btn.disabled = false; toast(String(e),'error'); }
+  };
+  window.saTodaySkipLead = async function(i, btn){
+    var l = _data && (_data.new_leads||[])[i]; if(!l) return;
+    btn.disabled = true;
+    try{
+      var r = await fetch('/api/today/skip_lead',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:l.id})});
+      var d = await r.json();
+      if(d.ok) leadDone(i, ''); else { btn.disabled = false; toast(d.error||'Could not skip','error'); }
+    }catch(e){ btn.disabled = false; toast(String(e),'error'); }
+  };
+  window.saTodayDraftAllIntros = async function(){
+    var nl = (_data && _data.new_leads) || [], b = document.getElementById('stLeadsAll');
+    b.disabled = true; b.textContent = 'Drafting…';
+    for(var i=0;i<nl.length;i++){
+      var row = leadRow(i);
+      if(row && !row.classList.contains('st-done') && !row.querySelector('.st-draft')) await window.saTodayDraftIntro(i, row.querySelector('.st-btn.pri'));
+    }
+    b.disabled = false; b.textContent = '✍ Draft all';
   };
 
   window.saTodayContacted = async function(i, btn){
