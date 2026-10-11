@@ -4423,6 +4423,7 @@ label {
             <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
+            <button class="saDropItem" onclick="saToggleDrop('saTeamDrop');saOpenIdeas()">💡 Ideas: what teammates can do</button>
             <div class="saMoreHead">Overview</div>
             <button class="saDropItem" id="dashboardNavBtn" onclick="saOpenDashboard()">📊 Dashboard</button>
             <button class="saDropItem" id="communityNavBtn" onclick="openCommunityPanel()">🏆 Community<span id="communityPendingBadge" style="display:none;background:#ef4444;color:#fff;font-size:calc(14px * var(--fs,1.1));border-radius:999px;padding:1px 5px;margin-left:5px;font-weight:800;"></span></button>
@@ -4606,6 +4607,7 @@ label {
             <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
             <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
             <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
+            <button class="btn" onclick="closeMobileDrawer();setTimeout(saOpenIdeas,200);">💡 Ideas: what teammates can do</button>
           </div>
         </div>
 
@@ -7391,12 +7393,6 @@ input[type="range"]::-moz-range-progress {
             <button id="dmBriefBtn" title="Brief replies" onclick="window._saSetLengthMode('brief')" style="padding:2px 9px;font-size:calc(14px * var(--fs,1.1));border-radius:6px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#cbd5e1;cursor:pointer;transition:all .15s;">Brief</button>
             <button id="dmAutoBtn"  title="Auto length (default)" onclick="window._saSetLengthMode('auto')"  style="padding:2px 9px;font-size:calc(14px * var(--fs,1.1));border-radius:6px;border:1px solid rgba(124,58,237,.45);background:rgba(124,58,237,.18);color:#c4b5fd;cursor:pointer;transition:all .15s;">Auto</button>
             <button id="dmDeepBtn"  title="Deep / detailed replies" onclick="window._saSetLengthMode('deep')"  style="padding:2px 9px;font-size:calc(14px * var(--fs,1.1));border-radius:6px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.06);color:#cbd5e1;cursor:pointer;transition:all .15s;">Deep</button>
-          </div>
-          <div id="saAbilityChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
-            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Analyze this website and score it: ')">🔍 Analyze a website</button>
-            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Find 10 leads: [type of business] in [city, state]')">📡 Find buyers</button>
-            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="saAbilityChip('Build me an offer for [who it is for] who want [result], delivered by [how]')">🎯 Build an offer</button>
-            <button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));" onclick="if(window.showVideoEditorModal)window.showVideoEditorModal();if(window.vcShowTab)window.vcShowTab('source');">🎬 Make shorts</button>
           </div>
           <textarea class="followBox" id="followMsg" placeholder="Message selected teammate..." style="height:64px;resize:none;" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-bwi-ignore="true"></textarea>
           <div class="pillRow" style="margin-top:5px;display:flex;align-items:center;gap:6px;">
@@ -11307,6 +11303,66 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       fm.value = text; fm.focus();
       const i = text.indexOf('['), j = text.indexOf(']', i);
       try{ if(i >= 0 && j > i) fm.setSelectionRange(i, j + 1); else fm.setSelectionRange(text.length, text.length); }catch(_){}
+    };
+
+    // 💡 Ideas: a browsable list of what teammates can actually do. Tapping an
+    // idea opens a teammate chat with a starter message ready to fill in.
+    const _SA_IDEAS = [
+      ['Find customers', [
+        ['📡','Find leads','Real businesses with a phone or email, ready to add to Contacts.','Find 10 leads: [type of business] in [city, state]'],
+        ['🎯','Research a company','What they do, likely pain points, and the best way in.','Research this company and give me an outreach angle: [company or website]'],
+        ['🔥','Find ready-to-buy people','Where warm buyers hang out and the words they use.','Where can I find people ready to buy [your offer]?'],
+        ['👥','Add a contact','Save someone to Contacts straight from chat.','Add [name] from [company] to my contacts, email [email]']]],
+      ['Understand your market', [
+        ['🔍','Score a website','A 1-100 score with quick wins, yours or a competitor\'s.','Analyze this website and score it: '],
+        ['📊','Scan a market','Top players, pricing, what customers love and hate, gaps.','Scan the market for [your niche]: top players, pricing, gaps']]],
+      ['Sell and grow', [
+        ['🎯','Build an offer','Offer statement, promise, bullets, call to action, DM pitch.','Build me an offer for [who it is for] who want [result], delivered by [how]'],
+        ['📋','Make a growth plan','A step-by-step playbook for a goal and timeline.','Make me a 30-day plan to [your goal]'],
+        ['✉️','Email someone','Drafts the email; you review it before it sends.','Email [name] at [email] about [topic]']]],
+      ['Content', [
+        ['📣','Write posts','A pack of ready-to-post captions for any platform.','Write a week of [platform] posts about [topic]'],
+        ['🗓','Draft a post in the Planner','Saves a draft to your Content Planner, never posts on its own.','Draft a [platform] post about [topic] and put it in my planner'],
+        ['🖼','Make an image','Graphics, posters, and logos.','Make an image of [describe it]']]],
+      ['Stay organized', [
+        ['📅','Book a meeting','A real Google Calendar event with a Meet link; you confirm first.','Book a meeting with [email] on [day] at [time] about [topic]'],
+        ['✅','Schedule a task','Puts a task on your calendar.','Remind me to [task] on [day] at [time]'],
+        ['📝','Jot a note','Adds to your Notepad.','Add to my notepad: ']]]
+    ];
+    window.saOpenIdeas = function(){
+      const old = document.getElementById('saIdeasSheet'); if(old) old.remove();
+      const fs = function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
+      const wrap = document.createElement('div');
+      wrap.id = 'saIdeasSheet';
+      wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      const box = document.createElement('div');
+      box.style.cssText = 'background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;width:min(640px,100%);max-height:88vh;overflow:auto;padding:18px 18px 12px;box-shadow:0 20px 60px rgba(0,0,0,.7);';
+      const head = document.createElement('div');
+      head.style.cssText = 'display:flex;align-items:center;gap:10px;margin-bottom:4px;';
+      const h = document.createElement('div'); h.style.cssText = 'font-weight:800;flex:1;color:#e2e8f0;'+fs(18); h.textContent = '💡 Ideas: what your teammates can do';
+      const x = document.createElement('button'); x.className = 'btn btnMini'; x.textContent = '✕'; x.onclick = function(){ wrap.remove(); };
+      head.appendChild(h); head.appendChild(x); box.appendChild(head);
+      const sub = document.createElement('div'); sub.style.cssText = 'color:#94a3b8;margin-bottom:12px;'+fs(14.5);
+      sub.textContent = 'Just ask in any teammate chat. Tap an idea to start with an example.';
+      box.appendChild(sub);
+      _SA_IDEAS.forEach(function(g){
+        const gh = document.createElement('div'); gh.style.cssText = 'font-weight:700;color:#c4b5fd;margin:10px 0 6px;'+fs(15); gh.textContent = g[0];
+        box.appendChild(gh);
+        g[1].forEach(function(it){
+          const b = document.createElement('button');
+          b.style.cssText = 'display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:9px 11px;margin-bottom:6px;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#e2e8f0;cursor:pointer;font-family:inherit;';
+          const ic = document.createElement('span'); ic.style.cssText = fs(18); ic.textContent = it[0];
+          const t = document.createElement('span');
+          const tt = document.createElement('div'); tt.style.cssText = 'font-weight:700;'+fs(15); tt.textContent = it[1];
+          const td = document.createElement('div'); td.style.cssText = 'color:#94a3b8;'+fs(14); td.textContent = it[2];
+          t.appendChild(tt); t.appendChild(td); b.appendChild(ic); b.appendChild(t);
+          b.onclick = function(){ wrap.remove(); window.saAbilityChip(it[3]); };
+          box.appendChild(b);
+        });
+      });
+      wrap.appendChild(box);
+      wrap.onclick = function(e){ if(e.target === wrap) wrap.remove(); };
+      document.body.appendChild(wrap);
     };
 
     // ⭐ Saved = Response Vault (replies) + Prompt Library (prompts) behind one
