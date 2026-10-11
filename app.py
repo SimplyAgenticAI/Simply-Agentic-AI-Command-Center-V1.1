@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.1")
+APP_VERSION = os.getenv("APP_VERSION", "10.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -15716,12 +15716,12 @@ Welcome to Simply Agentic AI — your AI-powered business command center.
 
 Here's how to get started in the next 5 minutes:
 
-1. Open the Command Center and click any teammate seat to start a conversation.
-2. Press keys 1–7 on your keyboard to switch between teammates instantly.
-3. Type ? at any time to see all keyboard shortcuts.
-4. Head to Settings to connect your OpenAI key for the best results.
+1. Answer the three quick questions when you log in. Your team finds real businesses you can reach out to and adds them to your Contacts.
+2. On Today, under New leads to welcome, your team drafts a personal hello for each one. Review them and send the ones you like.
+3. Ask any teammate for anything: more leads, a website score, an offer, a week of posts.
+4. Open Today every morning. It shows your meetings, to-dos and who to follow up with.
 
-Your team is ready. Press 1 and say hello to Sunshine.
+AI is included with your plan, so there's nothing to set up first.
 
 If you ever need help, just reply to this email.
 
@@ -15872,12 +15872,12 @@ Welcome to Simply Agentic AI — your AI-powered business command center.
 
 Here's how to get started in the next 5 minutes:
 
-1. Open the Command Center and click any teammate seat to start a conversation.
-2. Press keys 1–7 on your keyboard to switch between teammates instantly.
-3. Type ? at any time to see all keyboard shortcuts.
-4. Head to Settings to connect your OpenAI key for the best results.
+1. Answer the three quick questions when you log in. Your team finds real businesses you can reach out to and adds them to your Contacts.
+2. On Today, under New leads to welcome, your team drafts a personal hello for each one. Review them and send the ones you like.
+3. Ask any teammate for anything: more leads, a website score, an offer, a week of posts.
+4. Open Today every morning. It shows your meetings, to-dos and who to follow up with.
 
-Your team is ready. Press 1 and say hello to Sunshine.
+AI is included with your plan, so there's nothing to set up first.
 
 If you ever need help, just reply to this email.
 
@@ -22401,6 +22401,116 @@ def api_today():
 
 _NEW_LEAD_DAYS = 14
 _INTRO_FOLLOWUP_DAYS = 3
+
+
+# ── First-run quickstart (V10.2) ─────────────────────────────────────────────
+# Three answers at first login → real leads in Contacts → Today opens with
+# them ready to welcome. Replaces the old "add your API key" welcome card.
+def _set_user_flag(username: str, key: str, value: Any) -> None:
+    data = load_users()
+    rec = (data.get("users") or {}).get(username)
+    if isinstance(rec, dict):
+        rec[key] = value
+        save_users(data)
+        _invalidate_users_cache()
+
+
+@app.get("/api/quickstart/status")
+def api_quickstart_status():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    few_contacts = len((_crm_load(uname).get("clients") or {})) < 3
+    return jsonify({"ok": True, "show": (not u.get("quickstart_done")) and few_contacts})
+
+
+@app.post("/api/quickstart/skip")
+def api_quickstart_skip():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    _set_user_flag(u.get("username", ""), "quickstart_done", True)
+    return jsonify({"ok": True})
+
+
+def _quickstart_add_leads(uname: str, leads: List[Dict[str, Any]], tags: List[str]) -> Tuple[int, int]:
+    """Add found leads to Contacts as stage Lead (skips duplicates, respects the
+    plan's contact limit). Returns (added, added_with_email)."""
+    crm = _crm_load(uname)
+    clients = crm.setdefault("clients", {})
+    plan = PLANS.get(_normalize_plan_key(_get_user_plan(uname))) or PLANS["solo"]
+    room = max(0, int(plan.get("crm_contacts") or 10 ** 9) - len(clients))
+    have = {((c.get("email") or "").lower(), (c.get("company") or c.get("name") or "").lower())
+            for c in clients.values() if isinstance(c, dict)}
+    added = with_email = 0
+    for it in leads:
+        if added >= room:
+            break
+        name = (it.get("name") or it.get("company") or "").strip()
+        email = (it.get("email") or "").strip()
+        key = (email.lower(), (it.get("company") or name).lower())
+        if not name or key in have:
+            continue
+        have.add(key)
+        now = now_iso()
+        cid = _crm_new_id("c")
+        client = {"id": cid, "name": name, "company": (it.get("company") or "").strip(),
+                  "email": email if EMAIL_RE.match(email) else "", "phone": (it.get("phone") or "").strip(),
+                  "tags": [t for t in tags if t], "status": "lead", "pipeline_stage": "Lead",
+                  "last_contact": "", "next_followup": "",
+                  "notes": "\n".join(x for x in (it.get("warm_reason") or "",
+                                                  ("Website: " + it["website"]) if it.get("website") else "") if x),
+                  "last_summary": "", "deal_value": 0.0, "custom_fields": {}, "created_at": now, "updated_at": now}
+        try:
+            client = _crm_apply_pipeline_rules(uname, _crm_enrich_client_record(client))
+        except Exception:
+            pass
+        clients[cid] = client
+        added += 1
+        with_email += 1 if client["email"] else 0
+    if added:
+        _crm_save(uname, crm)
+    return added, with_email
+
+
+@app.post("/api/quickstart")
+def api_quickstart():
+    """Save the three answers, then find real leads in the background."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    business = str(b.get("business") or "").strip()[:300]
+    customer = str(b.get("customer") or "").strip()[:120]
+    location = str(b.get("location") or "").strip()[:120]
+    if not customer:
+        return jsonify({"ok": False, "error": "Tell us who your ideal customer is."}), 400
+    prof = _load_operator_profile(uname) or {}
+    if business and not (prof.get("business") or "").strip():
+        prof["business"] = business
+    if not (prof.get("audience") or "").strip():
+        prof["audience"] = customer + (f" in {location}" if location else "")
+    _save_operator_profile(uname, prof)
+    try:
+        _invalidate_sys_ctx_cache(uname)
+    except Exception:
+        pass
+    osd = _os_load(uname)
+    if not ((osd.get("session_objective") or {}).get("title") or "").strip():
+        osd["session_objective"] = {"title": f"Land my first clients: {customer}" + (f" in {location}" if location else ""),
+                                    "context": business, "updated_at": now_iso()}
+        _os_save(uname, osd)
+    _set_user_flag(uname, "quickstart_done", True)
+
+    def _work():
+        res = _tool_find_leads(uname, "Quickstart", {"niche": customer, "location": location, "count": 10})
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("summary") or "Lead search failed."}
+        added, with_email = _quickstart_add_leads(uname, res.get("leads") or [], ["first-leads", customer, location])
+        return {"ok": True, "found": len(res.get("leads") or []), "added": added, "with_email": with_email}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key="quickstart")})
 
 
 @app.post("/api/today/send_intro")

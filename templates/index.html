@@ -3023,6 +3023,11 @@ label         { font-size: calc(15px * var(--fs,1.1)) !important; }
 @media(max-width:720px){.statsStrip{display:none;}}
 
 /* ── Welcome overlay ─────────────────────────────────────────────────── */
+.qsLbl{display:block;color:#e2e8f0;font-weight:600;font-size:calc(15px * var(--fs,1.1));margin:12px 0 5px;}
+.qsIn{width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:11px 13px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
+.qsIn:focus{outline:none;border-color:rgba(167,139,250,.7);}
+.qsSpin{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid rgba(167,139,250,.25);border-top-color:#a78bfa;animation:qsSpin 1s linear infinite;}
+@keyframes qsSpin{to{transform:rotate(360deg);}}
 .welcomeOverlay{
   position:fixed;inset:0;
   background:rgba(4,6,15,.88);
@@ -4530,22 +4535,35 @@ label {
 
   <!-- ===== WELCOME OVERLAY ===== -->
   <div class="welcomeOverlay" id="welcomeOverlay" style="display:none;" aria-modal="true" role="dialog">
-    <div class="welcomeCard">
-      <div style="text-align:center;margin-bottom:24px;">
-        <div style="font-size:calc(36px * var(--fs,1.1));margin-bottom:10px;">🚀</div>
-        <h2 style="font-size:calc(22px * var(--fs,1.1));font-weight:700;color:#eef2ff;margin:0 0 8px;">Welcome to Simply Agentic AI!</h2>
-        <p style="color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));margin:0;">Your AI command center is ready. Here's how to hit the ground running:</p>
+    <div class="welcomeCard" id="qsCard">
+      <div id="qsAsk">
+        <div style="text-align:center;margin-bottom:18px;">
+          <div style="font-size:calc(36px * var(--fs,1.1));margin-bottom:8px;">🚀</div>
+          <h2 style="font-size:calc(22px * var(--fs,1.1));font-weight:700;color:#eef2ff;margin:0 0 8px;">Let's find your first customers</h2>
+          <p style="color:#cbd5e1;font-size:calc(15px * var(--fs,1.1));margin:0;">Three quick answers and your team goes and finds real businesses you can reach out to today.</p>
+        </div>
+        <label class="qsLbl" for="qsBusiness">What does your business do?</label>
+        <input class="qsIn" id="qsBusiness" maxlength="300" placeholder="e.g. I build websites for local contractors" />
+        <label class="qsLbl" for="qsCustomer">Who's your ideal customer?</label>
+        <input class="qsIn" id="qsCustomer" maxlength="120" placeholder="e.g. roofers, dentists, real estate agents" />
+        <label class="qsLbl" for="qsLocation">Where?</label>
+        <input class="qsIn" id="qsLocation" maxlength="120" placeholder="e.g. Austin, TX" />
+        <div id="qsErr" style="display:none;color:#fca5a5;font-size:calc(14.5px * var(--fs,1.1));margin-top:8px;"></div>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:18px;">
+          <button class="wcSecondary" onclick="saQuickstartSkip()">Skip for now</button>
+          <button class="wcPrimary" onclick="saQuickstartGo()">🔎 Find my first leads →</button>
+        </div>
       </div>
-      <div style="margin-bottom:24px;">
-        <div class="wcStep"><div class="wcNum">1</div><div class="wcText"><strong>Add your OpenAI API key</strong> — Settings → API Key. This powers every teammate.</div></div>
-        <div class="wcStep"><div class="wcNum">2</div><div class="wcText"><strong>Meet your AI teammates</strong> — click any seat at the round table to start chatting.</div></div>
-        <div class="wcStep"><div class="wcNum">3</div><div class="wcText"><strong>Add your first contact</strong> — click <em>Contacts</em> in the top bar and give them a follow-up date.</div></div>
-        <div class="wcStep"><div class="wcNum">4</div><div class="wcText"><strong>Start every day on ☀️ Today</strong> — your meetings, to-dos and who to reach out to, in one place.</div></div>
-        <div class="wcStep"><div class="wcNum">5</div><div class="wcText"><strong>Everything else is under 🧰 More</strong> — lead finder, content tools, research and libraries.</div></div>
+      <div id="qsWork" style="display:none;text-align:center;padding:10px 0;">
+        <div class="qsSpin"></div>
+        <h2 style="font-size:calc(20px * var(--fs,1.1));font-weight:700;color:#eef2ff;margin:14px 0 6px;" id="qsWorkTitle">Finding real businesses…</h2>
+        <p style="color:#cbd5e1;font-size:calc(15px * var(--fs,1.1));margin:0;">Searching the web for ones with a phone or email. This takes about a minute.</p>
       </div>
-      <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-        <a class="wcSecondary" href="/getting-started">📚 Watch tutorials</a>
-        <button class="wcPrimary" onclick="dismissWelcome()">Let's go! →</button>
+      <div id="qsDone" style="display:none;text-align:center;padding:6px 0;">
+        <div style="font-size:calc(36px * var(--fs,1.1));margin-bottom:8px;" id="qsDoneIcon">✅</div>
+        <h2 style="font-size:calc(20px * var(--fs,1.1));font-weight:700;color:#eef2ff;margin:0 0 8px;" id="qsDoneTitle"></h2>
+        <p style="color:#cbd5e1;font-size:calc(15px * var(--fs,1.1));margin:0 0 18px;" id="qsDoneText"></p>
+        <button class="wcPrimary" id="qsDoneBtn" onclick="saQuickstartFinish()">Open Today →</button>
       </div>
     </div>
   </div>
@@ -31842,14 +31860,81 @@ window._saPlReset=function(){
     if(ov){ ov.style.opacity='0'; ov.style.transition='opacity .35s'; setTimeout(function(){ov.style.display='none';},350); }
   }
   window.dismissWelcome = dismissWelcome;
-  // Show once per browser
-  if(!localStorage.getItem('sa_welcomed')){
-    var ov = document.getElementById('welcomeOverlay');
-    if(ov){ ov.style.display='flex'; }
+  // First-run quickstart: only for brand-new accounts (server decides), once per browser.
+  function qs$(id){ return document.getElementById(id); }
+  function qsShow(which){ ['qsAsk','qsWork','qsDone'].forEach(function(k){ var e=qs$(k); if(e) e.style.display = k===which ? '' : 'none'; }); }
+  function qsClose(){
+    try{ localStorage.setItem('sa_welcomed','1'); }catch(_){}
+    window._saQuickstartPending = false;
+    var ov = qs$('welcomeOverlay');
+    if(ov){ ov.style.opacity='0'; ov.style.transition='opacity .35s'; setTimeout(function(){ ov.style.display='none'; }, 350); }
   }
-  // Click outside to dismiss
-  var ov2 = document.getElementById('welcomeOverlay');
-  if(ov2) ov2.addEventListener('click', function(e){ if(e.target===ov2) dismissWelcome(); });
+  var _qsResult = null;
+  window.saQuickstartSkip = function(){
+    fetch('/api/quickstart/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(function(){});
+    qsClose(); setTimeout(function(){ if(window.saOpenToday) window.saOpenToday(); }, 400);
+  };
+  window.saQuickstartGo = async function(){
+    var cust = (qs$('qsCustomer').value||'').trim(), loc = (qs$('qsLocation').value||'').trim(), err = qs$('qsErr');
+    if(!cust){ err.textContent = 'Tell us who your ideal customer is, e.g. roofers.'; err.style.display=''; qs$('qsCustomer').focus(); return; }
+    err.style.display='none';
+    qs$('qsWorkTitle').textContent = 'Finding real '+cust+(loc?' in '+loc:'')+'…';
+    qsShow('qsWork');
+    try{
+      var r = await fetch('/api/quickstart',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({business:(qs$('qsBusiness').value||'').trim(), customer:cust, location:loc})});
+      var d = await r.json();
+      if(!d.ok) throw new Error(d.error||'Could not start');
+      var j = {status:'working'};
+      for(var t=0; t<120 && j.status==='working'; t++){
+        await new Promise(function(res){ setTimeout(res, 2500); });
+        j = await (await fetch('/api/video/job/'+d.job_id)).json();
+      }
+      _qsResult = j;
+      if(j.status==='working') throw new Error('The search is taking longer than usual. Your leads will show up in Contacts when it finishes.');
+      if(!j.ok) throw new Error(j.error||'Lead search failed');
+      if(!j.added){
+        qs$('qsDoneIcon').textContent='🤔'; qs$('qsDoneTitle').textContent='No leads with contact info this time';
+        qs$('qsDoneText').textContent='Try a broader customer type or a bigger area. Any teammate can search again: just ask "find 10 '+cust+' in '+(loc||'my city')+'".';
+        qs$('qsDoneBtn').textContent='Open Today →';
+      } else {
+        qs$('qsDoneIcon').textContent='✅';
+        qs$('qsDoneTitle').textContent='Added '+j.added+' real '+cust+' to your Contacts';
+        qs$('qsDoneText').textContent = j.with_email
+          ? j.with_email+' of them have an email. Your team will draft a personal hello to each one now; you review and send.'
+          : 'They have phone numbers you can call. Ask any teammate to find more anytime.';
+        qs$('qsDoneBtn').textContent = j.with_email ? '✍ Draft my first hellos →' : 'Open Today →';
+      }
+      qsShow('qsDone');
+    }catch(e){
+      qs$('qsDoneIcon').textContent='⚠️'; qs$('qsDoneTitle').textContent='That didn\'t work';
+      qs$('qsDoneText').textContent=String(e.message||e); qs$('qsDoneBtn').textContent='Open Today →';
+      _qsResult = null; qsShow('qsDone');
+    }
+  };
+  window.saQuickstartFinish = function(){
+    var draft = !!(_qsResult && _qsResult.with_email);
+    qsClose();
+    setTimeout(function(){
+      if(window.saOpenToday) window.saOpenToday();
+      if(!draft) return;
+      var tries = 0, iv = setInterval(function(){
+        var sec = document.getElementById('stLeadsSec');
+        if(sec && sec.style.display !== 'none' && document.querySelector('#stLeads .st-lead')){
+          clearInterval(iv);
+          try{ sec.scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){}
+          if(window.saTodayDraftAllIntros) window.saTodayDraftAllIntros();
+        } else if(++tries > 40) clearInterval(iv);
+      }, 250);
+    }, 400);
+  };
+  if(!localStorage.getItem('sa_welcomed')){
+    window._saQuickstartPending = true;   // Today waits for this decision
+    fetch('/api/quickstart/status').then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok && d.show){ var ov = qs$('welcomeOverlay'); if(ov){ ov.style.display='flex'; setTimeout(function(){ var c=qs$('qsBusiness'); if(c) c.focus(); }, 200); } }
+      else { try{ localStorage.setItem('sa_welcomed','1'); }catch(_){} window._saQuickstartPending = false; if(window._saTodayDeferred && window.saOpenToday) window.saOpenToday(); }
+    }).catch(function(){ window._saQuickstartPending = false; if(window._saTodayDeferred && window.saOpenToday) window.saOpenToday(); });
+  }
 })();
 </script>
 <!-- ===== END STATS + WELCOME JS ===== -->
@@ -34368,7 +34453,8 @@ function _saEsc(s){
       try{ seen = localStorage.getItem('saTodaySeen'); }catch(_){}
       var wo = document.getElementById('welcomeOverlay');
       var welcomeUp = wo && wo.style.display && wo.style.display !== 'none';
-      if(forced || (!welcomeUp && seen !== localISO(new Date()))) window.saOpenToday();
+      if(!forced && window._saQuickstartPending && seen !== localISO(new Date())){ window._saTodayDeferred = true; return; }
+      if(forced || (!welcomeUp && !window._saQuickstartPending && seen !== localISO(new Date()))) window.saOpenToday();
     }, 900);
   });
 })();
