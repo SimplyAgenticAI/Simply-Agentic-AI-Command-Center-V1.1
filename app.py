@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.0")
+APP_VERSION = os.getenv("APP_VERSION", "10.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -28578,9 +28578,10 @@ def _vc_signer():
     from itsdangerous import URLSafeSerializer
     return URLSafeSerializer(app.secret_key, salt="vclip-public")
 
-def _vc_public_url(uname: str, cid: str) -> str:
+def _vc_public_url(uname: str, cid: str, base: str = "") -> str:
+    """Signed public clip link. Pass `base` from background jobs (no request)."""
     tok = _vc_signer().dumps([uname, cid])
-    base = (PUBLIC_BASE_URL or request.host_url or "").rstrip("/")
+    base = (PUBLIC_BASE_URL or base or request.host_url or "").rstrip("/")
     return f"{base}/vclip/{tok}.mp4"
 
 def _vc_openai_key(user: Dict[str, Any]) -> str:
@@ -29552,6 +29553,9 @@ def api_vclips_make_shorts():
         count = 4
     style = b.get("style") if b.get("style") in _VC_STYLES else "bold"
     aspect = b.get("aspect") if b.get("aspect") in _VC_ASPECTS else "9:16"
+    plan_week = bool(b.get("plan_week"))
+    base_url = request.host_url   # the job runs outside the request
+    plan_platforms = [p for p in (b.get("platforms") or ["instagram", "tiktok", "youtube"]) if p in _SP_PLATFORMS]
 
     def _work():
         try:
@@ -29572,7 +29576,13 @@ def api_vclips_make_shorts():
             ids.append(c["id"])
         for cid in ids:  # sequential: keeps CPU sane, clips pop in one by one
             _vc_render(uname, u, cid)
-        return {"ok": True, "clip_ids": ids}
+        post_ids: List[str] = []
+        if plan_week:
+            try:
+                post_ids = _vc_plan_week(u, ids, plan_platforms, base_url)
+            except Exception as e:
+                _capture_error(e, context="vc_plan_week")
+        return {"ok": True, "clip_ids": ids, "post_ids": post_ids}
     return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key=f"shorts:{vid}")})
 
 
@@ -29600,26 +29610,19 @@ def api_vclips_suggest():
     return jsonify({"ok": True, "job_id": _ve_start_job(u.get("username", ""), _work, key=f"suggest:{vid}")})
 
 
-@app.post("/api/vclips/<cid>/social")
-def api_vclips_social(cid):
-    """AI post caption + hashtags in the operator's brand voice."""
-    u = current_user()
-    if not u:
-        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+def _vc_write_social(u: Dict[str, Any], c: Dict[str, Any], platform: str = "Instagram Reels / TikTok") -> Tuple[Optional[Dict[str, Any]], str]:
+    """AI post caption + hashtags for a clip in the operator's brand voice.
+    Saves it on the clip. Returns (social, "") or (None, error)."""
     uname = u.get("username", "")
-    c = _vc_get(uname, cid)
-    if not c:
-        return jsonify({"ok": False, "error": "Clip not found"}), 404
     key = _vc_openai_key(u)
     if not key:
-        return jsonify({"ok": False, "error": "Writing captions needs an OpenAI key — add yours in Settings."}), 400
+        return None, "Writing captions needs an OpenAI key — add yours in Settings."
     s, e = float(c["start"]), float(c["end"])
     deleted = set(c.get("deleted") or [])
     said = " ".join(w["w"] for i, w in enumerate(c.get("words") or [])
                     if w["s"] >= s - 0.05 and w["e"] <= e + 0.05 and i not in deleted)[:6000]
     op = _load_operator_profile(uname) or {}
     voice = "; ".join(f"{k}: {str(op.get(k))[:300]}" for k in ("business", "offers", "audience", "tone", "brand_voice") if op.get(k))
-    platform = (request.get_json(silent=True) or {}).get("platform") or "Instagram Reels / TikTok"
     prompt = (f"Write a social post for this short video on {platform}.\n"
               f"Video title: {c.get('title')}\nOn-screen hook: {c.get('hook') or '-'}\n"
               f"What's said: {said or '(no transcript — infer from the title)'}\n"
@@ -29636,10 +29639,26 @@ def api_vclips_social(cid):
             _, msg = _classify_openai_error(exc)
         except Exception:
             msg = str(exc)
-        return jsonify({"ok": False, "error": f"Couldn't write the caption: {msg}"}), 500
+        return None, f"Couldn't write the caption: {msg}"
     social = {"caption": str(data.get("caption") or "").strip()[:2200],
               "hashtags": [str(h).strip().lstrip("#").replace(" ", "")[:40] for h in (data.get("hashtags") or []) if str(h).strip()][:15]}
-    c = _vc_update(uname, cid, lambda x: x.update({"social": social}))
+    _vc_update(uname, c["id"], lambda x: x.update({"social": social}))
+    return social, ""
+
+
+@app.post("/api/vclips/<cid>/social")
+def api_vclips_social(cid):
+    """AI post caption + hashtags in the operator's brand voice."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    c = _vc_get(u.get("username", ""), cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    platform = (request.get_json(silent=True) or {}).get("platform") or "Instagram Reels / TikTok"
+    social, err = _vc_write_social(u, c, platform)
+    if not social:
+        return jsonify({"ok": False, "error": err}), (400 if "OpenAI key" in err else 500)
     return jsonify({"ok": True, "social": social})
 
 
@@ -29667,21 +29686,60 @@ def api_vclips_to_planner(cid):
     if not _vc_file(uname, c):
         return jsonify({"ok": False, "error": "Clip isn't ready yet."}), 404
     b = request.get_json(silent=True) or {}
+    return jsonify({"ok": True, "post": _vc_add_planner_draft(uname, c, b.get("platforms") or [])})
+
+
+_SP_PLATFORMS = ("facebook", "instagram", "youtube", "tiktok", "linkedin")
+
+
+def _vc_add_planner_draft(uname: str, c: Dict[str, Any], platforms: List[str],
+                          scheduled_at: str = "", scheduled_utc: str = "", base_url: str = "") -> Dict[str, Any]:
+    """Add a clip to the Content Planner as a DRAFT (never auto-publishes).
+    An optional planned date places it on the planner calendar."""
+    cid = c["id"]
     soc = c.get("social") or {}
     tags = " ".join("#" + h for h in (soc.get("hashtags") or []))
     caption = ((soc.get("caption") or c.get("title") or "").strip() + ("\n\n" + tags if tags else "")).strip()
-    posts = _load_sp_posts(uname)
-    plats = [p for p in (b.get("platforms") or []) if p in ("facebook", "instagram", "youtube", "tiktok", "linkedin")]
+    plats = [p for p in platforms if p in _SP_PLATFORMS]
     lc = _lc_conn(uname)
     lc_ids = [a["id"] for a in ((lc or {}).get("accounts") or []) if a.get("platform") in plats and not a.get("expired")] if lc else []
     post = {"id": str(_uuid_mod.uuid4())[:8], "caption": caption, "lc_accounts": lc_ids,
             "platforms": plats,
-            "media_url": _vc_public_url(uname, cid), "scheduled_at": "", "status": "draft",
+            "media_url": _vc_public_url(uname, cid, base_url), "scheduled_at": scheduled_at, "status": "draft",
             "created_at": now_iso(), "updated_at": now_iso(), "published_ids": {}, "error": "",
             "source": {"type": "vclip", "clip_id": cid}}
+    if scheduled_utc:
+        post["scheduled_utc"] = scheduled_utc
+    posts = _load_sp_posts(uname)
     posts.append(post)
     _save_sp_posts(uname, posts)
-    return jsonify({"ok": True, "post": post})
+    return post
+
+
+def _vc_plan_week(u: Dict[str, Any], clip_ids: List[str], platforms: List[str], base_url: str, hour: int = 9) -> List[str]:
+    """One video in, a week of posts out: caption each ready clip and line them
+    up as planner drafts spread over the next 7 days at `hour` local time."""
+    from zoneinfo import ZoneInfo
+    uname = u.get("username", "")
+    tz_name = (_load_operator_profile(uname) or {}).get("timezone") or "UTC"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    ready = [c for c in (_vc_get(uname, cid) for cid in clip_ids) if c and _vc_file(uname, c)]
+    start = _user_now_local(uname).date()
+    out = []
+    for i, c in enumerate(ready):
+        if not (c.get("social") or {}).get("caption"):
+            social, _err = _vc_write_social(u, c)
+            if social:
+                c = dict(c, social=social)
+        day = start + timedelta(days=1 + (i * 7) // max(1, len(ready)))
+        local = datetime(day.year, day.month, day.day, hour, 0, tzinfo=tz)
+        utc = local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        post = _vc_add_planner_draft(uname, c, platforms, local.strftime("%Y-%m-%dT%H:%M:%S"), utc, base_url)
+        out.append(post["id"])
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════

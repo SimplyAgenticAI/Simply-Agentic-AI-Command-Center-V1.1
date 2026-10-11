@@ -134,6 +134,26 @@ def test_make_shorts(studio):
         assert x["aspect"] == "9:16" and x["captions"]["on"] and x["hook"] and x["score"] > 0
 
 
+def test_make_shorts_plans_a_week_of_drafts(studio, monkeypatch):
+    c, h, vid, uname = studio
+    monkeypatch.setattr(app_module, "_vc_write_social", lambda u, clip, platform="": (
+        {"caption": "Caption for " + clip["title"], "hashtags": ["growth"]}, ""))
+    d = c.post("/api/vclips/make_shorts", headers=h, json={"video_id": vid, "plan_week": True,
+                                                         "platforms": ["instagram", "bogus"]}).get_json()
+    for _ in range(600):
+        j = c.get(f"/api/video/job/{d['job_id']}").get_json()
+        if j.get("status") != "working":
+            break
+        time.sleep(0.3)
+    assert j["ok"] and len(j["post_ids"]) == 2, j
+    posts = {p["id"]: p for p in app_module._load_sp_posts(uname)}
+    planned = [posts[pid] for pid in j["post_ids"]]
+    assert all(p["status"] == "draft" and p["platforms"] == ["instagram"] for p in planned)   # never auto-publishes
+    days = sorted(p["scheduled_at"][:10] for p in planned)
+    assert days[0] < days[1] and all(p["scheduled_at"][11:16] == "09:00" and p["scheduled_utc"] for p in planned)
+    assert planned[0]["caption"].startswith("Caption for") and "#growth" in planned[0]["caption"]
+
+
 def test_other_user_cannot_touch_clips(studio, flask_app):
     c, h, vid, uname = studio
     cid = c.post("/api/vclips", headers=h, json={"video_id": vid, "start": 0, "end": 2}).get_json()["clip"]["id"]
