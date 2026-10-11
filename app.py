@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.3")
+APP_VERSION = os.getenv("APP_VERSION", "10.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -11045,6 +11045,9 @@ def _api_followup_impl(data):
     _is_img_req = is_image_request(msg2, has_image_context=_has_img_ctx)
 
     sys = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx, image_request_active=_is_img_req)
+    _mentioned = _crm_mentioned_context(uname, msg)   # contacts named in the message
+    if _mentioned:
+        sys += "\n\n" + _mentioned
 
     if _is_img_req:
         mode = classify_image_request_mode(msg2, name, has_reference_image=bool(latest_uploaded_image), username=uname, has_recent_context=_img_context_recent)
@@ -17444,6 +17447,72 @@ def _crm_activity_append(uname: str, client_id: str, event_type: str, detail: st
     save_json(_crm_activity_path(uname, client_id), log[-200:])  # keep last 200 events
 
 
+def _crm_clients_mentioned(uname: str, msg: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Contacts the operator named in a chat message: full name or company
+    anywhere (case-insensitive), or a first name alone when exactly one contact
+    has it and it's written capitalized (so 'will'/'mark' as words don't match)."""
+    text = (msg or "")[:4000]
+    if len(text) < 3:
+        return []
+    low = text.lower()
+    clients = [c for c in ((_crm_load(uname).get("clients") or {}).values()) if isinstance(c, dict)]
+    firsts: Dict[str, List[Dict[str, Any]]] = {}
+    for c in clients:
+        f = (c.get("name") or "").strip().split(" ")[0]
+        if len(f) >= 3:
+            firsts.setdefault(f.lower(), []).append(c)
+    hits: List[Tuple[int, Dict[str, Any]]] = []
+    seen = set()
+    for c in clients:
+        name = (c.get("name") or "").strip()
+        company = (c.get("company") or "").strip()
+        score = 0
+        if len(name) >= 4 and " " in name and re.search(r"(?<!\w)" + re.escape(name.lower()) + r"(?!\w)", low):
+            score = 3
+        elif len(company) >= 4 and re.search(r"(?<!\w)" + re.escape(company.lower()) + r"(?!\w)", low):
+            score = 2
+        else:
+            f = name.split(" ")[0] if name else ""
+            if len(f) >= 3 and len(firsts.get(f.lower(), [])) == 1 and re.search(r"(?<!\w)" + re.escape(f[:1].upper() + f[1:]) + r"(?!\w)", text):
+                score = 1
+        if score and c.get("id") not in seen:
+            seen.add(c.get("id"))
+            hits.append((score, c))
+    hits.sort(key=lambda x: -x[0])
+    return [c for _, c in hits[:limit]]
+
+
+def _crm_mentioned_context(uname: str, msg: str) -> str:
+    """System-prompt block with the CRM details of any contact named in the
+    message, so the operator never has to attach a client by hand."""
+    try:
+        found = _crm_clients_mentioned(uname, msg)
+    except Exception:
+        return ""
+    if not found:
+        return ""
+    lines = []
+    for c in found:
+        parts = [f"Name: {c.get('name')}"]
+        for k, lbl in (("company", "Company"), ("email", "Email"), ("phone", "Phone"), ("pipeline_stage", "Stage"),
+                       ("last_contact", "Last contacted"), ("next_followup", "Next follow-up")):
+            if (str(c.get(k) or "")).strip():
+                parts.append(f"{lbl}: {c.get(k)}")
+        if c.get("tags"):
+            parts.append("Tags: " + ", ".join(str(t) for t in c["tags"][:6]))
+        if (c.get("notes") or "").strip():
+            parts.append("Notes: " + str(c["notes"]).strip()[:400])
+        try:
+            recent = _crm_activity_log(uname, c.get("id") or "")[-3:]
+            if recent:
+                parts.append("Recent activity: " + " | ".join(f"{(a.get('at') or '')[:10]} {a.get('detail') or a.get('type')}"[:120] for a in recent))
+        except Exception:
+            pass
+        lines.append("- " + " · ".join(parts) + f" (client_id {c.get('id')})")
+    return ("CONTACTS MENTIONED IN THIS MESSAGE (from the operator's Contacts — use these real details; "
+            "do not invent others):\n" + "\n".join(lines))
+
+
 @app.get("/api/crm/clients/<client_id>/activity")
 def api_crm_activity_get(client_id: str):
     u = current_user()
@@ -20230,8 +20299,30 @@ def api_crm_log_note():
     return jsonify({"ok": True, "note": prefix + note_text})
 
 
+def _is_bad_input_error(e: Exception) -> bool:
+    """A type/value error while handling an API write whose JSON body carries
+    non-text values (lists, objects, numbers where a route expects text) is
+    almost always malformed input, not a server fault. The sweep found 42
+    routes that 500'd on such bodies; answer them with a clear 400 instead."""
+    if not isinstance(e, (TypeError, AttributeError, ValueError, KeyError)):
+        return False
+    try:
+        if not request.path.startswith("/api/") or request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+            return False
+        body = request.get_json(silent=True)
+        return isinstance(body, dict) and any(not isinstance(v, str) for v in body.values())
+    except Exception:
+        return False
+
+
 @app.errorhandler(Exception)
 def _handle_exception(e):
+    if _is_bad_input_error(e):
+        try:
+            _capture_error(e, context="api_bad_input")   # still logged, so real bugs stay visible
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": "Some of the details sent weren't in the expected format. Please refresh and try again."}), 400
     # Determine HTTP status code
     code = 500
     try:
@@ -26696,6 +26787,9 @@ def api_followup_stream():
         _tools_on = SAAI_TOOLS_ENABLED
 
     sys_prompt = teammate_system_prompt(defn, lighting_mode=lighting_mode, rag_context=rag_context, memory_context=_mem_ctx_s, image_request_active=_is_img_req_s, tools_enabled=_tools_on)
+    _mentioned_s = _crm_mentioned_context(uname, msg)   # contacts named in the message
+    if _mentioned_s:
+        sys_prompt += "\n\n" + _mentioned_s
     if voice_mode:
         sys_prompt += (
             "\n\nVOICE CONVERSATION MODE (this message was SPOKEN and your reply will be "

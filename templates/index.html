@@ -3023,6 +3023,7 @@ label         { font-size: calc(15px * var(--fs,1.1)) !important; }
 @media(max-width:720px){.statsStrip{display:none;}}
 
 /* ── Welcome overlay ─────────────────────────────────────────────────── */
+@media(max-width:520px){.welcomeCard{padding:24px 18px 20px;border-radius:18px;}}
 .qsLbl{display:block;color:#e2e8f0;font-weight:600;font-size:calc(15px * var(--fs,1.1));margin:12px 0 5px;}
 .qsIn{width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);border-radius:10px;padding:11px 13px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .qsIn:focus{outline:none;border-color:rgba(167,139,250,.7);}
@@ -3037,6 +3038,7 @@ label         { font-size: calc(15px * var(--fs,1.1)) !important; }
 }
 .welcomeCard{
   width:min(520px,calc(100vw - 28px));
+  max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;
   background:linear-gradient(180deg,#121c38,#0f1629);
   border:1px solid rgba(124,58,237,.45);
   border-radius:24px;
@@ -7434,16 +7436,7 @@ input[type="range"]::-moz-range-progress {
                 <button id="streamToggleBtn"    class="saMoreItem" style="color:#a5b4fc;" title="Toggle streaming mode">⚡ Stream</button>
               </div>
             </div>
-            <button class="btn btnMini" id="chatClientCtxBtn" title="Attach client context to messages" onclick="saToggleChatClientPicker()">🔗 Client</button>
             <button class="btn btnPrimary" id="sendFollow" style="flex:1;min-width:80px;justify-content:center;">Send ↵</button>
-          </div>
-          <div id="chatClientCtxBar" style="display:none;margin-top:5px;padding:6px 8px;background:rgba(124,58,237,.1);border:1px solid rgba(124,58,237,.3);border-radius:8px;display:none;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#c4b5fd;">Client context:</span>
-            <select id="chatClientCtxSel" style="flex:1;background:rgba(7,10,20,.7);border:1px solid rgba(42,58,106,.6);border-radius:6px;padding:4px 8px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;" onchange="saSetChatClientCtx(this.value)">
-              <option value="">-- None --</option>
-            </select>
-            <span id="chatClientCtxBadge" style="font-size:calc(14px * var(--fs,1.1));color:#6ee7b7;font-weight:600;"></span>
-            <button onclick="saSetChatClientCtx('')" style="font-size:calc(14px * var(--fs,1.1));padding:1px 7px;border-radius:6px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;cursor:pointer;">Clear</button>
           </div>
           <div id="dmAttachList" class="pillRow" style="margin-top:4px;"></div>
           <div id="micStatusDm" style="display:none;"></div>
@@ -11392,7 +11385,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(!bar){
         bar = document.createElement('div');
         bar.className = 'saSavedTabs';
-        bar.style.cssText = 'display:flex;gap:6px;padding:8px 10px;flex-shrink:0;';
+        bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;flex-shrink:0;';
         [['replies','🗄️ Saved replies'],['prompts','📚 Saved prompts'],['playbooks','📋 Playbooks']].forEach(function(t){
           const b = document.createElement('button');
           b.className = 'btn btnMini'; b.dataset.tab = t[0]; b.textContent = t[1];
@@ -31691,56 +31684,6 @@ window._saPlReset=function(){
   window.saToggleGcTools   = function(){ openDrop('gcToolsDrop',   'gcToolsBtn');   };
   window.saToggleDmAttach  = function(){ openDrop('dmAttachDrop',  'dmAttachBtn');  };
 
-  // ── Chat client context ───────────────────────────────────────────────────
-  var _chatClientCtxId = '';
-  window.saToggleChatClientPicker = function(){
-    var bar = document.getElementById('chatClientCtxBar');
-    if(!bar) return;
-    var showing = bar.style.display === 'flex';
-    bar.style.display = showing ? 'none' : 'flex';
-    if(!showing){
-      var sel = document.getElementById('chatClientCtxSel');
-      if(sel){
-        var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
-        sel.innerHTML = '<option value="">-- None --</option>' +
-          clients.map(function(c){ return '<option value="'+escapeHtml(c.id||'')+'"'+(c.id===_chatClientCtxId?' selected':'')+'>'+escapeHtml(c.name||c.email||c.id)+'</option>'; }).join('');
-        sel.value = _chatClientCtxId || '';
-      }
-    }
-  };
-  window.saSetChatClientCtx = function(id){
-    _chatClientCtxId = id || '';
-    var badge = document.getElementById('chatClientCtxBadge');
-    var bar = document.getElementById('chatClientCtxBar');
-    if(!_chatClientCtxId){
-      if(badge) badge.textContent = '';
-      if(bar) bar.style.display = 'none';
-      return;
-    }
-    var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
-    var c = clients.find(function(x){ return x.id === _chatClientCtxId; });
-    if(badge && c) badge.textContent = '→ ' + (c.name||c.email||'selected');
-  };
-  // Prepend client context to outgoing messages
-  (function patchSendFollow(){
-    var sf = document.getElementById('sendFollow');
-    var fm = document.getElementById('followMsg');
-    if(!sf || !fm){ setTimeout(patchSendFollow, 500); return; }
-    sf.addEventListener('click', function(e){
-      if(!_chatClientCtxId) return;
-      var clients = Array.isArray(window.crmCache && window.crmCache.clients) ? window.crmCache.clients : [];
-      var c = clients.find(function(x){ return x.id === _chatClientCtxId; });
-      if(!c) return;
-      var ctx = '[Client context: Name='+escapeHtml(c.name||'')
-        +(c.company?' | Company='+escapeHtml(c.company):'')
-        +(c.email?' | Email='+escapeHtml(c.email):'')
-        +(c.pipeline_stage?' | Stage='+escapeHtml(c.pipeline_stage):'')
-        +(c.notes?' | Notes='+escapeHtml((c.notes||'').slice(0,200)):'')
-        +']\n\n';
-      if(fm.value && !fm.value.startsWith('[Client context:')) fm.value = ctx + fm.value;
-    }, true);
-  })();
-
   // ── Close when clicking outside any dropdown ──────────────────────────────
   document.addEventListener('click', function(e){
     var wraps = ['moreMenuWrap','gcToolsWrap','dmAttachWrap'];
@@ -32954,6 +32897,27 @@ window._saPlReset=function(){
     if(!btn||!inCopy(btn)) return;
     dispatchBtn(btn);
   });
+
+  /* Every OTHER button inside a mirrored copy (lead-table Add / Add all,
+     Confirm & Send / Cancel on email + meeting cards, email-card buttons…)
+     lost its handler in the innerHTML copy. Proxy the tap to the same button
+     in the real #thread — after copying any edits made in the copy's fields
+     (e.g. a reworded email) across — so phones get the exact desktop behaviour. */
+  document.addEventListener('click',function(e){
+    var btn=e.target&&e.target.closest?e.target.closest('button'):null;
+    if(!btn||!inCopy(btn)||findActionBtn(btn)) return;
+    var copy=null;
+    for(var i=0;i<COPY_IDS.length;i++){ var c=document.getElementById(COPY_IDS[i]); if(c&&c.contains(btn)){ copy=c; break; } }
+    var real=document.getElementById('thread');
+    if(!copy||!real) return;
+    var cb=copy.querySelectorAll('button'), rb=real.querySelectorAll('button');
+    var idx=Array.prototype.indexOf.call(cb,btn);
+    if(idx<0||cb.length!==rb.length) return;   /* copy is stale — next sync fixes it */
+    var cf=copy.querySelectorAll('input,textarea,select'), rf=real.querySelectorAll('input,textarea,select');
+    if(cf.length===rf.length){ for(var k=0;k<cf.length;k++){ if(cf[k].type==='checkbox') rf[k].checked=cf[k].checked; else rf[k].value=cf[k].value; } }
+    e.preventDefault(); e.stopPropagation();
+    rb[idx].click();
+  }, true);
 })();
 </script>
 <!-- ===== END GLOBAL THREAD BUTTON DELEGATION ===== -->
@@ -34080,7 +34044,7 @@ function _saEsc(s){
 .st-focus input,.st-ask textarea{flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:10px 12px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .st-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.035);margin-bottom:6px;font-size:calc(15px * var(--fs,1.1));}
 .st-row .st-t{flex:1;min-width:0;}
-.st-row .st-sub{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;margin-top:2px;}
+.st-row .st-sub{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;margin-top:2px;overflow-wrap:anywhere;}
 .st-time{font-variant-numeric:tabular-nums;color:#93c5fd;font-size:calc(14px * var(--fs,1.1));min-width:58px;}
 .st-tag{font-size:calc(14px * var(--fs,1.1));padding:2px 7px;border-radius:999px;background:rgba(239,68,68,.18);color:#fca5a5;white-space:nowrap;}
 .st-tag.ok{background:rgba(250,204,21,.15);color:#fde68a;}
@@ -34094,6 +34058,7 @@ function _saEsc(s){
 .st-draft{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px;padding:10px;border-radius:10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.25);}
 .st-draft input,.st-draft textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px 10px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .st-draft textarea{min-height:130px;resize:vertical;line-height:1.5;}
+.st-draft .st-btn{white-space:normal;overflow-wrap:anywhere;}
 .st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;}
 .st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
 .st-streak{font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#fde68a;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:5px 11px;white-space:nowrap;}
