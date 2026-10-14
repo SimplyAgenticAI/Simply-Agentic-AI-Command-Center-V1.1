@@ -7461,7 +7461,7 @@ input[type="range"]::-moz-range-progress {
   </div>
 
   <!-- Fullscreen image viewer (additive) -->
-  <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:99999; align-items:center; justify-content:center; padding:20px;">
+  <div id="lightbox" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.92); z-index:1000050; align-items:center; justify-content:center; padding:20px;">
     <div style="position:absolute; top:14px; right:14px;">
       <button class="btn" id="lightboxCloseBtn">Close</button>
     </div>
@@ -11103,7 +11103,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           textEl.innerText = txt.slice(0, 130) + (txt.length > 130 ? "…" : "");
           textEl.onclick = () => {
             const ov = document.createElement("div");
-            ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;";
+            ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000050;display:flex;align-items:center;justify-content:center;padding:20px;";
             ov.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(251,191,36,.3);border-radius:14px;padding:22px;max-width:640px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 24px 70px rgba(0,0,0,.8);">
               <div style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#fbbf24;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px;">📌 Pinned Message</div>
               <div style="font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;line-height:1.7;white-space:pre-wrap;">${txt.replace(/</g,"&lt;")}</div>
@@ -11139,7 +11139,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const fm = $("followMsg");
       if(!fm) return;
       const ov = document.createElement("div");
-      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:1000050;display:flex;align-items:center;justify-content:center;";
       ov.innerHTML = `<div style="background:rgba(7,11,28,.97);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:24px;max-width:380px;width:90%;backdrop-filter:blur(20px);text-align:center;">
         <div style="font-size:calc(28px * var(--fs,1.1));margin-bottom:10px;">⚡</div>
         <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;color:#e2e8f0;margin-bottom:8px;">Compress Conversation?</div>
@@ -11195,7 +11195,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const seat = window.selectedSeat || selectedSeat;
       if(!seat) return;
       const ov = document.createElement("div");
-      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:1000050;display:flex;align-items:center;justify-content:center;";
       ov.innerHTML = `<div style="background:rgba(7,11,28,.97);border:1px solid rgba(124,58,237,.3);border-radius:16px;padding:24px;max-width:380px;width:90%;backdrop-filter:blur(20px);text-align:center;">
         <div style="font-size:calc(28px * var(--fs,1.1));margin-bottom:10px;">✨</div>
         <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;color:#e2e8f0;margin-bottom:8px;">Start New Chat?</div>
@@ -11310,7 +11310,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
     window._saClearAllMemory = async function(seat){
       const ov = document.createElement("div");
-      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;";
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000050;display:flex;align-items:center;justify-content:center;";
       ov.innerHTML = `<div style="background:rgba(8,13,33,.97);border:1px solid rgba(248,113,113,.3);border-radius:16px;padding:24px 28px;max-width:340px;width:90%;backdrop-filter:blur(20px);text-align:center;">
         <div style="font-size:calc(28px * var(--fs,1.1));margin-bottom:10px;">🧠</div>
         <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;color:#e2e8f0;margin-bottom:8px;">Clear All Memory?</div>
@@ -11381,7 +11381,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       const fs = function(n){ return 'font-size:calc('+n+'px * var(--fs,1.1));'; };
       const wrap = document.createElement('div');
       wrap.id = 'saIdeasSheet';
-      wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000050;display:flex;align-items:center;justify-content:center;padding:16px;';
       const box = document.createElement('div');
       box.style.cssText = 'background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;width:min(640px,100%);max-height:88vh;overflow:auto;padding:18px 18px 12px;box-shadow:0 20px 60px rgba(0,0,0,.7);';
       const head = document.createElement('div');
@@ -11982,7 +11982,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           shareBtn.innerText = "Share";
           shareBtn.onclick = ()=>{
             const menu = document.createElement('div');
-            menu.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+            menu.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000050;display:flex;align-items:center;justify-content:center;';
             menu.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:14px;padding:20px;width:min(340px,94vw);box-shadow:0 20px 60px rgba(0,0,0,.7);">
               <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;margin-bottom:14px;">Share Image</div>
               <div style="display:flex;flex-direction:column;gap:8px;">
@@ -19187,7 +19187,7 @@ Challenge weak assumptions. Surface risks.`;
       if(!steps.length){ showToast('This sequence has no steps. Add at least one step before enrolling.','error'); return; }
       // Build preview modal
       const ov = document.createElement('div');
-      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1000050;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto;';
       const inner = document.createElement('div');
       inner.style.cssText = 'background:rgba(7,11,28,.99);border:1px solid rgba(124,58,237,.3);border-radius:18px;padding:24px;max-width:560px;width:100%;backdrop-filter:blur(20px);box-shadow:0 24px 80px rgba(0,0,0,.7);max-height:90vh;overflow-y:auto;';
       inner.innerHTML = `
@@ -20079,7 +20079,7 @@ Challenge weak assumptions. Surface risks.`;
   const today = new Date().toISOString().slice(0,10);
   // Show a dialog asking for task details before creating
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000050;display:flex;align-items:center;justify-content:center;';
   overlay.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:16px;padding:24px;width:min(420px,94vw);box-shadow:0 24px 80px rgba(0,0,0,.7);">
     <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;margin-bottom:16px;">Create Task for ${escapeHtml(client.name||'Contact')}</div>
     <div style="margin-bottom:10px;"><label style="font-size:calc(14px * var(--fs,1.1));opacity:.7;display:block;margin-bottom:4px;">Task title</label>
@@ -20111,7 +20111,7 @@ Challenge weak assumptions. Surface risks.`;
     const res = await fetch('/api/cal/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const data = await res.json();
     if(!data.ok) throw new Error(data.error||'Failed');
-    showToast('Task added: ' + defaultTitle);
+    showToast('Task added: ' + title); try{ if(window._saCalRefreshIfOpen) window._saCalRefreshIfOpen(); }catch(_){}
     // If calendar is visible, refresh it and open the new task detail
     if(typeof wcalFetchTasks === 'function'){
       await wcalFetchTasks();
@@ -20164,7 +20164,7 @@ window.crmPipelineOpenClient = function(clientId){
       const hasPhone = !!(c.phone||'').trim();
       // Show dialog asking what to draft before running
       const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000050;display:flex;align-items:center;justify-content:center;';
       overlay.innerHTML = `<div style="background:#0f172a;border:1px solid rgba(42,58,106,.9);border-radius:16px;padding:24px;width:min(420px,94vw);box-shadow:0 24px 80px rgba(0,0,0,.7);">
         <div style="font-size:calc(15px * var(--fs,1.1));font-weight:700;margin-bottom:4px;">Draft Outreach for ${escapeHtml(c.name||'Contact')}</div>
         <div style="font-size:calc(14px * var(--fs,1.1));opacity:.6;margin-bottom:16px;">Our AI will write a personalised message for you to review before sending.</div>
@@ -20223,7 +20223,7 @@ window.crmPipelineOpenClient = function(clientId){
       const to   = draft.to||'';
 
       const ov = document.createElement('div');
-      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000050;display:flex;align-items:center;justify-content:center;padding:16px;';
       ov.innerHTML=`<div style="background:#0f172a;border:1px solid rgba(124,58,237,.4);border-radius:18px;padding:24px;width:min(560px,96vw);max-height:90vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.8);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
           <div>
@@ -20892,7 +20892,7 @@ async function wcalOfferDraftFromCircle(taskId, task){
   // Build a lightweight yes/no first — don't force email if they just want to check done
   const wantDraft = await new Promise(resolve=>{
     const overlay=document.createElement('div');
-    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000050;display:flex;align-items:center;justify-content:center;';
     const box=document.createElement('div');
     box.style.cssText='background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:16px;padding:24px;max-width:380px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.6);';
 
@@ -20999,7 +20999,7 @@ async function wcalFireCompleteAction(taskId, task){
   const voice = await new Promise(resolve => {
     // Build overlay
     const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:1000050;display:flex;align-items:center;justify-content:center;';
 
     const box = document.createElement('div');
     box.style.cssText = 'background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:18px;padding:28px 28px 22px;max-width:420px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.6);';
@@ -21106,7 +21106,7 @@ async function wcalFireCompleteAction(taskId, task){
 window.wcalShowDraftSendModal = function(draft, drafterName){
   var esc = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
   var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000050;display:flex;align-items:center;justify-content:center;padding:16px;';
   var box = document.createElement('div');
   box.style.cssText = 'background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:18px;padding:24px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.6);display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow-y:auto;';
   box.innerHTML = '<div style="font-size:calc(16px * var(--fs,1.1));font-weight:800;color:#e6edff;">Email Draft Ready</div>'
@@ -24240,7 +24240,7 @@ $("saveFramework").onclick = async () => {
       if(document.getElementById(SHEET_ID)) return;
       const overlay = document.createElement('div');
       overlay.id = SHEET_ID;
-      overlay.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(4,6,14,.82);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:saHkFadeIn .14s ease;';
+      overlay.style.cssText='position:fixed;inset:0;z-index:1000050;background:rgba(4,6,14,.82);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:saHkFadeIn .14s ease;';
       const box = document.createElement('div');
       box.style.cssText='background:rgba(12,18,44,.98);border:1px solid rgba(247,211,106,.35);border-radius:18px;padding:28px 32px;min-width:340px;max-width:90vw;box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 24px rgba(247,211,106,.06);color:#e2e8f0;font-family:inherit;';
       const title = document.createElement('div');
