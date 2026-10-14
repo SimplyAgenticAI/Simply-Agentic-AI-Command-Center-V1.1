@@ -9166,7 +9166,30 @@ window.showModal = function showModal(title, body, imgUrl){
     window._saSyncAfterTools = function(text){
       if(!text || text.indexOf('🔧') < 0) return;
       const acts = (text.match(/🔧[^\n]*/g) || []).join('\n');
+      const todayOpen = () => { const t = document.getElementById('saToday'); return t && t.classList.contains('open'); };
+      let reloadToday = false;
       if(/session objective/i.test(acts)) refreshSessionObjectivePill();
+      // Contacts: "Added Jamie to your CRM…", "Logged the note…"
+      if(/to your CRM|Logged the note/i.test(acts)){
+        const rb = document.getElementById('crmRefreshClients'); if(rb) rb.click();
+        reloadToday = true;
+      }
+      // Calendar: "Scheduled: …" (task) / "Booked “…”" (meeting)
+      if(/Scheduled:|Booked /i.test(acts)){
+        if(window._saCalRefreshIfOpen) window._saCalRefreshIfOpen();
+        reloadToday = true;
+      }
+      // Content Planner: "Drafted a social post for …"
+      if(/Drafted a social post/i.test(acts)){
+        const m = document.getElementById('contentPlannerModal');
+        if(m && m.style.display !== 'none' && typeof cpLoadState === 'function') cpLoadState();
+      }
+      // Notepad: "Added a note … to your Notepad"
+      if(/to your Notepad/i.test(acts)){
+        const nf = document.getElementById('notepadForm');
+        if(nf && nf.style.display !== 'none' && window.showNotepadModal) window.showNotepadModal();
+      }
+      if(reloadToday && todayOpen() && window.saOpenToday) window.saOpenToday();
     };
 
     async function openSessionObjectiveModal(){
@@ -11616,6 +11639,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           const res = await post({teammate: window.selectedSeat||"", action: ca.action, args: curArgs(), token: (ca&&ca.token)||"", cancel: !!isCancel});
           const d = await res.json().catch(()=>({}));
           if(typeof showToast === "function") showToast(isCancel ? "Cancelled" : (d.summary || (d.ok ? "Done" : "Couldn't complete")));
+          if(!isCancel && d.ok && d.summary && window._saSyncAfterTools){ try{ window._saSyncAfterTools("🔧 " + d.summary); }catch(_){} }
         }catch(_e){ if(typeof showToast === "function") showToast("Action failed"); }
         try{ if(typeof refreshThread === "function") await refreshThread(); }catch(_e){}
       };
@@ -23154,6 +23178,12 @@ window.showCalendarModal=function showCalendarModal(){
   window._wcalNowInterval=setInterval(wcalUpdateNowLine,60000);
   if(window.saSetModalPin) window.saSetModalPin('calendar');
 };
+// Re-pull and redraw the calendar if it's on screen (teammate added a task/meeting)
+window._saCalRefreshIfOpen=function(){
+  const f=document.getElementById('calendarForm');
+  if(!f || f.style.display==='none' || !document.getElementById('overlay')?.classList.contains('show')) return;
+  try{ wcalFetchCurrentRange().then(()=>{ wcalRenderMiniMonth(); wcalRefresh(); }); }catch(_){}
+};
 
 // Keep backward-compat stubs
 async function calFetchEventsForVisibleRange(){ await wcalFetchCurrentRange(); }
@@ -29016,9 +29046,7 @@ document.addEventListener("click", function(e) {
                 // Live UI sync: when a teammate changes the session objective,
                 // update the topbar pill immediately — the operator should SEE
                 // the system change the moment the agent acts.
-                if(/session objective/i.test(_act) && typeof window.refreshSessionObjectivePill === "function"){
-                  window.refreshSessionObjectivePill();
-                }
+                if(window._saSyncAfterTools){ try{ window._saSyncAfterTools("🔧 " + _act); }catch(_){} }
                 // Live UI sync: when a teammate opens the Notepad via the
                 // read_notepad tool, actually open the Notepad on screen.
                 if(/opened your notepad/i.test(_act)){
