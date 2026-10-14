@@ -9154,8 +9154,20 @@ window.showModal = function showModal(title, body, imgUrl){
         const txt = (obj.title || '').trim();
         const pill = $("sessionObjectivePill");
         if(pill) pill.innerText = txt ? txt : 'No session objective';
+        // Today's focus box shows the same objective — keep it in step
+        const fi = document.getElementById('stFocusInput');
+        if(fi && document.activeElement !== fi){ fi.value = txt; fi.style.borderColor = ''; fi.title = ''; }
       }catch(e){}
     }
+    window.refreshSessionObjectivePill = refreshSessionObjectivePill;
+
+    // After a teammate reply: if a tool changed something on screen (its 🔧
+    // line), update that part of the page right away — no refresh needed.
+    window._saSyncAfterTools = function(text){
+      if(!text || text.indexOf('🔧') < 0) return;
+      const acts = (text.match(/🔧[^\n]*/g) || []).join('\n');
+      if(/session objective/i.test(acts)) refreshSessionObjectivePill();
+    };
 
     async function openSessionObjectiveModal(){
       try{ document.body.style.overflow = 'hidden'; }catch(_){ }
@@ -13665,6 +13677,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         try{setOpStatus("Error");}catch(_){}
         if(!_isAbort) try{showToast("⚠️ "+_displayErr);}catch(_){}
       }
+      try{ if(window._saSyncAfterTools) window._saSyncAfterTools(fullText); }catch(_){}
       // Reload thread from server so exchange persists across seat switches
       try{if(typeof refreshThread==="function") await refreshThread();}catch(_){}
       if(alwaysOn&&hud){hud.classList.add("listening"); _whisperSetStatus("Listening...");}
@@ -15000,6 +15013,7 @@ function _saJobNotify(seatName, status){
           await refreshThread(); pollImageJob(jobId, selectedSeat);
         } else {
           setSeatLive(selectedSeat,"done"); setOpStatus("Complete");
+          try{ window._saSyncAfterTools(fullText); }catch(_){}
           await refreshThread();
           try{ fetch("/api/onboarding/first_ai_interaction",{method:"POST"}); }catch(e){}
           // Auto-open console only when user clicked a list item to request this draft
@@ -29002,11 +29016,8 @@ document.addEventListener("click", function(e) {
                 // Live UI sync: when a teammate changes the session objective,
                 // update the topbar pill immediately — the operator should SEE
                 // the system change the moment the agent acts.
-                if(/session objective/i.test(_act)){
-                  fetch("/api/os/session_objective").then(function(r){return r.json();}).then(function(d){
-                    var p=document.getElementById("sessionObjectivePill");
-                    if(p&&d&&d.ok) p.innerText=((d.objective&&d.objective.title)||"").trim()||"No objective set";
-                  }).catch(function(){});
+                if(/session objective/i.test(_act) && typeof window.refreshSessionObjectivePill === "function"){
+                  window.refreshSessionObjectivePill();
                 }
                 // Live UI sync: when a teammate opens the Notepad via the
                 // read_notepad tool, actually open the Notepad on screen.

@@ -1,4 +1,4 @@
-import sys as _sys
+﻿import sys as _sys
 
 # Force UTF-8 on the console before anything prints. The startup banner and the
 # log helpers emit ✅/⚠️/—, and on a Windows cp1252 console print() raises
@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "10.5")
+APP_VERSION = os.getenv("APP_VERSION", "10.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
