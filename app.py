@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.2")
+APP_VERSION = os.getenv("APP_VERSION", "11.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1313,6 +1313,32 @@ def _resolve_model_for_user(defn: Dict[str, Any], u: Optional[Dict[str, Any]] = 
         if gm:
             return _canonical_model(gm)
     return MODEL
+
+
+def _effective_chat_model(u: Optional[Dict[str, Any]], defn: Optional[Dict[str, Any]] = None) -> str:
+    """The model a chat ACTUALLY runs on (V11.3) — one source of truth for the
+    chat paths and the top-right Model label. The chosen model (teammate >
+    Settings default > server) when the user has that provider's own key;
+    GPT-4o on their own OpenAI key if they chose Claude without a Claude key;
+    otherwise the included platform model (budget-guarded)."""
+    chosen = _resolve_model_for_user(defn or {}, u)
+    s = ((u or {}).get("settings") or {})
+    openai_own = bool(_decrypt_field((s.get("openai_key") or "").strip()))
+    claude_own = bool(_decrypt_field((s.get("claude_key") or s.get("anthropic_key") or "").strip()))
+    if (claude_own if _is_claude_model(chosen) else openai_own):
+        return chosen
+    if openai_own:
+        return MODEL if not _is_claude_model(MODEL) else "gpt-4o"
+    return _platform_chat_model((u or {}).get("username", ""))
+
+
+_MODEL_LABELS = {"gpt-4o": "GPT-4o", "gpt-4o-mini": "GPT-4o mini", "gpt-4.1": "GPT-4.1", "gpt-4.1-mini": "GPT-4.1 mini",
+                 "claude-opus-5": "Claude Opus 5", "claude-sonnet-5": "Claude Sonnet 5", "claude-haiku-4-5": "Claude Haiku 4.5"}
+
+
+def _model_label(model: str) -> str:
+    m = _canonical_model(model)
+    return _MODEL_LABELS.get(m, m)
 
 app = Flask(__name__)
 # Make the app version available to every template as {{app_ver}} (single source of truth).
@@ -9883,7 +9909,16 @@ def api_set_user_settings():
     changed_fields = [k for k in ("openai_key", "claude_key", "global_default_model", "tooltip_level", "smtp") if k in data]
     if changed_fields:
         _audit_log("settings_updated", {"changed_fields": changed_fields}, username=uname)
-    return jsonify({"ok": True})
+    # Tell the page which model chats will now run on, so the top-right label
+    # updates immediately (and honestly, if the chosen model needs a key).
+    _fresh = dict(((load_users().get("users") or {}).get(uname) or {}), username=uname)
+    _eff = _effective_chat_model(_fresh)
+    _chosen = _resolve_model_for_user({}, _fresh)
+    note = ""
+    if _canonical_model(_chosen) != _canonical_model(_eff):
+        note = (f"{_model_label(_chosen)} needs your own "
+                f"{'Anthropic' if _is_claude_model(_chosen) else 'OpenAI'} key — using {_model_label(_eff)} until you add one.")
+    return jsonify({"ok": True, "model": _eff, "model_label": _model_label(_eff), "model_note": note})
 
 
 @app.get("/api/user/pinned_features")
@@ -11131,10 +11166,7 @@ def _api_followup_impl(data):
     msgs.extend(thread)
     msgs.append({"role": "user", "content": user_content})
 
-    _resolved_model = _resolve_model_for_user(defn, current_user())
-    # Protect platform key: restrict to gpt-4o-mini when user has no own API key
-    if not _user_has_own_key(uname):
-        _resolved_model = "gpt-4o-mini"
+    _resolved_model = _effective_chat_model(dict(current_user() or {}, username=uname), defn)
     _tool_log: List[Dict[str, Any]] = []
 
     # Tool calling: skip for o1/o3/o4/claude (unsupported tools param), and skip
@@ -16903,7 +16935,12 @@ def index():
     # last Set-Cookie wins, and the client is left holding a dead token (every
     # save 403s until a refresh — hit on every fresh login).
     _csrf = _csrf_token_for_session()
-    return _INDEX_TEMPLATE.render(app_title=APP_TITLE, model=MODEL, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL, csrf_token=_csrf)
+    # Show the model this user's chats actually run on, not the server default
+    try:
+        _model_shown = _model_label(_effective_chat_model(dict(current_user() or {}, username=_uname)))
+    except Exception:
+        _model_shown = _model_label(MODEL)
+    return _INDEX_TEMPLATE.render(app_title=APP_TITLE, model=_model_shown, trial_banner=_trial_banner, PUBLIC_BASE_URL=PUBLIC_BASE_URL, csrf_token=_csrf)
 
 
 
@@ -27135,9 +27172,6 @@ def api_followup_stream():
 
     # Teammates always use the model the user selected — no automatic
     # per-message downgrading. Keeps each teammate's voice/quality consistent.
-    preferred_model = _canonical_model((defn.get("preferred_model") or "").strip()) or MODEL
-    _use_claude     = _is_claude_model(preferred_model)
-
     # Read the user's OpenAI key directly — never rely on g.openai_client
     # for the stream path since the generator runs outside the normal request cycle.
     _u_record = load_users().get("users", {}).get(uname, {})
@@ -27145,11 +27179,12 @@ def api_followup_stream():
     _user_api_key = _decrypt_field(_raw_key.strip()) if _raw_key else ""
     _effective_key = _user_api_key or OPENAI_API_KEY or ""
     oai_client = OpenAI(api_key=_effective_key) if _effective_key else None
-    # Platform key: strong model while under the plan's monthly AI budget,
-    # gpt-4o-mini after that (and always for tool-loop follow-up rounds).
-    if not _user_api_key:
-        preferred_model = _platform_chat_model(uname)
-        _use_claude = False
+    # Teammate model > the user's Settings default > server default, used only
+    # with the matching own key; otherwise the included model (strong while
+    # under the plan's monthly AI budget, gpt-4o-mini after; tool-loop
+    # follow-up rounds always mini for platform users).
+    preferred_model = _effective_chat_model(dict(_u_record, username=uname), defn)
+    _use_claude     = _is_claude_model(preferred_model)
 
     # Snapshot the FULL (untruncated) thread before streaming — this is what gets
     # persisted, so the on-disk history is never destructively shrunk by the

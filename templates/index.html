@@ -23979,6 +23979,14 @@ $("settingsBtn").onclick = () => showSettingsModal();
           return;
         }
         $("settingsStatus").innerText = "Saved";
+          // Model label (top right + mobile menu) shows what chats now run on
+          if(data.model_label){
+            ['modelTag'].forEach(function(id){ var el = document.getElementById(id); if(el) el.textContent = 'Model: ' + data.model_label; });
+            document.querySelectorAll('.mobileDrawerSub,.modelTagLegacy').forEach(function(el){ el.textContent = 'Model: ' + data.model_label; });
+            var mt = document.getElementById('modelTag');
+            if(mt){ mt.style.transition = 'box-shadow .3s'; mt.style.boxShadow = '0 0 0 2px rgba(167,139,250,.8)'; setTimeout(function(){ mt.style.boxShadow = ''; }, 1200); }
+            if(data.model_note){ $("settingsStatus").innerText = "Saved — " + data.model_note; if(typeof showToast === "function") showToast(data.model_note, "warning"); }
+          }
           // Sync tooltip level to global state immediately after save
           try {
             const newLevel = ($("tooltipLevel") ? $("tooltipLevel").value : "medium") || "medium";
