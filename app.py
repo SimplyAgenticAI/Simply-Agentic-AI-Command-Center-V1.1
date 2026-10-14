@@ -395,7 +395,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.0")
+APP_VERSION = os.getenv("APP_VERSION", "11.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -18073,11 +18073,12 @@ def api_crm_broadcast_email():
         crm = _crm_load(uname)
         clients = list((crm.get("clients") or {}).values())
         # Filter matching contacts — exclude unsubscribed ones
-        recipients = [
-            c for c in clients
-            if _crm_client_matches_filter(c, filt)
-            and not c.get("email_unsubscribed")
-        ]
+        matched = [c for c in clients if _crm_client_matches_filter(c, filt)]
+        recipients = [c for c in matched if not c.get("email_unsubscribed")]
+        skipped_unsub = len(matched) - len(recipients)
+        # The unsubscribe footer is opt-in per broadcast (V11.1): by default the
+        # email goes out exactly as written.
+        add_unsub = bool(payload.get("unsub_footer"))
 
         # Plan-based broadcast recipient limit
         plan_key  = _get_user_plan(uname)
@@ -18089,7 +18090,8 @@ def api_crm_broadcast_email():
             return jsonify({"ok": False, "error": f"This broadcast would reach {len(recipients)} recipients — your {plan_name} limit is {max_recipients}. Narrow your filter or upgrade to {upgrade_to}."}), 403
 
         if dry_run:
-            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": []})
+            return jsonify({"ok": True, "count": len(recipients), "sent": 0, "failed": 0, "results": [],
+                            "skipped_unsubscribed": skipped_unsub})
 
         from_name = (_user_smtp_settings(u).get("from_name", "") or "").strip()
         run_async = bool(payload.get("async")) or len(recipients) > 20
@@ -18107,12 +18109,13 @@ def api_crm_broadcast_email():
                 else:
                     ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
                     body = _safe_render(body_t, ctx)
-                    try:
-                        _unsub_tok = _unsub_token(uname, to_addr)
-                        _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
-                        body = _add_unsub_footer(body, f"{_unsub_base}/unsubscribe/{_unsub_tok}")
-                    except Exception:
-                        pass
+                    if add_unsub:
+                        try:
+                            _unsub_tok = _unsub_token(uname, to_addr)
+                            _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
+                            body = _add_unsub_footer(body, f"{_unsub_base}/unsubscribe/{_unsub_tok}")
+                        except Exception:
+                            pass
                     ok_send, provider, err = _crm_send_email_to(u, to_addr, subject, body, from_name=from_name)
                     if ok_send:
                         sent_ += 1
@@ -18148,6 +18151,28 @@ def api_crm_broadcast_email():
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
+
+
+@app.post("/api/crm/clients/<client_id>/resubscribe")
+def api_crm_client_resubscribe(client_id: str):
+    """Undo an unsubscribe (e.g. the operator clicked their own test link)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(client_id)
+    if not isinstance(c, dict):
+        return jsonify({"ok": False, "error": "Contact not found"}), 404
+    c.pop("email_unsubscribed", None)
+    c.pop("unsubscribed_at", None)
+    c["updated_at"] = now_iso()
+    _crm_save(uname, crm)
+    try:
+        _crm_activity_append(uname, client_id, "note", "Resubscribed to emails")
+    except Exception:
+        pass
+    return jsonify({"ok": True})
 
 
 @app.post("/api/crm/broadcast/test")
@@ -31470,6 +31495,66 @@ def api_crm_broadcast_schedule():
     save_json(path, data)
     return jsonify({"ok": True, "scheduled": scheduled})
 
+_SCHED_BROADCAST_GRACE_S = 2 * 3600   # older than this when first seen → "missed", never blasted late
+
+
+def _sched_broadcast_tick() -> None:
+    """Send scheduled broadcasts that are due (V11.1 — before this nothing ever
+    sent them). Runs the real broadcast route for the owner so every rule
+    (unsubscribes, plan limits, Gmail/SMTP choice) applies. Each item is marked
+    'sending' and saved BEFORE sending, so a crash or second worker can't send
+    it twice; anything more than 2h overdue is marked 'missed' instead."""
+    from flask import session as _fsession
+    now = _utcnow()
+    for path in _SCHED_BROADCAST_DIR.glob("*.json"):
+        uname = path.stem
+        items = load_json(path, [])
+        if not isinstance(items, list):
+            continue
+        due = []
+        for it in items:
+            if not isinstance(it, dict) or it.get("status") != "pending":
+                continue
+            try:
+                when = datetime.fromisoformat(str(it.get("send_at") or "").replace("Z", "+00:00")).replace(tzinfo=None)
+            except Exception:
+                it.update(status="failed", error="Unreadable send time")
+                continue
+            if when > now:
+                continue
+            if (now - when).total_seconds() > _SCHED_BROADCAST_GRACE_S:
+                it.update(status="missed", error="Missed its send time — not sent late")
+                continue
+            it["status"] = "sending"
+            due.append(it)
+        save_json(path, items)
+        for it in due:
+            p = it.get("payload") or {}
+            body = {"subject": p.get("subject") or "", "body": p.get("body") or "", "dry_run": False,
+                    "async": False, "unsub_footer": bool(p.get("unsub_footer"))}
+            aud, val = p.get("audience") or "all", str(p.get("audience_val") or "").strip()
+            if aud in ("tag", "stage", "status") and val:
+                body[aud] = val
+            elif aud == "selected" and val:
+                body["client_ids"] = [x.strip() for x in val.split(",") if x.strip()]
+            try:
+                with app.test_request_context("/api/crm/broadcast/email", method="POST", json=body):
+                    _fsession["user"] = uname
+                    rv = api_crm_broadcast_email()
+                    resp = rv[0] if isinstance(rv, tuple) else rv
+                    d = resp.get_json() or {}
+                it.update(status="sent" if d.get("ok") else "failed", sent=d.get("sent", 0),
+                          failed=d.get("failed", 0), error=d.get("error", ""), sent_at=now_iso())
+            except Exception as e:
+                it.update(status="failed", error=str(e)[:200])
+            # re-read + merge so a schedule added meanwhile isn't lost
+            cur = load_json(path, [])
+            for i, x in enumerate(cur if isinstance(cur, list) else []):
+                if isinstance(x, dict) and x.get("id") == it.get("id"):
+                    cur[i] = it
+            save_json(path, cur)
+
+
 @app.get("/api/crm/broadcast/scheduled")
 def api_crm_broadcast_scheduled():
     """List all scheduled broadcasts for the current user."""
@@ -33967,6 +34052,11 @@ def _bg_schedule_tick():
                 _sp_tick()
         except Exception:
             pass
+        # Scheduled email broadcasts (V11.1 — previously saved but never sent)
+        try:
+            _sched_broadcast_tick()
+        except Exception as _sbe:
+            _log("WARNING", "Scheduled broadcast tick error", error=str(_sbe)[:200])
         # Every 10 minutes: prune logs + evict old image jobs
         _bg_evict_counter += 1
         if _bg_evict_counter % 10 == 0:

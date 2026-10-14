@@ -5901,6 +5901,11 @@ label {
       <label style="margin-top:12px;">Message</label>
       <textarea id="crmEmailBody" style="height:340px;" placeholder="Hey {first_name},&#10;&#10;..."></textarea>
       <div class="tiny" style="margin-top:6px;opacity:.7;">Use {name} or {first_name} for personalisation.</div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-weight:400;">
+        <input type="checkbox" id="crmUnsubFooter" style="width:auto;">
+        Add an unsubscribe link at the bottom <span class="tiny" style="opacity:.7;">(recommended for marketing emails to people you don't know)</span>
+      </label>
+      <div id="crmUnsubLine" class="tiny" style="margin-top:8px;display:none;"></div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap;">
         <label style="margin:0;white-space:nowrap;">Schedule send</label>
         <input id="crmBroadcastSchedule" type="datetime-local" style="flex:1;min-width:180px;" />
@@ -18081,6 +18086,7 @@ Challenge weak assumptions. Surface risks.`;
       crmHideViews();
       var el=$(id); if(el) el.style.display = "block";
       try{ var sc=$("modalScroll"); if(sc) sc.scrollTop = 0; }catch(e){}
+      if(id==='crmViewBroadcast'){ try{ window.crmAudienceChanged(); }catch(_){} }
       if(id==='crmViewPipeline'){
         setTimeout(function(){
           var s2=$("crmSearch"); var f2=$("crmFilter");
@@ -18542,8 +18548,9 @@ Challenge weak assumptions. Surface risks.`;
       const a = ($("crmAudience").value||'all');
       const wrap = $("crmAudienceValueWrap"), sel = $("crmAudienceValueSel"), lbl = $("crmAudienceValueLbl");
       if(!wrap || !sel) return;
-      if(a === 'all'){ wrap.style.display = 'none'; $("crmAudienceValue").value = ''; return; }
       if(!(crmCache.clients||[]).length){ try{ await crmFetchClients(); }catch(_){} }
+      crmRenderUnsubLine();
+      if(a === 'all'){ wrap.style.display = 'none'; $("crmAudienceValue").value = ''; return; }
       const clients = crmCache.clients || [];
       const counts = {};
       const add = (k)=>{ k = String(k||'').trim(); if(k) counts[k] = (counts[k]||0) + 1; };
@@ -18576,6 +18583,39 @@ Challenge weak assumptions. Surface risks.`;
       wrap.style.display = '';
       crmAudienceSync();
     };
+    // Unsubscribed contacts are skipped by every broadcast — list them with a
+    // Resubscribe button (e.g. after clicking your own test link by accident).
+    window.crmRenderUnsubLine = function crmRenderUnsubLine(){
+      const box = $("crmUnsubLine"); if(!box) return;
+      const un = (crmCache.clients||[]).filter(c => c.email_unsubscribed);
+      if(!un.length){ box.style.display = 'none'; box.innerHTML = ''; return; }
+      box.style.display = '';
+      box.innerHTML = '';
+      const head = document.createElement('div');
+      head.textContent = '🔕 ' + un.length + ' contact' + (un.length === 1 ? ' has' : 's have') + ' unsubscribed and won\'t get broadcasts: ';
+      const more = document.createElement('a'); more.href = '#'; more.textContent = 'Show'; more.style.color = '#a5b4fc';
+      head.appendChild(more); box.appendChild(head);
+      const list = document.createElement('div'); list.style.cssText = 'display:none;margin-top:6px;';
+      un.forEach(c => {
+        const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap;';
+        const t = document.createElement('span'); t.textContent = (c.name||'') + ' · ' + (c.email||'');
+        const b = document.createElement('button'); b.className = 'btn btnMini'; b.textContent = 'Resubscribe';
+        b.onclick = async () => {
+          b.disabled = true;
+          try{
+            const r = await fetch('/api/crm/clients/'+encodeURIComponent(c.id)+'/resubscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+            const d = await r.json();
+            if(!d.ok) throw new Error(d.error||'failed');
+            c.email_unsubscribed = false; showToast('✓ ' + (c.name||c.email) + ' will get broadcasts again');
+            crmRenderUnsubLine();
+          }catch(e){ b.disabled = false; showToast('Could not resubscribe: ' + (e.message||e)); }
+        };
+        row.appendChild(t); row.appendChild(b); list.appendChild(row);
+      });
+      box.appendChild(list);
+      more.onclick = (e) => { e.preventDefault(); list.style.display = list.style.display === 'none' ? '' : 'none'; };
+    };
+
     window.crmAudienceSync = function(){
       const sel = $("crmAudienceValueSel"); if(!sel) return;
       $("crmAudienceValue").value = sel.multiple
@@ -18605,7 +18645,7 @@ Challenge weak assumptions. Surface risks.`;
         return;
       }
 
-      const payload = {subject, body, dry_run: !!dry_run, async: !dry_run};
+      const payload = {subject, body, dry_run: !!dry_run, async: !dry_run, unsub_footer: !!($("crmUnsubFooter")||{}).checked};
       if(audience==='tag') payload.tag = val;
       if(audience==='stage') payload.stage = val;
       if(audience==='status') payload.status = val;
@@ -18630,7 +18670,9 @@ Challenge weak assumptions. Surface risks.`;
         }
 
         if(dry_run){
-          if(st) st.innerText = `Dry run: would send to ${data.count||0}`;
+          const _sk = data.skipped_unsubscribed||0;
+          if(st) st.innerText = `Dry run: would send to ${data.count||0}` + (_sk ? ` (skipping ${_sk} unsubscribed)` : '');
+          crmRenderUnsubLine();
           showToast('Dry run complete');
           return;
         }
@@ -18673,7 +18715,7 @@ Challenge weak assumptions. Surface risks.`;
       const val = ($("crmAudienceValue").value||'').trim();
       if(!subject||!body){ if(st) st.innerText='Subject and body required'; return; }
       if(st) st.innerText='Scheduling...';
-      const bPayload = {subject, body, audience, audience_val: val};
+      const bPayload = {subject, body, audience, audience_val: val, unsub_footer: !!($("crmUnsubFooter")||{}).checked};
       const payload = {send_at: new Date(dt).toISOString(), payload: bPayload};
       try{
         const r = await fetch('/api/crm/broadcast/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
