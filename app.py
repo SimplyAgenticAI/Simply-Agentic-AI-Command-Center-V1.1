@@ -24,6 +24,7 @@ import hashlib
 import hmac
 import struct
 import time
+import random
 import threading
 import shutil
 import tempfile
@@ -395,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.1")
+APP_VERSION = os.getenv("APP_VERSION", "11.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -18028,6 +18029,204 @@ def api_crm_draft_outreach(client_id: str):
     })
 
 
+# ── Paced broadcast queue (V11.2) ───────────────────────────────────────────
+# One email at a time with a random 20–90 s gap, a daily cap (Gmail allows
+# ~500/day on a free account; going over can lock it), and state saved after
+# every email so a server restart resumes instead of dropping the rest. An
+# email marked "sending" when a restart hits is NOT resent (state "unknown")
+# — a possible miss beats a duplicate in someone's inbox.
+BROADCAST_GAP_MIN = int(os.getenv("BROADCAST_GAP_MIN", "20"))
+BROADCAST_GAP_MAX = int(os.getenv("BROADCAST_GAP_MAX", "90"))
+BROADCAST_DAILY_CAP = int(os.getenv("BROADCAST_DAILY_CAP", "400"))
+_BQ_DIR = Path(DATA_DIR) / "broadcast_queue"
+_BQ_DIR.mkdir(parents=True, exist_ok=True)
+_BQ_LOCK = threading.Lock()
+
+
+def _bq_path(uname: str) -> Path:
+    return _BQ_DIR / f"{_safe_name(uname or 'anon')}.json"
+
+
+def _bq_load(uname: str) -> List[Dict[str, Any]]:
+    d = load_json(_bq_path(uname), [])
+    return d if isinstance(d, list) else []
+
+
+def _bq_save(uname: str, jobs: List[Dict[str, Any]]) -> None:
+    active = [j for j in jobs if j.get("status") in ("running", "waiting_daily")]
+    done = [j for j in jobs if j.get("status") not in ("running", "waiting_daily")][-20:]
+    save_json(_bq_path(uname), done + active)
+
+
+def _bq_find(uname: str, job_id: str) -> Optional[Dict[str, Any]]:
+    return next((j for j in _bq_load(uname) if j.get("id") == job_id), None)
+
+
+def _bq_public(j: Dict[str, Any]) -> Dict[str, Any]:
+    items = j.get("items") or []
+    pending = sum(1 for it in items if it.get("state") == "pending")
+    avg = (BROADCAST_GAP_MIN + BROADCAST_GAP_MAX) / 2.0
+    status = j.get("status")
+    return {"id": j.get("id"), "username": j.get("username"), "status": "done" if status == "done" else status,
+            "sent": j.get("sent", 0), "failed": j.get("failed", 0), "count": len(items),
+            "progress": len(items) - pending, "next_at": j.get("next_at"),
+            "eta_seconds": int(max(0, pending - 1) * avg) if status == "running" else None,
+            "daily_cap": BROADCAST_DAILY_CAP, "subject": j.get("subject", ""),
+            "results": [{"email": it.get("email"), "state": it.get("state"), "error": it.get("error", "")}
+                        for it in items if it.get("state") != "pending"][-25:]}
+
+
+def _bq_enqueue(uname, subject, body_t, from_name, add_unsub, recipients, filt) -> Dict[str, Any]:
+    job = {"id": uuid.uuid4().hex, "username": uname, "subject": subject, "body_t": body_t,
+           "from_name": from_name, "add_unsub": bool(add_unsub), "filter": filt,
+           "created_at": now_iso(), "status": "running", "next_at": now_iso(), "sent": 0, "failed": 0,
+           "items": [{"client_id": c.get("id", ""), "email": (c.get("email") or "").strip(),
+                      "name": c.get("name", ""), "company": c.get("company", ""), "state": "pending"}
+                     for c in recipients]}
+    with _BQ_LOCK:
+        jobs = _bq_load(uname)
+        jobs.append(job)
+        _bq_save(uname, jobs)
+    return job
+
+
+def _bq_daily(uname: str) -> Tuple[str, int]:
+    day = _user_now_local(uname).strftime("%Y-%m-%d")
+    d = load_json(_BQ_DIR / f"{_safe_name(uname)}_daily.json", {})
+    return day, int((d or {}).get(day) or 0)
+
+
+def _bq_bump_daily(uname: str) -> None:
+    day, n = _bq_daily(uname)
+    save_json(_BQ_DIR / f"{_safe_name(uname)}_daily.json", {day: n + 1})
+
+
+def _bq_next_morning_utc(uname: str) -> str:
+    """8am tomorrow in the operator's timezone, as UTC ISO."""
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo((_load_operator_profile(uname) or {}).get("timezone") or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local = _user_now_local(uname).date() + timedelta(days=1)
+    at = datetime(local.year, local.month, local.day, 8, 0, tzinfo=tz)
+    return at.astimezone(ZoneInfo("UTC")).replace(tzinfo=None).isoformat() + "Z"
+
+
+def _bq_due(j: Dict[str, Any]) -> bool:
+    try:
+        return datetime.fromisoformat(str(j.get("next_at") or "").replace("Z", "")) <= _utcnow()
+    except Exception:
+        return True
+
+
+def _bq_finish(uname: str, j: Dict[str, Any]) -> None:
+    j["status"] = "done"
+    j["finished_at"] = now_iso()
+    try:
+        _crm_log_message(uname, {"type": "broadcast_email", "subject": j.get("subject"), "filter": j.get("filter"),
+                                 "sent": j.get("sent", 0), "failed": j.get("failed", 0)})
+        if j.get("sent"):
+            _award_points(uname, "Sent an email broadcast", 30)
+            _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": j["sent"], "subject": (j.get("subject") or "")[:80]})
+        _notif_push(uname, "Email broadcast complete", f"Sent {j.get('sent', 0)}, failed {j.get('failed', 0)} of {len(j.get('items') or [])}", "success")
+    except Exception:
+        pass
+
+
+def _bq_step(uname: str, force: bool = False) -> bool:
+    """Send at most ONE email for this user's oldest active broadcast.
+    Returns True if it sent (or settled) something. force=True ignores the
+    gap timer (tests)."""
+    with _BQ_LOCK:
+        jobs = _bq_load(uname)
+        j = next((x for x in jobs if x.get("status") in ("running", "waiting_daily")), None)
+        if not j or (not force and not _bq_due(j)):
+            return False
+        j["status"] = "running"
+        for it in j.get("items") or []:                       # restart hit mid-send: never resend
+            if it.get("state") == "sending":
+                it.update(state="unknown", error="Server restarted while sending — not resent")
+        it = next((x for x in (j.get("items") or []) if x.get("state") == "pending"), None)
+        if not it:
+            _bq_finish(uname, j)
+            _bq_save(uname, jobs)
+            return True
+        _day, n_today = _bq_daily(uname)
+        if n_today >= BROADCAST_DAILY_CAP:
+            j.update(status="waiting_daily", next_at=_bq_next_morning_utc(uname))
+            _bq_save(uname, jobs)
+            return False
+        it["state"] = "sending"
+        _bq_save(uname, jobs)
+        job_id, body_t, subject = j["id"], j.get("body_t", ""), j.get("subject", "")
+        add_unsub, from_name, to_addr = j.get("add_unsub"), j.get("from_name", ""), it.get("email", "")
+        ctx = {"name": it.get("name", ""), "company": it.get("company", "")}
+    ok, err = False, ""
+    try:
+        if not to_addr or not EMAIL_RE.match(to_addr):
+            err = "Missing/invalid email"
+        else:
+            u = (load_users().get("users") or {}).get(uname) or {}
+            body = _safe_render(body_t, ctx)
+            if add_unsub:
+                try:
+                    body = _add_unsub_footer(body, f"{(PUBLIC_BASE_URL or '').rstrip('/')}/unsubscribe/{_unsub_token(uname, to_addr)}")
+                except Exception:
+                    pass
+            ok, _prov, err = _crm_send_email_to(u, to_addr, subject, body, from_name=from_name)
+    except Exception as e:
+        ok, err = False, str(e)[:200]
+    with _BQ_LOCK:
+        jobs = _bq_load(uname)
+        j = next((x for x in jobs if x.get("id") == job_id), None)
+        if not j:
+            return True
+        for x in j.get("items") or []:
+            if x.get("state") == "sending" and x.get("email") == to_addr:
+                x.update(state="sent" if ok else "failed", error="" if ok else (err or "Send failed"))
+                break
+        j["sent" if ok else "failed"] = j.get("sent" if ok else "failed", 0) + 1
+        if ok:
+            _bq_bump_daily(uname)
+        if j.get("status") == "running":
+            if any(x.get("state") == "pending" for x in j.get("items") or []):
+                gap = random.uniform(BROADCAST_GAP_MIN, BROADCAST_GAP_MAX)
+                j["next_at"] = (_utcnow() + timedelta(seconds=gap)).isoformat() + "Z"
+            else:
+                _bq_finish(uname, j)
+        _bq_save(uname, jobs)
+    return True
+
+
+def _bq_drain(uname: str) -> None:
+    """Send everything now, ignoring the gaps (tests only)."""
+    for _ in range(10000):
+        if not _bq_step(uname, force=True):
+            break
+
+
+def _bq_tick() -> None:
+    for path in _BQ_DIR.glob("*.json"):
+        if path.stem.endswith("_daily"):
+            continue
+        try:
+            _bq_step(path.stem)
+        except Exception as e:
+            _capture_error(e, context="broadcast_queue")
+
+
+def _bq_loop() -> None:
+    time.sleep(10)
+    while True:
+        try:
+            with app.app_context():
+                _bq_tick()
+        except Exception:
+            pass
+        time.sleep(5)
+
+
 @app.post("/api/crm/broadcast/email")
 def api_crm_broadcast_email():
     """
@@ -18094,60 +18293,16 @@ def api_crm_broadcast_email():
                             "skipped_unsubscribed": skipped_unsub})
 
         from_name = (_user_smtp_settings(u).get("from_name", "") or "").strip()
-        run_async = bool(payload.get("async")) or len(recipients) > 20
-
-        def _do_send(job_id_: Optional[str] = None):
-            sent_ = 0
-            failed_ = 0
-            results_ = []
-            total_ = len(recipients)
-            for idx, c in enumerate(recipients):
-                to_addr = (c.get("email") or "").strip()
-                if not to_addr or not EMAIL_RE.match(to_addr):
-                    failed_ += 1
-                    results_.append({"client_id": c.get("id", ""), "ok": False, "error": "Missing/invalid email"})
-                else:
-                    ctx = {"name": c.get("name", ""), "company": c.get("company", "")}
-                    body = _safe_render(body_t, ctx)
-                    if add_unsub:
-                        try:
-                            _unsub_tok = _unsub_token(uname, to_addr)
-                            _unsub_base = (PUBLIC_BASE_URL or "").rstrip("/")
-                            body = _add_unsub_footer(body, f"{_unsub_base}/unsubscribe/{_unsub_tok}")
-                        except Exception:
-                            pass
-                    ok_send, provider, err = _crm_send_email_to(u, to_addr, subject, body, from_name=from_name)
-                    if ok_send:
-                        sent_ += 1
-                    else:
-                        failed_ += 1
-                    results_.append({"client_id": c.get("id", ""), "ok": bool(ok_send), "provider": provider, "error": err})
-                if job_id_:
-                    _BROADCAST_JOBS[job_id_] = {"status": "running", "sent": sent_, "failed": failed_,
-                                                 "count": total_, "progress": idx + 1, "results": results_}
-            _crm_log_message(uname, {"type": "broadcast_email", "subject": subject, "filter": filt, "sent": sent_, "failed": failed_})
-            if sent_ > 0:
-                _award_points(uname, "Sent an email broadcast", 30)
-                _fire_outbound_webhooks(uname, "broadcast_sent", {"recipient_count": sent_, "subject": subject[:80]})
-            if job_id_:
-                _notif_push(uname, "Email broadcast complete",
-                            f"Sent {sent_}, failed {failed_} of {total_}", "success")
-                _final = {"status": "done", "sent": sent_, "failed": failed_,
-                          "count": total_, "progress": total_, "results": results_,
-                          "username": uname, "finished_at": now_iso()}
-                _BROADCAST_JOBS[job_id_] = _final
-                _broadcast_job_persist(job_id_, _final)
-            return sent_, failed_, results_
-
-        if run_async:
-            job_id = uuid.uuid4().hex
-            _BROADCAST_JOBS[job_id] = {"status": "running", "sent": 0, "failed": 0,
-                                        "count": len(recipients), "progress": 0, "results": [], "username": uname}
-            threading.Thread(target=_do_send, args=(job_id,), daemon=True).start()
-            return jsonify({"ok": True, "async": True, "job_id": job_id, "count": len(recipients)})
-
-        sent, failed, results = _do_send()
-        return jsonify({"ok": True, "count": len(recipients), "sent": sent, "failed": failed, "results": results})
+        if not recipients:
+            return jsonify({"ok": True, "count": 0, "sent": 0, "failed": 0, "results": [],
+                            "skipped_unsubscribed": skipped_unsub})
+        # Paced sending (V11.2): queue it; the sender thread sends one email at
+        # a time with random gaps and a daily cap, and survives restarts.
+        job = _bq_enqueue(uname, subject, body_t, from_name, add_unsub, recipients, filt)
+        avg = (BROADCAST_GAP_MIN + BROADCAST_GAP_MAX) / 2.0
+        return jsonify({"ok": True, "async": True, "job_id": job["id"], "count": len(recipients),
+                        "eta_minutes": int(round(max(0, len(recipients) - 1) * avg / 60.0)),
+                        "skipped_unsubscribed": skipped_unsub})
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e) or "Broadcast failed"}), 500
@@ -18200,13 +18355,44 @@ def api_broadcast_job_status(job_id: str):
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    qjob = _bq_find(uname, job_id)
+    if qjob:
+        return jsonify({"ok": True, "job": _bq_public(qjob)})
     job = _BROADCAST_JOBS.get(job_id) or _broadcast_job_load(job_id)
     if not job:
         return jsonify({"ok": False, "error": "Job not found"}), 404
-    uname = (u.get("username") if isinstance(u, dict) else None) or ""
     if job.get("username") and job["username"] != uname:
         return jsonify({"ok": False, "error": "Job not found"}), 404
     return jsonify({"ok": True, "job": job})
+
+
+@app.get("/api/crm/broadcast/active")
+def api_broadcast_active():
+    """Broadcasts still sending (or waiting for tomorrow's daily allowance)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    jobs = [_bq_public(j) for j in _bq_load(u.get("username", "")) if j.get("status") in ("running", "waiting_daily")]
+    return jsonify({"ok": True, "jobs": jobs})
+
+
+@app.post("/api/crm/broadcast/job/<job_id>/stop")
+def api_broadcast_job_stop(job_id: str):
+    """Stop a paced broadcast; emails already sent stay sent, the rest are dropped."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    with _BQ_LOCK:
+        jobs = _bq_load(uname)
+        for j in jobs:
+            if j.get("id") == job_id and j.get("status") in ("running", "waiting_daily"):
+                j["status"] = "stopped"
+                j["finished_at"] = now_iso()
+                _bq_save(uname, jobs)
+                return jsonify({"ok": True, "job": _bq_public(j)})
+    return jsonify({"ok": False, "error": "Nothing to stop"}), 404
 
 
 @app.get("/api/crm/broadcast/job/<job_id>/stream")
@@ -31531,7 +31717,7 @@ def _sched_broadcast_tick() -> None:
         for it in due:
             p = it.get("payload") or {}
             body = {"subject": p.get("subject") or "", "body": p.get("body") or "", "dry_run": False,
-                    "async": False, "unsub_footer": bool(p.get("unsub_footer"))}
+                    "unsub_footer": bool(p.get("unsub_footer"))}
             aud, val = p.get("audience") or "all", str(p.get("audience_val") or "").strip()
             if aud in ("tag", "stage", "status") and val:
                 body[aud] = val
@@ -31543,8 +31729,10 @@ def _sched_broadcast_tick() -> None:
                     rv = api_crm_broadcast_email()
                     resp = rv[0] if isinstance(rv, tuple) else rv
                     d = resp.get_json() or {}
-                it.update(status="sent" if d.get("ok") else "failed", sent=d.get("sent", 0),
-                          failed=d.get("failed", 0), error=d.get("error", ""), sent_at=now_iso())
+                # The broadcast is handed to the paced queue (V11.2): "started"
+                # with its job id; the queue sends it over the next minutes.
+                it.update(status="started" if d.get("ok") else "failed", job_id=d.get("job_id", ""),
+                          count=d.get("count", 0), error=d.get("error", ""), started_at=now_iso())
             except Exception as e:
                 it.update(status="failed", error=str(e)[:200])
             # re-read + merge so a schedule added meanwhile isn't lost
@@ -34068,6 +34256,8 @@ def _bg_schedule_tick():
 
 _bg_sched_thread = threading.Thread(target=_bg_schedule_tick, daemon=True, name="sa-scheduler")
 _bg_sched_thread.start()
+if "pytest" not in _sys.modules:   # tests drive the queue directly (_bq_step / _bq_drain)
+    threading.Thread(target=_bq_loop, daemon=True, name="sa-broadcast-sender").start()
 print("[STARTUP] Background scheduler started — Action Stacks run without browser", flush=True)
 
 if __name__ == "__main__":

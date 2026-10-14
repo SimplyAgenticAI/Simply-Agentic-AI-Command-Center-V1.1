@@ -5906,6 +5906,7 @@ label {
         Add an unsubscribe link at the bottom <span class="tiny" style="opacity:.7;">(recommended for marketing emails to people you don't know)</span>
       </label>
       <div id="crmUnsubLine" class="tiny" style="margin-top:8px;display:none;"></div>
+      <div id="crmActiveBcasts" class="tiny" style="margin-top:8px;display:none;"></div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap;">
         <label style="margin:0;white-space:nowrap;">Schedule send</label>
         <input id="crmBroadcastSchedule" type="datetime-local" style="flex:1;min-width:180px;" />
@@ -18550,6 +18551,7 @@ Challenge weak assumptions. Surface risks.`;
       if(!wrap || !sel) return;
       if(!(crmCache.clients||[]).length){ try{ await crmFetchClients(); }catch(_){} }
       crmRenderUnsubLine();
+      crmRenderActiveBroadcasts();
       if(a === 'all'){ wrap.style.display = 'none'; $("crmAudienceValue").value = ''; return; }
       const clients = crmCache.clients || [];
       const counts = {};
@@ -18616,6 +18618,24 @@ Challenge weak assumptions. Surface risks.`;
       more.onclick = (e) => { e.preventDefault(); list.style.display = list.style.display === 'none' ? '' : 'none'; };
     };
 
+    window.crmRenderActiveBroadcasts = async function(){
+      const box = $("crmActiveBcasts"); if(!box) return;
+      try{
+        const d = await (await fetch('/api/crm/broadcast/active')).json();
+        const jobs = (d && d.ok && d.jobs) || [];
+        box.innerHTML = '';
+        box.style.display = jobs.length ? '' : 'none';
+        jobs.forEach(j => {
+          const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:3px 0;';
+          const t = document.createElement('span');
+          t.textContent = (j.status === 'waiting_daily' ? '⏸ Paused until tomorrow: ' : '📤 Sending: ') + '“' + (j.subject||'') + '” — ' + (j.progress||0) + ' of ' + (j.count||0);
+          const b = document.createElement('button'); b.className = 'btn btnMini'; b.textContent = 'View progress';
+          b.onclick = () => { if(window.sa5OpenBcastModal) window.sa5OpenBcastModal('Email Broadcast', j.count, j.id); };
+          row.appendChild(t); row.appendChild(b); box.appendChild(row);
+        });
+      }catch(_){}
+    };
+
     window.crmAudienceSync = function(){
       const sel = $("crmAudienceValueSel"); if(!sel) return;
       $("crmAudienceValue").value = sel.multiple
@@ -18678,7 +18698,7 @@ Challenge weak assumptions. Surface risks.`;
         }
 
         if(data.async && data.job_id){
-          if(st) st.innerText = `Sending to ${data.count||0} contacts…`;
+          if(st) st.innerText = `Sending to ${data.count||0} contacts, one at a time` + (data.eta_minutes ? ` (about ${data.eta_minutes} min)` : '') + '…';
           if(typeof sa5OpenBcastModal === 'function') sa5OpenBcastModal('Email Broadcast', data.count, data.job_id);
         } else {
           if(st) st.innerText = `Sent: ${data.sent||0} | Failed: ${data.failed||0} | Total: ${data.count||0}`;
@@ -34217,7 +34237,11 @@ function _saEsc(s){
       <div class="sa5-cnt sa5-cnt-tot" ><div class="sa5-cnt-n" id="sa5BTot">0</div> <div class="sa5-cnt-l">Total</div></div>
     </div>
     <div class="sa5-bmsg" id="sa5BMsg">Starting…</div>
-    <button class="btn btnPrimary" id="sa5BcastClose" onclick="document.getElementById('sa5BcastModal').classList.remove('sa5-open');if(typeof loadNotifs==='function')setTimeout(loadNotifs,800);">Done ✓</button>
+    <div class="sa5-bsub" id="sa5BPace" style="display:none;margin-top:6px;"></div>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px;">
+      <button class="btn" id="sa5BcastStop" style="display:none;" onclick="sa5StopBcast()">⏹ Stop sending</button>
+      <button class="btn btnPrimary" id="sa5BcastClose" onclick="sa5CloseBcastModal()">Done ✓</button>
+    </div>
   </div>
 </div>
 
@@ -34765,43 +34789,73 @@ window.sa5OpenBcastModal = function(label, total, jobId){
   document.getElementById('sa5BcastClose').style.display = 'none';
   m.classList.add('sa5-open');
 
+  document.getElementById('sa5BcastStop').style.display = 'none';
+  document.getElementById('sa5BPace').style.display = 'none';
   if(!jobId) return; // sync path — caller will call sa5FinishBcastModal
 
-  if(_sa5Sse){ try{_sa5Sse.close();}catch(_){} }
-  _sa5Sse = new EventSource('/api/crm/broadcast/job/' + jobId + '/stream');
-  _sa5Sse.onmessage = function(e){
+  // Paced broadcasts (V11.2) run for minutes or hours: poll the job instead of
+  // holding a stream open. Closing the window never stops the sending.
+  if(_sa5Sse){ try{ clearInterval(_sa5Sse); }catch(_){} }
+  _sa5JobId = jobId;
+  var fmtClock = function(d){ return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); };
+  var poll = async function(){
     try{
-      var job = JSON.parse(e.data);
-      var cnt = job.count || 0;
+      var r = await fetch('/api/crm/broadcast/job/' + encodeURIComponent(jobId));
+      var d = await r.json();
+      if(!d.ok || !d.job) return;
+      var job = d.job, cnt = job.count || 0;
       var pct = cnt > 0 ? Math.min(100, Math.round((job.progress||0)/cnt*100)) : 0;
       document.getElementById('sa5BFill').style.width = pct + '%';
-      document.getElementById('sa5BSent').textContent = job.sent  || 0;
+      document.getElementById('sa5BSent').textContent = job.sent || 0;
       document.getElementById('sa5BFail').textContent = job.failed || 0;
       document.getElementById('sa5BTot').textContent  = cnt;
-      var done = job.status === 'done' || job.status === 'error';
-      document.getElementById('sa5BMsg').textContent = done
-        ? (job.status === 'error' ? 'An error occurred.' : 'Broadcast complete! 🎉')
-        : 'Sending ' + (job.progress||0) + ' of ' + cnt + '…';
-      document.getElementById('sa5BSub').textContent = done
-        ? 'Done — ' + (job.sent||0) + ' sent, ' + (job.failed||0) + ' failed'
-        : 'Please wait — do not close this window';
-      if(done){
-        document.getElementById('sa5BcastClose').style.display = 'block';
-        _sa5Sse.close(); _sa5Sse = null;
-        /* Browser notification on broadcast complete */
+      var st = job.status, pace = document.getElementById('sa5BPace');
+      var finished = (st === 'done' || st === 'stopped' || st === 'error');
+      document.getElementById('sa5BcastStop').style.display = finished ? 'none' : '';
+      document.getElementById('sa5BcastClose').style.display = 'block';
+      document.getElementById('sa5BcastClose').textContent = finished ? 'Done ✓' : 'Close — keep sending';
+      if(st === 'waiting_daily'){
+        document.getElementById('sa5BMsg').textContent = 'Daily limit reached (' + (job.daily_cap||400) + ' emails) — paused until tomorrow morning';
+        document.getElementById('sa5BSub').textContent = 'This protects your Gmail account from being locked. The rest go out automatically.';
+        pace.style.display = 'none';
+      } else if(!finished){
+        document.getElementById('sa5BMsg').textContent = 'Sent ' + (job.progress||0) + ' of ' + cnt;
+        document.getElementById('sa5BSub').textContent = 'Emails go out one at a time, a little apart, so they look personal — not like a blast. You can close this.';
+        var bits = [];
+        if(job.next_at){ var secs = Math.max(0, Math.round((new Date(job.next_at) - new Date())/1000)); bits.push(secs > 0 ? 'Next email in ~' + secs + 's' : 'Sending the next one now…'); }
+        if(job.eta_seconds){ bits.push('done around ' + fmtClock(new Date(Date.now() + job.eta_seconds*1000))); }
+        pace.textContent = bits.join(' · '); pace.style.display = bits.length ? '' : 'none';
+      } else {
+        document.getElementById('sa5BMsg').textContent = st === 'stopped' ? 'Stopped — the rest were not sent.' : 'Broadcast complete! 🎉';
+        document.getElementById('sa5BSub').textContent = (job.sent||0) + ' sent, ' + (job.failed||0) + ' failed';
+        pace.style.display = 'none';
+        clearInterval(_sa5Sse); _sa5Sse = null;
         try{
-          if(job.status==='done'&&window.Notification&&Notification.permission==='granted'&&document.visibilityState!=='visible'){
+          if(st==='done'&&window.Notification&&Notification.permission==='granted'&&document.visibilityState!=='visible'){
             new Notification('Simply Agentic',{body:'Email broadcast complete — '+(job.sent||0)+' sent.',icon:'/static/icon-192.png'});
           }
         }catch(_){}
       }
     }catch(_){}
   };
-  _sa5Sse.onerror = function(){
-    try{_sa5Sse.close();}catch(_){} _sa5Sse = null;
-    document.getElementById('sa5BcastClose').style.display = 'block';
-    document.getElementById('sa5BMsg').textContent = 'Connection interrupted — see results above.';
-  };
+  poll();
+  _sa5Sse = setInterval(poll, 4000);
+};
+
+var _sa5JobId = null;
+window.sa5StopBcast = async function(){
+  if(!_sa5JobId || !confirm('Stop sending? Emails already sent stay sent; the rest are cancelled.')) return;
+  try{
+    var r = await fetch('/api/crm/broadcast/job/' + encodeURIComponent(_sa5JobId) + '/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    var d = await r.json();
+    if(typeof showToast === 'function') showToast(d.ok ? 'Broadcast stopped' : (d.error || 'Could not stop'));
+  }catch(e){}
+};
+window.sa5CloseBcastModal = function(){
+  if(_sa5Sse){ try{ clearInterval(_sa5Sse); }catch(_){} _sa5Sse = null; }
+  document.getElementById('sa5BcastModal').classList.remove('sa5-open');
+  if(typeof loadNotifs==='function') setTimeout(loadNotifs, 800);
+  try{ if(window.crmRenderActiveBroadcasts) window.crmRenderActiveBroadcasts(); }catch(_){}
 };
 
 window.sa5FinishBcastModal = function(sent, failed, total){
