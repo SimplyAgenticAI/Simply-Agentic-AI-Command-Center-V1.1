@@ -5885,13 +5885,16 @@ label {
       <div class="toolHint">Send an email to a filtered segment of your clients. Always do a dry run first to confirm recipients.</div>
       <div class="formGrid2">
         <div><label>Audience</label>
-          <select id="crmAudience">
+          <select id="crmAudience" onchange="crmAudienceChanged()">
             <option value="all">All contacts</option><option value="tag">Tag</option>
             <option value="stage">Pipeline stage</option><option value="status">Status</option>
-            <option value="selected">Selected client IDs</option>
+            <option value="selected">Hand-pick contacts</option>
           </select>
         </div>
-        <div><label>Value</label><input id="crmAudienceValue" placeholder="e.g. realtor" /></div>
+        <div id="crmAudienceValueWrap" style="display:none;"><label id="crmAudienceValueLbl">Which one?</label>
+          <select id="crmAudienceValueSel" onchange="crmAudienceSync()"></select>
+          <input id="crmAudienceValue" type="hidden" />
+        </div>
       </div>
       <label style="margin-top:18px;">Subject</label>
       <input id="crmEmailSubject" placeholder="Quick update" />
@@ -18530,6 +18533,55 @@ Challenge weak assumptions. Surface risks.`;
         if(st) st.innerText = 'Save failed';
       }
     }
+
+    // Email Broadcast audience: real choices from the operator's own contacts
+    // (stages in pipeline order, statuses, tags — each with a count), or a
+    // contact list to hand-pick from. The hidden #crmAudienceValue carries the
+    // value the send/dry-run code already reads.
+    window.crmAudienceChanged = async function(){
+      const a = ($("crmAudience").value||'all');
+      const wrap = $("crmAudienceValueWrap"), sel = $("crmAudienceValueSel"), lbl = $("crmAudienceValueLbl");
+      if(!wrap || !sel) return;
+      if(a === 'all'){ wrap.style.display = 'none'; $("crmAudienceValue").value = ''; return; }
+      if(!(crmCache.clients||[]).length){ try{ await crmFetchClients(); }catch(_){} }
+      const clients = crmCache.clients || [];
+      const counts = {};
+      const add = (k)=>{ k = String(k||'').trim(); if(k) counts[k] = (counts[k]||0) + 1; };
+      clients.forEach(c => {
+        if(a === 'stage') add(c.pipeline_stage || 'Lead');
+        else if(a === 'status') add(c.status || 'lead');
+        else if(a === 'tag') (c.tags||[]).forEach(add);
+      });
+      sel.multiple = (a === 'selected');
+      sel.size = (a === 'selected') ? Math.min(10, Math.max(4, clients.length)) : 0;
+      let opts = [];
+      if(a === 'stage'){
+        const order = (crmCache.pipeline && crmCache.pipeline.length) ? crmCache.pipeline : Object.keys(counts);
+        const seen = new Set(order);
+        opts = order.concat(Object.keys(counts).filter(k => !seen.has(k))).map(k => [k, k + ' (' + (counts[k]||0) + ')']);
+        lbl.textContent = 'Which stage?';
+      } else if(a === 'status' || a === 'tag'){
+        opts = Object.keys(counts).sort((x,y)=>counts[y]-counts[x]).map(k => [k, k + ' (' + counts[k] + ')']);
+        lbl.textContent = a === 'tag' ? 'Which tag?' : 'Which status?';
+      } else {
+        opts = clients.filter(c => (c.email||'').trim()).sort((x,y)=>String(x.name||'').localeCompare(String(y.name||'')))
+          .map(c => [c.id, (c.name||c.email) + (c.company ? ' · ' + c.company : '')]);
+        lbl.textContent = 'Pick contacts (Ctrl/⌘-click for several)';
+      }
+      sel.innerHTML = '';
+      if(!opts.length){
+        const o = document.createElement('option'); o.value = ''; o.textContent = a === 'tag' ? 'No tags on your contacts yet' : 'No contacts yet'; sel.appendChild(o);
+      }
+      opts.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); });
+      wrap.style.display = '';
+      crmAudienceSync();
+    };
+    window.crmAudienceSync = function(){
+      const sel = $("crmAudienceValueSel"); if(!sel) return;
+      $("crmAudienceValue").value = sel.multiple
+        ? Array.from(sel.selectedOptions).map(o => o.value).filter(Boolean).join(',')
+        : (sel.value || '');
+    };
 
     function crmAudiencePayload(){
       const a = ($("crmAudience").value||'all');
