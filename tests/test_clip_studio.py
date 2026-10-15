@@ -244,3 +244,19 @@ def test_get_transcript_of_loaded_video(studio):
     assert paras[0].startswith("Hello um this is a test.") and paras[1] == "Second part here."   # 3.7s pause splits
     assert j["timestamped"].startswith("[0:00] Hello") and "[0:06] Second" in j["timestamped"]
     assert c.post("/api/video/transcript", headers=h, json={"video_id": "nope"}).status_code == 404
+
+
+def test_job_status_survives_restart_and_reports_interruption(studio, monkeypatch):
+    c, h, vid, uname = studio
+    jid = app_module._ve_start_job(uname, lambda: {"ok": True, "answer": 42})
+    for _ in range(50):
+        if c.get(f"/api/video/job/{jid}").get_json().get("status") == "done":
+            break
+        time.sleep(0.05)
+    with app_module._VE_JOBS_LOCK:                      # simulate a restart: memory is gone
+        app_module._VE_JOBS.clear()
+    assert c.get(f"/api/video/job/{jid}").get_json()["answer"] == 42      # finished result still there
+    # a job that was mid-way when a *previous* process died
+    app_module.save_json(app_module._ve_job_file("abc123abc123"), {"status": "working", "user": uname, "proc": "old"})
+    r = c.get("/api/video/job/abc123abc123").get_json()
+    assert r["status"] == "done" and r["interrupted"] and "restarted" in r["error"]

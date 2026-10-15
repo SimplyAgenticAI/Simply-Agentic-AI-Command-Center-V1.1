@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.5")
+APP_VERSION = os.getenv("APP_VERSION", "11.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -20892,6 +20892,34 @@ Biggest lever: route the tool-loop rounds to a cheaper model to cut cost/message
     return make_response(html)
 
 
+_PROC_STARTS_FILE = Path(DATA_DIR) / "proc_starts.json"
+try:   # record every server-process start — shows how often the worker restarts
+    _ps = load_json(_PROC_STARTS_FILE, [])
+    _ps = (_ps if isinstance(_ps, list) else [])[-299:] + [now_iso()]
+    save_json(_PROC_STARTS_FILE, _ps)
+except Exception:
+    pass
+
+
+@app.get("/api/admin/restarts")
+def api_admin_restarts():
+    """Admin-only: server process starts in the last 24h / 7d. Many per hour
+    means the worker is recycling (gunicorn --max-requests) and cutting off
+    background jobs."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Admins only"}), 403
+    starts = load_json(_PROC_STARTS_FILE, []) or []
+    now = _utcnow()
+    def _age_h(ts):
+        try:
+            return (now - datetime.fromisoformat(str(ts).replace("Z", ""))).total_seconds() / 3600
+        except Exception:
+            return 1e9
+    return jsonify({"ok": True, "last_24h": sum(1 for t in starts if _age_h(t) <= 24),
+                    "last_7d": sum(1 for t in starts if _age_h(t) <= 168), "recent": starts[-20:]})
+
+
 @app.get("/admin/errors")
 def admin_error_log():
     """Admin-only: view the self-hosted error log."""
@@ -28967,6 +28995,34 @@ def _ffmpeg_bin() -> str:
 # /api/video/job/<id>. veApiFetch on the client does the polling transparently.
 _VE_JOBS: Dict[str, Dict[str, Any]] = {}
 _VE_JOBS_LOCK = threading.Lock()
+# Job state is also written to disk (V11.6) so a worker restart can't make a
+# job vanish: a finished result survives, and a job the restart killed mid-way
+# reports that plainly instead of "Job not found".
+_VE_JOBS_DIR = Path(DATA_DIR) / "ve_jobs"
+_VE_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+_VE_PROC_ID = uuid.uuid4().hex   # identifies this server process
+
+
+def _ve_job_file(jid: str) -> Path:
+    return _VE_JOBS_DIR / f"{re.sub(r'[^a-f0-9]', '', jid)[:32]}.json"
+
+
+def _ve_job_persist(jid: str, state: Dict[str, Any]) -> None:
+    try:
+        save_json(_ve_job_file(jid), dict(state, proc=_VE_PROC_ID))
+    except Exception:
+        pass
+
+
+def _ve_jobs_prune(max_age_s: int = 86400) -> None:
+    import time as _t
+    for f in _VE_JOBS_DIR.glob("*.json"):
+        try:
+            if _t.time() - f.stat().st_mtime > max_age_s:
+                f.unlink()
+        except Exception:
+            pass
+
 
 def _ve_start_job(username: str, fn, key: str = "") -> str:
     import time as _t
@@ -28980,6 +29036,7 @@ def _ve_start_job(username: str, fn, key: str = "") -> str:
                     return _jid  # same work already running — share it
         jid = uuid.uuid4().hex[:12]
         _VE_JOBS[jid] = {"status": "working", "user": username, "ts": _t.time(), "key": key}
+        _ve_job_persist(jid, _VE_JOBS[jid])
 
     def _run():
         try:
@@ -28991,6 +29048,7 @@ def _ve_start_job(username: str, fn, key: str = "") -> str:
         with _VE_JOBS_LOCK:
             if jid in _VE_JOBS:
                 _VE_JOBS[jid].update({"status": "done", "result": res})
+                _ve_job_persist(jid, _VE_JOBS[jid])
     threading.Thread(target=_run, daemon=True).start()
     return jid
 
@@ -29009,6 +29067,12 @@ def api_video_job(job_id):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     with _VE_JOBS_LOCK:
         j = dict(_VE_JOBS.get(job_id) or {})
+    if not j:
+        j = load_json(_ve_job_file(job_id), {}) or {}
+        if j.get("user") == u.get("username") and j.get("status") == "working" and j.get("proc") != _VE_PROC_ID:
+            # Started by a server process that has since restarted: that work is gone.
+            return jsonify({"ok": False, "status": "done", "interrupted": True,
+                            "error": "The server restarted while this was running — please try again."})
     if not j or j.get("user") != u.get("username"):
         return jsonify({"ok": False, "error": "Job not found — please try again."}), 404
     if j.get("status") == "working":
@@ -34666,6 +34730,8 @@ def _bg_schedule_tick():
         _bg_evict_counter += 1
         if _bg_evict_counter % 10 == 0:
             try: _prune_logs_dir()
+            except Exception: pass
+            try: _ve_jobs_prune()
             except Exception: pass
             try: _image_jobs_evict_old()
             except Exception: pass
