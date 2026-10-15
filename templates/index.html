@@ -8707,7 +8707,7 @@ window.showModal = function showModal(title, body, imgUrl){
         const chip = document.createElement("div");
         chip.className = "emailAttachChip";
         const preview = _eaIsImage(att.mimetype, att.filename)
-          ? `<img src="${att.url}" alt=""/>`
+          ? `<img src="${escapeHtml(att.url)}" alt=""/>`
           : `<span style="flex-shrink:0;">📎</span>`;
         chip.innerHTML = `${preview}<span class="eaName" title="${escapeHtml(att.filename)}">${escapeHtml(att.filename)}</span><span class="eaRemove" data-idx="${idx}" title="Remove">✕</span>`;
         chip.querySelector(".eaRemove").onclick = () => {
@@ -16897,7 +16897,7 @@ Challenge weak assumptions. Surface risks.`;
           pendingList.innerHTML = invites.map(inv => `
             <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(251,191,36,.05);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:10px 14px;">
               <div>
-                <div style="font-size:calc(14px * var(--fs,1.1));color:#fcd34d;">${inv.email}</div>
+                <div style="font-size:calc(14px * var(--fs,1.1));color:#fcd34d;">${escapeHtml(inv.email)}</div>
                 <div class="tiny" style="color:#78716c;">Invite pending · sent ${inv.created_at ? inv.created_at.slice(0,10) : ''}</div>
               </div>
               <button class="btn" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;color:#cbd5e1;" onclick="revokeInvite('${inv.token}')">Revoke</button>
@@ -20213,7 +20213,7 @@ window.crmPipelineOpenClient = function(clientId){
             card.style.cssText = 'background:rgba(14,22,48,.7);border:1px solid rgba(80,110,180,.3);border-radius:10px;padding:12px 14px;';
             const created = pb.created_at ? new Date(pb.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
             card.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">'
-              + '<div style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">' + (pb.title||'Untitled') + '</div>'
+              + '<div style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">' + escapeHtml(pb.title||'Untitled') + '</div>'
               + '<div style="display:flex;gap:6px;align-items:center;">'
               + '<span style="font-size:calc(14px * var(--fs,1.1));opacity:.5;">' + created + '</span>'
               + '<button class="btn btnMini" style="font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;" data-viewbtn>View</button>'
@@ -21111,7 +21111,7 @@ function wcalShowTaskDetail(task){
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(task.description||'')}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${escapeHtml(wcalCleanDescription(task.description||''))}</textarea>
     </div>
     ${task.completed_at?`<div><div class="wcal-detail-label">Completed at</div><div class="wcal-detail-value" style="opacity:.7;">${new Date(task.completed_at).toLocaleString()}</div></div>`:''}
     <div class="wcal-autocomplete-section" id="detAutoSection">
@@ -21252,7 +21252,7 @@ function wcalShowGcalTaskDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(storedNotes)}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${escapeHtml(wcalCleanDescription(storedNotes))}</textarea>
     </div>
     <div class="wcal-autocomplete-section" id="detAutoSection">
       <div class="wcal-autocomplete-title">📧 Email on Complete</div>
@@ -21379,7 +21379,7 @@ function wcalShowEventDetail(ev){
     </div>
     <div>
       <div class="wcal-detail-label">Notes</div>
-      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${wcalCleanDescription(storedNotes)}</textarea>
+      <textarea class="wcal-detail-textarea" id="detDesc" placeholder="Add notes...">${escapeHtml(wcalCleanDescription(storedNotes))}</textarea>
     </div>
     ${(meetLink||zoomLink)?`<div>
       <div class="wcal-detail-label">Video call</div>
@@ -22287,7 +22287,7 @@ function wcalRenderWeek(){
     // All-day events
     const allDay=(cal.events[dt]||[]).filter(ev=>ev.start&&!ev.start.includes('T'));
     allDay.forEach(ev=>{
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const title=(ev.summary||'Task').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
       const evKey=ev.id||ev.summary||'';
       const isTask=(ev._gcalType||'task')==='task';
       const prefix=isTask?'☑ ':'📅 ';
@@ -22359,7 +22359,7 @@ function wcalRenderDay(){
     allDayEvs.forEach(ev=>{
       const evKey=ev.id||ev.summary||'';
       const isTask=(ev._gcalType||'task')==='task';
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const title=(ev.summary||'Task').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
       html+=`<div class="wcal-event" style="position:relative;top:auto;height:auto;padding:3px 8px;font-size:calc(14px * var(--fs,1.1));white-space:nowrap;cursor:pointer;" data-eid="${encodeURIComponent(evKey)}" data-etype="${isTask?'task':'event'}" onclick="wcalOpenDetail(this)">${isTask?'☑':'📅'} ${title}</div>`;
     });
     html+='</div>';
@@ -22451,17 +22451,17 @@ function _wcalUpcomingItemHtml(item){
       const sd=new Date(ev.start);
       const dateStr=isNaN(sd)?ev.start.slice(0,10):sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
       const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-      const title=(ev.summary||'Task').replace(/</g,'&lt;');
+      const title=(ev.summary||'Task').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
       const isDone=_evDone.has(ev.id||ev.summary||'')||!!((cal.gcalMeta||{})[ev.id||ev.summary||'']||{}).done;
-        return '<div class="wcal-upcoming-item" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=&quot;'+(ev.id||ev.summary||'')+'&quot;;var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowGcalTaskDetail===&quot;function&quot;)wcalShowGcalTaskDetail(ev2);},120);})()"><div class="wcal-upcoming-title">'+(isDone?'✓ ':'☑ ')+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+        return '<div class="wcal-upcoming-item" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=decodeURIComponent(&quot;'+encodeURIComponent(ev.id||ev.summary||'')+'&quot;);var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowGcalTaskDetail===&quot;function&quot;)wcalShowGcalTaskDetail(ev2);},120);})()"><div class="wcal-upcoming-title">'+(isDone?'✓ ':'☑ ')+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
     } else {
       // gcal item shown as event (blue)
       const ev=item.ev;
       const sd=new Date(ev.start);
       const dateStr=isNaN(sd)?ev.start.slice(0,10):sd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
       const timeStr=isNaN(sd)||!ev.start.includes('T')?'':sd.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
-      const title=(ev.summary||'Event').replace(/</g,'&lt;');
-        return '<div class="wcal-upcoming-item" style="color:#7dd3fc;" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=&quot;'+(ev.id||ev.summary||'')+'&quot;;var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowEventDetail===&quot;function&quot;)wcalShowEventDetail(ev2);},120);})()"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
+      const title=(ev.summary||'Event').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        return '<div class="wcal-upcoming-item" style="color:#7dd3fc;" onclick="(function(){var dt=&quot;'+item.dt+'&quot;;wcalSelectDate(dt);setTimeout(function(){var evKey=decodeURIComponent(&quot;'+encodeURIComponent(ev.id||ev.summary||'')+'&quot;);var ev2=null;Object.values(cal.events).forEach(function(arr){arr.forEach(function(e){if((e.id||e.summary||&quot;&quot;)===evKey)ev2=e;});});if(ev2&&typeof wcalShowEventDetail===&quot;function&quot;)wcalShowEventDetail(ev2);},120);})()"><div class="wcal-upcoming-title">📅 '+title+'</div><div class="wcal-upcoming-time">'+dateStr+(timeStr?' · '+timeStr:'')+'</div></div>';
     }
 }
 
