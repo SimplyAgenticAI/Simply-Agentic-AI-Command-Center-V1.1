@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.9")
+APP_VERSION = os.getenv("APP_VERSION", "12.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1860,24 +1860,16 @@ def _load_seats() -> Dict[str, Any]:
     _now = time.time()
     if _SEATS_CACHE["data"] is not None and _now - _SEATS_CACHE["ts"] < _SEATS_CACHE_TTL:
         return _SEATS_CACHE["data"]
-    if not SEATS_PATH.exists():
+    d = load_json(SEATS_PATH, None)
+    if not isinstance(d, dict):
         d = {"seats": {}, "updated_at": None}
-    else:
-        try:
-            d = json.loads(SEATS_PATH.read_text(encoding="utf-8"))
-            if not isinstance(d, dict):
-                d = {"seats": {}, "updated_at": None}
-        except Exception:
-            d = {"seats": {}, "updated_at": None}
     _SEATS_CACHE["data"] = d
     _SEATS_CACHE["ts"] = _now
     return d
 
 def _save_seats(data: Dict[str, Any]) -> None:
     data["updated_at"] = now_iso()
-    tmp = SEATS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(SEATS_PATH)
+    save_json(SEATS_PATH, data)
     _SEATS_CACHE["data"] = None  # invalidate cache after write
 
 def _ensure_seats_initialized() -> None:
@@ -1968,11 +1960,7 @@ def _is_admin_user(u: Optional[Dict[str, Any]]) -> bool:
     except Exception:
         return False
 
-# Initialize seats on import
-try:
-    _ensure_seats_initialized()
-except Exception:
-    pass
+# Seats are initialized on import further down, once load_json/save_json exist.
 
 
 # =========================
@@ -3554,6 +3542,13 @@ def update_json(path: Path, default: Any, mutate_fn) -> Any:
                 pass
         return data
 
+
+# Initialize seats on import (moved here: _load_seats/_save_seats use the
+# helpers above, which must exist first).
+try:
+    _ensure_seats_initialized()
+except Exception:
+    pass
 
 
 def append_log(name: str, payload: Dict[str, Any]) -> None:
@@ -10617,13 +10612,8 @@ def api_visuals_list():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     try:
-        data_path = DATA / f"visuals_{uname}.json"
-        import json as _json
-        if data_path.exists():
-            visuals = _json.loads(data_path.read_text(encoding="utf-8"))
-        else:
-            visuals = []
-        return jsonify({"ok": True, "visuals": visuals})
+        visuals = load_json(DATA / f"visuals_{uname}.json", [])
+        return jsonify({"ok": True, "visuals": visuals if isinstance(visuals, list) else []})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -10642,21 +10632,20 @@ def api_visuals_save():
     if not html:
         return jsonify({"ok": False, "error": "No HTML provided"}), 400
     try:
-        import json as _json, time as _time
-        data_path = DATA / f"visuals_{uname}.json"
-        visuals = _json.loads(data_path.read_text(encoding="utf-8")) if data_path.exists() else []
+        import time as _time
         entry = {
             "id": str(int(_time.time() * 1000)),
             "prompt": prompt[:120],
             "html": html,
             "teammate": teammate,
-            "saved_at": __import__("datetime")._utcnow().strftime("%Y-%m-%d %H:%M"),
+            # was __import__("datetime")._utcnow() — no such function, so every save 500'd
+            "saved_at": _utcnow().strftime("%Y-%m-%d %H:%M"),
             "preview": html[:200],
         }
-        visuals.insert(0, entry)
-        if len(visuals) > 50:
-            visuals = visuals[:50]
-        data_path.write_text(_json.dumps(visuals, ensure_ascii=False), encoding="utf-8")
+        def _add(visuals):
+            visuals = visuals if isinstance(visuals, list) else []
+            return ([entry] + visuals)[:50]
+        update_json(DATA / f"visuals_{uname}.json", [], _add)
         return jsonify({"ok": True, "id": entry["id"]})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -10670,13 +10659,11 @@ def api_visuals_delete(vis_id: str):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     try:
-        import json as _json
         data_path = DATA / f"visuals_{uname}.json"
         if not data_path.exists():
             return jsonify({"ok": True})
-        visuals = _json.loads(data_path.read_text(encoding="utf-8"))
-        visuals = [v for v in visuals if str(v.get("id","")) != str(vis_id)]
-        data_path.write_text(_json.dumps(visuals, ensure_ascii=False), encoding="utf-8")
+        update_json(data_path, [], lambda vs: [v for v in (vs if isinstance(vs, list) else [])
+                                               if str(v.get("id", "")) != str(vis_id)])
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -12018,17 +12005,13 @@ def _cal_tasks_path(username: str) -> Path:
     return DATA / f"cal_tasks_{username}.json"
 
 def _load_cal_tasks(username: str) -> List[Dict[str, Any]]:
-    p = _cal_tasks_path(username)
-    try:
-        if p.exists():
-            return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return []
+    d = load_json(_cal_tasks_path(username), [])
+    return d if isinstance(d, list) else []
 
 def _save_cal_tasks(username: str, tasks: List[Dict[str, Any]]) -> None:
-    p = _cal_tasks_path(username)
-    p.write_text(json.dumps(tasks, ensure_ascii=False), encoding="utf-8")
+    # V12.0: atomic + locked. This used to write straight over the file — a read
+    # mid-write (or a crash) got an empty list and the next save wiped every task.
+    save_json(_cal_tasks_path(username), tasks)
 
 @app.get("/api/cal/tasks")
 def api_cal_tasks_get():
@@ -18871,18 +18854,18 @@ def _load_operator_profile(username: str) -> Dict[str, Any]:
             "timezone": "UTC",
             "updated_at": ""
         }
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {
-            "display_name": "Operator",
-            "business": "",
-            "offers": "",
-            "audience": "",
-            "goals": "",
-            "notes": "",
-            "updated_at": ""
-        }
+    d = load_json(path, None)
+    if isinstance(d, dict):
+        return d
+    return {
+        "display_name": "Operator",
+        "business": "",
+        "offers": "",
+        "audience": "",
+        "goals": "",
+        "notes": "",
+        "updated_at": ""
+    }
 
 def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     try:
@@ -18892,14 +18875,7 @@ def _save_operator_profile(username: str, profile: Dict[str, Any]) -> None:
     now = _utcnow().isoformat() + "Z"
     profile = dict(profile or {})
     profile["updated_at"] = now
-    path = OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json"
-    try:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
-    except Exception:
-        # Fallback to direct write if rename fails (e.g. cross-device)
-        path.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_json(OPERATOR_PROFILE_DIR / f"{(username or 'anon')}.json", profile)
 
 
 # =========================
@@ -24728,23 +24704,11 @@ def _notepad_path(username: str) -> Path:
     return DATA / f"notepad_{safe}.json"
 
 def _load_notes(username: str) -> list:
-    try:
-        p = _notepad_path(username)
-        if p.exists():
-            d = json.loads(p.read_text(encoding="utf-8"))
-            return d if isinstance(d, list) else []
-    except Exception:
-        pass
-    return []
+    d = load_json(_notepad_path(username), [])
+    return d if isinstance(d, list) else []
 
 def _save_notes(username: str, notes: list) -> None:
-    try:
-        p = _notepad_path(username)
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(notes, indent=2), encoding="utf-8")
-        tmp.replace(p)
-    except Exception:
-        pass
+    save_json(_notepad_path(username), notes)
 
 
 # =========================
@@ -33421,7 +33385,7 @@ def _load_sp_conns(uname: str) -> dict:
     try:
         p = _sp_conns_path(uname)
         if p.exists():
-            d = json.loads(p.read_text(encoding="utf-8"))
+            d = load_json(p, None)
             if not isinstance(d, dict):
                 return {}
             # Encrypted-at-rest blob (social OAuth/page tokens). Backward
@@ -33444,9 +33408,7 @@ def _save_sp_conns(uname: str, conns: dict) -> None:
     # FIELD_ENCRYPTION_KEY is configured. Falls back to plaintext (with the
     # same startup warning as API keys) when no key is set.
     payload = {"_encrypted": _encrypt_field(json.dumps(conns))} if _FERNET else conns
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    save_json(p, payload)
 
 def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
     fb = conns.get("facebook") or {}
