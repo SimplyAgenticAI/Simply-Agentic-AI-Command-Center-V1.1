@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.4")
+APP_VERSION = os.getenv("APP_VERSION", "11.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -29601,6 +29601,54 @@ def _ve_source_transcript(user: Dict[str, Any], vid_id: str) -> List[Dict[str, A
     words = _vc_transcribe(user, src, src.parent)
     save_json(cache, words)
     return words
+
+def _transcript_paragraphs(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group transcript words into readable paragraphs: break on a pause of
+    1.2 s+, or at a sentence end once a paragraph is ~60 words."""
+    paras, cur, start = [], [], None
+    prev_end = None
+    for w in words or []:
+        t = str(w.get("w") or "").strip()
+        if not t:
+            continue
+        s = float(w.get("s") or 0)
+        if cur and ((prev_end is not None and s - prev_end >= 1.2) or (len(cur) >= 60 and cur[-1][-1:] in ".?!")):
+            paras.append({"start": start, "text": " ".join(cur)})
+            cur, start = [], None
+        if start is None:
+            start = s
+        cur.append(t)
+        prev_end = float(w.get("e") or s)
+    if cur:
+        paras.append({"start": start, "text": " ".join(cur)})
+    return paras
+
+
+@app.post("/api/video/transcript")
+def api_video_transcript():
+    """Full transcript of the video loaded in the Video Editor (V11.5) — no
+    second upload. Reuses the same cached transcript as Make shorts."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    vid = str((request.get_json(silent=True) or {}).get("video_id") or "").strip()
+    if not _ve_source_path(vid):
+        return jsonify({"ok": False, "error": "Video not found — please upload it again."}), 404
+
+    def _work():
+        try:
+            words = _ve_source_transcript(u, vid)
+        except _VcError as ve:
+            return {"ok": False, "error": str(ve)}
+        if not words:
+            return {"ok": False, "error": "No speech found in this video."}
+        paras = _transcript_paragraphs(words)
+        stamp = lambda s: f"{int(s // 3600):d}:{int(s % 3600 // 60):02d}:{int(s % 60):02d}" if s >= 3600 else f"{int(s // 60):d}:{int(s % 60):02d}"
+        return {"ok": True, "text": "\n\n".join(p["text"] for p in paras),
+                "timestamped": "\n\n".join(f"[{stamp(p['start'] or 0)}] {p['text']}" for p in paras),
+                "word_count": len(words)}
+    return jsonify({"ok": True, "job_id": _ve_start_job(u.get("username", ""), _work, key=f"transcript:{vid}")})
+
 
 def _vc_silences(media: Path) -> List[Tuple[float, float]]:
     proc = _subprocess_ve.run([_ffmpeg_bin(), "-hide_banner", "-i", str(media), "-vn",

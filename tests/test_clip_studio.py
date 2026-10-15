@@ -229,3 +229,18 @@ def test_retake_detected_after_hesitation():
 def test_parallel_phrasing_is_not_a_retake():
     words = _w("you need to do this and you need to do that every single day".split())
     assert app_module._vc_retake_cuts(words) == []
+
+
+def test_get_transcript_of_loaded_video(studio):
+    c, h, vid, uname = studio
+    d = c.post("/api/video/transcript", headers=h, json={"video_id": vid}).get_json()
+    for _ in range(200):
+        j = c.get(f"/api/video/job/{d['job_id']}").get_json()
+        if j.get("status") != "working":
+            break
+        time.sleep(0.1)
+    assert j["ok"] and j["word_count"] == len(FAKE_WORDS)
+    paras = j["text"].split("\n\n")
+    assert paras[0].startswith("Hello um this is a test.") and paras[1] == "Second part here."   # 3.7s pause splits
+    assert j["timestamped"].startswith("[0:00] Hello") and "[0:06] Second" in j["timestamped"]
+    assert c.post("/api/video/transcript", headers=h, json={"video_id": "nope"}).status_code == 404

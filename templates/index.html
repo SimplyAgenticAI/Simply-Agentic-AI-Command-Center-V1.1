@@ -37298,7 +37298,7 @@ window.addEventListener('focus', function(){
         <button id="vcTabSource" class="vc-tab on" onclick="vcShowTab('source')">🎬 Source</button>
         <button id="vcTabClips" class="vc-tab" onclick="vcShowTab('clips')">🎞 My Clips <span id="vcClipCount" class="vc-count"></span></button>
         <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showTeleprompterModal)showTeleprompterModal()" title="Record your screen, camera, or both">🎥 Record</button>
-        <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showVideoTranscriptModal)showVideoTranscriptModal()" title="Turn any video or audio file into a written transcript">📝 Transcript</button>
+        <button class="vc-tab" onclick="if(window.closeVideoEditorModal)closeVideoEditorModal();if(window.showVideoTranscriptModal)showVideoTranscriptModal()" title="Transcribe an audio or video file without loading it into the editor">📝 Transcribe a file</button>
       </div>
     </div>
     <button onclick="closeVideoEditorModal()" style="background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);color:#fca5a5;border-radius:8px;padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;cursor:pointer;">✕ Close</button>
@@ -37338,6 +37338,7 @@ window.addEventListener('focus', function(){
         <button id="vcMakeShortsBtn" onclick="vcMakeShorts()" style="display:none;width:100%;flex-basis:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:12px;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;padding:12px 10px;cursor:pointer;box-shadow:0 6px 20px rgba(236,72,153,.35);" title="AI finds the best moments and makes captioned vertical shorts">⚡ Make my shorts</button>
         <label id="vcPlanWeekRow" style="display:none;width:100%;flex-basis:100%;align-items:center;gap:8px;color:#e2e8f0;font-size:calc(14.5px * var(--fs,1.1));cursor:pointer;padding:2px 4px 6px;"><input type="checkbox" id="vcPlanWeek" checked> 📅 Also write captions and line them up across next week in the Content Planner (as drafts you approve)</label>
         <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:9px 10px;cursor:pointer;">✨ Suggest moments</button>
+        <button id="veTranscriptBtn" onclick="veGetTranscript()" style="display:none;background:rgba(124,58,237,.16);border:1px solid rgba(167,139,250,.45);border-radius:10px;color:#ddd6fe;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:9px 10px;cursor:pointer;" title="Get the full written transcript of this video">📝 Get transcript</button>
         <button id="veExtractAudioBtn" onclick="veExtractAudio()" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;color:#6ee7b7;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">🎵 Extract Audio</button>
         <button id="veMuteExportBtn" onclick="veMuteExport()" style="display:none;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);border-radius:10px;color:#a5b4fc;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">🔇 Remove Audio</button>
         <button id="veScreenshotBtn" onclick="veScreenshot()" style="display:none;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:10px;color:#fde68a;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">📸 Screenshot</button>
@@ -38040,6 +38041,7 @@ window.addEventListener('focus', function(){
       if($('vcPlanWeekRow')) $('vcPlanWeekRow').style.display='flex';
       $('veAutoClipBtn').style.display='block';
       $('veExtractAudioBtn').style.display='block';
+      if($('veTranscriptBtn')) $('veTranscriptBtn').style.display='block';
       $('veScreenshotBtn').style.display='block';
       $('veExportPanel').style.display='block';
       $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
@@ -38261,6 +38263,53 @@ window.addEventListener('focus', function(){
   window._veApiFetch=veApiFetch;
 
   /* ── Extract audio (download MP3 from server) ── */
+  /* ── Get transcript of the loaded video (V11.5) — no second upload ── */
+  window.veGetTranscript=function(){
+    if(!_veVidId){veSt('Upload a video first','err');return;}
+    var btn=$('veTranscriptBtn');
+    btn.disabled=true; btn.textContent='⏳ Transcribing…';
+    veSt('Transcribing your video… longer videos take a minute or two.','info');
+    veApiFetch('/api/video/transcript',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({video_id:_veVidId})})
+    .then(function(d){
+      btn.disabled=false; btn.textContent='📝 Get transcript';
+      if(!d.ok){veSt(d.error||'Transcription failed','err');return;}
+      veSt('✅ Transcript ready — '+(d.word_count||0)+' words','ok');
+      veShowTranscript(d);
+    }).catch(function(e){btn.disabled=false;btn.textContent='📝 Get transcript';veSt('Error: '+e.message,'err');});
+  };
+  function veShowTranscript(d){
+    var old=document.getElementById('veTranscriptSheet'); if(old) old.remove();
+    var name=(($('veFileInfo')||{}).textContent||'video').split(' · ')[0].replace(/\.[^.]+$/,'')||'video';
+    var ov=document.createElement('div'); ov.id='veTranscriptSheet';
+    ov.style.cssText='position:fixed;inset:0;z-index:1000050;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.innerHTML='<div style="background:#0f172a;border:1px solid rgba(124,58,237,.45);border-radius:16px;width:min(760px,100%);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.7);">'+
+      '<div style="display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap;">'+
+        '<div style="font-weight:800;color:#e2e8f0;font-size:calc(17px * var(--fs,1.1));flex:1;min-width:140px;">📝 Transcript</div>'+
+        '<label style="display:flex;align-items:center;gap:6px;color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));cursor:pointer;"><input type="checkbox" id="veTrStamps"> Timestamps</label>'+
+        '<button class="btn btnMini" id="veTrCopy">📋 Copy</button><button class="btn btnMini" id="veTrDl">⬇ .txt</button>'+
+        '<button class="btn btnMini" id="veTrSave">⭐ Save</button><button class="btn btnMini" id="veTrClose">✕</button></div>'+
+      '<textarea id="veTrText" style="flex:1;min-height:50vh;margin:12px 16px 16px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:10px;color:#e2e8f0;padding:12px;font-size:calc(15px * var(--fs,1.1));line-height:1.6;font-family:inherit;resize:vertical;"></textarea></div>';
+    document.body.appendChild(ov);
+    var ta=ov.querySelector('#veTrText'), st=ov.querySelector('#veTrStamps');
+    ta.value=d.text||'';
+    st.onchange=function(){ ta.value = st.checked ? (d.timestamped||d.text||'') : (d.text||''); };
+    ov.querySelector('#veTrCopy').onclick=function(){ try{ navigator.clipboard.writeText(ta.value); showToast('Copied'); }catch(_){ ta.select(); document.execCommand('copy'); } };
+    ov.querySelector('#veTrDl').onclick=function(){
+      var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([ta.value],{type:'text/plain'}));
+      a.download=name+' transcript.txt'; document.body.appendChild(a); a.click(); a.remove();
+    };
+    ov.querySelector('#veTrSave').onclick=async function(){
+      var b=this; b.disabled=true;
+      try{
+        var r=await fetch('/api/vault/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:ta.value,label:'Transcript — '+name,teammate:'Video Editor'})});
+        var j=await r.json(); showToast(j.ok?'⭐ Saved to Saved replies':'Could not save'); if(j.ok) b.textContent='✓ Saved'; else b.disabled=false;
+      }catch(_){ b.disabled=false; }
+    };
+    ov.querySelector('#veTrClose').onclick=function(){ ov.remove(); };
+    ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+  }
+
   window.veExtractAudio=function(){
     if(!_veVidId){veSt('Upload a video first','err');return;}
     var btn=$('veExtractAudioBtn');
