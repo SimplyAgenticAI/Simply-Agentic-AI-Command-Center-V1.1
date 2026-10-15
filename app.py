@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.8")
+APP_VERSION = os.getenv("APP_VERSION", "11.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33409,20 +33409,13 @@ def _sp_conns_path(uname: str) -> Path:
     return Path(DATA_DIR) / f"social_conns_{safe}.json"
 
 def _load_sp_posts(uname: str) -> list:
-    try:
-        p = _sp_posts_path(uname)
-        if p.exists():
-            d = json.loads(p.read_text(encoding="utf-8"))
-            return d if isinstance(d, list) else []
-    except Exception:
-        pass
-    return []
+    # Through the shared per-path lock (V11.9): an unlocked read could collide
+    # with a write, come back empty, and let a load-append-save wipe every post.
+    d = load_json(_sp_posts_path(uname), [])
+    return d if isinstance(d, list) else []
 
 def _save_sp_posts(uname: str, posts: list) -> None:
-    p = _sp_posts_path(uname)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(posts, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    save_json(_sp_posts_path(uname), posts)
 
 def _load_sp_conns(uname: str) -> dict:
     try:
@@ -34766,12 +34759,15 @@ def _bg_schedule_tick():
             _sched_broadcast_tick()
         except Exception as _sbe:
             _log("WARNING", "Scheduled broadcast tick error", error=str(_sbe)[:200])
-        # Proactive teammates: morning standing jobs (V11.4)
-        try:
-            with app.app_context():
-                _agent_tick()
-        except Exception as _ate:
-            _log("WARNING", "Agent tick error", error=str(_ate)[:200])
+        # Proactive teammates: morning standing jobs (V11.4). Not under the
+        # test runner — tests call _agent_tick directly, and a background run
+        # would do real lead searches for test accounts.
+        if "pytest" not in _sys.modules:
+            try:
+                with app.app_context():
+                    _agent_tick()
+            except Exception as _ate:
+                _log("WARNING", "Agent tick error", error=str(_ate)[:200])
         # Every 10 minutes: prune logs + evict old image jobs
         _bg_evict_counter += 1
         if _bg_evict_counter % 10 == 0:
