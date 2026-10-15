@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.7")
+APP_VERSION = os.getenv("APP_VERSION", "11.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -21100,6 +21100,38 @@ def api_admin_backups():
         "s3_endpoint": BACKUP_S3_ENDPOINT or None,
         "offsite_last": load_json(_BACKUP_OFFSITE_STATUS, None),
     })
+
+
+@app.get("/admin/backups")
+def admin_backups_page():
+    """Admin-only: backup status at a glance + a Run backup now button."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return redirect(url_for("login"))
+    return """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Backups</title><style>body{font-family:system-ui,sans-serif;background:#0b1220;color:#e2e8f0;max-width:720px;margin:0 auto;padding:24px 16px;font-size:16px}
+.c{background:#111a2e;border:1px solid #23314f;border-radius:12px;padding:16px;margin:12px 0}.ok{color:#6ee7b7}.bad{color:#fca5a5}
+button{background:#7c3aed;color:#fff;border:0;border-radius:9px;padding:10px 16px;font-size:16px;cursor:pointer}td{padding:4px 10px 4px 0}</style></head>
+<body><h1>Backups</h1><div class="c" id="s">Loading…</div><button id="run">Run backup now</button> <span id="msg"></span>
+<script>
+async function load(){
+  const d = await (await fetch('/api/admin/backups')).json();
+  const o = d.offsite_last;
+  document.getElementById('s').innerHTML =
+    '<div>Every <b>'+d.interval_hours+'h</b>, keeping the last <b>'+d.keep+'</b> on the server.</div>'+
+    '<div style="margin-top:8px">Off-site: '+(d.s3_bucket ? ('<b>'+d.s3_bucket+'</b> '+(d.s3_endpoint||'(Amazon S3)')) : '<span class="bad">not set up — see LIVE_TEST_CHECKLIST.md</span>')+'</div>'+
+    (o ? '<div style="margin-top:8px">Last off-site upload: '+(o.ok ? '<span class="ok">✓ worked</span>' : '<span class="bad">✗ failed — '+(o.error||'')+'</span>')+' at '+o.at+'</div>' : '')+
+    '<table style="margin-top:10px">'+(d.backups||[]).map(b=>'<tr><td>'+b.name+'</td><td>'+Math.round(b.size_bytes/1024)+' KB</td></tr>').join('')+'</table>';
+}
+document.getElementById('run').onclick = async function(){
+  this.disabled = true; document.getElementById('msg').textContent = 'Running…';
+  const t = (await (await fetch('/api/csrf_token')).json()).csrf_token;
+  const r = await (await fetch('/api/admin/backups/run', {method:'POST', headers:{'X-CSRF-Token': t}})).json();
+  document.getElementById('msg').textContent = r.ok ? 'Done.' : ('Failed: ' + (r.error||''));
+  this.disabled = false; load();
+};
+load();
+</script></body></html>"""
 
 
 @app.post("/api/admin/backups/run")
