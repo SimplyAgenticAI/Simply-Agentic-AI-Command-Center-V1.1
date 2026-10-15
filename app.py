@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.6")
+APP_VERSION = os.getenv("APP_VERSION", "11.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3619,6 +3619,9 @@ except Exception:
 BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))
 BACKUP_KEEP           = int(os.getenv("BACKUP_KEEP", "3"))        # 3 × 6h = 18h of local history
 BACKUP_S3_BUCKET      = os.getenv("BACKUP_S3_BUCKET", "").strip() # e.g. my-app-backups
+BACKUP_S3_ENDPOINT    = os.getenv("BACKUP_S3_ENDPOINT", "").strip() # e.g. https://s3.us-west-004.backblazeb2.com
+BACKUP_S3_REGION      = os.getenv("BACKUP_S3_REGION", "").strip()   # e.g. us-west-004 (optional)
+_BACKUP_OFFSITE_STATUS = Path(DATA_DIR) / "backup_offsite_status.json"
 # Default to DATA/backups so backups land on the same persistent disk as data.
 # Override with BACKUP_DIR=/var/backups/simply_agentic if you have a separate backup volume.
 BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "") or os.path.join(DATA_DIR, "backups"))
@@ -3648,16 +3651,25 @@ def _run_backup() -> None:
             except Exception:
                 pass
 
-        # Optional S3/B2 push — requires boto3 and credentials in env
+        # Optional off-site push — Amazon S3, or any S3-compatible store
+        # (Backblaze B2, Cloudflare R2, Wasabi) via BACKUP_S3_ENDPOINT. The
+        # outcome is recorded so /api/admin/backups shows whether it worked.
         if BACKUP_S3_BUCKET:
             try:
                 import boto3  # type: ignore
-                s3 = boto3.client("s3")
+                kw = {}
+                if BACKUP_S3_ENDPOINT:
+                    kw["endpoint_url"] = BACKUP_S3_ENDPOINT
+                if BACKUP_S3_REGION:
+                    kw["region_name"] = BACKUP_S3_REGION
+                s3 = boto3.client("s3", **kw)
                 s3_key = f"backups/{dest.name}"
                 s3.upload_file(str(dest), BACKUP_S3_BUCKET, s3_key)
                 print(f"[BACKUP] Uploaded to s3://{BACKUP_S3_BUCKET}/{s3_key}", flush=True)
+                save_json(_BACKUP_OFFSITE_STATUS, {"ok": True, "at": now_iso(), "key": s3_key})
             except Exception as e:
                 print(f"[BACKUP] S3 upload failed: {e}", flush=True)
+                save_json(_BACKUP_OFFSITE_STATUS, {"ok": False, "at": now_iso(), "error": str(e)[:300]})
     except Exception as e:
         print(f"[BACKUP] Backup failed: {e}", flush=True)
 
@@ -21085,6 +21097,8 @@ def api_admin_backups():
         "keep": BACKUP_KEEP,
         "backup_dir": str(BACKUP_DIR),
         "s3_bucket": BACKUP_S3_BUCKET or None,
+        "s3_endpoint": BACKUP_S3_ENDPOINT or None,
+        "offsite_last": load_json(_BACKUP_OFFSITE_STATUS, None),
     })
 
 
