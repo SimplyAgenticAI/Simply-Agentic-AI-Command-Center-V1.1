@@ -34328,6 +34328,7 @@ function _saEsc(s){
         <button class="st-btn pri" onclick="saTodaySaveFocus()">Set</button>
       </div>
     </div>
+    <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
     <div class="st-sec" id="stLeadsSec" style="display:none;"><div class="st-h"><span>New leads to welcome</span><button id="stLeadsAll" onclick="saTodayDraftAllIntros()">✍ Draft all</button></div><div id="stLeads"></div></div>
@@ -34344,6 +34345,10 @@ function _saEsc(s){
       <select id="stBriefHour" onchange="saTodaySaveBrief()"></select>
       <span id="stBriefNote" style="color:#94a3b8;font-size:calc(14px * var(--fs,1.1));"></span>
     </div>
+    <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
+      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">🤖 Teammate jobs — what your team does for you each morning</summary>
+      <div id="stJobs" style="margin-top:8px;"></div>
+    </details>
   </div>
 </div>
 <script>
@@ -34363,7 +34368,7 @@ function _saEsc(s){
   // Day cleared → celebrate + plan tomorrow's first move
   function checkCleared(){
     if(!_hadWork) return;
-    var rows=[].slice.call(document.querySelectorAll('#stTasks .st-row, #stPeople .st-row, #stLeads .st-lead'));
+    var rows=[].slice.call(document.querySelectorAll('#stTasks .st-row, #stPeople .st-row, #stLeads .st-lead, #stReady .st-appr'));
     if(!rows.length || rows.some(function(r){ return !r.classList.contains('st-done'); })) return;
     var cel=document.getElementById('stCelebrate');
     if(cel.style.display!=='none') return;
@@ -34478,7 +34483,104 @@ function _saEsc(s){
       var r = await fetch('/api/today'); var d = await r.json();
       if(d && d.ok) render(d);
     }catch(e){ toast('Could not load Today: '+e, 'error'); }
+    loadAgent();
   }
+
+  // ── Proactive teammates (V11.4): Ready for you · trust dial · jobs ──
+  var _agent = null;
+  async function loadAgent(){
+    try{ var r = await fetch('/api/agent'); var d = await r.json(); if(d && d.ok){ _agent = d; renderAgent(d); } }catch(_){}
+  }
+  function agentPost(url, body){
+    return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}).then(function(r){ return r.json(); });
+  }
+  function renderAgent(d){
+    var sec = document.getElementById('stReadySec'), box = document.getElementById('stReady');
+    var ap = d.approvals || [], sent = d.sent_for_you || [];
+    sec.style.display = (ap.length || sent.length || (d.offers||[]).length) ? '' : 'none';
+    document.getElementById('stReadyH').textContent = '✨ Ready for you' + (ap.length ? ' (' + ap.length + ')' : '');
+    if(ap.length) _hadWork = true;
+    box.innerHTML = ap.map(function(a, i){
+      return '<div class="st-lead st-appr" data-i="'+i+'"><div class="st-row"><div class="st-t">'+esc(a.title)+
+        '<div class="st-sub">'+esc(a.teammate)+' drafted this · to '+esc(a.to)+(a.error?' · <span style="color:#fca5a5">'+esc(a.error)+'</span>':'')+'</div></div>'+
+        '<button class="st-btn" onclick="saAgentOpen('+i+')">Review</button>'+
+        '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Send</button>'+
+        '<button class="st-btn" onclick="saAgentSkip('+i+',this)">Skip</button></div><div class="st-intro"></div></div>';
+    }).join('');
+    document.getElementById('stSentForYou').innerHTML = sent.length
+      ? '<div class="st-empty">✅ Sent for you today: ' + sent.map(function(a){ return esc(a.client_name); }).join(', ') + '</div>' : '';
+    var off = (d.offers||[])[0], ob = document.getElementById('stOffer');
+    ob.innerHTML = off ? '<div class="st-draft" style="margin-bottom:8px;"><div style="font-weight:700;">🤝 You\'ve sent '+off.streak+' '+esc(off.label)+' without changing a word.</div>'+
+      '<div class="st-sub">Want your team to send these automatically from now on? You can turn it off any time under Teammate jobs.</div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri" onclick="saAgentTrust(\''+off.kind+'\',true)">Yes, send them for me</button>'+
+      '<button class="st-btn" onclick="saAgentTrust(\''+off.kind+'\',false,true)">Keep asking me</button></div></div>' : '';
+    var hours = ''; for(var h=5; h<=11; h++) hours += '<option value="'+h+'">'+h+':00 am</option>';
+    document.getElementById('stJobs').innerHTML = (d.jobs||[]).map(function(j){
+      return '<div class="st-row" style="flex-wrap:wrap;"><label style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;cursor:pointer;">'+
+        '<input type="checkbox" '+(j.enabled?'checked':'')+' onchange="saAgentJob(\''+j.key+'\',{enabled:this.checked})"> <span><b>'+esc(j.teammate)+'</b>: '+esc(j.title)+
+        '<div class="st-sub">'+esc(j.hint)+'</div></span></label>'+
+        '<select onchange="saAgentJob(\''+j.key+'\',{hour:+this.value})">'+hours.replace('value="'+j.hour+'"','value="'+j.hour+'" selected')+'</select>'+
+        '<button class="st-btn" onclick="saAgentRun(\''+j.key+'\',this)">Run now</button></div>';
+    }).join('') + (d.trust||[]).map(function(t){
+      return '<div class="st-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;">'+
+        '<input type="checkbox" '+(t.auto?'checked':'')+' onchange="saAgentTrust(\''+t.kind+'\',this.checked)"> Send '+esc(t.label)+' automatically (no approval)</label>'+
+        '<span class="st-sub">'+(t.auto?'On':(t.streak+'/'+d.offer_at+' approved unchanged'))+'</span></div>';
+    }).join('');
+  }
+  function apprRow(i){ return document.querySelector('#stReady .st-appr[data-i="'+i+'"]'); }
+  window.saAgentOpen = function(i){
+    var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
+    var box = row.querySelector('.st-intro');
+    if(box.innerHTML){ box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="st-draft"><input class="st-dsub" maxlength="300" /><textarea class="st-dbody"></textarea>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri">✓ Send to '+esc(a.to)+'</button></div></div>';
+    box.querySelector('.st-dsub').value = a.subject || '';
+    box.querySelector('.st-dbody').value = a.body || '';
+    var b = box.querySelector('button'); b.onclick = function(){ saAgentApprove(i, b, true); };
+  };
+  window.saAgentApprove = async function(i, btn, fromEditor){
+    var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
+    var sub = row.querySelector('.st-dsub'), bod = row.querySelector('.st-dbody');
+    var payload = (fromEditor && sub && bod) ? {subject: sub.value, body: bod.value} : {};
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
+    try{
+      var d = await agentPost('/api/agent/approvals/'+encodeURIComponent(a.id)+'/approve', payload);
+      if(!d.ok){ btn.disabled = false; btn.textContent = orig; toast(d.error || 'Could not send', 'error'); return; }
+      row.style.opacity = '.35'; row.classList.add('st-done');
+      [].forEach.call(row.querySelectorAll('button'), function(b){ b.disabled = true; });
+      row.querySelector('.st-intro').innerHTML = '';
+      toast('📨 Sent to ' + a.client_name); checkCleared();
+      if(d.offer) setTimeout(loadAgent, 600);
+    }catch(e){ btn.disabled = false; btn.textContent = orig; toast(String(e), 'error'); }
+  };
+  window.saAgentSkip = async function(i, btn){
+    var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
+    btn.disabled = true;
+    var d = await agentPost('/api/agent/approvals/'+encodeURIComponent(a.id)+'/skip');
+    if(d.ok){ row.style.opacity = '.35'; row.classList.add('st-done'); [].forEach.call(row.querySelectorAll('button'), function(b){ b.disabled = true; }); checkCleared(); }
+    else btn.disabled = false;
+  };
+  window.saAgentTrust = async function(kind, auto, declineOffer){
+    var d = await agentPost('/api/agent/settings', {trust: kind, auto: !!auto, decline_offer: !!declineOffer});
+    if(d.ok){ _agent = d; renderAgent(d); toast(auto ? '🤝 Your team will send these for you now' : 'OK — your team will keep asking first'); }
+  };
+  window.saAgentJob = async function(key, patch){
+    var d = await agentPost('/api/agent/settings', Object.assign({job: key}, patch));
+    if(d.ok){ _agent = d; toast('✓ Saved'); }
+  };
+  window.saAgentRun = async function(key, btn){
+    btn.disabled = true; btn.textContent = 'Working…';
+    try{
+      var d = await agentPost('/api/agent/run/' + key);
+      if(!d.ok) throw new Error(d.error || 'Could not start');
+      var j = {status:'working'};
+      for(var t=0; t<90 && j.status==='working'; t++){ await new Promise(function(r){ setTimeout(r, 2000); }); j = await (await fetch('/api/video/job/'+d.job_id)).json(); }
+      if(j.ok === false && j.note) toast(j.note, 'warning');
+      else toast('✓ ' + ((j.note ? j.note + ' · ' : '') + (j.queued||0) + ' ready for you' + (j.sent ? ', ' + j.sent + ' sent' : '')));
+      load();
+    }catch(e){ toast(String(e.message||e), 'error'); }
+    btn.disabled = false; btn.textContent = 'Run now';
+  };
 
   window.saOpenToday = function(){
     document.getElementById('saToday').classList.add('open');

@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "11.3")
+APP_VERSION = os.getenv("APP_VERSION", "11.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -22729,10 +22729,15 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
                           "time": "", "overdue": due < today_str, "date": due})
     tasks.sort(key=lambda x: (not x.get("overdue"), x.get("time") or "99:99"))
 
-    # Relationships: contacts whose follow-up date is today or past
+    # Relationships: contacts whose follow-up date is today or past (minus any
+    # a teammate already drafted — those are waiting in Ready for you)
     followups: List[Dict[str, Any]] = []
+    try:
+        _drafted_fu = _agent_pending_client_ids(uname)
+    except Exception:
+        _drafted_fu = set()
     for c in (crm.get("clients") or {}).values():
-        if not isinstance(c, dict):
+        if not isinstance(c, dict) or c.get("id") in _drafted_fu:
             continue
         nf = str(c.get("next_followup") or "").strip()
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", nf) or nf > today_str:
@@ -22747,8 +22752,12 @@ def _today_payload(u: Dict[str, Any], include_calendar: bool = True) -> Dict[str
     # lead table): recent, have an email, never contacted, not skipped.
     new_leads: List[Dict[str, Any]] = []
     cutoff = (today - timedelta(days=_NEW_LEAD_DAYS)).strftime("%Y-%m-%d")
+    try:
+        _drafted = _agent_pending_client_ids(uname)   # already waiting in Ready for you
+    except Exception:
+        _drafted = set()
     for c in (crm.get("clients") or {}).values():
-        if not isinstance(c, dict) or c.get("intro_skipped"):
+        if not isinstance(c, dict) or c.get("intro_skipped") or c.get("id") in _drafted:
             continue
         if (c.get("pipeline_stage") or "Lead") != "Lead" or (c.get("last_contact") or "").strip():
             continue
@@ -22925,9 +22934,11 @@ def api_quickstart_skip():
     return jsonify({"ok": True})
 
 
-def _quickstart_add_leads(uname: str, leads: List[Dict[str, Any]], tags: List[str]) -> Tuple[int, int]:
+def _quickstart_add_leads(uname: str, leads: List[Dict[str, Any]], tags: List[str],
+                          new_ids: Optional[List[str]] = None) -> Tuple[int, int]:
     """Add found leads to Contacts as stage Lead (skips duplicates, respects the
-    plan's contact limit). Returns (added, added_with_email)."""
+    plan's contact limit). Returns (added, added_with_email); appends the new
+    contact ids to `new_ids` when given."""
     crm = _crm_load(uname)
     clients = crm.setdefault("clients", {})
     plan = PLANS.get(_normalize_plan_key(_get_user_plan(uname))) or PLANS["solo"]
@@ -22960,6 +22971,8 @@ def _quickstart_add_leads(uname: str, leads: List[Dict[str, Any]], tags: List[st
         clients[cid] = client
         added += 1
         with_email += 1 if client["email"] else 0
+        if new_ids is not None:
+            new_ids.append(cid)
     if added:
         _crm_save(uname, crm)
     return added, with_email
@@ -23002,6 +23015,321 @@ def api_quickstart():
         added, with_email = _quickstart_add_leads(uname, res.get("leads") or [], ["first-leads", customer, location])
         return {"ok": True, "found": len(res.get("leads") or []), "added": added, "with_email": with_email}
     return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key="quickstart")})
+
+
+# ── Proactive teammates (V11.4) ──────────────────────────────────────────────
+# Standing jobs run every morning in the operator's timezone; whatever they
+# want to send lands in "Ready for you" on Today for approval. After a streak
+# of approvals sent without edits, the operator can let that kind of email go
+# out automatically (the trust dial). Safety: the model writes the words but
+# NEVER chooses the recipient — it is always the contact record's own email —
+# so a bad draft can only ever reach that one contact.
+_AGENT_DIR = Path(DATA_DIR) / "agent"
+_AGENT_DIR.mkdir(parents=True, exist_ok=True)
+_AGENT_LOCK = threading.Lock()
+AGENT_JOBS: Dict[str, Dict[str, Any]] = {
+    "new_leads": {"title": "Find new leads and draft a hello to each", "teammate": "Sunshine", "max": 5,
+                  "kind": "intro", "hint": "Uses who you sell to and where, from your business profile."},
+    "followups": {"title": "Draft follow-ups that came due", "teammate": "Sunshine", "max": 5,
+                  "kind": "followup", "hint": "Contacts whose follow-up date is today or earlier."},
+}
+AGENT_KIND_LABELS = {"intro": "intro emails to new leads", "followup": "follow-up emails"}
+AGENT_TRUST_OFFER_AT = 10      # unedited approvals in a row before offering auto-send
+AGENT_DEFAULT_HOUR = 7
+
+
+def _agent_path(uname: str) -> Path:
+    return _AGENT_DIR / f"{_safe_name(uname or 'anon')}.json"
+
+
+def _agent_load(uname: str) -> Dict[str, Any]:
+    d = load_json(_agent_path(uname), {})
+    if not isinstance(d, dict):
+        d = {}
+    jobs = d.setdefault("jobs", {})
+    for k in AGENT_JOBS:
+        jobs.setdefault(k, {"enabled": True, "hour": AGENT_DEFAULT_HOUR, "last_day": ""})
+    d.setdefault("approvals", [])
+    d.setdefault("trust", {})
+    d.setdefault("log", [])
+    return d
+
+
+def _agent_save(uname: str, d: Dict[str, Any]) -> None:
+    ap = d.get("approvals") or []
+    d["approvals"] = [a for a in ap if a.get("status") == "pending"] + [a for a in ap if a.get("status") != "pending"][-100:]
+    d["log"] = (d.get("log") or [])[-100:]
+    save_json(_agent_path(uname), d)
+
+
+def _agent_pending_client_ids(uname: str) -> set:
+    return {a.get("client_id") for a in _agent_load(uname).get("approvals") or [] if a.get("status") == "pending"}
+
+
+def _parse_audience(aud: str) -> Tuple[str, str]:
+    """'roofers in Austin, TX' → ('roofers', 'Austin, TX')."""
+    aud = (aud or "").strip()
+    m = re.match(r"^(.*?)\s+in\s+(.+)$", aud, re.I)
+    return (m.group(1).strip(), m.group(2).strip()) if m else (aud, "")
+
+
+def _agent_draft_email(uname: str, client: Dict[str, Any], purpose: str) -> Optional[Tuple[str, str]]:
+    op = _load_operator_profile(uname) or {}
+    me = (op.get("display_name") or "").strip()
+    first = ((client.get("name") or "").split(" ") or ["there"])[0] or "there"
+    system = ("You write short, warm, specific emails for a small-business owner. Plain text, no markdown, "
+              "3-5 sentences, one clear low-pressure next step. Never invent facts. Respond ONLY with JSON "
+              '{"subject": "...", "body": "..."}.')
+    prompt = (f"Purpose: {purpose}\n"
+              f"From: {me or 'the owner'}" + (f" at {op.get('business')}" if op.get("business") else "") + "\n"
+              f"What we offer: {op.get('offers') or op.get('business') or 'not specified'}\n"
+              f"To: {client.get('name') or ''}" + (f" ({client.get('company')})" if client.get("company") else "") + "\n"
+              f"Greet them as: {first}\n"
+              f"Last contacted: {client.get('last_contact') or 'never'}\n"
+              f"Notes about them: {str(client.get('notes') or '')[:500] or 'none'}\n"
+              f"Sign off as: {me or 'the owner'}")
+    try:
+        raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0.6, model="gpt-4o-mini")
+        raw = (raw or "").strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        d = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+        subj, body = str(d.get("subject") or "").strip()[:200], str(d.get("body") or "").strip()
+        return (subj, body) if body else None
+    except Exception:
+        return None
+
+
+def _agent_send(uname: str, appr: Dict[str, Any], subject: str, body: str) -> Tuple[bool, str]:
+    """Send an approved (or trusted) draft to the contact's OWN email, then log
+    it and move the relationship forward."""
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(appr.get("client_id") or "")
+    if not isinstance(c, dict):
+        return False, "That contact no longer exists."
+    to = (c.get("email") or "").strip()
+    if not EMAIL_RE.match(to) or c.get("email_unsubscribed"):
+        return False, "This contact has no email we can send to."
+    u = (load_users().get("users") or {}).get(uname) or {}
+    ok, _prov, err = _crm_send_email_to(u, to, subject, body)
+    if not ok:
+        return False, err or "Email isn't set up — connect Gmail in Settings."
+    today = _user_now_local(uname).date()
+    crm = _crm_load(uname)
+    c = (crm.get("clients") or {}).get(appr.get("client_id") or "")
+    if isinstance(c, dict):
+        c["last_contact"] = today.strftime("%Y-%m-%d")
+        c["next_followup"] = (today + timedelta(days=3 if appr.get("kind") == "intro" else 7)).strftime("%Y-%m-%d")
+        if appr.get("kind") == "intro" and (c.get("pipeline_stage") or "Lead") == "Lead" \
+                and "Conversation" in ((crm.get("pipeline") or {}).get("stages") or []):
+            c["pipeline_stage"] = "Conversation"
+        c["updated_at"] = now_iso()
+        _crm_save(uname, crm)
+    try:
+        _crm_activity_append(uname, appr.get("client_id") or "", "email",
+                             f"{appr.get('teammate') or 'Teammate'} sent: {subject or '(no subject)'}")
+    except Exception:
+        pass
+    return True, ""
+
+
+def _agent_queue(uname: str, d: Dict[str, Any], kind: str, teammate: str, client: Dict[str, Any],
+                 purpose: str, title: str) -> str:
+    """Draft one email; auto-send it if this kind is trusted, else add it to
+    Ready for you. Returns 'queued' | 'sent' | 'skipped'."""
+    if any(a.get("status") == "pending" and a.get("client_id") == client.get("id") for a in d["approvals"]):
+        return "skipped"
+    draft = _agent_draft_email(uname, client, purpose)
+    if not draft:
+        return "skipped"
+    subject, body = draft
+    appr = {"id": uuid.uuid4().hex[:12], "kind": kind, "teammate": teammate, "client_id": client.get("id"),
+            "client_name": client.get("name") or "", "to": client.get("email") or "", "title": title,
+            "subject": subject, "body": body, "created_at": now_iso(), "status": "pending"}
+    if (d.get("trust") or {}).get(kind, {}).get("auto"):
+        ok, err = _agent_send(uname, appr, subject, body)
+        appr.update(status="auto_sent" if ok else "pending", error="" if ok else err, decided_at=now_iso())
+        if ok:
+            d["log"].append({"at": now_iso(), "text": f"{teammate} sent {AGENT_KIND_LABELS.get(kind, kind)[:-1]} to {appr['client_name']}"})
+    d["approvals"].append(appr)
+    return "sent" if appr["status"] == "auto_sent" else "queued"
+
+
+def _agent_run_job(uname: str, key: str) -> Dict[str, Any]:
+    job = AGENT_JOBS[key]
+    teammate, kind, cap = job["teammate"], job["kind"], job["max"]
+    queued = sent = 0
+    note = ""
+    if key == "new_leads":
+        niche, loc = _parse_audience((_load_operator_profile(uname) or {}).get("audience") or "")
+        if not niche:
+            return {"ok": False, "note": "Add who you sell to (e.g. 'roofers in Austin, TX') in your business profile."}
+        res = _tool_find_leads(uname, teammate, {"niche": niche, "location": loc, "count": cap})
+        if not res.get("ok"):
+            return {"ok": False, "note": res.get("summary") or "Lead search failed."}
+        ids: List[str] = []
+        _quickstart_add_leads(uname, res.get("leads") or [], ["found-by-teammate", niche, loc], new_ids=ids)
+        clients = (_crm_load(uname).get("clients") or {})
+        targets = [clients[i] for i in ids if i in clients and clients[i].get("email")]
+        purpose = "First hello to a new prospect who has never heard from us. Say briefly why we reached out to them specifically."
+        title_fn = lambda c: f"Intro to {c.get('company') or c.get('name')}"
+        note = f"Found {len(ids)} new lead{'s' if len(ids) != 1 else ''}"
+    else:
+        today_s = _user_now_local(uname).strftime("%Y-%m-%d")
+        clients = (_crm_load(uname).get("clients") or {})
+        targets = sorted([c for c in clients.values() if isinstance(c, dict) and EMAIL_RE.match((c.get("email") or "").strip())
+                          and not c.get("email_unsubscribed")
+                          and re.match(r"^\d{4}-\d{2}-\d{2}$", str(c.get("next_followup") or ""))
+                          and str(c.get("next_followup")) <= today_s], key=lambda c: c.get("next_followup"))
+        purpose = "Friendly follow-up. Reference the last contact naturally and offer one helpful next step."
+        title_fn = lambda c: f"Follow up with {c.get('name')}"
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+    for c in targets[:cap]:
+        r = _agent_queue(uname, d, kind, teammate, c, purpose, title_fn(c))
+        queued += r == "queued"
+        sent += r == "sent"
+    with _AGENT_LOCK:
+        cur = _agent_load(uname)
+        known = {a.get("id") for a in cur["approvals"]}
+        cur["approvals"] += [a for a in d["approvals"] if a.get("id") not in known]
+        cur["log"] += [x for x in d["log"] if x not in cur["log"]]
+        _agent_save(uname, cur)
+    return {"ok": True, "queued": queued, "sent": sent, "note": note}
+
+
+def _agent_tick() -> None:
+    """Every minute: run each user's enabled standing jobs once per local day,
+    at or after the chosen hour. last_day is saved BEFORE running so a crash or
+    restart never runs a job twice in one day."""
+    for uname, u in list((load_users().get("users") or {}).items()):
+        try:
+            now_local = _user_now_local(uname)
+            day = now_local.strftime("%Y-%m-%d")
+            with _AGENT_LOCK:
+                d = _agent_load(uname)
+                due = [k for k, j in d["jobs"].items() if k in AGENT_JOBS and j.get("enabled")
+                       and now_local.hour >= int(j.get("hour", AGENT_DEFAULT_HOUR)) and j.get("last_day") != day]
+                if not due:
+                    continue
+                for k in due:
+                    d["jobs"][k]["last_day"] = day
+                _agent_save(uname, d)
+            if not _check_msg_limit(uname, _get_user_plan(uname))[0]:
+                continue
+            for k in due:
+                _agent_run_job(uname, k)
+        except Exception as e:
+            _capture_error(e, context="agent_tick")
+
+
+def _agent_view(uname: str) -> Dict[str, Any]:
+    d = _agent_load(uname)
+    pending = [a for a in d["approvals"] if a.get("status") == "pending"]
+    offers = []
+    for kind, label in AGENT_KIND_LABELS.items():
+        t = (d.get("trust") or {}).get(kind) or {}
+        if not t.get("auto") and int(t.get("streak") or 0) >= AGENT_TRUST_OFFER_AT and not t.get("declined"):
+            offers.append({"kind": kind, "label": label, "streak": t.get("streak")})
+    today_s = _utcnow().strftime("%Y-%m-%d")
+    return {"ok": True, "approvals": pending,
+            "sent_for_you": [a for a in d["approvals"] if a.get("status") == "auto_sent"
+                             and str(a.get("decided_at") or "")[:10] == today_s],
+            "jobs": [{"key": k, "title": v["title"], "teammate": v["teammate"], "hint": v["hint"],
+                      "enabled": bool(d["jobs"][k].get("enabled")), "hour": int(d["jobs"][k].get("hour", AGENT_DEFAULT_HOUR))}
+                     for k, v in AGENT_JOBS.items()],
+            "trust": [{"kind": k, "label": v, "auto": bool(((d.get("trust") or {}).get(k) or {}).get("auto")),
+                       "streak": int(((d.get("trust") or {}).get(k) or {}).get("streak") or 0)} for k, v in AGENT_KIND_LABELS.items()],
+            "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT}
+
+
+@app.get("/api/agent")
+def api_agent():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify(_agent_view(u.get("username", "")))
+
+
+@app.post("/api/agent/approvals/<aid>/<action>")
+def api_agent_decide(aid: str, action: str):
+    """Approve (send, with any edits) or skip one item in Ready for you."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if action not in ("approve", "skip"):
+        return jsonify({"ok": False, "error": "Unknown action"}), 400
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        a = next((x for x in d["approvals"] if x.get("id") == aid and x.get("status") == "pending"), None)
+        if not a:
+            return jsonify({"ok": False, "error": "Already handled"}), 404
+        a["status"] = "sending" if action == "approve" else "skipped"
+        a["decided_at"] = now_iso()
+        _agent_save(uname, d)
+    if action == "skip":
+        return jsonify({"ok": True})
+    subject = str(b.get("subject", a.get("subject")) or "").strip()[:300]
+    body = str(b.get("body", a.get("body")) or "").strip()
+    edited = subject != (a.get("subject") or "") or body != (a.get("body") or "")
+    ok, err = (False, "The email is empty.") if not body else _agent_send(uname, a, subject, body)
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        x = next((y for y in d["approvals"] if y.get("id") == aid), None)
+        if x:
+            x.update(status="sent" if ok else "pending", error="" if ok else err, subject=subject, body=body)
+        t = d["trust"].setdefault(a.get("kind") or "intro", {"streak": 0, "auto": False})
+        if ok:
+            t["streak"] = 0 if edited else int(t.get("streak") or 0) + 1
+        _agent_save(uname, d)
+    if not ok:
+        return jsonify({"ok": False, "error": err}), 400
+    return jsonify({"ok": True, "offer": next((o for o in _agent_view(uname)["offers"] if o["kind"] == a.get("kind")), None)})
+
+
+@app.post("/api/agent/settings")
+def api_agent_settings():
+    """Turn a standing job on/off, change its hour, or set a trust level."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        key = str(b.get("job") or "")
+        if key in AGENT_JOBS:
+            if "enabled" in b:
+                d["jobs"][key]["enabled"] = bool(b.get("enabled"))
+            if "hour" in b:
+                try:
+                    d["jobs"][key]["hour"] = max(0, min(23, int(b.get("hour"))))
+                except (TypeError, ValueError):
+                    return jsonify({"ok": False, "error": "Bad hour"}), 400
+        kind = str(b.get("trust") or "")
+        if kind in AGENT_KIND_LABELS:
+            t = d["trust"].setdefault(kind, {"streak": 0, "auto": False})
+            t["auto"] = bool(b.get("auto"))
+            if not t["auto"] and b.get("decline_offer"):
+                t["declined"] = True
+        _agent_save(uname, d)
+    return jsonify(_agent_view(uname))
+
+
+@app.post("/api/agent/run/<key>")
+def api_agent_run_now(key: str):
+    """Run a standing job right now (background); results land in Ready for you."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    if key not in AGENT_JOBS:
+        return jsonify({"ok": False, "error": "Unknown job"}), 404
+    uname = u.get("username", "")
+    if not _check_msg_limit(uname, _get_user_plan(uname))[0]:
+        return jsonify({"ok": False, "error": "You've used this month's AI messages."}), 429
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, lambda: _agent_run_job(uname, key), key=f"agent:{key}")})
 
 
 @app.post("/api/today/send_intro")
@@ -34280,6 +34608,12 @@ def _bg_schedule_tick():
             _sched_broadcast_tick()
         except Exception as _sbe:
             _log("WARNING", "Scheduled broadcast tick error", error=str(_sbe)[:200])
+        # Proactive teammates: morning standing jobs (V11.4)
+        try:
+            with app.app_context():
+                _agent_tick()
+        except Exception as _ate:
+            _log("WARNING", "Agent tick error", error=str(_ate)[:200])
         # Every 10 minutes: prune logs + evict old image jobs
         _bg_evict_counter += 1
         if _bg_evict_counter % 10 == 0:
