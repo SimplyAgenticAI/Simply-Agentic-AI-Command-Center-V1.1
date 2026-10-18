@@ -123,6 +123,9 @@
       background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
       animation: auroraShift 20s ease-in-out infinite;
       color:var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
     }
 
     .topbar{
@@ -130,7 +133,8 @@
       z-index: 20;
       padding: 14px 16px 12px 16px;
       background: linear-gradient(180deg, rgba(20,30,65,.97), rgba(18,26,56,.92));
-      border-bottom:1px solid rgba(34,49,90,.8);
+      border-bottom:1px solid rgba(110,135,215,.28);
+      box-shadow: 0 1px 0 rgba(0,0,0,.45), 0 6px 18px rgba(0,0,0,.28);
       backdrop-filter: blur(10px);
     }
     .topbarMain{
@@ -176,7 +180,7 @@
       font-weight:700;
     }
     .btn{
-      border:1px solid rgba(255,255,255,.16);
+      border:1px solid rgba(255,255,255,.22);
       background: rgba(255,255,255,.08);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
@@ -185,19 +189,19 @@
       border-radius:12px;
       cursor:pointer;
       font-size:calc(14px * var(--fs,1.1));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 1px 2px rgba(0,0,0,.35);
       transition: background .15s, border-color .15s, box-shadow .15s;
     }
-    .btn:hover{ background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.28); box-shadow: inset 0 1px 0 rgba(255,255,255,.24), 0 0 20px rgba(124,58,237,.20); }
+    .btn:hover{ background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.38); box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 4px 12px rgba(0,0,0,.38); }
   .card form{ max-width: 640px; }
     .btnPrimary{
-      border:1px solid rgba(148,88,255,.85);
-      background: linear-gradient(160deg, rgba(124,58,237,.55) 0%, rgba(59,130,246,.30) 100%);
-      box-shadow: 0 0 28px rgba(124,58,237,.32), inset 0 1px 0 rgba(255,255,255,.22);
+      border:1px solid rgba(167,139,250,.90);
+      background: linear-gradient(160deg, rgba(124,58,237,.82) 0%, rgba(79,70,229,.62) 100%);
+      box-shadow: 0 4px 14px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.24);
     }
     .btnPrimary:hover{
-      background: linear-gradient(160deg, rgba(148,88,255,.68) 0%, rgba(96,165,250,.40) 100%);
-      box-shadow: 0 0 36px rgba(148,88,255,.45), inset 0 1px 0 rgba(255,255,255,.30);
+      background: linear-gradient(160deg, rgba(139,92,246,.92) 0%, rgba(99,102,241,.74) 100%);
+      box-shadow: 0 6px 18px rgba(46,16,101,.62), 0 0 0 1px rgba(196,181,253,.35), inset 0 1px 0 rgba(255,255,255,.30);
     }
     .btnMini{
       padding:8px 10px;
@@ -500,7 +504,7 @@
       transform: translateY(-5px) scale(1.04);
       background: rgba(255,255,255,.13);
       border-color: rgba(255,255,255,.36);
-      box-shadow: 0 14px 44px rgba(0,0,0,.38), 0 0 36px rgba(124,58,237,.30), inset 0 1px 0 rgba(255,255,255,.32);
+      box-shadow: 0 14px 32px rgba(0,0,0,.45), 0 0 0 1px rgba(167,139,250,.45), inset 0 1px 0 rgba(255,255,255,.32);
     }
     .seat:hover::before{ opacity: 1; }
 
@@ -2432,7 +2436,7 @@ html, body{ max-width:100%; overflow-x:hidden !important; }
 .btn{
   box-shadow:
     inset 0 0 0 1px rgba(247,211,106,.22),
-    0 0 18px rgba(247,211,106,.07);
+    0 1px 2px rgba(0,0,0,.35);
 }
 .btnPrimary{
   border-color: rgba(247,211,106,.55) !important;
@@ -3120,7 +3124,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, .seat:focus-v
 @keyframes saToastPop{ 0%{ transform: scale(.4) rotate(-12deg); opacity:.2; } 100%{ transform: scale(1) rotate(0); opacity:1; } }
 
 /* ── #5 Primary CTA — soft ambient glow pulse on hover ── */
-.btnPrimary:hover{ animation: saGlowPulse 1.8s ease-in-out infinite; }
 @keyframes saGlowPulse{
   0%,100%{ box-shadow: 0 0 36px rgba(148,88,255,.45), inset 0 1px 0 rgba(255,255,255,.30); }
   50%{ box-shadow: 0 0 50px rgba(148,88,255,.65), inset 0 1px 0 rgba(255,255,255,.30); }
@@ -3333,8 +3336,8 @@ body {
 .seat:hover {
   box-shadow:
     0 0 0 2px color-mix(in srgb, var(--sc,#7c3aed) 20%, transparent) inset,
-    0 0 36px color-mix(in srgb, var(--sc,#7c3aed) 50%, transparent),
-    0 14px 40px rgba(0,0,0,.55) !important;
+    0 0 0 1px color-mix(in srgb, var(--sc,#7c3aed) 60%, transparent),
+    0 14px 32px rgba(0,0,0,.55) !important;
 }
 .seatPulse {
   border-color: var(--sc, rgba(124,58,237,.95)) !important;
@@ -3602,13 +3605,13 @@ input:focus, textarea:focus, select:focus {
 #sendFollow {
   background: linear-gradient(135deg, rgba(124,58,237,.72) 0%, rgba(99,102,241,.60) 100%) !important;
   border: 1px solid rgba(148,88,255,.75) !important;
-  box-shadow: 0 0 20px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.22) !important;
+  box-shadow: 0 3px 10px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.22) !important;
   font-weight: 700 !important; letter-spacing: .02em !important;
   border-radius: 11px !important;
   transition: box-shadow .2s, transform .12s !important;
 }
 #sendFollow:hover {
-  box-shadow: 0 0 32px rgba(148,88,255,.55), inset 0 1px 0 rgba(255,255,255,.30) !important;
+  box-shadow: 0 6px 16px rgba(46,16,101,.62), 0 0 0 1px rgba(196,181,253,.35), inset 0 1px 0 rgba(255,255,255,.30) !important;
   transform: translateY(-1px) !important;
 }
 #sendFollow:active { transform: scale(.96) !important; }
@@ -3682,13 +3685,13 @@ input:focus, textarea:focus, select:focus {
   -webkit-backdrop-filter: blur(12px) !important;
 }
 .btnPrimary {
-  background: linear-gradient(150deg, rgba(124,58,237,.58) 0%, rgba(79,70,229,.38) 100%) !important;
-  border-color: rgba(148,88,255,.80) !important;
-  box-shadow: 0 0 26px rgba(124,58,237,.28), inset 0 1px 0 rgba(255,255,255,.22) !important;
+  background: linear-gradient(150deg, rgba(124,58,237,.82) 0%, rgba(79,70,229,.62) 100%) !important;
+  border-color: rgba(167,139,250,.90) !important;
+  box-shadow: 0 4px 14px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.24) !important;
 }
 .btnPrimary:hover {
-  background: linear-gradient(150deg, rgba(148,88,255,.70) 0%, rgba(99,102,241,.50) 100%) !important;
-  box-shadow: 0 0 36px rgba(148,88,255,.44), inset 0 1px 0 rgba(255,255,255,.30) !important;
+  background: linear-gradient(150deg, rgba(139,92,246,.92) 0%, rgba(99,102,241,.74) 100%) !important;
+  box-shadow: 0 6px 18px rgba(46,16,101,.62), 0 0 0 1px rgba(196,181,253,.35), inset 0 1px 0 rgba(255,255,255,.30) !important;
 }
 
 /* ⑦ Modal headers — gradient title bar with glow accent line */
@@ -30959,7 +30962,7 @@ function _plRebuild(){
     /* connector arrow between steps */
     if(i<_pl.steps.length-1){
       var conn=document.createElement('div');
-      conn.style.cssText='text-align:center;color:#64748b;font-size:calc(15px * var(--fs,1.1));line-height:1;margin:-2px 0;';
+      conn.style.cssText='text-align:center;color:#8a96aa;font-size:calc(15px * var(--fs,1.1));line-height:1;margin:-2px 0;';
       conn.textContent='↓';
       list.appendChild(conn);
     }
@@ -31075,7 +31078,7 @@ window._saRunPipeline=function(){
     gpl('plResultCards').appendChild(_plResultCard(i,step.seat));
     if(i<valid.length-1){
       var conn=document.createElement('div');
-      conn.style.cssText='text-align:center;color:#64748b;font-size:calc(15px * var(--fs,1.1));line-height:1;';
+      conn.style.cssText='text-align:center;color:#8a96aa;font-size:calc(15px * var(--fs,1.1));line-height:1;';
       conn.textContent='↓';
       gpl('plResultCards').appendChild(conn);
     }
@@ -32782,7 +32785,7 @@ window._saPlReset=function(){
 #saPreviewEmpty{
   position:absolute;inset:0;
   display:flex;align-items:center;justify-content:center;
-  color:#64748b;font-size:calc(14px * var(--fs,1.1));
+  color:#8a96aa;font-size:calc(14px * var(--fs,1.1));
 }
 /* When preview pane is open on wide screens, nudge the main layout */
 @media(min-width:961px){
@@ -36087,7 +36090,7 @@ function cpRenderCalendar(){
 
   // Prev month filler
   for(var i=0; i<firstDay; i++){
-    html += '<div class="cp-day other-month"><div style="font-size:calc(14px * var(--fs,1.1));color:#64748b;font-weight:600;">'+(prevDays-firstDay+1+i)+'</div></div>';
+    html += '<div class="cp-day other-month"><div style="font-size:calc(14px * var(--fs,1.1));color:#8a96aa;font-weight:600;">'+(prevDays-firstDay+1+i)+'</div></div>';
   }
 
   // Current month
@@ -36124,7 +36127,7 @@ function cpRenderCalendar(){
   var remaining = 7 - (total % 7);
   if(remaining < 7){
     for(var t=1; t<=remaining; t++){
-      html += '<div class="cp-day other-month"><div style="font-size:calc(14px * var(--fs,1.1));color:#64748b;font-weight:600;">'+t+'</div></div>';
+      html += '<div class="cp-day other-month"><div style="font-size:calc(14px * var(--fs,1.1));color:#8a96aa;font-weight:600;">'+t+'</div></div>';
     }
   }
 
@@ -36150,7 +36153,7 @@ function cpRenderQueue(){
     el.innerHTML = '<div style="text-align:center;padding:80px 20px;">'
       +'<div style="font-size:calc(52px * var(--fs,1.1));margin-bottom:16px;filter:grayscale(.5) opacity(.4);">📭</div>'
       +'<div style="font-size:calc(16px * var(--fs,1.1));font-weight:800;color:#8a96aa;margin-bottom:8px;">No posts yet</div>'
-      +'<div style="font-size:calc(14px * var(--fs,1.1));color:#64748b;line-height:1.6;">Click <strong style="color:#a78bfa;">✦ New Post</strong> to schedule your first post<br>or import a CSV for bulk scheduling.</div></div>';
+      +'<div style="font-size:calc(14px * var(--fs,1.1));color:#8a96aa;line-height:1.6;">Click <strong style="color:#a78bfa;">✦ New Post</strong> to schedule your first post<br>or import a CSV for bulk scheduling.</div></div>';
     return;
   }
 
@@ -36844,7 +36847,7 @@ window.addEventListener('focus', function(){
       </div>
 
       <!-- Shortcuts (hidden on mobile) -->
-      <div class="ve-shortcuts" style="padding:0 14px 14px;font-size:calc(14.5px * var(--fs,1.1));color:#64748b;line-height:1.9;text-align:center;">
+      <div class="ve-shortcuts" style="padding:0 14px 14px;font-size:calc(14.5px * var(--fs,1.1));color:#8a96aa;line-height:1.9;text-align:center;">
         Space=play &nbsp;·&nbsp; I=set in &nbsp;·&nbsp; O=set out<br>J=−5s &nbsp;·&nbsp; L=+5s &nbsp;·&nbsp; ←/→=±1s
       </div>
     </div>
@@ -36862,7 +36865,7 @@ window.addEventListener('focus', function(){
                onended="veOnEnd()"
                onerror="veOnErr()">
         </video>
-        <div id="vePlayerPlaceholder" style="color:#64748b;text-align:center;pointer-events:none;">
+        <div id="vePlayerPlaceholder" style="color:#8a96aa;text-align:center;pointer-events:none;">
           <div style="font-size:calc(52px * var(--fs,1.1));opacity:.2;margin-bottom:12px;">🎥</div>
           <div style="font-size:calc(15px * var(--fs,1.1));color:#8a96aa;">Your video preview will appear here</div>
         </div>
@@ -36877,7 +36880,7 @@ window.addEventListener('focus', function(){
           <button id="vePlayBtn" onclick="veTogglePlay()" title="Play/Pause (Space)" style="background:linear-gradient(135deg,rgba(124,58,237,.4),rgba(99,102,241,.3));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#c4b5fd;font-size:calc(20px * var(--fs,1.1));padding:6px 20px;cursor:pointer;min-width:52px;font-weight:700;">▶</button>
           <button onclick="veSkip(5)" title="Forward 5s (L)" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);border-radius:8px;color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));padding:6px 10px;cursor:pointer;font-weight:600;">5s ⏭</button>
           <span id="veCurrentTime" style="font-size:calc(14px * var(--fs,1.1));font-family:monospace;color:#cbd5e1;min-width:38px;">0:00</span>
-          <span style="color:#64748b;">/</span>
+          <span style="color:#8a96aa;">/</span>
           <span id="veDuration" style="font-size:calc(14px * var(--fs,1.1));font-family:monospace;color:#8a96aa;">0:00</span>
           <div class="ve-spacer" style="flex:1;"></div>
           <button id="veMuteBtn" onclick="veMute()" style="background:none;border:none;color:#8a96aa;font-size:calc(15px * var(--fs,1.1));cursor:pointer;padding:0 4px;" title="Mute">🔊</button>
@@ -37079,7 +37082,7 @@ window.addEventListener('focus', function(){
 .vc-subtab{background:none;border:none;border-bottom:2px solid transparent;color:#94a3b8;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:8px 10px;cursor:pointer;}
 .vc-subtab.on{color:#f5f3ff;border-bottom-color:#a78bfa;}
 .vc-lbl{font-size:calc(14px * var(--fs,1.1));font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a5b4fc;margin:12px 0 6px;}
-.vc-hint{font-weight:500;text-transform:none;letter-spacing:0;color:#64748b;}
+.vc-hint{font-weight:500;text-transform:none;letter-spacing:0;color:#8a96aa;}
 .vc-chips{display:flex;flex-wrap:wrap;gap:6px;}
 .vc-chips button{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#cbd5e1;border-radius:9px;padding:7px 12px;font-size:calc(14.5px * var(--fs,1.1));font-weight:700;cursor:pointer;}
 .vc-chips button.on{background:rgba(124,58,237,.35);border-color:#a78bfa;color:#fff;}
@@ -37095,7 +37098,7 @@ window.addEventListener('focus', function(){
 .vc-words{max-height:260px;overflow-y:auto;background:rgba(14,22,48,.6);border:1px solid rgba(80,110,200,.25);border-radius:10px;padding:10px;line-height:2;font-size:calc(15px * var(--fs,1.1));color:#e2e8f0;}
 .vc-w{padding:2px 2px;border-radius:4px;cursor:pointer;}
 .vc-w:hover{background:rgba(167,139,250,.2);}
-.vc-w.cut{text-decoration:line-through;color:#64748b;background:rgba(220,38,38,.12);}
+.vc-w.cut{text-decoration:line-through;color:#8a96aa;background:rgba(220,38,38,.12);}
 .vc-w.filler{color:#fbbf24;}
 .vc-w.edited{border-bottom:2px dotted #34d399;}
 .vc-actions{display:flex;gap:6px;margin-top:18px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08);flex-wrap:wrap;}
@@ -37171,7 +37174,7 @@ window.addEventListener('focus', function(){
   /* ── grid ───────────────────────────────────────── */
   function renderGrid(){
     var g=$('vcGrid');
-    if(!S.clips.length){ g.innerHTML='<div style="grid-column:1/-1;color:#64748b;font-size:calc(14.5px * var(--fs,1.1));text-align:center;padding:30px 8px;">No clips yet</div>'; updateZip(); return; }
+    if(!S.clips.length){ g.innerHTML='<div style="grid-column:1/-1;color:#8a96aa;font-size:calc(14.5px * var(--fs,1.1));text-align:center;padding:30px 8px;">No clips yet</div>'; updateZip(); return; }
     g.innerHTML=S.clips.map(function(c){
       var thumb=(c.status==='ready'&&c.thumb)?'background-image:url(/api/vclips/'+c.id+'/thumb?v='+(c.version||0)+')':'';
       var badge=c.status==='rendering'?'<span class="vc-badge">⏳ Rendering</span>':(c.status==='error'?'<span class="vc-badge err">⚠ Error</span>':'');
