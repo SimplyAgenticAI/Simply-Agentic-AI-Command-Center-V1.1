@@ -824,7 +824,7 @@
       border: 1px solid rgba(255,255,255,.18);
       border-radius: 16px;
       padding: 10px;
-      box-shadow: 0 8px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.14), 0 0 40px rgba(124,58,237,.06);
+      box-shadow: 0 8px 40px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.14);
       display: flex;
       flex-direction: column;
       flex: 1;
@@ -1555,7 +1555,7 @@
       font-size:calc(28px * var(--fs,1.1)); font-weight:900;
       background:linear-gradient(135deg,rgba(124,58,237,.40),rgba(14,165,233,.28));
       border:1px solid rgba(124,58,237,.42);
-      box-shadow:0 0 30px rgba(124,58,237,.30),inset 0 1px 0 rgba(255,255,255,.10);
+      box-shadow:0 6px 18px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.14);
       color:#e2e8f0; margin:0 auto 10px;
     }
     #etNameDisplay{
@@ -3047,7 +3047,7 @@ label         { font-size: calc(15px * var(--fs,1.1)) !important; }
   border:1px solid rgba(124,58,237,.45);
   border-radius:24px;
   padding:36px 34px 28px;
-  box-shadow:0 32px 80px rgba(0,0,0,.65),0 0 40px rgba(124,58,237,.12);
+  box-shadow:0 32px 80px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.08);
 }
 .wcStep{
   display:flex;align-items:flex-start;gap:12px;
@@ -3195,7 +3195,8 @@ body::before{
 }
 
 /* ── #20 Ambient background drift — slow gradient breathing ── */
-body{ animation: saBgDrift 40s ease-in-out infinite alternate; background-size: 140% 140%, 100% 100%; }
+/* V12.2: static - animating background-position repainted the whole viewport (and every blurred panel over it) each frame for a ~6% drift */
+body{ animation: none; background-size: 140% 140%, 100% 100%; background-position: 53% 33%, 0 0; }
 @keyframes saBgDrift{
   0%{ background-position: 50% 30%, 0 0; }
   100%{ background-position: 56% 36%, 0 0; }
@@ -4281,7 +4282,7 @@ label {
   z-index:99998;
   backdrop-filter:blur(32px);
   -webkit-backdrop-filter:blur(32px);
-  box-shadow:0 24px 64px rgba(0,0,0,.75),0 0 0 1px rgba(124,58,237,.12),0 0 60px rgba(124,58,237,.08);
+  box-shadow:0 24px 64px rgba(0,0,0,.75),0 0 0 1px rgba(124,58,237,.28);
   display:none;
   flex-direction:column;
   gap:10px;
@@ -35474,7 +35475,7 @@ function saUseGlyph(){
 .cp-glass:hover {
   background: rgba(255,255,255,.09);
   border-color: rgba(255,255,255,.22);
-  box-shadow: 0 8px 36px rgba(0,0,0,.38), 0 0 32px rgba(124,58,237,.18), inset 0 1px 0 rgba(255,255,255,.20);
+  box-shadow: 0 8px 24px rgba(0,0,0,.42), inset 0 1px 0 rgba(255,255,255,.20);
 }
 .cp-btn {
   padding: 7px 16px; border-radius: 9px; font-size: calc(14px * var(--fs,1.1)); font-weight: 600;
@@ -35491,11 +35492,11 @@ function saUseGlyph(){
 .cp-btn-primary {
   background: linear-gradient(135deg, rgba(124,58,237,.85), rgba(91,33,182,.85));
   border-color: rgba(124,58,237,.6); color: #fff;
-  box-shadow: 0 0 20px rgba(124,58,237,.35), inset 0 1px 0 rgba(255,255,255,.20);
+  box-shadow: 0 4px 12px rgba(46,16,101,.55), inset 0 1px 0 rgba(255,255,255,.20);
 }
 .cp-btn-primary:hover {
   background: linear-gradient(135deg, rgba(139,68,255,.95), rgba(109,40,217,.95));
-  box-shadow: 0 0 30px rgba(124,58,237,.55), inset 0 1px 0 rgba(255,255,255,.28);
+  box-shadow: 0 6px 16px rgba(46,16,101,.62), 0 0 0 1px rgba(196,181,253,.35), inset 0 1px 0 rgba(255,255,255,.28);
 }
 .cp-btn-blue {
   background: rgba(59,130,246,.2); border-color: rgba(59,130,246,.45); color: #93c5fd;
