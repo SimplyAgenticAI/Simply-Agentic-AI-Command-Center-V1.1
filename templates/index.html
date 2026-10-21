@@ -19901,7 +19901,6 @@ Challenge weak assumptions. Surface risks.`;
           </div>
           ${cards.length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 8px;">
             <button class="btn btnTiny" data-stage-selall="${escapeHtml(stage)}" title="Select every contact in this stage">${cards.every(c=>window._crmSelectedIds && window._crmSelectedIds.has(c.id)) ? '☐ Unselect all' : '☑ Select all'}</button>
-            <button class="btn btnTiny" data-stage-clear="${escapeHtml(stage)}" style="background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.4);color:#fca5a5;" title="Remove every contact in this stage">🗑 Clear stage</button>
           </div>` : ''}
           <div class="crmBoardDrop" data-stage-drop="${escapeHtml(stage)}" style="min-height:110px;display:flex;flex-direction:column;gap:6px;">
             ${cards.map(c=>{
@@ -20068,14 +20067,6 @@ Challenge weak assumptions. Surface risks.`;
           const all = ids.every(id => window._crmSelectedIds.has(id));
           ids.forEach(id => all ? window._crmSelectedIds.delete(id) : window._crmSelectedIds.add(id));
           crmRenderPipelineBoard();
-        });
-      });
-      box.querySelectorAll('[data-stage-clear]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
-          const st = b.getAttribute('data-stage-clear'), ids = _stageIds(st);
-          if(!ids.length) return;
-          if(!confirm(`Remove all ${ids.length} contact${ids.length!==1?'s':''} in "${st}"?\n\nThis deletes them from your contacts and can't be undone. To keep them, use Select all and move them to another stage instead.`)) return;
-          await crmBulkSend(ids, 'delete', '', `🗑 Cleared ${ids.length} from ${st}`);
         });
       });
       crmUpdateBulkBar();
