@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "12.5")
+APP_VERSION = os.getenv("APP_VERSION", "12.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -5271,10 +5271,16 @@ def save_upload_index(idx: Dict[str, Any]) -> None:
 
 
 def add_upload_record(file_id: str, rec: Dict[str, Any]) -> None:
-    idx = load_upload_index()
-    idx.setdefault("files", {})
-    idx["files"][file_id] = rec
-    save_upload_index(idx)
+    # Locked read-modify-write: the index is shared by every user, so a plain
+    # load + save could drop a concurrent upload or resurrect a deleted one.
+    def _m(idx):
+        idx = idx if isinstance(idx, dict) else {"files": {}}
+        if not isinstance(idx.get("files"), dict):
+            idx["files"] = {}
+        idx["files"][file_id] = rec
+        idx["updated_at"] = now_iso()
+        return idx
+    update_json(UPLOAD_INDEX_PATH, {"files": {}, "updated_at": None}, _m)
 
 
 def get_upload_record(file_id: str) -> Optional[Dict[str, Any]]:
@@ -10604,7 +10610,46 @@ def api_images_list():
 
     # newest first
     out.sort(key=lambda r: (r.get("uploaded_at") or ""), reverse=True)
+    for r in out:
+        r["can_delete"] = (r.get("owner") or "").strip() == uname
     return jsonify({"ok": True, "images": out})
+
+
+@app.post("/api/images/delete")
+def api_images_delete():
+    """Delete one or many of the operator's own images (Media Library)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"ok": False, "error": "ids required"}), 400
+    want = {str(i) for i in ids[:1000]}
+    removed: List[Dict[str, Any]] = []
+
+    def _m(idx):
+        idx = idx if isinstance(idx, dict) else {"files": {}}
+        files = idx.get("files") if isinstance(idx.get("files"), dict) else {}
+        for fid in list(want):
+            rec = files.get(fid)
+            # Only the owner can delete — ownerless (legacy) records are left alone.
+            if isinstance(rec, dict) and uname and (rec.get("owner") or "").strip() == uname:
+                removed.append(files.pop(fid))
+        idx["files"] = files
+        idx["updated_at"] = now_iso()
+        return idx
+    update_json(UPLOAD_INDEX_PATH, {"files": {}, "updated_at": None}, _m)
+
+    root = UPLOADS_DIR.resolve()
+    for rec in removed:
+        try:
+            fp = (UPLOADS_DIR / (rec.get("relpath") or "")).resolve()
+            if fp != root and root in fp.parents and fp.is_file():
+                fp.unlink()
+        except Exception as e:
+            _capture_error(e, context="image_delete")
+    return jsonify({"ok": True, "deleted": len(removed), "skipped": len(want) - len(removed)})
 
 
 @app.get("/api/visuals")
@@ -10670,6 +10715,30 @@ def api_visuals_delete(vis_id: str):
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/visuals/delete")
+def api_visuals_bulk_delete():
+    """Delete many saved visuals at once (Media Library bulk select)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"ok": False, "error": "ids required"}), 400
+    want = {str(i) for i in ids[:1000]}
+    box = {"n": 0}
+
+    def _m(vs):
+        vs = vs if isinstance(vs, list) else []
+        keep = [v for v in vs if not (isinstance(v, dict) and str(v.get("id", "")) in want)]
+        box["n"] = len(vs) - len(keep)
+        return keep
+    data_path = DATA / f"visuals_{uname}.json"
+    if data_path.exists():
+        update_json(data_path, [], _m)
+    return jsonify({"ok": True, "deleted": box["n"]})
 
 
 @app.get("/api/images/job/<job_id>")
@@ -17791,11 +17860,13 @@ def api_crm_clients_bulk():
     ids     = payload.get("ids") or []
     action  = (payload.get("action") or "").strip()
     value   = (payload.get("value") or "").strip()
-    if not ids or not action:
+    if not ids or not action or not isinstance(ids, list):
         return jsonify({"ok": False, "error": "ids and action required"}), 400
+    ids     = [str(i) for i in ids][:5000]
     crm     = _crm_load(uname)
     clients = crm.get("clients") or {}
     changed = 0
+    deleted: List[str] = []
     for cid in ids:
         if cid not in clients or not isinstance(clients[cid], dict):
             continue
@@ -17812,6 +17883,7 @@ def api_crm_clients_bulk():
                 c["tags"] = tags
         elif action == "delete":
             del clients[cid]
+            deleted.append(cid)
             changed += 1
             continue
         c["updated_at"] = now_iso()
@@ -17819,6 +17891,16 @@ def api_crm_clients_bulk():
         changed += 1
     crm["clients"] = clients
     _crm_save(uname, crm)
+    if deleted:
+        # Clearing a stage must not leave teammate drafts (e.g. new-contact
+        # hellos) waiting in Ready for you for people who no longer exist.
+        gone = set(deleted)
+        with _AGENT_LOCK:
+            d = _agent_load(uname)
+            keep = [a for a in d["approvals"] if not (a.get("status") == "pending" and a.get("client_id") in gone)]
+            if len(keep) != len(d["approvals"]):
+                d["approvals"] = keep
+                _agent_save(uname, d)
     return jsonify({"ok": True, "changed": changed})
 
 
