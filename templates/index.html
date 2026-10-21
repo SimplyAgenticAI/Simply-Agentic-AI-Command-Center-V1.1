@@ -33766,6 +33766,10 @@ function _saEsc(s){
 .st-time{font-variant-numeric:tabular-nums;color:#93c5fd;font-size:calc(14px * var(--fs,1.1));min-width:58px;}
 .st-tag{font-size:calc(14px * var(--fs,1.1));padding:2px 7px;border-radius:999px;background:rgba(239,68,68,.18);color:#fca5a5;white-space:nowrap;}
 .st-tag.ok{background:rgba(250,204,21,.15);color:#fde68a;}
+.st-trig{font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:1px 8px;border-radius:999px;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.45);color:#7dd3fc;white-space:nowrap;margin-right:6px;}
+.st-appr.st-new{animation:stSlideIn .55s cubic-bezier(.2,1.2,.4,1);border-color:rgba(56,189,248,.6);}
+@keyframes stSlideIn{from{transform:translateY(-10px);opacity:0;box-shadow:0 0 0 2px rgba(56,189,248,.7)}to{transform:none;opacity:1;box-shadow:none}}
+@media(prefers-reduced-motion:reduce){.st-appr.st-new{animation:none}}
 .st-btn{font-size:calc(14px * var(--fs,1.1));padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e2e8f0;cursor:pointer;white-space:nowrap;}
 .st-btn.pri{background:rgba(250,204,21,.18);border-color:rgba(250,204,21,.5);color:#fde68a;}
 .st-check{width:20px;height:20px;border-radius:6px;border:1.5px solid rgba(255,255,255,.35);background:none;cursor:pointer;flex-shrink:0;}
@@ -33839,7 +33843,7 @@ function _saEsc(s){
       <span id="stBriefNote" style="color:#94a3b8;font-size:calc(14px * var(--fs,1.1));"></span>
     </div>
     <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
-      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">🤖 Teammate jobs — what your team does for you each morning</summary>
+      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">🤖 Teammate jobs — what your team does each morning and when things happen</summary>
       <div id="stJobs" style="margin-top:8px;"></div>
     </details>
   </div>
@@ -33980,10 +33984,35 @@ function _saEsc(s){
   }
 
   // ── Proactive teammates (V11.4): Ready for you · trust dial · jobs ──
-  var _agent = null;
+  var _agent = null, _apprSeen = null, _agentRev = null;
   async function loadAgent(){
-    try{ var r = await fetch('/api/agent'); var d = await r.json(); if(d && d.ok){ _agent = d; renderAgent(d); } }catch(_){}
+    try{ var r = await fetch('/api/agent'); var d = await r.json(); if(d && d.ok){ _agent = d; _agentRev = d.rev; renderAgent(d); } }catch(_){}
   }
+  // Event triggers (V12.4): teammates react in the background when something
+  // happens. Poll a tiny change counter so their drafts slide into Ready for
+  // you live, and toast from any screen when Today is closed.
+  async function pollAgentRev(){
+    if(document.hidden) return;
+    try{
+      var r = await fetch('/api/agent/rev'); if(!r.ok) return;
+      var d = await r.json(); if(!d || !d.ok) return;
+      if(_agentRev === null){ await loadAgent(); return; }
+      if(d.rev === _agentRev) return;
+      var before = {}; ((_agent && _agent.approvals) || []).forEach(function(a){ before[a.id] = 1; });
+      var r2 = await fetch('/api/agent'); var a2 = await r2.json(); if(!a2 || !a2.ok) return;
+      _agent = a2; _agentRev = a2.rev; renderAgent(a2);
+      var fresh = (a2.approvals || []).filter(function(a){ return !before[a.id] && a.trigger; });
+      if(fresh.length && !document.getElementById('saToday').classList.contains('open')){
+        toast('⚡ ' + fresh[0].teammate + ' drafted ' + (fresh.length === 1 ? 'a hello to ' + fresh[0].client_name : fresh.length + ' hellos') + ' — open Today to review');
+      }
+    }catch(_){}
+  }
+  setTimeout(pollAgentRev, 2500);
+  setInterval(pollAgentRev, 8000);
+  window.saAgentRule = async function(key, on){
+    var d = await agentPost('/api/agent/settings', {rule: key, enabled: !!on});
+    if(d.ok){ _agent = d; _agentRev = d.rev; toast(on ? '⚡ On — your team will react when this happens' : 'Off'); }
+  };
   function agentPost(url, body){
     return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})}).then(function(r){ return r.json(); });
   }
@@ -33993,8 +34022,11 @@ function _saEsc(s){
     sec.style.display = (ap.length || sent.length || (d.offers||[]).length) ? '' : 'none';
     document.getElementById('stReadyH').textContent = '✨ Ready for you' + (ap.length ? ' (' + ap.length + ')' : '');
     if(ap.length) _hadWork = true;
+    var firstPaint = _apprSeen === null; _apprSeen = _apprSeen || {};
     box.innerHTML = ap.map(function(a, i){
-      return '<div class="st-lead st-appr" data-i="'+i+'"><div class="st-row"><div class="st-t">'+esc(a.title)+
+      var isNew = !firstPaint && !_apprSeen[a.id]; _apprSeen[a.id] = 1;
+      return '<div class="st-lead st-appr'+(isNew?' st-new':'')+'" data-i="'+i+'"><div class="st-row"><div class="st-t">'+
+        (a.trigger ? '<span class="st-trig">⚡ '+esc(a.trigger)+'</span>' : '')+esc(a.title)+
         '<div class="st-sub">'+esc(a.teammate)+' drafted this · to '+esc(a.to)+(a.error?' · <span style="color:#fca5a5">'+esc(a.error)+'</span>':'')+'</div></div>'+
         '<button class="st-btn" onclick="saAgentOpen('+i+')">Review</button>'+
         '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Send</button>'+
@@ -34008,7 +34040,13 @@ function _saEsc(s){
       '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri" onclick="saAgentTrust(\''+off.kind+'\',true)">Yes, send them for me</button>'+
       '<button class="st-btn" onclick="saAgentTrust(\''+off.kind+'\',false,true)">Keep asking me</button></div></div>' : '';
     var hours = ''; for(var h=5; h<=11; h++) hours += '<option value="'+h+'">'+h+':00 am</option>';
-    document.getElementById('stJobs').innerHTML = (d.jobs||[]).map(function(j){
+    var rules = d.rules || [];
+    document.getElementById('stJobs').innerHTML = (rules.length ? '<div class="st-sub" style="font-weight:700;color:#7dd3fc;margin:4px 0 2px;">⚡ When something happens</div>' +
+      rules.map(function(x){
+        return '<div class="st-row"><label style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;cursor:pointer;">'+
+          '<input type="checkbox" '+(x.enabled?'checked':'')+' onchange="saAgentRule(\''+esc(x.key)+'\',this.checked)"> <span><b>'+esc(x.teammate)+'</b>: '+esc(x.title)+
+          '<div class="st-sub">'+esc(x.hint)+'</div></span></label></div>';
+      }).join('') + '<div class="st-sub" style="font-weight:700;color:#c4b5fd;margin:10px 0 2px;">🌅 Every morning</div>' : '') + (d.jobs||[]).map(function(j){
       return '<div class="st-row" style="flex-wrap:wrap;"><label style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;cursor:pointer;">'+
         '<input type="checkbox" '+(j.enabled?'checked':'')+' onchange="saAgentJob(\''+j.key+'\',{enabled:this.checked})"> <span><b>'+esc(j.teammate)+'</b>: '+esc(j.title)+
         '<div class="st-sub">'+esc(j.hint)+'</div></span></label>'+

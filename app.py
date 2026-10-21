@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "12.3")
+APP_VERSION = os.getenv("APP_VERSION", "12.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17703,6 +17703,7 @@ def api_crm_clients_create():
         _mark_onboarding_step(uname, "crm_contact", True)
     except Exception:
         pass
+    _agent_emit(uname, "contact.created", {"client_ids": [cid]})
     return jsonify({"ok": True, "client": client})
 
 @app.post("/api/crm/clients/<client_id>")
@@ -17842,6 +17843,7 @@ def api_crm_clients_import_csv():
     imported = 0
     skipped = 0
     duplicates = 0
+    new_ids: List[str] = []
 
     # Build set of existing emails for duplicate detection
     existing_emails = {
@@ -17909,11 +17911,14 @@ def api_crm_clients_import_csv():
             }
             if email:
                 existing_emails.add(email.lower())
+            new_ids.append(cid)
             imported += 1
     except Exception as e:
         return jsonify({"ok": False, "error": f"CSV import failed: {e}"}), 400
 
     _crm_save(uname, crm)
+    if new_ids:
+        _agent_emit(uname, "contact.created", {"client_ids": new_ids})
     return jsonify({"ok": True, "imported": imported, "skipped": skipped, "duplicates": duplicates, "total_clients": len(crm.get("clients") or {})})
 
 
@@ -23083,9 +23088,23 @@ AGENT_JOBS: Dict[str, Dict[str, Any]] = {
     "followups": {"title": "Draft follow-ups that came due", "teammate": "Sunshine", "max": 5,
                   "kind": "followup", "hint": "Contacts whose follow-up date is today or earlier."},
 }
-AGENT_KIND_LABELS = {"intro": "intro emails to new leads", "followup": "follow-up emails"}
+AGENT_KIND_LABELS = {"intro": "intro emails to new leads", "followup": "follow-up emails",
+                     "new_contact": "new-contact hellos"}
 AGENT_TRUST_OFFER_AT = 10      # unedited approvals in a row before offering auto-send
 AGENT_DEFAULT_HOUR = 7
+# Event triggers (V12.4): "when X happens, teammate Y does Z". Each rule has
+# its own trust kind, so trusting morning intros never auto-sends these.
+AGENT_RULES: Dict[str, Dict[str, Any]] = {
+    "contact_created": {"event": "contact.created", "teammate": "Sunshine", "kind": "new_contact",
+                        "title": "When a new contact is added, draft a hello",
+                        "hint": "New leads you add or import (up to 5 at a time) get a short first email to review.",
+                        "trigger": "New contact"},
+}
+AGENT_EVENT_MAX = 5            # drafts per event, so a big CSV import can't burn the AI budget
+# Off under pytest so unrelated tests that add contacts never call the model;
+# trigger tests switch these on and run inline.
+_AGENT_EVENTS_ON = "pytest" not in _sys.modules
+_AGENT_EVENTS_INLINE = False
 
 
 def _agent_path(uname: str) -> Path:
@@ -23099,6 +23118,10 @@ def _agent_load(uname: str) -> Dict[str, Any]:
     jobs = d.setdefault("jobs", {})
     for k in AGENT_JOBS:
         jobs.setdefault(k, {"enabled": True, "hour": AGENT_DEFAULT_HOUR, "last_day": ""})
+    rules = d.setdefault("rules", {})
+    for k in AGENT_RULES:
+        rules.setdefault(k, {"enabled": True})
+    d.setdefault("rev", 0)
     d.setdefault("approvals", [])
     d.setdefault("trust", {})
     d.setdefault("log", [])
@@ -23109,6 +23132,7 @@ def _agent_save(uname: str, d: Dict[str, Any]) -> None:
     ap = d.get("approvals") or []
     d["approvals"] = [a for a in ap if a.get("status") == "pending"] + [a for a in ap if a.get("status") != "pending"][-100:]
     d["log"] = (d.get("log") or [])[-100:]
+    d["rev"] = int(d.get("rev") or 0) + 1      # the page polls this to show changes live
     save_json(_agent_path(uname), d)
 
 
@@ -23184,7 +23208,7 @@ def _agent_send(uname: str, appr: Dict[str, Any], subject: str, body: str) -> Tu
 
 
 def _agent_queue(uname: str, d: Dict[str, Any], kind: str, teammate: str, client: Dict[str, Any],
-                 purpose: str, title: str) -> str:
+                 purpose: str, title: str, trigger: str = "") -> str:
     """Draft one email; auto-send it if this kind is trusted, else add it to
     Ready for you. Returns 'queued' | 'sent' | 'skipped'."""
     if any(a.get("status") == "pending" and a.get("client_id") == client.get("id") for a in d["approvals"]):
@@ -23196,6 +23220,8 @@ def _agent_queue(uname: str, d: Dict[str, Any], kind: str, teammate: str, client
     appr = {"id": uuid.uuid4().hex[:12], "kind": kind, "teammate": teammate, "client_id": client.get("id"),
             "client_name": client.get("name") or "", "to": client.get("email") or "", "title": title,
             "subject": subject, "body": body, "created_at": now_iso(), "status": "pending"}
+    if trigger:
+        appr["trigger"] = trigger
     if (d.get("trust") or {}).get(kind, {}).get("auto"):
         ok, err = _agent_send(uname, appr, subject, body)
         appr.update(status="auto_sent" if ok else "pending", error="" if ok else err, decided_at=now_iso())
@@ -23248,6 +23274,66 @@ def _agent_run_job(uname: str, key: str) -> Dict[str, Any]:
     return {"ok": True, "queued": queued, "sent": sent, "note": note}
 
 
+def _agent_handle_event(uname: str, event: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Run every enabled rule for this event. Drafts go to Ready for you (or are
+    sent, if that kind is trusted), capped at AGENT_EVENT_MAX per event."""
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+    keys = [k for k, r in AGENT_RULES.items() if r["event"] == event and (d["rules"].get(k) or {}).get("enabled")]
+    if not keys or not _check_msg_limit(uname, _get_user_plan(uname))[0]:
+        return {"queued": 0, "sent": 0}
+    queued = sent = 0
+    for key in keys:
+        rule = AGENT_RULES[key]
+        if event == "contact.created":
+            crm = _crm_load(uname)
+            clients = crm.get("clients") or {}
+            first_stage = (((crm.get("pipeline") or {}).get("stages") or ["Lead"]) or ["Lead"])[0]
+            # Only brand-new leads with a real email — an imported list of
+            # existing customers must not get a "first hello".
+            targets = [clients[i] for i in (data.get("client_ids") or []) if isinstance(clients.get(i), dict)
+                       and EMAIL_RE.match((clients[i].get("email") or "").strip())
+                       and not clients[i].get("email_unsubscribed") and not clients[i].get("last_contact")
+                       and (clients[i].get("pipeline_stage") or "Lead") in ("Lead", first_stage)]
+            purpose = ("Warm first hello to someone who was just added as a new contact. Short, friendly, "
+                       "say who we are and offer one easy next step.")
+            title_fn = lambda c: f"Hello to {c.get('name')}"
+        else:
+            continue
+        for c in targets[:AGENT_EVENT_MAX]:
+            r = _agent_queue(uname, d, rule["kind"], rule["teammate"], c, purpose, title_fn(c), trigger=rule["trigger"])
+            queued += r == "queued"
+            sent += r == "sent"
+        if queued or sent:
+            more = len(targets) - AGENT_EVENT_MAX
+            d["log"].append({"at": now_iso(), "text": f"⚡ {rule['trigger']}: {rule['teammate']} drafted {queued + sent} hello"
+                             + ("s" if queued + sent != 1 else "") + (f" ({more} more skipped)" if more > 0 else "")})
+    with _AGENT_LOCK:
+        cur = _agent_load(uname)
+        known = {a.get("id") for a in cur["approvals"]}
+        cur["approvals"] += [a for a in d["approvals"] if a.get("id") not in known]
+        cur["log"] += [x for x in d["log"] if x not in cur["log"]]
+        _agent_save(uname, cur)
+    return {"queued": queued, "sent": sent}
+
+
+def _agent_emit(uname: str, event: str, data: Dict[str, Any]) -> None:
+    """Something happened — let the teammates react in the background so the
+    request that caused it (an add, an import) never waits on the model."""
+    if not _AGENT_EVENTS_ON or not uname or uname == "anon":
+        return
+
+    def _run():
+        try:
+            _agent_handle_event(uname, event, data)
+        except Exception as e:
+            _capture_error(e, context=f"agent_event:{event}")
+    if _AGENT_EVENTS_INLINE:
+        _run()
+    else:
+        threading.Thread(target=_run, daemon=True).start()
+
+
 def _agent_tick() -> None:
     """Every minute: run each user's enabled standing jobs once per local day,
     at or after the chosen hour. last_day is saved BEFORE running so a crash or
@@ -23290,7 +23376,19 @@ def _agent_view(uname: str) -> Dict[str, Any]:
                      for k, v in AGENT_JOBS.items()],
             "trust": [{"kind": k, "label": v, "auto": bool(((d.get("trust") or {}).get(k) or {}).get("auto")),
                        "streak": int(((d.get("trust") or {}).get(k) or {}).get("streak") or 0)} for k, v in AGENT_KIND_LABELS.items()],
+            "rules": [{"key": k, "title": v["title"], "teammate": v["teammate"], "hint": v["hint"],
+                       "enabled": bool((d["rules"].get(k) or {}).get("enabled"))} for k, v in AGENT_RULES.items()],
+            "rev": int(d.get("rev") or 0),
             "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT}
+
+
+@app.get("/api/agent/rev")
+def api_agent_rev():
+    """Cheap change counter the page polls so new drafts appear without a refresh."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "rev": int(_agent_load(u.get("username", "")).get("rev") or 0)})
 
 
 @app.get("/api/agent")
@@ -23358,6 +23456,9 @@ def api_agent_settings():
                     d["jobs"][key]["hour"] = max(0, min(23, int(b.get("hour"))))
                 except (TypeError, ValueError):
                     return jsonify({"ok": False, "error": "Bad hour"}), 400
+        rule = str(b.get("rule") or "")
+        if rule in AGENT_RULES and "enabled" in b:
+            d["rules"].setdefault(rule, {})["enabled"] = bool(b.get("enabled"))
         kind = str(b.get("trust") or "")
         if kind in AGENT_KIND_LABELS:
             t = d["trust"].setdefault(kind, {"streak": 0, "auto": False})
@@ -26038,6 +26139,7 @@ def _tool_crm_add_client(uname: str, teammate: str, args: Dict[str, Any]) -> Dic
         }
         crm["clients"][cid] = client
         _crm_save(uname, crm)
+        _agent_emit(uname, "contact.created", {"client_ids": [cid]})
         return {"ok": True, "client_id": cid,
                 "summary": f"Added {name} to your CRM as a {stage}."}
     except Exception as e:
@@ -32854,6 +32956,7 @@ def api_extension_import_lead():
         "contact": name, "source": p.get("source","facebook_extension"),
         "facebook_url": p.get("profile_url","")
     })
+    _agent_emit(uname, "contact.created", {"client_ids": [cid]})
     return jsonify({"ok": True, "client_id": cid, "name": name})
 
 
