@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "12.4")
+APP_VERSION = os.getenv("APP_VERSION", "12.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -5938,11 +5938,14 @@ def _calendar_list_events(access_token: str, time_min: str, time_max: str, timez
     return out
 
 
-def _calendar_delete_event(access_token: str, event_id: str, calendar_id: str = "primary") -> Tuple[bool, str]:
-    """Delete a Google Calendar event. 410 (Gone) counts as success — already deleted."""
+def _calendar_delete_event(access_token: str, event_id: str, calendar_id: str = "primary",
+                           send_updates: str = "") -> Tuple[bool, str]:
+    """Delete a Google Calendar event. 410 (Gone) counts as success — already deleted.
+    send_updates="all" emails attendees a cancellation."""
     r = requests.delete(
         f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
-        headers={"Authorization": f"Bearer {access_token}"}, timeout=20)
+        headers={"Authorization": f"Bearer {access_token}"},
+        params={"sendUpdates": send_updates} if send_updates else None, timeout=20)
     if r.status_code in (200, 204, 410):
         return True, ""
     return False, f"Google Calendar returned {r.status_code}."
@@ -17474,10 +17477,12 @@ def _crm_activity_path(uname: str, client_id: str) -> Path:
 def _crm_activity_log(uname: str, client_id: str) -> List[Dict[str, Any]]:
     return load_json(_crm_activity_path(uname, client_id), [])
 
-def _crm_activity_append(uname: str, client_id: str, event_type: str, detail: str) -> None:
+def _crm_activity_append(uname: str, client_id: str, event_type: str, detail: str) -> str:
+    at = now_iso()
     log = _crm_activity_log(uname, client_id)
-    log.append({"type": event_type, "detail": detail, "at": now_iso()})
+    log.append({"type": event_type, "detail": detail, "at": at})
     save_json(_crm_activity_path(uname, client_id), log[-200:])  # keep last 200 events
+    return at
 
 
 def _group_lane_block(defn: Dict[str, Any], n: int) -> str:
@@ -23227,6 +23232,9 @@ def _agent_queue(uname: str, d: Dict[str, Any], kind: str, teammate: str, client
         appr.update(status="auto_sent" if ok else "pending", error="" if ok else err, decided_at=now_iso())
         if ok:
             d["log"].append({"at": now_iso(), "text": f"{teammate} sent {AGENT_KIND_LABELS.get(kind, kind)[:-1]} to {appr['client_name']}"})
+            _action_record(uname, teammate, "send_email",
+                           {"ok": True, "summary": f"Sent “{subject[:80]}” to {appr['client_name'] or appr['to']} on its own (trusted)."},
+                           "trigger" if trigger else "job")
     d["approvals"].append(appr)
     return "sent" if appr["status"] == "auto_sent" else "queued"
 
@@ -23378,8 +23386,15 @@ def _agent_view(uname: str) -> Dict[str, Any]:
                        "streak": int(((d.get("trust") or {}).get(k) or {}).get("streak") or 0)} for k, v in AGENT_KIND_LABELS.items()],
             "rules": [{"key": k, "title": v["title"], "teammate": v["teammate"], "hint": v["hint"],
                        "enabled": bool((d["rules"].get(k) or {}).get("enabled"))} for k, v in AGENT_RULES.items()],
-            "rev": int(d.get("rev") or 0),
+            "rev": _agent_rev_total(uname, d),
+            "actions": _actions_view(uname),
             "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT}
+
+
+def _agent_rev_total(uname: str, d: Optional[Dict[str, Any]] = None) -> int:
+    """Agent store + action log change counters, so one cheap poll covers both."""
+    d = d if d is not None else _agent_load(uname)
+    return int(d.get("rev") or 0) + int(_actions_load(uname).get("rev") or 0)
 
 
 @app.get("/api/agent/rev")
@@ -23388,7 +23403,7 @@ def api_agent_rev():
     u = current_user()
     if not u:
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
-    return jsonify({"ok": True, "rev": int(_agent_load(u.get("username", "")).get("rev") or 0)})
+    return jsonify({"ok": True, "rev": _agent_rev_total(u.get("username", ""))})
 
 
 @app.get("/api/agent")
@@ -25593,134 +25608,6 @@ def api_os_shared_memory_clear():
     return jsonify({"ok": True})
 
 
-# ── TEAMMATE TOOL CALLING ─────────────────────────────────────────────────────
-
-_TEAMMATE_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "crm_lookup",
-            "description": "Look up a CRM contact by name or email. Returns stage, notes, and contact info.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Name or email to search"}
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calendar_check",
-            "description": "List upcoming calendar events for the next N days (requires Google Calendar connected).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days": {"type": "integer", "description": "Days ahead to look (1-14)", "default": 7}
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "remember_fact",
-            "description": "Save an important fact or decision to shared team memory so every teammate knows it.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "fact": {"type": "string", "description": "The fact or decision to remember"}
-                },
-                "required": ["fact"],
-            },
-        },
-    },
-]
-
-
-def _execute_teammate_tool(
-    tool_name: str, tool_args: Dict[str, Any],
-    username: str, u: Dict[str, Any]
-) -> str:
-    """Execute a teammate tool call and return a string result."""
-
-    if tool_name == "crm_lookup":
-        query = (tool_args.get("query") or "").strip().lower()
-        if not query:
-            return "No query provided."
-        try:
-            crm     = _crm_load(username)
-            clients = crm.get("clients") or {}
-            matches = []
-            for _, c in list(clients.items())[:200]:
-                if isinstance(c, dict):
-                    if query in (c.get("name") or "").lower() or query in (c.get("email") or "").lower():
-                        matches.append(c)
-            if not matches:
-                return f"No CRM contacts found matching '{query}'."
-            lines = []
-            for c in matches[:3]:
-                lines.append(
-                    f"Name: {c.get('name','')} | Email: {c.get('email','')} | "
-                    f"Stage: {c.get('pipeline_stage','')} | Notes: {(c.get('notes','') or '')[:100]}"
-                )
-            return "CRM results:\n" + "\n".join(lines)
-        except Exception as e:
-            return f"CRM lookup error: {e}"
-
-    elif tool_name == "calendar_check":
-        days = max(1, min(14, int(tool_args.get("days") or 7)))
-        try:
-            cal_token, reason = _calendar_creds_for_user(u)
-            if not cal_token:
-                return f"Calendar not connected: {reason}"
-            _req = requests
-            now_dt   = _utcnow()
-            time_min = now_dt.isoformat() + "Z"
-            time_max = (now_dt + timedelta(days=days)).isoformat() + "Z"
-            resp = _req.get(
-                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                headers={"Authorization": f"Bearer {cal_token}"},
-                params={"timeMin": time_min, "timeMax": time_max,
-                        "singleEvents": "true", "orderBy": "startTime", "maxResults": "10"},
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                return f"Calendar API error {resp.status_code}: {resp.text[:200]}"
-            items = resp.json().get("items") or []
-            if not items:
-                return f"No events in the next {days} days."
-            lines = []
-            for ev in items[:8]:
-                start = (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date") or ""
-                lines.append(f"{start[:16].replace('T',' ')}: {ev.get('summary','(no title)')}")
-            return "Upcoming events:\n" + "\n".join(lines)
-        except Exception as e:
-            return f"Calendar check failed: {e}"
-
-    elif tool_name == "remember_fact":
-        fact = (tool_args.get("fact") or "").strip()[:200]
-        if not fact:
-            return "No fact provided."
-        try:
-            osd  = _os_load(username)
-            cur  = osd.get("shared_team_memory") or {}
-            if not isinstance(cur, dict):
-                cur = {}
-            cur["facts"]      = (list(cur.get("facts") or []) + [fact])[-12:]
-            cur["updated_at"] = now_iso()
-            osd["shared_team_memory"] = cur
-            _os_save(username, osd)
-            return f"Remembered: '{fact}'"
-        except Exception as e:
-            return f"Could not save fact: {e}"
-
-    return f"Unknown tool: {tool_name}"
-
-
 def call_llm_with_tools(
     system: str,
     messages: List[Dict[str, Any]],
@@ -26156,8 +26043,8 @@ def _tool_crm_log_activity(uname: str, teammate: str, args: Dict[str, Any]) -> D
         crm = _crm_load(uname)
         if cid not in (crm.get("clients") or {}):
             return {"ok": False, "summary": "No client with that id."}
-        _crm_activity_append(uname, cid, "note", note)
-        return {"ok": True, "summary": "Logged the note to that client's activity."}
+        at = _crm_activity_append(uname, cid, "note", note)
+        return {"ok": True, "client_id": cid, "at": at, "summary": "Logged the note to that client's activity."}
     except Exception as e:
         return {"ok": False, "summary": f"Could not log activity: {e}"}
 
@@ -26460,18 +26347,20 @@ def _tool_build_growth_playbook(uname: str, teammate: str, args: Dict[str, Any])
                     f"your pipeline, follow up with value + a clear CTA, then review and repeat for {timeline}.")
         output = _crm_llm_or_fallback(system, prompt, fallback)
         # Persist so it shows up in the operator's Growth Playbooks list (mirrors api_playbooks_save).
+        pb_id = ""
         try:
             p = DATA / f"saved_playbooks_{uname}.json"
             existing = load_json(p, []) or []
             if not isinstance(existing, list):
                 existing = []
             title = f"{goal.replace('_',' ').title()} — {timeline}"[:200]
-            existing.insert(0, {"id": str(uuid.uuid4()), "title": title,
+            pb_id = str(uuid.uuid4())
+            existing.insert(0, {"id": pb_id, "title": title,
                                 "content": output, "created_at": now_iso()})
             save_json(p, existing[:100])
         except Exception:
-            pass
-        return {"ok": True, "playbook": output,
+            pb_id = ""
+        return {"ok": True, "playbook": output, "playbook_id": pb_id,
                 "summary": f"Built + saved a growth playbook: {goal.replace('_',' ')} over {timeline}."}
     except Exception as e:
         return {"ok": False, "summary": f"Playbook generation failed: {e}"}
@@ -26585,15 +26474,16 @@ def _tool_add_to_notepad(uname: str, teammate: str, args: Dict[str, Any]) -> Dic
     title = (args.get("title") or "").strip()[:120]
     try:
         notes = _load_notes(uname)
+        note_id = int(time.time() * 1000)          # matches the UI's Date.now() ids
         notes.insert(0, {
-            "id": int(time.time() * 1000),          # matches the UI's Date.now() ids
+            "id": note_id,
             "title": title,
             "content": content[:20000],
             "updated": now_iso(),
         })
         _save_notes(uname, notes[:200])
         label = f" “{title}”" if title else ""
-        return {"ok": True, "summary": f"Added a note{label} to your Notepad."}
+        return {"ok": True, "note_id": note_id, "summary": f"Added a note{label} to your Notepad."}
     except Exception as e:
         return {"ok": False, "summary": f"Couldn't save the note: {e}"}
 
@@ -26958,15 +26848,209 @@ def _effective_tool_risk(name: str, external_used: bool) -> str:
     return base
 
 
-def _execute_teammate_tool(name: str, args: Dict[str, Any], uname: str, teammate: str) -> Dict[str, Any]:
-    """Dispatch a single tool call to its executor. Always returns a dict; never raises."""
+def _execute_teammate_tool(name: str, args: Dict[str, Any], uname: str, teammate: str,
+                           source: str = "chat") -> Dict[str, Any]:
+    """Dispatch a single tool call to its executor. Always returns a dict; never raises.
+    Every call lands in the action log ("What your team did") with undo info."""
     t = _TOOL_BY_NAME.get(name)
     if not t:
         return {"ok": False, "summary": f"Unknown tool: {name}"}
     try:
-        return t["executor"](uname, teammate, args or {})
+        res = t["executor"](uname, teammate, args or {})
     except Exception as e:
-        return {"ok": False, "summary": f"Tool '{name}' failed: {e}"}
+        res = {"ok": False, "summary": f"Tool '{name}' failed: {e}"}
+    _action_record(uname, teammate, name, res, source)
+    return res
+
+
+# ── Action log + undo (V12.5) ────────────────────────────────────────────────
+# One entry per teammate action, written at the single tool chokepoint above so
+# chat, approval clicks and background work can't skip it. Undo reverses
+# exactly what that action created (by id) — it never restores an old copy of
+# a whole file, so later changes by the operator are never wiped.
+_ACTIONS_DIR = DATA / "actions"
+ACTIONS_MAX = 300
+ACTION_UNDO_DAYS = 7
+# tool -> result keys that identify what it created (all must be present to undo)
+_UNDO_KEYS: Dict[str, Tuple[str, ...]] = {
+    "crm_add_client": ("client_id",),
+    "crm_log_activity": ("client_id", "at"),
+    "create_calendar_task": ("task_id",),
+    "draft_social_post": ("post_id",),
+    "save_to_vault": ("id",),
+    "add_to_notepad": ("note_id",),
+    "build_growth_playbook": ("playbook_id",),
+    "book_meeting": ("event_id",),
+}
+_IRREVERSIBLE_TOOLS = {"send_email"}
+_UNDO_LABELS = {"book_meeting": "Cancel meeting"}
+
+
+def _actions_path(uname: str) -> Path:
+    return _ACTIONS_DIR / f"{_safe_name(uname or 'anon')}.json"
+
+
+def _actions_load(uname: str) -> Dict[str, Any]:
+    d = load_json(_actions_path(uname), {})
+    if not isinstance(d, dict):
+        d = {}
+    if not isinstance(d.get("items"), list):
+        d["items"] = []
+    d.setdefault("rev", 0)
+    return d
+
+
+def _actions_update(uname: str, fn) -> Dict[str, Any]:
+    def _m(d):
+        if not isinstance(d, dict):
+            d = {}
+        if not isinstance(d.get("items"), list):
+            d["items"] = []
+        fn(d)
+        d["items"] = d["items"][-ACTIONS_MAX:]
+        d["rev"] = int(d.get("rev") or 0) + 1      # folded into /api/agent/rev so Today updates live
+        return d
+    path = _actions_path(uname)
+    path.parent.mkdir(parents=True, exist_ok=True)   # update_json doesn't create it; the write would be lost
+    return update_json(path, {}, _m)
+
+
+def _action_record(uname: str, teammate: str, tool: str, res: Dict[str, Any], source: str = "chat") -> None:
+    """Append one action. Never raises — logging must not break the tool."""
+    try:
+        res = res if isinstance(res, dict) else {}
+        ok = bool(res.get("ok"))
+        keys = _UNDO_KEYS.get(tool)
+        undo = {k: res.get(k) for k in keys} if (ok and keys and all(res.get(k) for k in keys)) else None
+        entry = {"id": uuid.uuid4().hex[:12], "at": now_iso(), "teammate": teammate or "", "tool": tool,
+                 "source": source, "ok": ok, "summary": str(res.get("summary") or "")[:300],
+                 "changes": tool in _MUTATING_TOOLS or tool in _UNDO_KEYS or tool in _IRREVERSIBLE_TOOLS}
+        if undo:
+            entry["undo"] = undo
+        _actions_update(uname, lambda d: d["items"].append(entry))
+    except Exception as e:
+        _capture_error(e, context="action_record")
+
+
+def _action_undoable(a: Dict[str, Any]) -> bool:
+    if not a.get("undo") or a.get("undone_at") or a.get("undoing"):
+        return False
+    try:   # now_iso() is naive UTC + "Z"
+        at = datetime.fromisoformat(str(a.get("at") or "").rstrip("Z"))
+        return _utcnow() - at <= timedelta(days=ACTION_UNDO_DAYS)
+    except Exception:
+        return False
+
+
+def _actions_view(uname: str, limit: int = 30) -> List[Dict[str, Any]]:
+    out = []
+    for a in reversed(_actions_load(uname)["items"][-limit:]):
+        out.append({"id": a.get("id"), "at": a.get("at"), "teammate": a.get("teammate"), "tool": a.get("tool"),
+                    "source": a.get("source"), "ok": a.get("ok"), "summary": a.get("summary"),
+                    "changes": bool(a.get("changes")), "undone": bool(a.get("undone_at")),
+                    "can_undo": _action_undoable(a),
+                    "undo_label": _UNDO_LABELS.get(a.get("tool") or "", "Undo"),
+                    "irreversible": (a.get("tool") in _IRREVERSIBLE_TOOLS) and bool(a.get("ok"))})
+    return out
+
+
+def _action_reverse(uname: str, tool: str, u: Dict[str, Any]) -> Tuple[bool, str]:
+    """Reverse one action by the ids it recorded. Returns (ok, message)."""
+    if tool == "crm_add_client":
+        cid = u["client_id"]
+        crm = _crm_load(uname)
+        if cid not in (crm.get("clients") or {}):
+            return True, "That contact was already removed."
+        crm["clients"].pop(cid, None)
+        _crm_save(uname, crm)
+        try:
+            _crm_activity_path(uname, cid).unlink(missing_ok=True)
+        except Exception:
+            pass
+        # Drop any still-pending draft (e.g. a new-contact hello) for this contact.
+        with _AGENT_LOCK:
+            d = _agent_load(uname)
+            before = len(d["approvals"])
+            d["approvals"] = [a for a in d["approvals"]
+                              if not (a.get("status") == "pending" and a.get("client_id") == cid)]
+            if len(d["approvals"]) != before:
+                _agent_save(uname, d)
+        return True, "Removed the contact."
+    if tool == "crm_log_activity":
+        def _m(log):
+            log = log if isinstance(log, list) else []
+            return [e for e in log if not (isinstance(e, dict) and e.get("type") == "note" and e.get("at") == u["at"])]
+        update_json(_crm_activity_path(uname, u["client_id"]), [], _m)
+        return True, "Removed the note."
+    if tool == "create_calendar_task":
+        tasks = _load_cal_tasks(uname)
+        _save_cal_tasks(uname, [t for t in tasks if not (isinstance(t, dict) and t.get("id") == u["task_id"])])
+        return True, "Removed the calendar task."
+    if tool == "draft_social_post":
+        posts = _load_sp_posts(uname)
+        post = next((p for p in posts if isinstance(p, dict) and p.get("id") == u["post_id"]), None)
+        if post and post.get("status") not in ("draft", "", None):
+            return False, "That post is no longer a draft, so it wasn't removed."
+        _save_sp_posts(uname, [p for p in posts if not (isinstance(p, dict) and p.get("id") == u["post_id"])])
+        return True, "Removed the draft post."
+    if tool == "save_to_vault":
+        _vault_save(uname, [e for e in _vault_load(uname) if not (isinstance(e, dict) and e.get("id") == u["id"])])
+        return True, "Removed it from Saved replies."
+    if tool == "add_to_notepad":
+        _save_notes(uname, [n for n in _load_notes(uname) if not (isinstance(n, dict) and n.get("id") == u["note_id"])])
+        return True, "Removed the note."
+    if tool == "build_growth_playbook":
+        update_json(DATA / f"saved_playbooks_{uname}.json", [],
+                    lambda pb: [p for p in (pb if isinstance(pb, list) else [])
+                                if not (isinstance(p, dict) and p.get("id") == u["playbook_id"])])
+        return True, "Removed the playbook."
+    if tool == "book_meeting":
+        user = (load_users().get("users") or {}).get(uname) or {}
+        token, reason = _calendar_creds_for_user(user)
+        if not token:
+            return False, reason or "Google Calendar isn't connected, so the meeting couldn't be cancelled."
+        ok, err = _calendar_delete_event(token, u["event_id"], send_updates="all")
+        return (True, "Cancelled the meeting — attendees were notified.") if ok else (False, err)
+    return False, "This action can't be undone."
+
+
+@app.post("/api/actions/<aid>/undo")
+def api_action_undo(aid: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    box: Dict[str, Any] = {}
+
+    def _claim(d):
+        for a in d["items"]:
+            if a.get("id") == aid:
+                if _action_undoable(a):
+                    a["undoing"] = True          # claimed under the file lock, so a double-click can't run it twice
+                    box["a"] = dict(a)
+                else:
+                    box["why"] = "already undone" if a.get("undone_at") else "can no longer be undone"
+                return
+    _actions_update(uname, _claim)
+    a = box.get("a")
+    if not a:
+        return jsonify({"ok": False, "error": "That action " + box.get("why", "wasn't found") + "."}), 400
+    try:
+        ok, msg = _action_reverse(uname, a.get("tool") or "", a.get("undo") or {})
+    except Exception as e:
+        _capture_error(e, context="action_undo")
+        ok, msg = False, "Undo failed — nothing was changed."
+
+    def _finish(d):
+        for x in d["items"]:
+            if x.get("id") == aid:
+                x.pop("undoing", None)
+                if ok:
+                    x["undone_at"] = now_iso()
+    _actions_update(uname, _finish)
+    if not ok:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify({"ok": True, "message": msg, "actions": _actions_view(uname)})
 
 
 def _tools_openai_schema() -> List[Dict[str, Any]]:

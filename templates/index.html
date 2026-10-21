@@ -33770,6 +33770,14 @@ function _saEsc(s){
 .st-appr.st-new{animation:stSlideIn .55s cubic-bezier(.2,1.2,.4,1);border-color:rgba(56,189,248,.6);}
 @keyframes stSlideIn{from{transform:translateY(-10px);opacity:0;box-shadow:0 0 0 2px rgba(56,189,248,.7)}to{transform:none;opacity:1;box-shadow:none}}
 @media(prefers-reduced-motion:reduce){.st-appr.st-new{animation:none}}
+.st-did{display:flex;align-items:flex-start;gap:10px;padding:8px 2px;border-bottom:1px solid rgba(255,255,255,.07);}
+.st-did .st-t{flex:1;min-width:0;}
+.st-did.read{opacity:.62;}
+.st-did.undone .st-dsum{text-decoration:line-through;color:#94a3b8;}
+.st-did.st-new{animation:stSlideIn .55s cubic-bezier(.2,1.2,.4,1);}
+.st-dsum{font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;overflow-wrap:anywhere;}
+.st-tag{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;white-space:nowrap;}
+@media(prefers-reduced-motion:reduce){.st-did.st-new{animation:none}}
 .st-btn{font-size:calc(14px * var(--fs,1.1));padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e2e8f0;cursor:pointer;white-space:nowrap;}
 .st-btn.pri{background:rgba(250,204,21,.18);border-color:rgba(250,204,21,.5);color:#fde68a;}
 .st-check{width:20px;height:20px;border-radius:6px;border:1.5px solid rgba(255,255,255,.35);background:none;cursor:pointer;flex-shrink:0;}
@@ -33826,6 +33834,7 @@ function _saEsc(s){
       </div>
     </div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
+    <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
     <div class="st-sec" id="stLeadsSec" style="display:none;"><div class="st-h"><span>New leads to welcome</span><button id="stLeadsAll" onclick="saTodayDraftAllIntros()">✍ Draft all</button></div><div id="stLeads"></div></div>
@@ -34057,7 +34066,44 @@ function _saEsc(s){
         '<input type="checkbox" '+(t.auto?'checked':'')+' onchange="saAgentTrust(\''+t.kind+'\',this.checked)"> Send '+esc(t.label)+' automatically (no approval)</label>'+
         '<span class="st-sub">'+(t.auto?'On':(t.streak+'/'+d.offer_at+' approved unchanged'))+'</span></div>';
     }).join('');
+    renderDid(d.actions || []);
   }
+
+  // ── What your team did (V12.5): every teammate action, live, with Undo ──
+  var _didAll = false, _didSeen = null;
+  function _ago(iso){
+    var t = Date.parse(String(iso||'').replace(/Z?$/,'Z')); if(!t) return '';
+    var s = Math.max(0, (Date.now()-t)/1000);
+    if(s < 60) return 'just now'; if(s < 3600) return Math.floor(s/60)+'m ago';
+    if(s < 86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
+  }
+  function renderDid(list){
+    var sec = document.getElementById('stDidSec'), box = document.getElementById('stDid');
+    var shown = list.filter(function(a){ return _didAll || a.changes || !a.ok; }).slice(0, _didAll ? 30 : 8);
+    sec.style.display = list.length ? '' : 'none';
+    document.getElementById('stDidAll').textContent = _didAll ? 'Only changes' : 'Show lookups too';
+    var firstPaint = _didSeen === null; _didSeen = _didSeen || {};
+    var src = {trigger:'⚡ Trigger', job:'🌅 Morning job'};
+    box.innerHTML = shown.length ? shown.map(function(a){
+      var isNew = !firstPaint && !_didSeen[a.id]; _didSeen[a.id] = 1;
+      var btn = a.can_undo ? '<button class="st-btn" onclick="saActionUndo(\''+esc(a.id)+'\',this,'+(a.tool==='book_meeting')+')">'+esc(a.undo_label||'Undo')+'</button>'
+        : a.undone ? '<span class="st-tag">Undone</span>'
+        : a.irreversible ? '<span class="st-tag" title="Sent email can\'t be unsent">Can\'t undo</span>' : '';
+      return '<div class="st-did'+(a.changes?'':' read')+(a.undone?' undone':'')+(isNew?' st-new':'')+'"><div class="st-t">'+
+        '<div class="st-dsum">'+(a.ok?'':'<span style="color:#fca5a5">⚠ </span>')+esc(a.summary || a.tool)+'</div>'+
+        '<div class="st-sub">'+esc(a.teammate||'Your team')+(src[a.source]?' · '+src[a.source]:'')+' · '+_ago(a.at)+'</div></div>'+btn+'</div>';
+    }).join('') : '<div class="st-empty">No changes yet — lookups are hidden.</div>';
+  }
+  window.saTodayDidToggle = function(){ _didAll = !_didAll; if(_agent) renderDid(_agent.actions || []); };
+  window.saActionUndo = async function(id, btn, isMeeting){
+    if(isMeeting && !confirm('Cancel this meeting? Google will email the attendees a cancellation.')) return;
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Undoing…';
+    try{
+      var d = await agentPost('/api/actions/'+encodeURIComponent(id)+'/undo', {});
+      if(d && d.ok){ toast('↩ ' + (d.message || 'Undone')); load(); }
+      else { toast((d && d.error) || 'Could not undo', 'error'); btn.disabled = false; btn.textContent = orig; }
+    }catch(e){ toast('Could not undo: '+e, 'error'); btn.disabled = false; btn.textContent = orig; }
+  };
   function apprRow(i){ return document.querySelector('#stReady .st-appr[data-i="'+i+'"]'); }
   window.saAgentOpen = function(i){
     var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
