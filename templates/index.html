@@ -18214,6 +18214,13 @@ Challenge weak assumptions. Surface risks.`;
 
     async function crmDeleteClient(id){
       if(!id) return;
+      // Remove on a selected card removes the whole selection (same as dragging a selected card)
+      const _sel = window._crmSelectedIds ? Array.from(window._crmSelectedIds) : [];
+      if(_sel.length > 1 && _sel.includes(id)){
+        if(!confirm(`Remove all ${_sel.length} selected contacts?\n\nThis deletes them from your contacts and can't be undone.`)) return;
+        await crmBulkSend(_sel, 'delete', '', `🗑 Removed ${_sel.length} contacts`);
+        return;
+      }
       const c = (crmCache.clients||[]).find(x=>x.id===id);
       const clientName = c ? (c.name || 'this contact') : 'this contact';
       const confirmed = await new Promise(resolve=>{
