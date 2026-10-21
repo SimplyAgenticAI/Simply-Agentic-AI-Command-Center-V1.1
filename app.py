@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.0")
+APP_VERSION = os.getenv("APP_VERSION", "13.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -29293,6 +29293,7 @@ import shutil as _shutil_ve
 
 import tempfile as _tempfile_ve
 _VE_TEMP = Path(_tempfile_ve.gettempdir()) / "sa_video"
+_VE_MAX_BYTES = 3 * 1024 * 1024 * 1024  # 3 GB source video (a 20-min phone video can pass 500 MB)
 
 _FFMPEG_BIN_CACHE: Optional[str] = None
 
@@ -29532,9 +29533,18 @@ def api_video_upload():
         vid_dir.mkdir(parents=True, exist_ok=True)
         dest = vid_dir / f"original.{ext}"
         try:
+            written = 0
             with open(str(dest), "wb") as out_f:
                 for cf in chunk_files:
-                    out_f.write(cf.read_bytes())
+                    part = cf.read_bytes()
+                    written += len(part)
+                    if written > _VE_MAX_BYTES:
+                        break
+                    out_f.write(part)
+                    cf.unlink(missing_ok=True)  # free disk as we go — big uploads don't double up
+            if written > _VE_MAX_BYTES:
+                dest.unlink(missing_ok=True)
+                return jsonify({"ok": False, "error": "File exceeds 3 GB limit."}), 400
         except Exception as ae:
             return jsonify({"ok": False, "error": f"Assembly failed: {ae}"}), 500
         finally:
@@ -29554,10 +29564,10 @@ def api_video_upload():
         f.save(str(dest))
 
     size = dest.stat().st_size if dest.exists() else 0
-    if size > 500 * 1024 * 1024:
+    if size > _VE_MAX_BYTES:
         try: dest.unlink()
         except Exception: pass
-        return jsonify({"ok": False, "error": "File exceeds 500 MB limit."}), 400
+        return jsonify({"ok": False, "error": "File exceeds 3 GB limit."}), 400
     print(f"[VE] upload user={u.get('username')} vid={vid_id} size={size} ext={ext}", flush=True)
     return jsonify({"ok": True, "video_id": vid_id})
 

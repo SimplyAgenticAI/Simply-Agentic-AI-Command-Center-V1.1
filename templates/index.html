@@ -37259,7 +37259,7 @@ window.addEventListener('focus', function(){
            ondrop="veHandleDrop(event)">
         <div style="font-size:calc(28px * var(--fs,1.1));margin-bottom:8px;">🎬</div>
         <div style="font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#c4b5fd;margin-bottom:4px;">Drop video or click to upload</div>
-        <div style="font-size:calc(14.5px * var(--fs,1.1));color:#aab8cc;">MP4, MOV, WEBM, M4V · Max 500 MB</div>
+        <div style="font-size:calc(14.5px * var(--fs,1.1));color:#aab8cc;">MP4, MOV, WEBM, M4V · Max 3 GB</div>
         <input id="veFileInput" type="file" accept="video/*,.mp4,.webm,.mov,.avi,.mkv,.m4v,.3gp" style="display:none;" onchange="veLoadFile(this.files[0])"/>
       </div>
 
@@ -37954,7 +37954,7 @@ window.addEventListener('focus', function(){
 
   window.veLoadFile=function(file){
     if(!file)return;
-    if(file.size>500*1024*1024){veSt('File too large — max 500 MB','err');return;}
+    if(file.size>3*1024*1024*1024){veSt('File too large — max 3 GB','err');return;}
     var ext=(file.name||'').split('.').pop().toLowerCase();
     if(['mp4','webm','mov','avi','mkv','m4v','3gp'].indexOf(ext)<0){veSt('Use MP4, MOV, WEBM, M4V, AVI or MKV','err');return;}
 
@@ -38012,7 +38012,7 @@ window.addEventListener('focus', function(){
       xhr2.setRequestHeader('X-CSRF-Token',csrfToken);
       xhr2.setRequestHeader('Content-Type','application/json');
       xhr2.withCredentials=true;
-      xhr2.timeout=120000;
+      xhr2.timeout=300000; /* joining a multi-GB upload can take a while; matches gunicorn's 300s */
       xhr2.onload=function(){
         var d; try{d=JSON.parse(xhr2.responseText);}catch(x){veSt('Upload error — please retry','err');if(pw)pw.style.display='none';return;}
         if(!d.ok){veSt(d.error||'Upload failed','err');if(pw)pw.style.display='none';return;}
