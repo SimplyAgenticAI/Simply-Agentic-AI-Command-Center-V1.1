@@ -11241,6 +11241,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         list.innerHTML = '';
         pbs.forEach(function(pb){
           const card = document.createElement('details');
+          if(pb.id) card.setAttribute('data-bulk-id', pb.id);
           card.style.cssText = 'border:1px solid rgba(255,255,255,.1);border-radius:10px;background:rgba(255,255,255,.04);padding:10px 12px;margin-bottom:8px;';
           const sum = document.createElement('summary');
           sum.style.cssText = 'cursor:pointer;font-weight:700;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));';
@@ -11263,6 +11264,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           row.appendChild(cp); row.appendChild(del); card.appendChild(row);
           list.appendChild(card);
         });
+        if(window.saBulkAttach) window.saBulkAttach({key: 'playbooks', container: list, rowSelector: 'details[data-bulk-id]', mountSelector: 'summary', noun: 'playbook',
+          deleteOne: function(id){ return fetch('/api/playbooks/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: id})}).then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }); },
+          onDone: function(){ _saOpenPlaybooks(); }});
       }).catch(function(){ note('Could not load playbooks.'); });
     }
 
@@ -16293,7 +16297,7 @@ Challenge weak assumptions. Surface risks.`;
           const cardStyle = locked ? 'opacity:0.55;pointer-events:none;' : '';
           const promptPreview = locked ? '🔒 Unlock this prompt by reaching ' + tierName + ' rank in the community.' : escapeHtml(p.prompt||"");
           html += `
-          <div class="plCard" style="${cardStyle}">
+          <div class="plCard" style="${cardStyle}"${(!p.builtin && !locked) ? ` data-bulk-id="${escapeHtml(p.id)}"` : ''}>
             <div class="plCardBody" onclick="${locked?'':("plUse('"+p.id+"','"+escapeHtml(tm)+"',event)")}">
               <div class="plCardTitle">${escapeHtml(p.title)}</div>
               <div class="plCardText">${promptPreview}</div>
@@ -16319,6 +16323,9 @@ Challenge weak assumptions. Surface risks.`;
         ? '<div style="color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));padding:16px 0;">No prompts match "' + escapeHtml(searchQ) + '"</div>'
         : '<div style="color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));">No prompts yet.</div>');
       if(countEl) countEl.innerText = total + " prompt" + (total!==1?"s":"");
+      if(window.saBulkAttach) window.saBulkAttach({key: 'prompts', container: container, rowSelector: '.plCard[data-bulk-id]', mountSelector: '.plCardTitle', noun: 'custom prompt',
+        deleteOne: function(id){ return fetch('/api/prompts/'+encodeURIComponent(id), {method:'DELETE'}).then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }); },
+        onDone: function(){ loadPromptLibrary(); }});
     }
 
     // Map prompt id back to full text from plAllData
@@ -16520,6 +16527,7 @@ Challenge weak assumptions. Surface risks.`;
           list.innerHTML = '';
           list.style.display = 'none';
           if(empty) empty.style.display = 'flex';
+          _rvBulk(list);
           return;
         }
         if(empty) empty.style.display = 'none';
@@ -16573,6 +16581,14 @@ Challenge weak assumptions. Surface risks.`;
             '</div>',
           ].join('');
         }).join('');
+        _rvBulk(list);
+      }
+      function _rvBulk(list){
+        if(!window.saBulkAttach) return;
+        window.saBulkAttach({key: 'vault', container: list, rowSelector: '._rvCard', mountSelector: ':scope > div', noun: 'saved reply',
+          deleteOne: function(id){ return fetch('/api/vault/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id: id})}).then(function(r){ return r.json(); }).then(function(d){ return !!d.ok; }); },
+          onDone: function(gone){ _vaultEntries = _vaultEntries.filter(function(e){ return gone.indexOf(e.id) === -1; });
+            var q = (document.getElementById('_rvSearch')||{}).value||''; renderVaultList(q.toLowerCase()); }});
       }
 
       function escapeHtmlVault(s){
@@ -16622,6 +16638,68 @@ Challenge weak assumptions. Surface risks.`;
           document.body.removeChild(ta);
           if(typeof showToast==='function') showToast('📋 Copied');
         });
+      };
+
+      /* ── Shared select-many for simple lists (V12.6) ──────────────────────
+         saBulkAttach({key, container, rowSelector, mountSelector, noun,
+                       deleteOne(id) -> Promise<bool>, onDone(deletedIds)})
+         Rows carry data-bulk-id (or data-id). A checkbox is prepended into each
+         row's mount; a Select all / Delete selected bar sits above the list.
+         Deletes go one by one through the list's own single-delete call. */
+      window.saBulkAttach = function(o){
+        var c = o.container; if(!c || !c.parentElement) return;
+        var store = (window._saBulkSel = window._saBulkSel || {});
+        var sel = store[o.key] = store[o.key] || {};
+        var ids = [];
+        [].forEach.call(c.querySelectorAll(o.rowSelector), function(r){
+          var id = r.getAttribute('data-bulk-id') || r.getAttribute('data-id'); if(!id) return;
+          ids.push(id);
+          var mount = (o.mountSelector && r.querySelector(o.mountSelector)) || r;
+          var cb = document.createElement('input');
+          cb.type = 'checkbox'; cb.checked = !!sel[id]; cb.title = 'Select';
+          cb.style.cssText = 'width:18px;height:18px;margin:0 10px 0 0;cursor:pointer;accent-color:#8b5cf6;flex-shrink:0;vertical-align:middle;';
+          cb.onclick = function(e){ e.stopPropagation(); };
+          var mark = function(){ r.style.outline = cb.checked ? '2px solid rgba(167,139,250,.9)' : ''; r.style.outlineOffset = '1px'; };
+          cb.onchange = function(){ if(cb.checked) sel[id] = 1; else delete sel[id]; mark(); bar(); };
+          mount.insertBefore(cb, mount.firstChild); mark();
+        });
+        Object.keys(sel).forEach(function(k){ if(ids.indexOf(k) === -1) delete sel[k]; });
+        var b = document.getElementById('saBulkBar_' + o.key);
+        if(!b){ b = document.createElement('div'); b.id = 'saBulkBar_' + o.key; c.parentElement.insertBefore(b, c); }
+        function bar(){
+          var n = ids.filter(function(id){ return sel[id]; }).length;
+          if(ids.length < 2 && !n){ b.style.display = 'none'; b.innerHTML = ''; return; }
+          b.style.cssText = 'position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;border-radius:12px;background:rgba(10,14,30,.97);border:1px solid ' + (n ? 'rgba(124,58,237,.6)' : 'rgba(110,135,215,.25)') + ';';
+          b.innerHTML = '';
+          var lbl = document.createElement('span');
+          lbl.style.cssText = 'font-size:calc(14px * var(--fs,1.1));font-weight:700;color:' + (n ? '#c4b5fd' : '#94a3b8') + ';';
+          lbl.textContent = n ? (n + ' selected') : 'Tick boxes to delete many at once';
+          b.appendChild(lbl);
+          var mk = function(t, fn, danger){ var x = document.createElement('button'); x.className = 'btn btnMini'; x.textContent = t; x.onclick = fn;
+            if(danger){ x.style.background = 'rgba(180,30,60,.3)'; x.style.borderColor = 'rgba(239,68,68,.45)'; x.style.color = '#fca5a5'; } b.appendChild(x); return x; };
+          var allOn = ids.length && n === ids.length;
+          mk(allOn ? '☐ Unselect all' : '☑ Select all', function(){
+            ids.forEach(function(id){ if(allOn) delete sel[id]; else sel[id] = 1; });
+            [].forEach.call(c.querySelectorAll(o.rowSelector), function(r){ var cb = r.querySelector('input[type=checkbox]'); var id = r.getAttribute('data-bulk-id') || r.getAttribute('data-id');
+              if(cb && id){ cb.checked = !!sel[id]; r.style.outline = cb.checked ? '2px solid rgba(167,139,250,.9)' : ''; } });
+            bar();
+          });
+          if(n){
+            var del = mk('🗑 Delete ' + n, async function(){
+              var pick = ids.filter(function(id){ return sel[id]; });
+              if(!confirm('Delete ' + pick.length + ' ' + o.noun + (pick.length === 1 ? '' : 's') + '? This can\'t be undone.')) return;
+              del.disabled = true; del.textContent = 'Deleting…';
+              var gone = [], bad = 0;
+              for(var i = 0; i < pick.length; i++){ try{ if(await o.deleteOne(pick[i])) gone.push(pick[i]); else bad++; }catch(_){ bad++; } }
+              gone.forEach(function(id){ delete sel[id]; });
+              if(typeof showToast === 'function') showToast('🗑 Deleted ' + gone.length + (bad ? ' · ' + bad + ' failed' : ''));
+              if(o.onDone) o.onDone(gone);
+            }, true);
+            mk('Clear selection', function(){ Object.keys(sel).forEach(function(k){ delete sel[k]; });
+              [].forEach.call(c.querySelectorAll(o.rowSelector + ' input[type=checkbox]'), function(cb){ cb.checked = false; cb.onchange(); }); bar(); });
+          }
+        }
+        bar();
       };
 
       window._rvDelete = function(id){
@@ -37303,6 +37381,7 @@ window.addEventListener('focus', function(){
       <div class="vc-libbar">
         <label class="vc-chk"><input type="checkbox" id="vcSelAll" onchange="vcSelectAll(this.checked)"> All</label>
         <button class="vc-btn" id="vcZipBtn" onclick="vcDownloadZip()" disabled>⬇ Download selected</button>
+        <button class="vc-btn" id="vcDelSelBtn" onclick="vcDeleteChecked()" disabled style="color:#fca5a5;border-color:rgba(248,113,113,.45);">🗑 Delete selected</button>
         <div style="flex:1"></div>
         <button class="vc-btn" onclick="vcOpenBrand()" title="Logo + caption color applied to your clips">🎨 Brand kit</button>
       </div>
@@ -37555,7 +37634,7 @@ window.addEventListener('focus', function(){
       var asp=c.aspect==='original'?'':(' · '+esc(c.aspect));
       return '<div class="vc-card'+(S.sel===c.id?' sel':'')+'" data-id="'+esc(c.id)+'">'+
         '<div class="vc-thumb" style="'+thumb+(c.aspect==='16:9'?';aspect-ratio:16/10':'')+'">'+(thumb?'':(c.status==='rendering'?'<div class="vc-spin"></div>':'🎞'))+'</div>'+badge+score+
-        '<input type="checkbox" class="vc-cchk" '+(S.checked[c.id]?'checked':'')+' title="Select for download" '+(c.status!=='ready'?'disabled':'')+'>'+
+        '<input type="checkbox" class="vc-cchk" '+(S.checked[c.id]?'checked':'')+' title="Select">'+
         '<div class="vc-cinfo"><div class="vc-ctitle">'+esc(c.title)+'</div><div class="vc-csub">'+fmt(c.duration)+asp+(c.captions&&c.captions.on?' · CC':'')+'</div></div></div>';
     }).join('');
     [].forEach.call(g.querySelectorAll('.vc-card'),function(el){
@@ -37565,13 +37644,27 @@ window.addEventListener('focus', function(){
     });
     updateZip();
   }
+  function checkedIds(){ return Object.keys(S.checked).filter(function(k){return S.checked[k]&&byId(k);}); }
   function updateZip(){
-    var n=Object.keys(S.checked).filter(function(k){return S.checked[k]&&byId(k);}).length;
+    var all=checkedIds(), n=all.filter(function(k){ return byId(k).status==='ready'; }).length;
     $('vcZipBtn').disabled=!n; $('vcZipBtn').textContent=n?('⬇ Download '+n+(n>1?' clips':' clip')):'⬇ Download selected';
+    var d=$('vcDelSelBtn'); if(d){ d.disabled=!all.length; d.textContent=all.length?('🗑 Delete '+all.length):'🗑 Delete selected'; }
   }
-  window.vcSelectAll=function(on){ S.checked={}; if(on) S.clips.forEach(function(c){ if(c.status==='ready') S.checked[c.id]=true; }); renderGrid(); };
+  window.vcSelectAll=function(on){ S.checked={}; if(on) S.clips.forEach(function(c){ S.checked[c.id]=true; }); renderGrid(); };
+  // V12.6 bulk: delete every ticked clip (one request each, so files are removed the same way as a single delete)
+  window.vcDeleteChecked=async function(){
+    var ids=checkedIds(); if(!ids.length) return;
+    if(!confirm('Delete '+ids.length+' clip'+(ids.length>1?'s':'')+'? This can\'t be undone.')) return;
+    var btn=$('vcDelSelBtn'); if(btn){ btn.disabled=true; btn.textContent='Deleting…'; }
+    var ok=0, bad=0;
+    for(var i=0;i<ids.length;i++){
+      try{ var d=await api('/api/vclips/'+encodeURIComponent(ids[i]),{method:'DELETE'}); if(d&&d.ok){ ok++; delete S.checked[ids[i]]; if(S.sel===ids[i]){ S.sel=null; showEditor(null); } } else bad++; }catch(_){ bad++; }
+    }
+    toast('🗑 Deleted '+ok+(bad?(' · '+bad+' failed'):''), bad?'error':'success');
+    load();
+  };
   window.vcDownloadZip=function(){
-    var ids=Object.keys(S.checked).filter(function(k){return S.checked[k];});
+    var ids=checkedIds().filter(function(k){ return byId(k).status==='ready'; });
     if(!ids.length) return;
     if(ids.length===1){ location.href='/api/vclips/'+ids[0]+'/file?download=1'; return; }
     location.href='/api/vclips/zip?ids='+ids.join(',');
