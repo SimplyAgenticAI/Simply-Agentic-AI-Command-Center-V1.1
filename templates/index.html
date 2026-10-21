@@ -33975,7 +33975,7 @@ function _saEsc(s){
         <button class="st-btn pri" onclick="saTodaySaveFocus()">Set</button>
       </div>
     </div>
-    <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
+    <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
@@ -34093,10 +34093,14 @@ function _saEsc(s){
     }
 
     var tk = document.getElementById('stTasks');
+    _tkSel = {};
+    var many = d.tasks.length > 1;
     tk.innerHTML = d.tasks.length ? d.tasks.map(function(t,i){
       var tag = t.overdue ? '<span class="st-tag">overdue</span>' : '';
-      return '<div class="st-row"><button class="st-check" title="Mark done" onclick="saTodayTaskDone('+i+',this)"></button><span class="st-time">'+esc(fmtTime(t.time))+'</span><div class="st-t">'+esc(t.title)+'</div>'+tag+'</div>';
+      return '<div class="st-row" data-tk="'+i+'">'+(many ? '<input type="checkbox" class="st-tksel" onchange="saTaskSel('+i+',this.checked)" title="Select" style="width:18px;height:18px;cursor:pointer;accent-color:#8b5cf6;flex-shrink:0;">' : '')+
+        '<button class="st-check" title="Mark done" onclick="saTodayTaskDone('+i+',this)"></button><span class="st-time">'+esc(fmtTime(t.time))+'</span><div class="st-t">'+esc(t.title)+'</div>'+tag+'</div>';
     }).join('') : '<div class="st-empty">Nothing due. Add one task that moves things forward.</div>';
+    renderTaskBulk();
 
     var pp = document.getElementById('stPeople');
     if(!d.followups.length){
@@ -34176,13 +34180,16 @@ function _saEsc(s){
     var firstPaint = _apprSeen === null; _apprSeen = _apprSeen || {};
     box.innerHTML = ap.map(function(a, i){
       var isNew = !firstPaint && !_apprSeen[a.id]; _apprSeen[a.id] = 1;
-      return '<div class="st-lead st-appr'+(isNew?' st-new':'')+'" data-i="'+i+'"><div class="st-row"><div class="st-t">'+
+      return '<div class="st-lead st-appr'+(isNew?' st-new':'')+'" data-i="'+i+'"><div class="st-row">'+
+        (ap.length > 1 ? '<input type="checkbox" class="st-apsel" data-id="'+esc(a.id)+'" '+(_apSel[a.id]?'checked':'')+' onchange="saAgentSel(this)" title="Select" style="width:18px;height:18px;cursor:pointer;accent-color:#8b5cf6;flex-shrink:0;">' : '')+
+        '<div class="st-t">'+
         (a.trigger ? '<span class="st-trig">⚡ '+esc(a.trigger)+'</span>' : '')+esc(a.title)+
         '<div class="st-sub">'+esc(a.teammate)+' drafted this · to '+esc(a.to)+(a.error?' · <span style="color:#fca5a5">'+esc(a.error)+'</span>':'')+'</div></div>'+
         '<button class="st-btn" onclick="saAgentOpen('+i+')">Review</button>'+
         '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Send</button>'+
         '<button class="st-btn" onclick="saAgentSkip('+i+',this)">Skip</button></div><div class="st-intro"></div></div>';
     }).join('');
+    renderApBulk(ap);
     document.getElementById('stSentForYou').innerHTML = sent.length
       ? '<div class="st-empty">✅ Sent for you today: ' + sent.map(function(a){ return esc(a.client_name); }).join(', ') + '</div>' : '';
     var off = (d.offers||[])[0], ob = document.getElementById('stOffer');
@@ -34272,6 +34279,43 @@ function _saEsc(s){
       if(d.offer) setTimeout(loadAgent, 600);
     }catch(e){ btn.disabled = false; btn.textContent = orig; toast(String(e), 'error'); }
   };
+  // Bulk (V12.6): send or skip many drafts at once, exactly as drafted
+  var _apSel = {};
+  function _apPending(){ return ((_agent && _agent.approvals) || []).filter(function(a, i){ var r = apprRow(i); return !(r && r.classList.contains('st-done')); }); }
+  function renderApBulk(ap){
+    var box = document.getElementById('stReadyBulk');
+    Object.keys(_apSel).forEach(function(k){ if(!ap.some(function(a){ return a.id === k; })) delete _apSel[k]; });
+    if(ap.length < 2){ box.innerHTML = ''; return; }
+    var n = Object.keys(_apSel).length, allOn = n === ap.length;
+    box.innerHTML = '<div class="st-row" style="gap:6px;flex-wrap:wrap;margin:2px 0 8px;">'+
+      '<button class="st-btn" onclick="saAgentSelAll()">'+(allOn ? '☐ Unselect all' : '☑ Select all')+'</button>'+
+      '<button class="st-btn pri" onclick="saAgentBulk(\'approve\',this)">✓ Send '+(n ? n+' selected' : 'all '+ap.length)+'</button>'+
+      '<button class="st-btn" onclick="saAgentBulk(\'skip\',this)">Skip '+(n ? n+' selected' : 'all')+'</button>'+
+      '<span class="st-sub">Sends exactly as drafted — use Review to edit one first.</span></div>';
+  }
+  window.saAgentSel = function(cb){ var id = cb.getAttribute('data-id'); if(cb.checked) _apSel[id] = 1; else delete _apSel[id]; renderApBulk((_agent && _agent.approvals) || []); };
+  window.saAgentSelAll = function(){
+    var ap = (_agent && _agent.approvals) || [], allOn = Object.keys(_apSel).length === ap.length;
+    _apSel = {}; if(!allOn) ap.forEach(function(a){ _apSel[a.id] = 1; });
+    document.querySelectorAll('#stReady .st-apsel').forEach(function(cb){ cb.checked = !allOn; });
+    renderApBulk(ap);
+  };
+  window.saAgentBulk = async function(action, btn){
+    var pend = _apPending(), n = Object.keys(_apSel).length;
+    var pick = (n ? pend.filter(function(a){ return _apSel[a.id]; }) : pend);
+    if(!pick.length) return;
+    if(action === 'approve' && !confirm('Send ' + pick.length + ' email' + (pick.length===1?'':'s') + ' exactly as drafted?\n\n' +
+        pick.slice(0, 8).map(function(a){ return '• ' + (a.client_name || a.to) + ' — ' + (a.subject || ''); }).join('\n') + (pick.length > 8 ? '\n…and ' + (pick.length-8) + ' more' : ''))) return;
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = action === 'approve' ? 'Sending…' : 'Skipping…';
+    try{
+      var d = await agentPost('/api/agent/approvals/bulk', {action: action, ids: pick.map(function(a){ return a.id; })});
+      if(!d.ok){ toast(d.error || 'Could not do that', 'error'); btn.disabled = false; btn.textContent = orig; return; }
+      _apSel = {};
+      var failed = d.failed || [];
+      toast((action === 'approve' ? '📨 Sent ' : '⏭ Skipped ') + d.done + (failed.length ? ' · ' + failed.length + ' failed — still in your list' : ''), failed.length ? 'error' : undefined);
+      await loadAgent(); checkCleared();
+    }catch(e){ toast(String(e), 'error'); btn.disabled = false; btn.textContent = orig; }
+  };
   window.saAgentSkip = async function(i, btn){
     var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
     btn.disabled = true;
@@ -34321,6 +34365,60 @@ function _saEsc(s){
     }catch(e){ toast(String(e),'error'); }
   };
 
+  // Bulk (V12.6): finish or clear many tasks at once. Each one goes through
+  // the normal single-task endpoint, so recurring instances and on-complete
+  // teammate actions behave exactly as if clicked one by one.
+  var _tkSel = {};
+  function _tkOpen(){ return ((_data && _data.tasks) || []).map(function(t,i){ return i; }).filter(function(i){ var r = document.querySelector('#stTasks .st-row[data-tk="'+i+'"]'); return r && !r.classList.contains('st-done'); }); }
+  function renderTaskBulk(){
+    var host = document.getElementById('stTaskBulk');
+    if(!host){ host = document.createElement('div'); host.id = 'stTaskBulk'; var tk = document.getElementById('stTasks'); tk.parentElement.insertBefore(host, tk); }
+    var open = _tkOpen(), n = Object.keys(_tkSel).length;
+    if(open.length < 2){ host.innerHTML = ''; return; }
+    var overdue = open.filter(function(i){ return _data.tasks[i].overdue; });
+    host.innerHTML = '<div class="st-row" style="gap:6px;flex-wrap:wrap;margin:2px 0 6px;">'+
+      '<button class="st-btn" onclick="saTaskSelAll(false)">'+(n === open.length ? '☐ Unselect all' : '☑ Select all')+'</button>'+
+      (overdue.length ? '<button class="st-btn" onclick="saTaskSelAll(true)">Select overdue ('+overdue.length+')</button>' : '')+
+      (n ? '<button class="st-btn pri" onclick="saTaskBulk(\'done\',this)">✓ Mark '+n+' done</button><button class="st-btn" style="color:#fca5a5;border-color:rgba(248,113,113,.4);" onclick="saTaskBulk(\'delete\',this)">🗑 Delete '+n+'</button>' : '')+
+      '</div>';
+  }
+  window.saTaskSel = function(i, on){ if(on) _tkSel[i] = 1; else delete _tkSel[i]; renderTaskBulk(); };
+  window.saTaskSelAll = function(overdueOnly){
+    var open = _tkOpen(), pick = overdueOnly ? open.filter(function(i){ return _data.tasks[i].overdue; }) : open;
+    var allOn = !overdueOnly && Object.keys(_tkSel).length === open.length;
+    _tkSel = {}; if(!allOn) pick.forEach(function(i){ _tkSel[i] = 1; });
+    document.querySelectorAll('#stTasks .st-row[data-tk]').forEach(function(r){ var cb = r.querySelector('.st-tksel'); if(cb) cb.checked = !!_tkSel[+r.getAttribute('data-tk')]; });
+    renderTaskBulk();
+  };
+  window.saTaskBulk = async function(action, btn){
+    var idx = Object.keys(_tkSel).map(Number).filter(function(i){ return _data.tasks[i]; });
+    if(!idx.length) return;
+    var keepRecurring = 0;
+    if(action === 'delete'){
+      keepRecurring = idx.filter(function(i){ return _data.tasks[i].recurring; }).length;
+      idx = idx.filter(function(i){ return !_data.tasks[i].recurring; });
+      if(!idx.length){ toast('Repeating tasks can\'t be bulk-deleted (it would delete the whole series) — mark them done instead.', 'error'); return; }
+      if(!confirm('Delete ' + idx.length + ' task' + (idx.length===1?'':'s') + '? This can\'t be undone.' + (keepRecurring ? '\n\n' + keepRecurring + ' repeating task' + (keepRecurring===1?' is':'s are') + ' kept — mark those done instead.' : ''))) return;
+    }
+    btn.disabled = true; btn.textContent = action === 'done' ? 'Finishing…' : 'Deleting…';
+    var ok = 0, bad = 0;
+    for(var k = 0; k < idx.length; k++){
+      var i = idx[k], t = _data.tasks[i], row = document.querySelector('#stTasks .st-row[data-tk="'+i+'"]');
+      var url = t.source==='crm' ? '/api/crm/tasks/'+encodeURIComponent(t.id) : '/api/cal/tasks/'+encodeURIComponent(t.id);
+      var opts = action === 'done'
+        ? {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(t.source==='crm' ? {status:'done'} : (t.recurring ? {done:true, instance_date:t.instance_date} : {done:true}))}
+        : {method:'DELETE'};
+      try{
+        var r = await fetch(url, opts), d = await r.json();
+        if(d.ok){ ok++; if(row){ row.style.opacity='.35'; row.style.textDecoration='line-through'; row.classList.add('st-done'); var cb=row.querySelector('.st-tksel'); if(cb){ cb.checked=false; cb.disabled=true; } var ck=row.querySelector('.st-check'); if(ck){ ck.disabled=true; ck.textContent='✓'; } } }
+        else bad++;
+      }catch(_){ bad++; }
+    }
+    _tkSel = {};
+    toast((action === 'done' ? '✓ Finished ' : '🗑 Deleted ') + ok + (bad ? ' · ' + bad + ' failed' : ''), bad ? 'error' : undefined);
+    renderTaskBulk(); checkCleared();
+  };
+
   window.saTodayTaskDone = async function(i, btn){
     var t = _data && _data.tasks[i]; if(!t) return;
     btn.disabled = true;
@@ -34329,7 +34427,7 @@ function _saEsc(s){
     try{
       var r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       var d = await r.json();
-      if(d.ok){ var row = btn.closest('.st-row'); row.style.opacity='.35'; row.style.textDecoration='line-through'; row.classList.add('st-done'); btn.textContent='✓'; checkCleared(); }
+      if(d.ok){ var row = btn.closest('.st-row'); row.style.opacity='.35'; row.style.textDecoration='line-through'; row.classList.add('st-done'); btn.textContent='✓'; delete _tkSel[i]; var cb=row.querySelector('.st-tksel'); if(cb){ cb.checked=false; cb.disabled=true; } renderTaskBulk(); checkCleared(); }
       else { btn.disabled=false; toast(d.error||'Could not update task','error'); }
     }catch(e){ btn.disabled=false; toast(String(e),'error'); }
   };
@@ -36406,7 +36504,8 @@ function cpRenderQueue(){
     if(!posts.length) return;
     html += '<div style="margin-bottom:28px;">'
       +'<div class="cp-section-head" style="color:'+sec.color+';">'+sec.label
-      +' <span style="font-size:calc(14.5px * var(--fs,1.1));background:'+sec.color+'22;border:1px solid '+sec.color+'44;border-radius:20px;padding:1px 8px;font-weight:800;">'+posts.length+'</span></div>';
+      +' <span style="font-size:calc(14.5px * var(--fs,1.1));background:'+sec.color+'22;border:1px solid '+sec.color+'44;border-radius:20px;padding:1px 8px;font-weight:800;">'+posts.length+'</span>'
+      +' <button class="cp-btn" onclick="cpSelSection(\''+sec.key+'\')" style="font-size:calc(14px * var(--fs,1.1));padding:2px 9px;margin-left:6px;">'+(posts.every(function(x){ return _cpSel[x.id]; }) ? '☐ Unselect all' : '☑ Select all')+'</button></div>';
     posts.forEach(function(p){
       var plats = (p.platforms||[]);
       var platDots = plats.map(function(pl){
@@ -36417,8 +36516,9 @@ function cpRenderQueue(){
       var dt = p.scheduled_at ? new Date(p.scheduled_at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : (p.status==='draft'?'Draft':'—');
       var statusColor = STATUS_COLORS[p.status] || '#a8b4c8';
       var statusLabel = {draft:'Draft',scheduled:'Scheduled',publishing:'Publishing…',published:'Published',partial:'Partial',failed:'Failed'}[p.status] || p.status;
-      html += '<div class="cp-queue-card">'
+      html += '<div class="cp-queue-card"'+(_cpSel[p.id]?' style="outline:2px solid rgba(167,139,250,.9);outline-offset:1px;"':'')+'>'
         +'<div style="display:flex;align-items:flex-start;gap:12px;">'
+        +'<input type="checkbox" '+(_cpSel[p.id]?'checked':'')+' onchange="cpSelToggle(\''+_esc(p.id)+'\',this.checked)" title="Select" style="width:18px;height:18px;margin-top:2px;cursor:pointer;accent-color:#8b5cf6;flex-shrink:0;">'
         +'<div style="flex:1;min-width:0;">'
         +'<div style="font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;line-height:1.55;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">'+_esc(p.caption||'')+'</div>'
         +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
@@ -36431,13 +36531,59 @@ function cpRenderQueue(){
         +'<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;">'
         +'<button onclick="cpOpenComposer(\''+p.id+'\')" class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;">Edit</button>'
         +(p.status!=='published'?'<button onclick="cpPublishNowById(\''+p.id+'\')" class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;">Publish</button>':'')
+        +(p.status!=='publishing'?'<button onclick="cpBulk(\'delete\',[\''+_esc(p.id)+'\'])" class="cp-btn" title="Delete this post" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;color:#fca5a5;border-color:rgba(248,113,113,.4);">🗑</button>':'')
         +'</div>'
         +'</div></div>';
     });
     html += '</div>';
   });
-  el.innerHTML = html;
+  el.innerHTML = cpBulkBarHtml(sorted) + html;
 }
+
+/* ── Bulk select (V12.6): delete, unschedule or shift many posts at once ── */
+var _cpSel = {};
+function cpBulkBarHtml(all){
+  Object.keys(_cpSel).forEach(function(k){ if(!all.some(function(p){ return p.id === k; })) delete _cpSel[k]; });
+  var n = Object.keys(_cpSel).length;
+  if(!n) return '<div style="font-size:calc(14px * var(--fs,1.1));color:#94a3b8;margin-bottom:12px;">Tick posts to delete, unschedule or move many at once.</div>';
+  return '<div style="position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:9px 12px;border-radius:12px;background:rgba(10,14,30,.97);border:1px solid rgba(124,58,237,.6);box-shadow:0 6px 18px rgba(0,0,0,.4);">'
+    +'<span style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#c4b5fd;">'+n+' selected</span>'
+    +'<button class="cp-btn" onclick="cpBulkShift()">📅 Move dates…</button>'
+    +'<button class="cp-btn" onclick="cpBulk(\'unschedule\')">⏸ Unschedule</button>'
+    +'<button class="cp-btn" onclick="cpBulk(\'delete\')" style="color:#fca5a5;border-color:rgba(248,113,113,.45);background:rgba(180,30,60,.25);">🗑 Delete selected</button>'
+    +'<button class="cp-btn" onclick="_cpSel={};cpRenderQueue();" style="opacity:.8;">Clear selection</button></div>';
+}
+window.cpSelToggle = function(id, on){ if(on) _cpSel[id] = 1; else delete _cpSel[id]; cpRenderQueue(); };
+window.cpSelSection = function(key){
+  var match = function(p){ var s = p.status || 'draft';
+    return key==='published' ? (s==='published'||s==='partial') : key==='failed' ? s==='failed'
+      : key==='scheduled' ? (s==='scheduled'||s==='publishing') : !(s==='published'||s==='partial'||s==='failed'||s==='scheduled'||s==='publishing'); };
+  var ids = _cpPosts.filter(match).map(function(p){ return p.id; });
+  var allOn = ids.every(function(id){ return _cpSel[id]; });
+  ids.forEach(function(id){ if(allOn) delete _cpSel[id]; else _cpSel[id] = 1; });
+  cpRenderQueue();
+};
+window.cpBulkShift = function(){
+  var v = prompt('Move the selected posts by how many days?\nUse a negative number to move earlier (e.g. 7 or -2).', '7');
+  if(v === null) return;
+  var days = parseInt(v, 10);
+  if(!days || isNaN(days)){ showToast('Enter a whole number of days.','error'); return; }
+  cpBulk('shift', null, days);
+};
+window.cpBulk = async function(action, ids, days){
+  ids = ids || Object.keys(_cpSel);
+  if(!ids.length) return;
+  if(action === 'delete' && !confirm('Delete ' + ids.length + ' post' + (ids.length===1?'':'s') + '? This can\'t be undone. Already-published posts stay live on the platforms — only the planner copy is removed.')) return;
+  try{
+    var r = await fetch('/api/social/posts/bulk', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action: action, ids: ids, days: days})});
+    var d = await r.json();
+    if(!d.ok){ showToast(d.error || 'Could not do that','error'); return; }
+    ids.forEach(function(id){ delete _cpSel[id]; });
+    var verb = {delete:'Deleted', unschedule:'Moved back to drafts', shift:'Moved'}[action];
+    showToast('✓ ' + verb + ' ' + d.done + (d.skipped ? ' · ' + d.skipped + ' skipped (publishing, already published, or no date)' : ''));
+    await cpLoadState();
+  }catch(e){ showToast(String(e),'error'); }
+};
 
 window.cpOpenComposer = function(postId, prefillDate){
   var composer = $('cpComposer');

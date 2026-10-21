@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "12.6")
+APP_VERSION = os.getenv("APP_VERSION", "12.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23534,6 +23534,52 @@ def api_agent_decide(aid: str, action: str):
     return jsonify({"ok": True, "offer": next((o for o in _agent_view(uname)["offers"] if o["kind"] == a.get("kind")), None)})
 
 
+AGENT_BULK_MAX = 25
+
+
+@app.post("/api/agent/approvals/bulk")
+def api_agent_decide_bulk():
+    """Send or skip many Ready-for-you drafts at once, exactly as drafted.
+    Bulk sends don't count toward the trust streak: approving a batch isn't the
+    same signal as reading each draft and sending it unchanged."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = request.get_json(silent=True) or {}
+    action = (b.get("action") or "").strip()
+    ids = b.get("ids") or []
+    if action not in ("approve", "skip") or not isinstance(ids, list) or not ids:
+        return jsonify({"ok": False, "error": "ids and action (approve|skip) required"}), 400
+    want = [str(i) for i in ids][:AGENT_BULK_MAX]
+    uname = u.get("username", "")
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        claimed = [dict(x) for x in d["approvals"] if x.get("id") in want and x.get("status") == "pending"]
+        cids = {x["id"] for x in claimed}
+        for x in d["approvals"]:
+            if x.get("id") in cids:
+                x["status"] = "sending" if action == "approve" else "skipped"
+                x["decided_at"] = now_iso()
+        if claimed:
+            _agent_save(uname, d)
+    if action == "skip":
+        return jsonify({"ok": True, "done": len(claimed), "failed": []})
+    results: Dict[str, Tuple[bool, str]] = {}
+    for a in claimed:
+        body = (a.get("body") or "").strip()
+        results[a["id"]] = (False, "The email is empty.") if not body else \
+            _agent_send(uname, a, (a.get("subject") or "").strip()[:300], body)
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        for x in d["approvals"]:
+            if x.get("id") in results:
+                ok, err = results[x["id"]]
+                x.update(status="sent" if ok else "pending", error="" if ok else err)
+        _agent_save(uname, d)
+    failed = [{"id": k, "error": v[1]} for k, v in results.items() if not v[0]]
+    return jsonify({"ok": True, "done": len(results) - len(failed), "failed": failed})
+
+
 @app.post("/api/agent/settings")
 def api_agent_settings():
     """Turn a standing job on/off, change its hour, or set a trust level."""
@@ -33818,6 +33864,78 @@ def api_sp_post_delete(post_id):
     posts = [p for p in all_posts if p.get("id") != post_id]
     _save_sp_posts(uname, posts)
     return jsonify({"ok": True})
+
+
+@app.post("/api/social/posts/bulk")
+def api_sp_posts_bulk():
+    """Content Planner bulk actions on many posts: delete, unschedule (back to
+    draft), or shift (move scheduled dates by N days). Posts mid-publish are
+    never touched; published posts can be deleted (planner record only)."""
+    u = current_user()
+    if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    b = request.get_json(silent=True) or {}
+    action = (b.get("action") or "").strip()
+    ids = b.get("ids") or []
+    if action not in ("delete", "unschedule", "shift") or not isinstance(ids, list) or not ids:
+        return jsonify({"ok": False, "error": "ids and action (delete|unschedule|shift) required"}), 400
+    days = 0
+    if action == "shift":
+        try:
+            days = int(b.get("days"))
+        except Exception:
+            days = 0
+        if not days or abs(days) > 365:
+            return jsonify({"ok": False, "error": "days must be a whole number from -365 to 365"}), 400
+    want = {str(i) for i in ids[:1000]}
+    box: Dict[str, Any] = {"done": 0, "skipped": 0, "cancel": []}
+
+    def _m(posts):
+        posts = posts if isinstance(posts, list) else []
+        out = []
+        for p in posts:
+            if not (isinstance(p, dict) and str(p.get("id")) in want):
+                out.append(p)
+                continue
+            st = p.get("status") or "draft"
+            if st == "publishing":
+                box["skipped"] += 1; out.append(p); continue
+            if action == "delete":
+                if p.get("lc_post_id") and st == "scheduled":
+                    box["cancel"].append(p["lc_post_id"])
+                box["done"] += 1
+                continue                                     # dropped
+            if action == "unschedule":
+                if st != "scheduled":
+                    box["skipped"] += 1; out.append(p); continue
+                if p.get("lc_post_id"):
+                    box["cancel"].append(p["lc_post_id"]); p.pop("lc_post_id", None)
+                p["status"] = "draft"
+            else:  # shift
+                sa = str(p.get("scheduled_at") or "")
+                if st not in ("scheduled", "draft", "failed") or not sa or p.get("lc_post_id"):
+                    box["skipped"] += 1; out.append(p); continue
+                try:
+                    z = sa.endswith("Z")
+                    dt = datetime.fromisoformat(sa[:-1] if z else sa) + timedelta(days=days)
+                    p["scheduled_at"] = dt.isoformat() + ("Z" if z else "")
+                except Exception:
+                    box["skipped"] += 1; out.append(p); continue
+            p["updated_at"] = now_iso()
+            box["done"] += 1
+            out.append(p)
+        return out
+    _sp_posts_path(uname).parent.mkdir(parents=True, exist_ok=True)
+    update_json(_sp_posts_path(uname), [], _m)
+    if box["cancel"]:
+        conn = _lc_conn(uname)     # also cancel them in HighLevel so they don't still go out
+        if conn:
+            for lc_id in box["cancel"]:
+                try:
+                    _lc_request(conn, "DELETE", f"/social-media-posting/{conn['location_id']}/posts/{lc_id}")
+                except Exception as e:
+                    _capture_error(e, context="sp_bulk_cancel")
+    return jsonify({"ok": True, "done": box["done"], "skipped": box["skipped"]})
 
 @app.post("/api/social/publish/<post_id>")
 def api_sp_publish(post_id):
