@@ -10740,6 +10740,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         s=s.replace(/\*\*\*([^*\n]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
         s=s.replace(/\*\*([^*\n]+?)\*\*/g,'<strong>$1</strong>');
         s=s.replace(/\*([^*\n]+?)\*/g,'<em>$1</em>');
+        s=s.replace(/\*{2,}/g,'');   // unpaired ** (bold the model never closed) — never show raw stars
         s=s.replace(/`([^`\n]+)`/g,'<code style="background:rgba(124,58,237,.15);border-radius:3px;padding:1px 5px;font-family:monospace;font-size:.88em;">$1</code>');
         return s;
       }
@@ -12489,6 +12490,19 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       renderGroupReplies(outputs, drafts, images);
     }
 
+    // Group replies get the same formatting as teammate chat (bold, lists) instead
+    // of raw text, so **markdown** never shows as literal stars. Email blocks
+    // are dropped from the text (the card's "Load email" button carries them).
+    function _saFormatReplyInto(el, text){
+      text = String(text || "");
+      if(typeof saMarkdown !== "function"){ el.style.whiteSpace = "pre-wrap"; el.innerText = text.replace(/\*/g, ""); return; }
+      const ep = (typeof window.saParseEmailBlocks === "function") ? window.saParseEmailBlocks(text) : {cleanText: text};
+      el.style.whiteSpace = "";
+      el.innerHTML = saMarkdown(ep.cleanText || text);
+      // List items are click-to-send in a teammate thread; here they'd do nothing.
+      el.querySelectorAll(".sa-li").forEach(function(li){ li.removeAttribute("data-sa-pick"); li.style.cursor = "default"; });
+    }
+
     function renderGroupReplies(outputs, drafts, images){
       const box = $("groupReplies");
       box.innerHTML = "";
@@ -12556,7 +12570,10 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
         const openBtn = document.createElement("button");
         openBtn.className = "btn";
         openBtn.innerText = "Open";
-        openBtn.onclick = () => showModal(name, outputs[name], (images && images[name]) ? images[name] : null);
+        openBtn.onclick = () => {
+          showModal(name, outputs[name], (images && images[name]) ? images[name] : null);
+          if($("modalBody")) _saFormatReplyInto($("modalBody"), outputs[name]);
+        };
 
         const selectBtn = document.createElement("button");
         selectBtn.className = "btn";
@@ -12615,8 +12632,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
           body.appendChild(im);
         }
         const tx = document.createElement('div');
-        tx.style.whiteSpace = 'pre-wrap';
-        tx.innerText = outputs[name];
+        _saFormatReplyInto(tx, outputs[name]);
         body.appendChild(tx);
 
         item.appendChild(top);
@@ -28909,7 +28925,8 @@ document.addEventListener("click", function(e) {
           let _exp=false; _bar.appendChild(_mkBtn("↕ Resize", function(){ _exp=!_exp;_frame.style.height=_exp?"700px":"420px";this.innerText=_exp?"↕ Shrink":"↕ Resize"; }));
           _wrap.appendChild(_bar); aBody.appendChild(_wrap);
         } else {
-          aBody.innerText = _reply;
+          if(typeof window.saMarkdown === "function") aBody.innerHTML = window.saMarkdown(_reply);
+          else aBody.innerText = _reply.replace(/\*/g, "");
           window.lastSeatAssistantText = _reply;
         }
         if(typeof setSeatLive==="function") setSeatLive(seat,"done");
