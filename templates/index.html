@@ -36798,6 +36798,7 @@ window.addEventListener('focus', function(){
   #veMain{flex:1;min-width:0;display:flex;flex-direction:column;background:#000;}
   #veToolbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 4px;}
   #veToolbar button{flex:1;min-width:110px;}
+  #veToolbar .ve-mini,#veToolbar .ve-auto button{flex:0 0 auto;min-width:0;}   /* V14.1: compact, not stretched */
   @media(max-width:680px){
     #veBody{flex-direction:column;overflow-y:auto;}
     #veSidebar{width:100%;max-height:none;border-right:none;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;overflow-y:visible;}
@@ -36865,12 +36866,17 @@ window.addEventListener('focus', function(){
       <!-- AI + Tool buttons (shown after upload) -->
       <div id="veToolbar">
         <button id="vcMakeShortsBtn" onclick="vcMakeShorts()" style="display:none;width:100%;flex-basis:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:12px;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;padding:12px 10px;cursor:pointer;box-shadow:0 6px 20px rgba(236,72,153,.35);" title="AI finds the best moments and makes captioned vertical shorts">⚡ Make my shorts</button>
-        <label id="vcPlanWeekRow" style="display:none;width:100%;flex-basis:100%;align-items:center;gap:8px;color:#e2e8f0;font-size:calc(14.5px * var(--fs,1.1));cursor:pointer;padding:2px 4px 6px;"><input type="checkbox" id="vcPlanWeek" checked> 📅 Also write captions and line them up across next week in the Content Planner (as drafts you approve)</label>
-        <button id="veAutoClipBtn" onclick="veRunAutoClip()" style="display:none;background:linear-gradient(135deg,rgba(124,58,237,.65),rgba(99,102,241,.45));border:1px solid rgba(124,58,237,.5);border-radius:10px;color:#e9d5ff;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:9px 10px;cursor:pointer;">✨ Suggest moments</button>
-        <button id="veTranscriptBtn" onclick="veGetTranscript()" style="display:none;background:rgba(124,58,237,.16);border:1px solid rgba(167,139,250,.45);border-radius:10px;color:#ddd6fe;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:9px 10px;cursor:pointer;" title="Get the full written transcript of this video">📝 Get transcript</button>
-        <button id="veExtractAudioBtn" onclick="veExtractAudio()" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:10px;color:#6ee7b7;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">🎵 Extract Audio</button>
-        <button id="veMuteExportBtn" onclick="veMuteExport()" style="display:none;background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.35);border-radius:10px;color:#a5b4fc;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">🔇 Remove Audio</button>
-        <button id="veScreenshotBtn" onclick="veScreenshot()" style="display:none;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.25);border-radius:10px;color:#fde68a;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:9px 10px;cursor:pointer;">📸 Screenshot</button>
+        <div id="vcAutoBanner" style="display:none;width:100%;flex-basis:100%;"></div>
+        <details id="veMoreTools" class="ve-more" style="display:none;width:100%;flex-basis:100%;">
+          <summary>⋯ More tools</summary>
+          <div class="ve-more-row">
+            <button id="veAutoClipBtn" class="ve-mini" onclick="veRunAutoClip()" style="display:none;">✨ Suggest moments</button>
+            <button id="veTranscriptBtn" class="ve-mini" onclick="veGetTranscript()" style="display:none;" title="Get the full written transcript of this video">📝 Transcript</button>
+            <button id="veExtractAudioBtn" class="ve-mini" onclick="veExtractAudio()" style="display:none;">🎵 Audio only</button>
+            <button id="veMuteExportBtn" class="ve-mini" onclick="veMuteExport()" style="display:none;">🔇 No audio</button>
+            <button id="veScreenshotBtn" class="ve-mini" onclick="veScreenshot()" style="display:none;">📸 Screenshot</button>
+          </div>
+        </details>
       </div>
 
       <!-- Clip list -->
@@ -36969,7 +36975,8 @@ window.addEventListener('focus', function(){
         <button class="vc-btn" id="vcZipBtn" onclick="vcDownloadZip()" disabled>⬇ Download selected</button>
         <button class="vc-btn" id="vcDelSelBtn" onclick="vcDeleteChecked()" disabled style="color:#fca5a5;border-color:rgba(248,113,113,.45);">🗑 Delete selected</button>
         <div style="flex:1"></div>
-        <button class="vc-btn" onclick="vcOpenBrand()" title="Logo + caption color applied to your clips">🎨 Brand kit</button>
+        <button class="vc-btn" id="vcSchedBtn" onclick="vcScheduleAll()" title="Line up the ticked clips (or all of them) across next week in the Content Planner, as drafts you approve">📅 Schedule all</button>
+        <button class="vc-btn" onclick="vcOpenBrand()" title="Logo + caption color applied to your clips">🎨</button>
       </div>
       <div id="vcStorage" class="vc-storage"></div>
       <div id="vcGrid"></div>
@@ -36983,7 +36990,15 @@ window.addEventListener('focus', function(){
       <div id="vcEdit" style="display:none;">
         <div class="vc-ed-top">
           <div class="vc-player-wrap"><video id="vcPlayer" controls playsinline preload="metadata"></video>
-            <div id="vcRenderOverlay" class="vc-overlay"><div class="vc-spin"></div><div>Rendering your clip…</div></div></div>
+            <div id="vcLive" class="vc-live">
+              <video id="vcLiveVid" playsinline preload="auto"></video>
+              <div id="vcLiveHook" class="lv-hook"></div>
+              <div id="vcLiveCap" class="lv-cap"></div>
+              <img id="vcLiveLogo" class="lv-logo" alt="">
+              <span class="lv-tag">👁 Live preview</span>
+              <button id="vcLivePlay" class="lv-play" type="button" title="Play preview">▶</button>
+            </div>
+            <div id="vcRenderOverlay" class="vc-overlay"><div class="vc-spin"></div><div id="vcRenderMsg">Rendering your clip…</div></div></div>
           <div class="vc-ed-side">
             <input id="vcTitle" class="vc-input vc-title" maxlength="80" onchange="vcSaveTitle()" placeholder="Clip title">
             <div id="vcMeta" class="vc-meta"></div>
@@ -36995,7 +37010,6 @@ window.addEventListener('focus', function(){
             </div>
 
             <div class="vc-pane" id="vcPaneEdit">
-              <button class="vc-btn" id="vcPolishBtn" onclick="vcPolish()" title="Captions on + remove silences, ums and retakes — in one go" style="width:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;color:#fff;font-size:calc(15px * var(--fs,1.1));padding:11px;">✨ One-tap Polish</button>
               <div id="vcLayoutBox" style="display:none;">
                 <div class="vc-lbl">Layout <span class="vc-hint">(how your screen and camera are arranged)</span></div>
                 <div class="vc-chips" id="vcLayout"><button data-v="bubble">◳ Bubble</button><button data-v="stacked">📱 Stacked</button><button data-v="screen">🖥 Screen</button><button data-v="cam">🙂 Camera</button></div>
@@ -37019,9 +37033,9 @@ window.addEventListener('focus', function(){
               <div class="vc-lbl">Hook <span class="vc-hint">(big text for the first 3 seconds)</span></div>
               <input id="vcHook" class="vc-input" maxlength="90" placeholder="e.g. 3 mistakes killing your sales" oninput="vcDirty()">
               <div class="vc-toggles">
-                <label><input type="checkbox" id="vcSilence" onchange="vcDirty()"> ✂️ Remove silences</label>
-                <label><input type="checkbox" id="vcFillers" onchange="vcDirty()"> 🤐 Remove “um” &amp; “uh”</label>
-                <label title="When you restart a sentence, keep only your final take"><input type="checkbox" id="vcRetakes" onchange="vcDirty()"> 🔁 Remove retakes</label>
+                <label title="Cuts pauses, “um” and “uh”, and false starts"><input type="checkbox" id="vcClean" onchange="vcDirty()"> 🧹 Clean up speech</label>
+                <label title="Punches in on every other sentence — makes a talking head look edited"><input type="checkbox" id="vcZoom" onchange="vcDirty()"> 🔍 Auto zoom</label>
+                <label id="vcReframeRow" title="For vertical and square clips: the crop follows your face instead of shrinking the frame"><input type="checkbox" id="vcReframe" onchange="vcDirty()"> 🎯 Follow the speaker</label>
                 <label><input type="checkbox" id="vcBrand" onchange="vcDirty()"> 🎨 Add my logo</label>
                 <label><input type="checkbox" id="vcMute" onchange="vcDirty()"> 🔇 Mute audio</label>
               </div>
@@ -37030,7 +37044,7 @@ window.addEventListener('focus', function(){
             <div class="vc-pane" id="vcPaneText" style="display:none;">
               <div class="vc-row"><label class="vc-switch"><input type="checkbox" id="vcCapOn" onchange="vcDirty()"> Animated captions</label></div>
               <div class="vc-chips" id="vcCapStyle"><button data-v="bold">BOLD</button><button data-v="pop">POP</button><button data-v="clean">Clean</button></div>
-              <div class="vc-lbl" style="margin-top:12px;">Transcript <span class="vc-hint">click a word to cut it · double-click to fix spelling</span></div>
+              <div class="vc-lbl" style="margin-top:12px;">Transcript <span class="vc-hint">click any word to cut it, start or end the clip there, or fix its spelling</span></div>
               <div id="vcWords" class="vc-words"></div>
             </div>
 
@@ -37050,7 +37064,7 @@ window.addEventListener('focus', function(){
             </div>
 
             <div class="vc-actions">
-              <button class="vc-btn vc-apply" id="vcApply" onclick="vcApply()" disabled>✔ Apply changes</button>
+              <button class="vc-btn vc-apply" id="vcApply" onclick="vcApply()" disabled>✔ Save changes</button>
               <button class="vc-btn" onclick="vcDownload()">⬇ Download</button>
               <button class="vc-btn" onclick="vcDuplicate()" title="Make a copy to try a different version">⧉</button>
               <button class="vc-btn vc-danger" onclick="vcDelete()" title="Delete clip">🗑</button>
@@ -37080,6 +37094,31 @@ window.addEventListener('focus', function(){
 </div>
 
 <style>
+/* V14.1 — compact source tools, auto-shorts countdown, live preview, word menu */
+.ve-more{margin-top:2px;}
+.ve-more summary{cursor:pointer;color:#a5b4fc;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:6px 4px;list-style:none;}
+.ve-more summary::-webkit-details-marker{display:none;}
+.ve-more-row{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px;}
+.ve-mini{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);border-radius:8px;color:#dbe4f3;font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:6px 10px;cursor:pointer;}
+.ve-mini:hover{border-color:rgba(167,139,250,.6);}
+.ve-auto{display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(236,72,153,.12);border:1px solid rgba(236,72,153,.4);border-radius:10px;padding:8px 10px;color:#fbcfe8;font-size:calc(14px * var(--fs,1.1));font-weight:700;}
+.ve-auto button{background:none;border:1px solid rgba(255,255,255,.25);border-radius:7px;color:#e2e8f0;padding:4px 9px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));}
+.vc-live{position:relative;width:100%;background:#000;overflow:hidden;display:none;}
+.vc-live.on{display:block;}
+.vc-live video{position:absolute;inset:0;width:100%;height:100%;transition:transform .08s linear;}
+.vc-live .lv-hook{position:absolute;top:8%;left:50%;transform:translateX(-50%);max-width:86%;padding:6px 12px;border-radius:8px;font-weight:800;text-align:center;font-size:calc(15px * var(--fs,1.1));display:none;}
+.vc-live .lv-cap{position:absolute;left:6%;right:6%;bottom:22%;text-align:center;font-weight:900;color:#fff;font-size:calc(19px * var(--fs,1.1));line-height:1.25;text-shadow:0 0 4px #000,0 2px 6px #000,0 0 2px #000;}
+.vc-live .lv-cap.clean{font-weight:700;font-size:calc(15px * var(--fs,1.1));background:rgba(0,0,0,.55);padding:4px 8px;border-radius:6px;text-shadow:none;left:10%;right:10%;}
+.vc-live .lv-cap .k{display:inline-block;transform:scale(1.12);}
+.vc-live .lv-cap .on.pop{display:inline-block;transform:scale(1.18);}
+.vc-live .lv-logo{position:absolute;top:3%;right:4%;width:20%;display:none;}
+.vc-live .lv-tag{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.6);color:#e9d5ff;border-radius:6px;padding:3px 8px;font-size:calc(14px * var(--fs,1.1));font-weight:700;}
+.vc-live .lv-play{position:absolute;inset:0;margin:auto;width:64px;height:64px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:calc(26px * var(--fs,1.1));cursor:pointer;}
+.vc-edited{display:inline-block;margin-top:4px;color:#fbbf24;font-weight:700;}
+.vc-badge.edit{background:rgba(245,158,11,.9);color:#1a1205;}
+.vc-wmenu{position:fixed;z-index:1000001;background:#0d1328;border:1px solid rgba(124,58,237,.5);border-radius:10px;padding:4px;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(0,0,0,.6);}
+.vc-wmenu button{background:none;border:none;color:#e2e8f0;text-align:left;padding:7px 12px;border-radius:7px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));white-space:nowrap;}
+.vc-wmenu button:hover{background:rgba(124,58,237,.3);}
 .vc-tabs{display:flex;gap:4px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:3px;}
 .vc-tab{background:none;border:none;color:#94a3b8;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;white-space:nowrap;}
 .vc-tab.on{background:rgba(124,58,237,.35);color:#f5f3ff;}
@@ -37215,7 +37254,7 @@ window.addEventListener('focus', function(){
     if(!S.clips.length){ g.innerHTML='<div style="grid-column:1/-1;color:#8a96aa;font-size:calc(14.5px * var(--fs,1.1));text-align:center;padding:30px 8px;">No clips yet</div>'; updateZip(); return; }
     g.innerHTML=S.clips.map(function(c){
       var thumb=(c.status==='ready'&&c.thumb)?'background-image:url(/api/vclips/'+c.id+'/thumb?v='+(c.version||0)+')':'';
-      var badge=c.status==='rendering'?'<span class="vc-badge">⏳ Rendering</span>':(c.status==='error'?'<span class="vc-badge err">⚠ Error</span>':'');
+      var badge=c.status==='rendering'?'<span class="vc-badge">⏳ Rendering</span>':(c.status==='error'?'<span class="vc-badge err">⚠ Error</span>':(c.stale?'<span class="vc-badge edit">✏ Edited</span>':''));
       var score=c.score?'<span class="vc-badge score">🔥 '+(+c.score)+'</span>':'';
       var asp=c.aspect==='original'?'':(' · '+esc(c.aspect));
       return '<div class="vc-card'+(S.sel===c.id?' sel':'')+'" data-id="'+esc(c.id)+'">'+
@@ -37232,7 +37271,7 @@ window.addEventListener('focus', function(){
   }
   function checkedIds(){ return Object.keys(S.checked).filter(function(k){return S.checked[k]&&byId(k);}); }
   function updateZip(){
-    var all=checkedIds(), n=all.filter(function(k){ return byId(k).status==='ready'; }).length;
+    var all=checkedIds(), n=all.filter(function(k){ return byId(k).status!=='error'; }).length;
     $('vcZipBtn').disabled=!n; $('vcZipBtn').textContent=n?('⬇ Download '+n+(n>1?' clips':' clip')):'⬇ Download selected';
     var d=$('vcDelSelBtn'); if(d){ d.disabled=!all.length; d.textContent=all.length?('🗑 Delete '+all.length):'🗑 Delete selected'; }
   }
@@ -37250,10 +37289,12 @@ window.addEventListener('focus', function(){
     load();
   };
   window.vcDownloadZip=function(){
-    var ids=checkedIds().filter(function(k){ return byId(k).status==='ready'; });
+    var ids=checkedIds().filter(function(k){ return byId(k).status!=='error'; });
     if(!ids.length) return;
-    if(ids.length===1){ location.href='/api/vclips/'+ids[0]+'/file?download=1'; return; }
-    location.href='/api/vclips/zip?ids='+ids.join(',');
+    ensureRendered(ids,'Getting your videos ready',function(){
+      if(ids.length===1){ location.href='/api/vclips/'+ids[0]+'/file?download=1'; return; }
+      location.href='/api/vclips/zip?ids='+ids.join(',');
+    });
   };
 
   /* ── create ─────────────────────────────────────── */
@@ -37272,12 +37313,10 @@ window.addEventListener('focus', function(){
     if(window._veStatus) window._veStatus('Transcribing + picking the best moments… clips will appear in My Clips as they finish.','info');
     S.busy=true;
     setTimeout(function(){ vcShowTab('clips'); }, 1200);
-    var planWeek=!!($('vcPlanWeek')&&$('vcPlanWeek').checked);
-    post('/api/vclips/make_shorts',{video_id:st.vid,duration:st.dur,plan_week:planWeek}).then(function(d){
+    post('/api/vclips/make_shorts',{video_id:st.vid,duration:st.dur}).then(function(d){
       S.busy=false; b.disabled=false; b.textContent='⚡ Make my shorts';
       if(!d.ok){ toast(d.error||'Could not make shorts','error'); if(window._veStatus) window._veStatus(d.error||'Could not make shorts','err'); load(); return; }
-      var np=(d.post_ids||[]).length;
-      toast('✅ '+(d.clip_ids||[]).length+' shorts ready!'+(np?' '+np+' posts lined up in your Content Planner for next week.':''),'success');
+      toast('✅ '+(d.clip_ids||[]).length+' shorts ready, with captions and hashtags written. Hit 📅 Schedule all to line them up for next week.','success');
       if(d.clip_ids&&d.clip_ids.length) S.sel=d.clip_ids[0];
       load();
     });
@@ -37307,7 +37346,8 @@ window.addEventListener('focus', function(){
     if(c.status==='ready' && c.file && S.lastVer[c.id+'@p']!==src){ S.lastVer[c.id+'@p']=src; p.src=src; p.load(); }
     if(c.status!=='ready' && full){ p.removeAttribute('src'); p.load(); S.lastVer[c.id+'@p']=''; }
     var mb=c.size?(' · '+(c.size/1048576).toFixed(1)+' MB'):'';
-    $('vcMeta').innerHTML=fmt(c.duration)+' · '+esc(c.aspect==='original'?'Original size':c.aspect)+(c.width?(' · '+c.width+'×'+c.height):'')+mb+(c.reason?('<br><span style="color:#fbbf24">🔥 '+esc(c.reason)+'</span>'):'')+(c.note?('<br><span style="color:#fbbf24">ℹ '+esc(c.note)+'</span>'):'');
+    $('vcMeta').innerHTML=fmt(c.duration)+' · '+esc(c.aspect==='original'?'Original size':c.aspect)+(c.width?(' · '+c.width+'×'+c.height):'')+mb+(c.reason?('<br><span style="color:#fbbf24">🔥 '+esc(c.reason)+'</span>'):'')+(c.note?('<br><span style="color:#fbbf24">ℹ '+esc(c.note)+'</span>'):'')+
+      (c.stale?'<br><span class="vc-edited">✏ Saved edits render when you download or post</span>':'');
     $('vcErr').style.display=c.error?'':'none'; $('vcErr').textContent=c.error||'';
     // after a re-render, fields already match the saved clip — reload them unless the user is mid-edit
     if(full || (!rendering && $('vcApply').disabled)){
@@ -37324,8 +37364,11 @@ window.addEventListener('focus', function(){
       }
       $('vcStart').value=(+c.start).toFixed(1); $('vcEnd').value=(+c.end).toFixed(1);
       $('vcHook').value=c.hook||'';
-      $('vcSilence').checked=!!c.remove_silence; $('vcFillers').checked=!!c.remove_fillers; $('vcRetakes').checked=!!c.remove_retakes;
+      $('vcClean').checked=!!(c.remove_silence||c.remove_fillers||c.remove_retakes);
+      $('vcZoom').checked=!!c.auto_zoom; $('vcReframe').checked=!!c.reframe;
       $('vcBrand').checked=!!c.brand; $('vcMute').checked=!!c.mute;
+      reframeRow();
+      S.dirty=false;
       $('vcCapOn').checked=!!(c.captions&&c.captions.on); setChips('vcCapStyle',(c.captions&&c.captions.style)||'bold');
       $('vcSocCap').value=(c.social&&c.social.caption)||'';
       $('vcSocTags').value=((c.social&&c.social.hashtags)||[]).map(function(h){return '#'+h;}).join(' ');
@@ -37333,8 +37376,11 @@ window.addEventListener('focus', function(){
       /* reload transcript on select, first view, or after any re-render (re-trim shifts it) */
       if(full || S.words===null || S.wordsVer!==c.version){ S.wordsVer=c.version; loadWords(c); }
     }
-    $('vcApply').textContent=rendering?'⏳ Rendering…':'✔ Apply changes';
+    $('vcApply').textContent=rendering?'⏳ Rendering…':'✔ Save changes';
+    livePreview();
   }
+  /* "Follow the speaker" only means something for vertical/square uploads */
+  function reframeRow(){ var c=byId(S.sel), a=chipVal('vcAspect')||'original'; $('vcReframeRow').style.display=(c&&!c.rec&&a!=='original'&&a!=='16:9')?'':'none'; }
 
   window.vcSubTab=function(p){
     [].forEach.call(document.querySelectorAll('.vc-subtab'),function(b){ b.classList.toggle('on',b.getAttribute('data-p')===p); });
@@ -37343,16 +37389,18 @@ window.addEventListener('focus', function(){
     $('vcPanePost').style.display=p==='post'?'':'none';
     if(p==='text'){ var c=byId(S.sel); if(c && S.words===null) loadWords(c); }
   };
-  window.vcDirty=function(){ var c=byId(S.sel); $('vcApply').disabled=!c||c.status==='rendering'; };
+  window.vcDirty=function(){ var c=byId(S.sel); $('vcApply').disabled=!c||c.status==='rendering'; S.dirty=true; reframeRow(); livePreview(); };
   window.vcNudge=function(which,d){ var el=$(which==='start'?'vcStart':'vcEnd'); el.value=Math.max(0,(+el.value||0)+d).toFixed(1); vcDirty(); };
 
   window.vcApply=function(){
     var c=byId(S.sel); if(!c) return;
     var body={
       aspect:chipVal('vcAspect')||c.aspect, start:+$('vcStart').value, end:+$('vcEnd').value,
-      hook:$('vcHook').value, remove_silence:$('vcSilence').checked, remove_fillers:$('vcFillers').checked, remove_retakes:$('vcRetakes').checked,
+      hook:$('vcHook').value, remove_silence:$('vcClean').checked, remove_fillers:$('vcClean').checked, remove_retakes:$('vcClean').checked,
+      auto_zoom:$('vcZoom').checked, reframe:$('vcReframe').checked,
       brand:$('vcBrand').checked, mute:$('vcMute').checked,
-      captions:{on:$('vcCapOn').checked, style:chipVal('vcCapStyle')||'bold'}
+      captions:{on:$('vcCapOn').checked, style:chipVal('vcCapStyle')||'bold'},
+      defer:true   /* no render now — the live preview shows it; it renders on download/post */
     };
     if(c.rec) body.layout={type:chipVal('vcLayout')||'bubble', corner:chipVal('vcCorner')||'br', size:chipVal('vcBubSize')||'m'};
     if(S.pendingDeleted) body.deleted=S.pendingDeleted;
@@ -37360,23 +37408,48 @@ window.addEventListener('focus', function(){
     if(body.brand && !(S.brand&&S.brand.logo)){ toast('Add your logo in 🎨 Brand kit first','warning'); vcOpenBrand(); return; }
     $('vcApply').disabled=true; $('vcApply').textContent='⏳ Saving…';
     post('/api/vclips/'+c.id,body).then(function(d){
-      if(!d.ok){ toast(d.error||'Could not apply','error'); $('vcApply').disabled=false; $('vcApply').textContent='✔ Apply changes'; return; }
-      S.pendingDeleted=null; S.wordEdits={};
-      if(!d.rerender) toast('Nothing changed','info');
+      if(!d.ok){ toast(d.error||'Could not save','error'); $('vcApply').disabled=false; $('vcApply').textContent='✔ Save changes'; return; }
+      S.pendingDeleted=null; S.wordEdits={}; S.dirty=false;
+      var i=S.clips.indexOf(c); if(i>-1){ d.clip.has_words=c.has_words; S.clips[i]=d.clip; }
+      toast(d.rerender?'✔ Saved — it renders when you download or post':'Nothing changed', d.rerender?'success':'info');
+      $('vcApply').disabled=true; $('vcApply').textContent='✔ Save changes';
+      renderGrid(); refreshEditor(byId(S.sel),false);
+    });
+  };
+  /* Render any ticked clips with unrendered edits, wait, then continue */
+  function ensureRendered(ids,label,then){
+    var todo=ids.filter(function(id){ var c=byId(id); return c&&(c.stale||c.status!=='ready'); });
+    if(!todo.length){ then(); return; }
+    if(S.dirty && todo.indexOf(S.sel)>-1){ toast('Save your changes first','warning'); return; }
+    toast('⏳ '+label+' — rendering '+todo.length+(todo.length>1?' clips':' clip')+' first…','info');
+    Promise.all(todo.map(function(id){ var c=byId(id); return c.status==='rendering'?null:post('/api/vclips/'+id+'/render'); })).then(function(){
+      S.busy=true; var tries=0;
+      (function wait(){
+        load().then(function(){
+          var left=todo.filter(function(id){ var c=byId(id); return c&&(c.status==='rendering'||c.stale); });
+          var bad=todo.filter(function(id){ var c=byId(id); return c&&c.status==='error'; });
+          if(bad.length){ S.busy=false; toast('A clip failed to render — open it to see why','error'); return; }
+          if(left.length && ++tries<480){ setTimeout(wait,2500); return; }
+          S.busy=false; if(!left.length) then();
+        });
+      })();
+    });
+  }
+  window.vcSaveTitle=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id,{title:$('vcTitle').value}).then(function(d){ if(d.ok){ c.title=d.clip.title; renderGrid(); } }); };
+  window.vcDownload=function(){ var c=byId(S.sel); if(!c) return; ensureRendered([c.id],'Getting your video ready',function(){ location.href='/api/vclips/'+c.id+'/file?download=1'; }); };
+  /* One button: every ticked clip (or all of them) lined up across next week as planner drafts */
+  window.vcScheduleAll=function(){
+    var ids=checkedIds(); if(!ids.length) ids=S.clips.filter(function(c){ return c.status!=='error'; }).map(function(c){ return c.id; });
+    if(!ids.length){ toast('Make some clips first','warning'); return; }
+    if(!confirm('Line up '+ids.length+(ids.length>1?' clips':' clip')+' across next week in the Content Planner?\n\nThey go in as drafts with captions and hashtags. Nothing posts until you approve it.')) return;
+    var b=$('vcSchedBtn'); b.disabled=true; b.textContent='⏳ Scheduling…'; S.busy=true; schedulePoll();
+    post('/api/vclips/schedule',{ids:ids}).then(function(d){
+      S.busy=false; b.disabled=false; b.textContent='📅 Schedule all';
+      if(!d||!d.ok){ toast((d&&d.error)||'Could not schedule','error'); return; }
+      toast('📅 '+(d.post_ids||[]).length+' posts lined up in your Content Planner for next week','success');
       load();
     });
   };
-  /* One-tap Polish: captions + cut silences, ums and retakes, then render */
-  window.vcPolish=function(){
-    var c=byId(S.sel); if(!c) return;
-    if(c.status==='rendering'){ toast('Still rendering — try again in a moment','warning'); return; }
-    $('vcCapOn').checked=true; if(!chipVal('vcCapStyle')) setChips('vcCapStyle','bold');
-    $('vcSilence').checked=true; $('vcFillers').checked=true; $('vcRetakes').checked=true;
-    toast('✨ Polishing — captions on, silences, ums and retakes removed','info');
-    vcApply();
-  };
-  window.vcSaveTitle=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id,{title:$('vcTitle').value}).then(function(d){ if(d.ok){ c.title=d.clip.title; renderGrid(); } }); };
-  window.vcDownload=function(){ var c=byId(S.sel); if(!c||c.status!=='ready'){ toast('Clip is still rendering','warning'); return; } location.href='/api/vclips/'+c.id+'/file?download=1'; };
   window.vcDuplicate=function(){ var c=byId(S.sel); if(!c) return; post('/api/vclips/'+c.id+'/duplicate').then(function(d){ if(!d.ok){toast(d.error||'Could not duplicate','error');return;} S.sel=d.clip.id; toast('⧉ Copy made — edit it freely','success'); load().then(function(){ refreshEditor(byId(S.sel),true); }); }); };
   window.vcDelete=function(){
     var c=byId(S.sel); if(!c) return;
@@ -37410,27 +37483,138 @@ window.addEventListener('focus', function(){
         var cls='vc-w'+(cut[w.i]?' cut':'')+(FILLERS[String(w.w).toLowerCase().replace(/[^a-z]/g,'')]?' filler':'')+(S.wordEdits[w.i]?' edited':'');
         return '<span class="'+cls+'" data-i="'+w.i+'" title="'+fmt(w.s)+'">'+esc(S.wordEdits[w.i]||w.w)+'</span>';
       }).join(' ');
+      livePreview();   /* captions/zoom in the preview need the words */
     });
   }
-  var _clickT=null;
+  /* Click a word → small menu: cut it, start/end the clip there, or fix spelling */
+  function closeWordMenu(){ var m=document.getElementById('vcWMenu'); if(m) m.remove(); }
+  document.addEventListener('click',function(e){ if(!e.target.closest('#vcWMenu') && !e.target.closest('.vc-w')) closeWordMenu(); });
   $('vcWords').addEventListener('click',function(e){
     var el=e.target.closest('.vc-w'); if(!el) return;
-    clearTimeout(_clickT);
-    _clickT=setTimeout(function(){
+    closeWordMenu();
+    var i=+el.getAttribute('data-i'), w=(S.words||[]).filter(function(x){ return x.i===i; })[0]; if(!w) return;
+    var m=document.createElement('div'); m.id='vcWMenu'; m.className='vc-wmenu';
+    var r=el.getBoundingClientRect();
+    m.style.left=Math.min(r.left, window.innerWidth-200)+'px'; m.style.top=(r.bottom+4)+'px';
+    function item(label,fn){ var b=document.createElement('button'); b.type='button'; b.textContent=label; b.onclick=function(){ closeWordMenu(); fn(); }; m.appendChild(b); }
+    item(el.classList.contains('cut')?'↩ Keep this word':'✂ Cut this word',function(){
       el.classList.toggle('cut');
       S.pendingDeleted=[].map.call($('vcWords').querySelectorAll('.vc-w.cut'),function(x){return +x.getAttribute('data-i');});
       vcDirty();
-    },220);
+    });
+    item('⇤ Start the clip here',function(){ $('vcStart').value=Math.max(0,w.s-0.1).toFixed(1); vcDirty(); seekLive(w.s); });
+    item('⇥ End the clip here',function(){ $('vcEnd').value=(w.e+0.25).toFixed(1); vcDirty(); });
+    item('✎ Fix spelling',function(){
+      var v=prompt('Fix this word:',el.textContent); if(v==null) return;
+      v=v.trim(); if(!v||v===el.textContent) return;
+      S.wordEdits[el.getAttribute('data-i')]=v; el.textContent=v; el.classList.add('edited');
+      if(!$('vcCapOn').checked) toast('Spelling fixes show up in captions — turn captions on to see them','info');
+      vcDirty();
+    });
+    document.body.appendChild(m);
   });
-  $('vcWords').addEventListener('dblclick',function(e){
-    var el=e.target.closest('.vc-w'); if(!el) return;
-    clearTimeout(_clickT);
-    var v=prompt('Fix this word:',el.textContent); if(v==null) return;
-    v=v.trim(); if(!v||v===el.textContent) return;
-    S.wordEdits[el.getAttribute('data-i')]=v; el.textContent=v; el.classList.add('edited');
-    if(!$('vcCapOn').checked) toast('Spelling fixes show up in captions — turn captions on to see them','info');
-    vcDirty();
-  });
+
+  /* ── live preview ───────────────────────────────────
+     Plays the clip's untouched source (master.mp4) and draws captions, hook,
+     logo, zoom and the speaker crop on top — so every change shows instantly.
+     The real render happens once, on download or post. Silence cuts are only
+     approximated here (cut words and "um"s are skipped). */
+  var STOP={a:1,an:1,the:1,and:1,or:1,but:1,so:1,if:1,then:1,that:1,this:1,they:1,them:1,you:1,your:1,we:1,our:1,i:1,me:1,my:1,it:1,is:1,are:1,was:1,were:1,be:1,been:1,do:1,does:1,did:1,have:1,has:1,had:1,will:1,would:1,can:1,could:1,should:1,just:1,really:1,very:1,about:1,with:1,from:1,what:1,when:1,where:1,which:1,who:1,why:1,how:1,there:1,their:1,these:1,those:1,going:1,think:1,thing:1,things:1,because:1,like:1,want:1,know:1};
+  function keywordSet(ws){
+    var out={}, best=-1, bestLen=0, run=0;
+    ws.forEach(function(w,i){
+      var raw=String(w.w||''), bare=raw.replace(/[^A-Za-z0-9$%']/g,''), low=bare.toLowerCase();
+      if(/\d/.test(bare)||raw.indexOf('$')>-1||raw.indexOf('%')>-1) out[i]=1;
+      else if(!STOP[low] && bare.length>=5 && bare.length>bestLen){ best=i; bestLen=bare.length; }
+      run++;
+      if(run>=6 || /[.?!]$/.test(raw)){ if(best>=0) out[best]=1; best=-1; bestLen=0; run=0; }
+    });
+    if(best>=0) out[best]=1;
+    return out;
+  }
+  function zoomCuts(ws,start,end){   /* source-time sentence starts → alternate punch-in */
+    var cuts=[start];
+    for(var i=0;i<ws.length-1;i++){
+      var t=ws[i+1].s;
+      if((/[.?!]$/.test(String(ws[i].w||'')) || ws[i+1].s-ws[i].e>=0.6) && t-cuts[cuts.length-1]>=1.8 && end-t>=1.8) cuts.push(t);
+    }
+    if(cuts.length===1){ for(var t2=start+4;end-t2>=1.8;t2+=4) cuts.push(t2); }
+    return cuts;
+  }
+  var LV={c:null, raf:0, groups:[], skip:[], cuts:[], kw:{}};
+  function livePreview(){
+    var c=byId(S.sel), box=$('vcLive'), p=$('vcPlayer');
+    var useLive=!!(c && c.status!=='rendering' && c.m_start!=null && (S.dirty||c.stale));
+    box.classList.toggle('on',useLive); p.style.display=useLive?'none':'';
+    if(!useLive){ var lv=$('vcLiveVid'); if(lv&&!lv.paused) lv.pause(); return; }
+    if(!p.paused) p.pause();
+    var a=chipVal('vcAspect')||c.aspect||'original';
+    box.style.aspectRatio=a==='9:16'?'9/16':a==='1:1'?'1/1':a==='16:9'?'16/9':((c.width&&c.height)?(c.width+'/'+c.height):'16/9');
+    var v=$('vcLiveVid'), src='/api/vclips/'+c.id+'/master?m='+encodeURIComponent(c.m_start+'-'+c.m_end);
+    if(v.getAttribute('data-src')!==src){ v.setAttribute('data-src',src); v.src=src; v.load(); }
+    var start=+$('vcStart').value||c.start, end=+$('vcEnd').value||c.end;
+    var ws=(S.words||[]).filter(function(w){ return w.s>=start-0.05 && w.e<=end+0.05; });
+    var cut={}; (S.pendingDeleted||c.deleted||[]).forEach(function(i){ cut[i]=1; });
+    var clean=$('vcClean').checked;
+    LV.skip=[]; var kept=[];
+    ws.forEach(function(w){
+      var filler=FILLERS[String(w.w).toLowerCase().replace(/[^a-z]/g,'')];
+      if(cut[w.i] || (clean&&filler)) LV.skip.push([w.s,w.e]); else kept.push(w);
+    });
+    var style=chipVal('vcCapStyle')||'bold', upper=style!=='clean', maxW=style==='clean'?6:3, maxC=style==='clean'?34:18;
+    LV.kw=keywordSet(kept);
+    LV.groups=[];
+    kept.forEach(function(w,i){
+      var g=LV.groups[LV.groups.length-1], len=g?g.reduce(function(n,x){return n+x.w.w.length+1;},0):0;
+      var item={w:{w:S.wordEdits[w.i]||w.w,s:w.s,e:w.e}, k:!!LV.kw[i]};
+      if(!g || g.length>=maxW || len+item.w.w.length>maxC || w.s-g[g.length-1].w.e>0.6) LV.groups.push([item]); else g.push(item);
+    });
+    LV.cuts=$('vcZoom').checked?zoomCuts(kept,start,end):[];
+    LV.c={start:start,end:end,m0:+c.m_start,style:style,upper:upper,aspect:a,
+          hook:$('vcHook').value.trim(), color:(S.brand&&S.brand.color)||'#FFD400',
+          logo:$('vcBrand').checked&&S.brand&&S.brand.logo, cap:$('vcCapOn').checked,
+          faces:($('vcReframe').checked&&a!=='original'&&a!=='16:9'&&c.faces&&c.faces.track)||[]};
+    var hk=$('vcLiveHook'), col=LV.c.color.replace('#','');
+    var lum=0.299*parseInt(col.substr(0,2),16)+0.587*parseInt(col.substr(2,2),16)+0.114*parseInt(col.substr(4,2),16);
+    hk.style.background=LV.c.color; hk.style.color=lum>150?'#111':'#fff'; hk.textContent=LV.c.hook;
+    var lg=$('vcLiveLogo'); if(LV.c.logo){ lg.src='/api/vclips/brand/logo?v='+encodeURIComponent(S.brand.logo); lg.style.display=''; } else lg.style.display='none';
+    v.style.objectFit=(a==='original')?'contain':(LV.c.faces.length?'cover':'contain');
+    paintLive();
+  }
+  function seekLive(t){ var v=$('vcLiveVid'); if(LV.c&&v) try{ v.currentTime=Math.max(0,t-LV.c.m0); }catch(_){} }
+  function paintLive(){
+    var v=$('vcLiveVid'), L=LV.c; if(!L||!v) return;
+    var t=L.m0+(v.currentTime||0);   /* source time */
+    if(t<L.start-0.05||t>=L.end){ if(!v.paused&&t>=L.end) v.pause(); if(t<L.start-0.05||t>=L.end) seekLive(L.start); t=L.start; }
+    for(var i=0;i<LV.skip.length;i++){ if(t>=LV.skip[i][0]&&t<LV.skip[i][1]){ seekLive(LV.skip[i][1]+0.01); break; } }
+    $('vcLiveHook').style.display=(L.hook && t-L.start<3)?'':'none';
+    var cap=$('vcLiveCap'); cap.className='lv-cap'+(L.style==='clean'?' clean':'');
+    var html='';
+    if(L.cap){
+      var g=null; for(var j=0;j<LV.groups.length;j++){ var G=LV.groups[j]; if(t>=G[0].w.s-0.05 && t<=G[G.length-1].w.e+0.2){ g=G; break; } }
+      if(g) html=g.map(function(x){
+        var txt=esc(L.upper?x.w.w.toUpperCase():x.w.w), on=L.style!=='clean' && t>=x.w.s && t<x.w.e+0.05;
+        var colr=(on||x.k)?' style="color:'+esc(L.color)+'"':'';
+        return '<span class="'+(x.k?'k ':'')+(on?'on '+L.style:'')+'"'+colr+'>'+txt+'</span>';
+      }).join(' ');
+    }
+    cap.innerHTML=html; cap.style.display=html?'':'none';
+    var z=1; if(LV.cuts.length){ var n=0; for(var k=0;k<LV.cuts.length;k++) if(t>=LV.cuts[k]) n=k; z=(n%2)?1.12:1; }
+    var fx=50; for(var f=0;f<L.faces.length;f++){ if(L.faces[f][0]<=t-L.m0+0.01) fx=Math.round(L.faces[f][1]*100); }
+    v.style.objectPosition=fx+'% 50%'; v.style.transformOrigin=fx+'% 50%'; v.style.transform='scale('+z+')';
+    $('vcLivePlay').style.display=v.paused?'':'none';
+  }
+  (function(){
+    var v=$('vcLiveVid'); if(!v) return;
+    function loop(){ paintLive(); if(!v.paused) LV.raf=requestAnimationFrame(loop); }
+    v.addEventListener('play',function(){ cancelAnimationFrame(LV.raf); loop(); });
+    v.addEventListener('pause',paintLive); v.addEventListener('seeked',paintLive); v.addEventListener('loadedmetadata',function(){ seekLive(LV.c?LV.c.start:0); paintLive(); });
+    function toggle(){ if(v.paused){ var t=LV.c?LV.c.m0+v.currentTime:0; if(LV.c&&(t>=LV.c.end-0.05)) seekLive(LV.c.start); v.play().catch(function(){}); } else v.pause(); }
+    $('vcLivePlay').onclick=function(e){ e.stopPropagation(); toggle(); };
+    $('vcLive').addEventListener('click',toggle);
+  })();
+  /* inputs that change the look also refresh the preview while typing */
+  ['vcHook','vcStart','vcEnd'].forEach(function(id){ var el=$(id); if(el) el.addEventListener('input',function(){ if(byId(S.sel)) livePreview(); }); });
 
   /* ── post ───────────────────────────────────────── */
   window.vcWriteSocial=function(){
@@ -37450,13 +37634,15 @@ window.addEventListener('focus', function(){
     if(navigator.clipboard) navigator.clipboard.writeText(txt).then(function(){ toast('📋 Copied','success'); }); else prompt('Copy:',txt);
   };
   window.vcToPlanner=function(){
-    var c=byId(S.sel); if(!c||c.status!=='ready'){ toast('Wait for the clip to finish rendering','warning'); return; }
+    var c=byId(S.sel); if(!c) return;
     var plats=[].map.call($('vcPlats').querySelectorAll('input:checked'),function(i){return i.value;});
-    post('/api/vclips/'+c.id,{social:readSocial()}).then(function(){
-      return post('/api/vclips/'+c.id+'/to_planner',{platforms:plats});
-    }).then(function(d){
-      if(!d||!d.ok){ toast((d&&d.error)||'Could not add to planner','error'); return; }
-      toast('📅 Added to Content Planner as a draft','success');
+    ensureRendered([c.id],'Getting your video ready',function(){
+      post('/api/vclips/'+c.id,{social:readSocial()}).then(function(){
+        return post('/api/vclips/'+c.id+'/to_planner',{platforms:plats});
+      }).then(function(d){
+        if(!d||!d.ok){ toast((d&&d.error)||'Could not add to planner','error'); return; }
+        toast('📅 Added to Content Planner as a draft','success');
+      });
     });
   };
 
@@ -37555,6 +37741,8 @@ window.addEventListener('focus', function(){
     if(p){p.pause();p.removeAttribute('src');p.load();p.style.display='none';}
     $('vePlayerPlaceholder').style.display='';
     $('veAutoClipBtn').style.display='none';
+    if($('veMoreTools')) $('veMoreTools').style.display='none';
+    if($('veAutoCancel')) $('veAutoCancel').click();
     $('veExportPanel').style.display='none';
     $('veClipList').innerHTML='<div style="color:#8a96aa;font-size:calc(14px * var(--fs,1.1));text-align:center;padding:20px 0;">Upload a video to get started</div>';
     $('veFileInfo').textContent='Upload a video to get started';
@@ -37582,15 +37770,26 @@ window.addEventListener('focus', function(){
       if(pw) pw.style.display='none';
       _veVidId = videoId;
       $('vcMakeShortsBtn').style.display='block';
-      if($('vcPlanWeekRow')) $('vcPlanWeekRow').style.display='flex';
-      $('veAutoClipBtn').style.display='block';
-      $('veExtractAudioBtn').style.display='block';
-      if($('veTranscriptBtn')) $('veTranscriptBtn').style.display='block';
-      $('veScreenshotBtn').style.display='block';
+      $('veMoreTools').style.display='';
+      ['veAutoClipBtn','veExtractAudioBtn','veTranscriptBtn','veMuteExportBtn','veScreenshotBtn'].forEach(function(id){ if($(id)) $(id).style.display=''; });
       $('veExportPanel').style.display='block';
       $('veFileInfo').textContent=file.name+' · '+(file.size/1024/1024).toFixed(1)+' MB';
+      veAutoShorts();
       if(_veNeedPreview){ veRequestPreview(); return; }
-      veSt('Ready — use AI clips or set In/Out and export','ok');
+      veSt('Ready — making your shorts, or set In/Out and save a clip yourself','ok');
+    }
+    /* V14.1: shorts start on their own after upload — a 5s countdown with "Not now" */
+    function veAutoShorts(){
+      var b=$('vcAutoBanner'); if(!b||!window.vcMakeShorts) return;
+      var n=5;
+      b.style.display='';
+      function paint(){ b.innerHTML='<div class="ve-auto"><span>⚡ Making your shorts in '+n+'…</span><button type="button" id="veAutoCancel">Not now</button></div>'; $('veAutoCancel').onclick=stop; }
+      function stop(){ clearInterval(t); b.style.display='none'; b.innerHTML=''; }
+      paint();
+      var t=setInterval(function(){
+        n--; if(n>0){ paint(); return; }
+        stop(); window.vcMakeShorts();
+      },1000);
     }
 
     function veFinalize(csrfToken){

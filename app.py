@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.0")
+APP_VERSION = os.getenv("APP_VERSION", "14.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -29213,7 +29213,8 @@ def _ass_escape(s: str) -> str:
     return (s or "").replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 def _vc_build_ass(W: int, H: int, words: List[Dict[str, Any]], style: str, hook: str,
-                  color: str, total: float) -> str:
+                  color: str, total: float, keywords: Optional[set] = None) -> str:
+    keywords = keywords or set()
     base = min(W, H)
     portrait = H > W
     hl = _ass_color(color)
@@ -29245,7 +29246,8 @@ def _vc_build_ass(W: int, H: int, words: List[Dict[str, Any]], style: str, hook:
     upper = style in ("bold", "pop")
     max_words, max_chars = (6, 34) if style == "clean" else (3, 18)
     groups: List[List[Dict[str, Any]]] = []
-    for w in words:
+    for wi, w in enumerate(words):
+        w = dict(w, _k=wi in keywords)
         g = groups[-1] if groups else None
         if (g is None or len(g) >= max_words
                 or sum(len(x["w"]) + 1 for x in g) + len(w["w"]) > max_chars
@@ -29255,13 +29257,15 @@ def _vc_build_ass(W: int, H: int, words: List[Dict[str, Any]], style: str, hook:
             g.append(w)
     for g in groups:
         texts = [_ass_escape(x["w"].upper() if upper else x["w"]) for x in g]
+        # Keywords stay in the brand colour, a touch bigger, the whole time they're on screen
+        kw = [f"{{\\c{hl}\\fscx112\\fscy112}}{t}{{\\r}}" if x["_k"] else t for x, t in zip(g, texts)]
         if style == "clean":
-            lines.append(f"Dialogue: 0,{_ass_time(g[0]['s'])},{_ass_time(g[-1]['e'] + 0.15)},Cap,,0,0,0,,{' '.join(texts)}")
+            lines.append(f"Dialogue: 0,{_ass_time(g[0]['s'])},{_ass_time(g[-1]['e'] + 0.15)},Cap,,0,0,0,,{' '.join(kw)}")
             continue
         for i, w in enumerate(g):
             end = g[i + 1]["s"] if i + 1 < len(g) else w["e"] + 0.2
             pop = r"\fscx118\fscy118" if style == "pop" else ""
-            parts = [(f"{{\\c{hl}{pop}}}{t}{{\\r}}" if j == i else t) for j, t in enumerate(texts)]
+            parts = [(f"{{\\c{hl}{pop}}}{t}{{\\r}}" if j == i else kw[j]) for j, t in enumerate(texts)]
             lines.append(f"Dialogue: 0,{_ass_time(w['s'])},{_ass_time(max(end, w['s'] + 0.05))},Cap,,0,0,0,,{' '.join(parts)}")
     return "\n".join(lines) + "\n"
 
@@ -29378,6 +29382,155 @@ def _vc_make_master(c: Dict[str, Any], cdir: Path) -> None:
     tmp.replace(cdir / "master.mp4")
     c["m_start"], c["m_end"] = c["start"], c["end"]
 
+# ── V14.1 "cooler videos": keyword captions, auto zoom, face-following crop ──
+_VC_STOPWORDS = set("""a an the and or but so if then than that this these those there their they them you your
+yours we our us i me my mine he him his she her it its is are was were be been being am do does did have has had
+will would can could should may might must just really very also about with from into onto over under what when where
+which who whom why how all any some each every more most other such only own same too not no nor out up down off
+again here because while until like get got going gonna want know think thing things make made way lot""".split())
+
+
+def _vc_keyword_idx(words: List[Dict[str, Any]]) -> set:
+    """Indexes of words worth emphasising in captions: numbers/money/percent,
+    and the longest meaningful word of each short phrase (about 1 in 6 words)."""
+    out: set = set()
+    best, best_len, run = -1, 0, 0
+    for i, w in enumerate(words):
+        raw = str(w.get("w") or "")
+        bare = re.sub(r"[^A-Za-z0-9$%']", "", raw)
+        low = bare.lower()
+        if re.search(r"\d", bare) or "$" in raw or "%" in raw:
+            out.add(i)
+        elif low not in _VC_STOPWORDS and len(bare) >= 5 and len(bare) > best_len:
+            best, best_len = i, len(bare)
+        run += 1
+        if run >= 6 or raw.endswith((".", "?", "!")):
+            if best >= 0:
+                out.add(best)
+            best, best_len, run = -1, 0, 0
+    if best >= 0:
+        out.add(best)
+    return out
+
+
+def _vc_zoom_plan(words: List[Dict[str, Any]], total: float, zoom: float = 1.12) -> List[Tuple[float, float, float]]:
+    """Output-time spans (start, end, zoom). Punch in on alternate sentences —
+    the cut that makes a talking head look edited. Spans under 1.8s merge."""
+    cuts = [0.0]
+    for i, w in enumerate(words[:-1]):
+        nxt = words[i + 1]
+        if str(w.get("w") or "").endswith((".", "?", "!")) or float(nxt["s"]) - float(w["e"]) >= 0.6:
+            t = float(nxt["s"])
+            if t - cuts[-1] >= 1.8 and total - t >= 1.8:
+                cuts.append(t)
+    if len(cuts) == 1:   # no speech structure → every 4s
+        t = 4.0
+        while total - t >= 1.8:
+            cuts.append(t)
+            t += 4.0
+    cuts.append(total)
+    return [(cuts[i], cuts[i + 1], zoom if i % 2 else 1.0) for i in range(len(cuts) - 1)]
+
+
+def _vc_face_track(user: Dict[str, Any], master: Path, workdir: Path, duration: float) -> List[List[float]]:
+    """Where the speaker's face is: [[master_t, x 0-1], ...] sampled every 2s.
+    One low-detail vision call for the whole clip (~$0.0005). [] = no face found
+    or no key — the render then keeps the safe blurred-background layout."""
+    key = _vc_openai_key(user)
+    if not key or duration <= 0:
+        return []
+    step = max(2.0, duration / 40.0)
+    fdir = workdir / "faces"
+    _shutil_ve.rmtree(fdir, ignore_errors=True)
+    fdir.mkdir(parents=True, exist_ok=True)
+    try:
+        ok, _ = _ve_ffmpeg(["-y", "-i", str(master), "-vf", f"fps=1/{step:.3f},scale=256:-2",
+                            "-frames:v", "40", "-q:v", "6", str(fdir / "f_%03d.jpg")], timeout=300)
+        frames = sorted(fdir.glob("f_*.jpg"))
+        if not ok or not frames:
+            return []
+        import base64 as _b64
+        content: List[Dict[str, Any]] = [{"type": "text", "text": (
+            f"These are {len(frames)} frames from one video, in order. For EACH frame give the horizontal centre "
+            "of the main speaker's face as a fraction of the frame width (0 = left edge, 1 = right edge), or null "
+            'if no face is visible. Return ONLY JSON: {"x": [0.42, 0.45, null, ...]} with exactly one value per frame.')}]
+        for f in frames:
+            content.append({"type": "image_url", "image_url": {
+                "url": "data:image/jpeg;base64," + _b64.b64encode(f.read_bytes()).decode(), "detail": "low"}})
+        resp = OpenAI(api_key=key).chat.completions.create(
+            model="gpt-4o-mini", messages=[{"role": "user", "content": content}], max_tokens=400,
+            temperature=0, response_format={"type": "json_object"})
+        xs = (json.loads(resp.choices[0].message.content or "{}") or {}).get("x") or []
+    except Exception as e:
+        print(f"[VC] face track skipped: {str(e)[:160]}", flush=True)
+        return []
+    finally:
+        _shutil_ve.rmtree(fdir, ignore_errors=True)
+    pts = []
+    for i, x in enumerate(xs[:len(frames)]):
+        try:
+            if x is not None and 0.0 <= float(x) <= 1.0:
+                pts.append([round(i * step, 2), round(float(x), 3)])
+        except (TypeError, ValueError):
+            pass
+    if len(pts) < max(2, len(frames) // 3):   # mostly no face → don't reframe
+        return []
+    # Smooth: median of 3, then only move the frame when the face really moved (no jitter)
+    xs2 = [p[1] for p in pts]
+    med = [sorted(xs2[max(0, i - 1):i + 2])[len(xs2[max(0, i - 1):i + 2]) // 2] for i in range(len(xs2))]
+    out, cur = [], None
+    for (t, _x), m in zip(pts, med):
+        if cur is None or abs(m - cur) > 0.08:
+            cur = m
+            out.append([t, round(m, 3)])
+    return out
+
+
+def _vc_reframe_graph(src_label: str, out_label: str, W: int, H: int, sw: int, sh: int, total: float,
+                      zoom_plan: List[Tuple[float, float, float]], face_pts: List[Tuple[float, float]],
+                      cover: bool) -> List[str]:
+    """Split the (already cut) video into parts and give each its own zoom and
+    horizontal centre, then join them. cover=True crops the source to fill W×H
+    around the face; cover=False zooms the already-composed W×H frame."""
+    bounds = {0.0, round(total, 3)}
+    for s, e, _z in zoom_plan:
+        bounds.update((round(s, 3), round(e, 3)))
+    for t, _x in face_pts:
+        if 0.5 < t < total - 0.5:
+            bounds.add(round(t, 3))
+    edges = sorted(b for b in bounds if 0 <= b <= total)
+    spans = [(edges[i], edges[i + 1]) for i in range(len(edges) - 1) if edges[i + 1] - edges[i] >= 0.25]
+    if len(spans) > 40:                       # keep the graph small: drop face splits, keep zoom cuts
+        spans = [(round(s, 3), round(e, 3)) for s, e, _z in zoom_plan][:40]
+    if not spans:
+        spans = [(0.0, total)]
+    def z_at(t):
+        return next((z for s, e, z in zoom_plan if s <= t < e), 1.0)
+    def x_at(t):
+        x = 0.5
+        for ft, fx in face_pts:
+            if ft <= t + 0.01:
+                x = fx
+        return x
+    n = len(spans)
+    g = [f"[{src_label}]split={n}" + "".join(f"[rp{i}]" for i in range(n))] if n > 1 else [f"[{src_label}]null[rp0]"]
+    for i, (s, e) in enumerate(spans):
+        z = z_at(s + 0.01)
+        end = "" if i == n - 1 else f":end={e:.3f}"
+        if cover:
+            f = max(W / sw, H / sh) * z
+            w2, h2 = max(W, int(sw * f) // 2 * 2), max(H, int(sh * f) // 2 * 2)
+            cx = int(min(max(w2 * x_at(s + 0.01) - W / 2, 0), w2 - W))
+            g.append(f"[rp{i}]trim=start={s:.3f}{end},setpts=PTS-STARTPTS,scale={w2}:{h2},"
+                     f"crop={W}:{H}:{cx}:{(h2 - H) // 2},setsar=1[rq{i}]")
+        else:
+            cw, ch = int(W / z) // 2 * 2, int(H / z) // 2 * 2
+            g.append(f"[rp{i}]trim=start={s:.3f}{end},setpts=PTS-STARTPTS,"
+                     f"crop={cw}:{ch}:{(W - cw) // 2}:{(H - ch) // 2},scale={W}:{H},setsar=1[rq{i}]")
+    g.append("".join(f"[rq{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[{out_label}]")
+    return g
+
+
 def _vc_render(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, Any]:
     """Render one clip from its spec. Updates the index with status/result."""
     with _VC_ACTIVE_LOCK:
@@ -29459,6 +29612,35 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
                 W, H = (probe["w"] or 1280), (probe["h"] or 720)
                 W, H = W - (W % 2), H - (H % 2)
 
+            # Spoken words in OUTPUT time (after cuts) — drives captions and auto zoom
+            spoken = []
+            for i, w in in_range:
+                if i in deleted:
+                    continue
+                s2, e2 = _vc_map_time(w["s"], segs), _vc_map_time(min(w["e"], end), segs)
+                if s2 is not None:
+                    spoken.append({"w": w["w"], "s": s2, "e": e2 if e2 is not None else s2 + 0.3})
+
+            # Face-following crop (uploads only; recordings have their own layouts).
+            # The track is cached on the clip so re-renders don't repeat the AI call.
+            sw, sh = int(probe["w"] or 1280), int(probe["h"] or 720)
+            face_pts: List[Tuple[float, float]] = []
+            reframe = bool(target and c.get("reframe") and not c.get("rec") and sw / max(1, sh) > (W / H) * 1.15)
+            if reframe:
+                ft = c.get("faces") or {}
+                if ft.get("m_start") != c.get("m_start") or ft.get("m_end") != c.get("m_end"):
+                    ft = {"m_start": c.get("m_start"), "m_end": c.get("m_end"),
+                          "track": _vc_face_track(user, master, cdir, float(probe["duration"] or (end - start)))}
+                    _vc_update(uname, cid, lambda x, ft=ft: x.update({"faces": ft}))
+                for mt, fx in ft.get("track") or []:
+                    ot = _vc_map_time(m0 + float(mt), segs)
+                    if ot is not None:
+                        face_pts.append((ot, float(fx)))
+                if not ft.get("track"):
+                    reframe = False   # no face found → keep the safe blurred-background layout
+                    notes.append("No face found to follow, so the whole frame is kept.")
+            zoom_plan = _vc_zoom_plan(spoken, total) if c.get("auto_zoom") else []
+
             # Filter graph — segments are master-relative
             has_audio = probe["has_audio"] and not c.get("mute")
             fc: List[str] = []
@@ -29471,13 +29653,22 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
                     fc.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
                     pads += f"[a{i}]"
             fc.append(f"{pads}concat=n={len(segs)}:v=1:a={1 if has_audio else 0}[vc]" + ("[ac]" if has_audio else ""))
-            if target:
-                fc.append("[vc]split=2[b0][f0]")
-                fc.append(f"[b0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2[bg]")
-                fc.append(f"[f0]scale={W}:{H}:force_original_aspect_ratio=decrease[fg]")
-                fc.append("[bg][fg]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,setsar=1[vs]")
+            if reframe:
+                fc += _vc_reframe_graph("vc", "vs", W, H, sw, sh, total, zoom_plan or [(0.0, total, 1.0)], face_pts, cover=True)
             else:
-                fc.append("[vc]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vs]")
+                if target:
+                    fc.append("[vc]split=2[b0][f0]")
+                    fc.append(f"[b0]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=20:2[bg]")
+                    fc.append(f"[f0]scale={W}:{H}:force_original_aspect_ratio=decrease[fg]")
+                    fc.append("[bg][fg]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,setsar=1[vs0]")
+                else:
+                    fc.append("[vc]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[vs0]")
+                if zoom_plan:
+                    if not target:
+                        W, H = sw - sw % 2, sh - sh % 2
+                    fc += _vc_reframe_graph("vs0", "vs", W, H, W, H, total, zoom_plan, [], cover=False)
+                else:
+                    fc.append("[vs0]null[vs]")
             last = "vs"
             inputs = ["-i", str(master)]
             brand = _vc_brand(uname)
@@ -29487,22 +29678,14 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
                 fc.append(f"[{last}][lg]overlay=main_w-overlay_w-28:28[vl]")
                 last = "vl"
             cap = c.get("captions") or {}
-            cap_words = []
-            if cap.get("on"):
-                for i, w in in_range:
-                    if i in deleted:
-                        continue
-                    s2, e2 = _vc_map_time(w["s"], segs), _vc_map_time(min(w["e"], end), segs)
-                    if s2 is None:
-                        continue
-                    cap_words.append({"w": w["w"], "s": s2, "e": e2 if e2 is not None else s2 + 0.3})
-                if not cap_words and not notes:
-                    notes.append("No speech found for captions.")
+            cap_words = spoken if cap.get("on") else []
+            if cap.get("on") and not cap_words and not notes:
+                notes.append("No speech found for captions.")
             hook = (c.get("hook") or "").strip()
             if cap_words or hook:
                 (cdir / "subs.ass").write_text(
                     _vc_build_ass(W, H, cap_words, cap.get("style") or "bold", hook,
-                                  brand["color"], total), encoding="utf-8")
+                                  brand["color"], total, keywords=_vc_keyword_idx(cap_words)), encoding="utf-8")
                 for f in (_VC_FONTS_DIR.glob("*.[ot]tf") if _VC_FONTS_DIR.exists() else []):
                     try: _shutil_ve.copy(f, cdir / f.name)
                     except Exception: pass
@@ -29535,7 +29718,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
             words_now, deleted_now = c.get("words"), c.get("deleted") or []
             m_start, m_end = c["m_start"], c["m_end"]
             def _done(x):
-                x.update({"status": "ready", "error": "", "note": " ".join(notes), "size": size, "rendered_at": now_iso(),
+                x.update({"status": "ready", "stale": False, "error": "", "note": " ".join(notes), "size": size, "rendered_at": now_iso(),
                           "duration": round(total, 2), "version": ver, "file": clip_name, "thumb": thumb_name,
                           "width": W, "height": H, "words": words_now, "deleted": deleted_now,
                           "m_start": m_start, "m_end": m_end})
@@ -29579,7 +29762,8 @@ def _vc_new_clip(uname: str, vid_id: str, start: float, end: float, **spec) -> D
         "mute": bool(spec.get("mute")),
         "captions": {"on": bool(spec.get("captions_on")), "style": spec.get("style") or "bold"},
         "hook": (spec.get("hook") or "")[:90], "remove_silence": bool(spec.get("remove_silence")),
-        "remove_fillers": bool(spec.get("remove_fillers")), "deleted": [],
+        "remove_fillers": bool(spec.get("remove_fillers")), "remove_retakes": bool(spec.get("remove_retakes")),
+        "auto_zoom": bool(spec.get("auto_zoom")), "reframe": bool(spec.get("reframe")), "stale": False, "deleted": [],
         "brand": bool(spec.get("brand", brand["default_on"])), "words": None,
         "social": {"caption": "", "hashtags": []}, "size": 0, "duration": round(end - start, 2), "version": 0,
     }
@@ -29686,7 +29870,7 @@ def api_vclips_update(cid):
                 x["layout"] = new; rerender = True
                 try: (_vc_dir(uname) / cid / "master.mp4").unlink()   # force re-composite
                 except Exception: pass
-        for k in ("mute", "remove_silence", "remove_fillers", "remove_retakes", "brand"):
+        for k in ("mute", "remove_silence", "remove_fillers", "remove_retakes", "brand", "auto_zoom", "reframe"):
             if k in b and bool(b[k]) != bool(x.get(k)):
                 x[k] = bool(b[k]); rerender = True
         if "captions" in b and isinstance(b["captions"], dict):
@@ -29714,10 +29898,48 @@ def api_vclips_update(cid):
         c = _vc_update(uname, cid, _apply)
     except _VcError as ve:
         return jsonify({"ok": False, "error": str(ve)}), 400
-    if rerender:
+    if rerender and b.get("defer"):
+        # V14.1: the editor previews changes live, so saving doesn't render.
+        # The clip is marked edited and renders once, on download or post.
+        c = _vc_update(uname, cid, lambda x: x.update({"stale": True}))
+    elif rerender:
         _vc_start_render(uname, u, cid)
         c = _vc_get(uname, cid)
     return jsonify({"ok": True, "clip": _vc_public(c), "rerender": rerender})
+
+
+@app.post("/api/vclips/<cid>/render")
+def api_vclips_render(cid):
+    """Render a clip whose saved edits haven't been rendered yet (or never rendered)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c:
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    if c.get("status") != "rendering" and (c.get("stale") or not _vc_file(uname, c)):
+        _vc_start_render(uname, u, cid)
+        c = _vc_get(uname, cid)
+    return jsonify({"ok": True, "clip": _vc_public(c)})
+
+
+@app.get("/api/vclips/<cid>/master")
+def api_vclips_master(cid):
+    """The clip's untouched source footage — the live preview plays this with
+    captions, hook, logo, zoom and framing drawn on top in the browser."""
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    c = _vc_get(uname, cid)
+    if not c or not re.match(r'^[a-f0-9]{6,32}$', cid):
+        return jsonify({"ok": False, "error": "Clip not found"}), 404
+    p = _vc_dir(uname) / cid / "master.mp4"
+    if not p.exists():
+        return jsonify({"ok": False, "error": "Preview not available yet"}), 404
+    return _sf(str(p), mimetype="video/mp4", conditional=True)
 
 
 @app.post("/api/vclips/<cid>/duplicate")
@@ -30029,12 +30251,21 @@ def api_vclips_make_shorts():
             return {"ok": False, "error": "Couldn't find strong moments — try a longer video with clear speech."}
         ids = []
         for m in moments:
+            # V14.1: finished by default — speech cleaned up (silences, ums, restarts),
+            # punch-in zooms, and the crop follows the speaker's face.
             c = _vc_new_clip(uname, vid, m["start"], m["end"], title=m["title"], aspect=aspect,
-                             captions_on=True, style=style, hook=m["hook"], remove_fillers=True)
+                             captions_on=True, style=style, hook=m["hook"], remove_fillers=True,
+                             remove_silence=True, remove_retakes=True, auto_zoom=True, reframe=True)
             _vc_update(uname, c["id"], lambda x, m=m: x.update({"score": m["score"], "reason": m["reason"]}))
             ids.append(c["id"])
         for cid in ids:  # sequential: keeps CPU sane, clips pop in one by one
             _vc_render(uname, u, cid)
+            c = _vc_get(uname, cid)
+            if c and not (c.get("social") or {}).get("caption"):
+                try:
+                    _vc_write_social(u, c)   # caption + hashtags ready to post
+                except Exception as e:
+                    _capture_error(e, context="vc_auto_social")
         post_ids: List[str] = []
         if plan_week:
             try:
@@ -30043,6 +30274,31 @@ def api_vclips_make_shorts():
                 _capture_error(e, context="vc_plan_week")
         return {"ok": True, "clip_ids": ids, "post_ids": post_ids}
     return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key=f"shorts:{vid}")})
+
+
+@app.post("/api/vclips/schedule")
+def api_vclips_schedule():
+    """Line the given clips up across the next week in the Content Planner as
+    drafts — renders any with unrendered edits and writes missing captions first."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    ids = [str(i) for i in (b.get("ids") or []) if re.match(r'^[a-f0-9]{6,32}$', str(i)) and _vc_get(uname, str(i))][:30]
+    if not ids:
+        return jsonify({"ok": False, "error": "Pick at least one clip."}), 400
+    platforms = [p for p in (b.get("platforms") or ["instagram", "tiktok", "youtube"]) if p in _SP_PLATFORMS]
+    base_url = request.host_url
+
+    def _work():
+        for cid in ids:
+            c = _vc_get(uname, cid)
+            if c and (c.get("stale") or not _vc_file(uname, c)) and c.get("status") != "rendering":
+                _vc_render(uname, u, cid)
+        post_ids = _vc_plan_week(u, ids, platforms, base_url)
+        return {"ok": True, "post_ids": post_ids}
+    return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key="schedule:" + ",".join(sorted(ids))[:200])})
 
 
 @app.post("/api/vclips/suggest")
