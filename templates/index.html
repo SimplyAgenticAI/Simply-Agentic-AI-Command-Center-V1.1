@@ -5352,6 +5352,7 @@ label {
                     <div id="npSidebar" style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
                       <div style="padding:10px 10px 8px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
                         <button class="btn btnPrimary" onclick="npNewNote()" style="width:100%;font-size:calc(14px * var(--fs,1.1));padding:6px;">+ New note</button>
+                        <input id="npSearch" type="search" placeholder="🔍 Search notes" oninput="npRenderList()" style="width:100%;box-sizing:border-box;margin-top:8px;background:rgba(14,22,48,.8);border:1px solid rgba(80,110,200,.35);border-radius:8px;padding:6px 8px;color:#e2e8f0;font-size:calc(14px * var(--fs,1.1));outline:none;">
                         <div id="npBulk" style="display:none;align-items:center;gap:6px;margin-top:8px;">
                           <label style="display:flex;align-items:center;gap:5px;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;cursor:pointer;flex:1;"><input type="checkbox" id="npSelAll" onchange="npSelectAll(this.checked)" style="accent-color:#8b5cf6;width:16px;height:16px;"> All</label>
                           <button class="btn btnMini" id="npDelSel" onclick="npDeleteSelected()" disabled style="font-size:calc(14px * var(--fs,1.1));color:#fca5a5;border-color:rgba(248,113,113,.4);">🗑 Delete</button>
@@ -5361,24 +5362,27 @@ label {
                     </div>
                     <!-- Editor -->
                     <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;">
-                      <div style="padding:10px 14px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;">
-                        <input id="npTitle" type="text" placeholder="Note title..." style="width:100%;background:transparent;border:none;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));font-weight:600;outline:none;" />
+                      <div style="padding:10px 14px;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                        <input id="npTitle" type="text" placeholder="Note title..." style="flex:1;min-width:160px;background:transparent;border:none;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));font-weight:600;outline:none;" />
+                        <button class="btn btnMini np-tog" id="npPinBtn" onclick="npToggle('pinned')" title="Pin to the top of your notes">📌</button>
+                        <button class="btn btnMini np-tog" id="npTeamBtn" onclick="npToggle('team')" title="Team knows this: every teammate reads this note in every chat (pricing, FAQs, how you like things done)">🧠 Team knows this</button>
+                        <button class="btn btnMini np-tog" id="npMicBtn" onclick="npVoice()" title="Record a voice note — it's written out for you">🎙 Voice</button>
                       </div>
-                      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:calc(14px * var(--fs,1.1));line-height:1.7;padding:14px;resize:none;outline:none;min-height:0;" placeholder="Start writing..."></textarea>
+                      <div id="npTeamHint" style="display:none;padding:6px 14px;font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;background:rgba(124,58,237,.12);border-bottom:1px solid rgba(124,58,237,.3);">🧠 Every teammate knows this note and uses it in every chat.</div>
+                      <textarea id="npContent" style="flex:1;background:transparent;border:none;color:#e2e8f0;font-size:calc(14px * var(--fs,1.1));line-height:1.7;padding:14px;resize:none;outline:none;min-height:0;" placeholder="Write anything — meeting notes, ideas, a brain dump. ⚡ Turn into actions makes contacts, tasks and email drafts from it."></textarea>
+                      <div id="npActions" style="display:none;max-height:45%;overflow-y:auto;border-top:1px solid rgba(124,58,237,.4);background:rgba(13,19,40,.97);padding:10px 14px;"></div>
                       <!-- AI toolbar — always visible, no overflow -->
                       <div style="padding:8px 10px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:5px;flex-wrap:wrap;align-items:center;flex-shrink:0;background:rgba(7,10,20,.4);">
-                        <span class="tiny" style="opacity:.5;">AI:</span>
+                        <button class="btn btnMini btnPrimary" id="npActBtn" onclick="npTurnIntoActions()" style="font-size:calc(14px * var(--fs,1.1));" title="Your team reads the note and offers to add contacts, put tasks on your calendar and draft emails">⚡ Turn into actions</button>
                         <button class="btn btnMini" onclick="npAI('improve')" style="font-size:calc(14px * var(--fs,1.1));">&#10024; Improve</button>
-                        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:calc(14px * var(--fs,1.1));">Expand</button>
                         <button class="btn btnMini" onclick="npAI('summarize')" style="font-size:calc(14px * var(--fs,1.1));">Summarize</button>
-                        <button class="btn btnMini" onclick="npAI('action')" style="font-size:calc(14px * var(--fs,1.1));">Actions</button>
+                        <button class="btn btnMini" onclick="npAI('expand')" style="font-size:calc(14px * var(--fs,1.1));">Expand</button>
                         <button class="btn btnMini" onclick="npAI('rewrite')" style="font-size:calc(14px * var(--fs,1.1));">Rewrite</button>
                       </div>
-                      <!-- Save bar — always pinned at bottom, never clipped -->
+                      <!-- Status bar — autosaves, so no Save button -->
                       <div style="padding:8px 10px;border-top:1px solid rgba(42,58,106,.4);display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-shrink:0;background:rgba(10,14,30,.8);">
                         <span id="npStatus" class="tiny" style="color:#a8b4c8;flex:1;"></span>
-                        <button class="btn" onclick="npDelete()" style="font-size:calc(14px * var(--fs,1.1));color:#f87171;border-color:rgba(248,113,113,.3);">Delete</button>
-                        <button class="btn btnPrimary" onclick="npSave()" style="font-size:calc(14px * var(--fs,1.1));padding:6px 18px;">Save</button>
+                        <button class="btn" onclick="npDelete()" style="font-size:calc(14px * var(--fs,1.1));color:#f87171;border-color:rgba(248,113,113,.3);">Delete note</button>
                       </div>
                     </div>
                   </div>
@@ -27263,23 +27267,16 @@ document.addEventListener("click", function(e) {
 
 
 
-    // ══ NOTEPAD MODAL ════════════════════════════════════════
-    var _npNotes = [], _npCurrent = null, _npDirty = false, _npSavedTitle = "", _npSavedContent = "";
-
-    function npMarkClean(){
-      _npDirty = false;
-      _npSavedTitle   = ($("npTitle")   || {}).value || "";
-      _npSavedContent = ($("npContent") || {}).value || "";
-      var st = $("npStatus"); if(st && st.textContent === "• Unsaved changes") st.textContent = "";
+    // ══ NOTEPAD (V14.5) ═══════════════════════════════════════
+    // Autosave per note · search · pin · "Team knows this" · voice notes ·
+    // ⚡ Turn into actions (contacts, calendar tasks, email drafts you approve).
+    var _npNotes = [], _npCurId = null, _npSaveT = null, _npSaving = null, _npSel = {}, _npRec = null;
+    function npStatus(t, sticky){
+      var st=$("npStatus"); if(!st) return; st.textContent=t||"";
+      if(t && !sticky) setTimeout(function(){ if($("npStatus") && $("npStatus").textContent===t) $("npStatus").textContent=""; },2500);
     }
-
-    function npCheckDirty(){
-      var t = ($("npTitle")   || {}).value || "";
-      var c = ($("npContent") || {}).value || "";
-      _npDirty = (t !== _npSavedTitle || c !== _npSavedContent);
-      var st = $("npStatus");
-      if(st) st.textContent = _npDirty ? "• Unsaved changes" : st.textContent === "• Unsaved changes" ? "" : st.textContent;
-    }
+    function npCur(){ return _npNotes.filter(function(n){ return String(n.id)===String(_npCurId); })[0] || null; }
+    function npSorted(){ return _npNotes.slice().sort(function(a,b){ return (b.pinned?1:0)-(a.pinned?1:0); }); }
 
     window.showNotepadModal = function() {
       showModal();
@@ -27289,33 +27286,59 @@ document.addEventListener("click", function(e) {
       if($("modalTitle")) $("modalTitle").innerText = "Notepad";
       if(window.saSetModalPin) window.saSetModalPin('notepad');
       npLoad();
-      // Wire dirty-tracking on title/content inputs (idempotent)
-      var ti = $("npTitle"), co = $("npContent");
-      if(ti && !ti._npDirtyWired){ ti.addEventListener("input", npCheckDirty); ti._npDirtyWired = true; }
-      if(co && !co._npDirtyWired){ co.addEventListener("input", npCheckDirty); co._npDirtyWired = true; }
+      var ti=$("npTitle"), co=$("npContent");
+      if(ti && !ti._npWired){ ti.addEventListener("input", npQueueSave); ti._npWired=true; }
+      if(co && !co._npWired){
+        co.addEventListener("input", npQueueSave); co._npWired=true;
+        co.addEventListener("keydown", function(e){ if((e.ctrlKey||e.metaKey) && (e.key==="s"||e.key==="S")){ e.preventDefault(); npFlush(); } });
+      }
     };
 
-    async function npLoad() {
-      try { var r=await fetch("/api/notepad"),d=await r.json(); if(d.ok){_npNotes=d.notes||[];npRenderList();} } catch(e) {}
+    async function npLoad(){
+      try{
+        var r=await fetch("/api/notepad"), d=await r.json();
+        if(!d.ok) return;
+        _npNotes=d.notes||[];
+        if(_npCurId===null || !npCur()){ var s=npSorted(); _npCurId=s.length?s[0].id:null; }
+        npShow(); npRenderList();
+      }catch(e){}
     }
 
-    var _npSel = {};   // note id → ticked (bulk delete)
-    function npRenderList() {
+    function npShow(){
+      var n=npCur();
+      if($("npTitle")) $("npTitle").value=n?(n.title||""):"";
+      if($("npContent")) $("npContent").value=n?(n.content||""):"";
+      npPaintToggles();
+      if($("npActions")){ $("npActions").style.display="none"; $("npActions").innerHTML=""; }
+    }
+    function npPaintToggles(){
+      var n=npCur();
+      [["npPinBtn","pinned"],["npTeamBtn","team"]].forEach(function(p){
+        var b=$(p[0]); if(!b) return; var on=!!(n&&n[p[1]]);
+        b.style.background=on?"rgba(124,58,237,.45)":""; b.style.borderColor=on?"#a78bfa":""; b.disabled=!n;
+      });
+      if($("npTeamHint")) $("npTeamHint").style.display=(n&&n.team)?"":"none";
+    }
+
+    function npRenderList(){
       var el=$("npNoteList"); if(!el) return;
       el.innerHTML="";
       if($("npBulk")) $("npBulk").style.display=_npNotes.length?"flex":"none";
-      if(!_npNotes.length){el.innerHTML="<div style='font-size:calc(14px * var(--fs,1.1));color:#94a3b8;padding:8px;'>No notes yet.</div>";npUpdateBulk();return;}
-      _npNotes.forEach(function(n,i){
+      var q=(($("npSearch")||{}).value||"").trim().toLowerCase();
+      var list=npSorted().filter(function(n){ return !q || ((n.title||"")+" "+(n.content||"")).toLowerCase().indexOf(q)>-1; });
+      if(!list.length){ el.innerHTML="<div style='font-size:calc(14px * var(--fs,1.1));color:#94a3b8;padding:8px;'>"+(q?"No notes match.":"No notes yet.")+"</div>"; npUpdateBulk(); return; }
+      list.forEach(function(n){
         var d=document.createElement("div");
         d.style.cssText="display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));margin-bottom:3px;border:1px solid transparent;color:#cbd5e1;";
         var cb=document.createElement("input"); cb.type="checkbox"; cb.checked=!!_npSel[n.id];
         cb.style.cssText="accent-color:#8b5cf6;width:16px;height:16px;flex-shrink:0;cursor:pointer;";
         cb.onclick=function(e){ e.stopPropagation(); _npSel[n.id]=cb.checked; npUpdateBulk(); };
-        var t=document.createElement("span"); t.textContent=n.title||"Untitled";
+        var t=document.createElement("span");
+        t.textContent=(n.pinned?"📌 ":"")+(n.team?"🧠 ":"")+(n.title||"Untitled");
         t.style.cssText="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
         d.appendChild(cb); d.appendChild(t);
-        if(_npCurrent===i){d.style.background="rgba(124,58,237,.22)";d.style.borderColor="rgba(124,58,237,.4)";d.style.color="#e2e8f0";}
-        d.onclick=function(){npSelect(i);}; el.appendChild(d);
+        if(String(n.id)===String(_npCurId)){ d.style.background="rgba(124,58,237,.22)"; d.style.borderColor="rgba(124,58,237,.4)"; d.style.color="#e2e8f0"; }
+        d.onclick=function(){ npOpen(n.id); }; el.appendChild(d);
       });
       npUpdateBulk();
     }
@@ -27324,76 +27347,154 @@ document.addEventListener("click", function(e) {
       if(b){ b.disabled=!n; b.textContent=n?("🗑 Delete "+n):"🗑 Delete"; }
       if(all) all.checked=!!_npNotes.length && n===_npNotes.length;
     }
+    async function npOpen(id){ await npFlush(); _npCurId=id; npShow(); npRenderList(); }
+
+    /* autosave: one note at a time, ~1s after you stop typing */
+    function npQueueSave(){
+      if(!npCur()){ npNewNote(true); }
+      npStatus("Saving…", true);
+      clearTimeout(_npSaveT); _npSaveT=setTimeout(npFlush, 900);
+    }
+    async function npFlush(extra){
+      clearTimeout(_npSaveT); _npSaveT=null;
+      var n=npCur(); if(!n) return;
+      var title=(($("npTitle")||{}).value||""), content=(($("npContent")||{}).value||"");
+      var changed=title!==(n.title||"") || content!==(n.content||"") || extra;
+      if(!changed){ if($("npStatus") && $("npStatus").textContent==="Saving…") npStatus(""); return; }
+      n.title=title; n.content=content;
+      var body={id:n.id, title:title, content:content}; if(extra) for(var k in extra) body[k]=extra[k];
+      try{
+        _npSaving=fetch("/api/notepad/note",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+        var d=await (await _npSaving).json();
+        if(!d.ok){ npStatus(d.error||"Couldn't save", true); return; }
+        npStatus("Saved ✓"); npRenderList();
+      }catch(e){ npStatus("Couldn't save — check your connection", true); }
+    }
+
+    window.npNewNote=async function(silent){
+      if(!silent) await npFlush();
+      var n={id:Date.now(), title:"", content:"", updated:new Date().toISOString()};
+      _npNotes.unshift(n); _npCurId=n.id;
+      if(!silent){ npShow(); if($("npTitle")) $("npTitle").focus(); }
+      npRenderList();
+    };
+    window.npSave=function(){ return npFlush(); };   /* kept for old callers */
+
+    window.npToggle=async function(key){
+      var n=npCur(); if(!n) return;
+      n[key]=!n[key]; npPaintToggles();
+      var x={}; x[key]=n[key]; await npFlush(x);
+      if(key==="team") npStatus(n.team?"🧠 Your team now knows this note":"Removed from team knowledge");
+    };
+
+    async function npDeleteIds(ids){
+      var r=await fetch("/api/notepad/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids:ids})});
+      var d=await r.json(); if(!d.ok) throw new Error(d.error||"Delete failed");
+      _npNotes=_npNotes.filter(function(x){ return ids.indexOf(x.id)<0; });
+      ids.forEach(function(i){ delete _npSel[i]; });
+      if(!npCur()){ var s=npSorted(); _npCurId=s.length?s[0].id:null; npShow(); }
+      npRenderList();
+    }
+    window.npDelete=async function(){
+      var n=npCur(); if(!n) return;
+      if(!confirm("Delete this note?")) return;
+      clearTimeout(_npSaveT);
+      try{ await npDeleteIds([n.id]); npStatus("Deleted"); }catch(e){ npStatus("Delete failed — try again", true); }
+    };
     window.npSelectAll=function(on){ _npSel={}; if(on) _npNotes.forEach(function(x){ _npSel[x.id]=true; }); npRenderList(); };
     window.npDeleteSelected=async function(){
       var ids=_npNotes.filter(function(x){ return _npSel[x.id]; }).map(function(x){ return x.id; });
       if(!ids.length) return;
       if(!confirm("Delete "+ids.length+" note"+(ids.length>1?"s":"")+"? This can't be undone.")) return;
-      try{
-        // Re-read first so a note a teammate just added isn't wiped by an older list
-        var r=await fetch("/api/notepad"), d=await r.json(); if(d.ok) _npNotes=d.notes||[];
-        var cur=_npCurrent!==null&&_npNotes[_npCurrent]?_npNotes[_npCurrent].id:null;
-        _npNotes=_npNotes.filter(function(x){ return ids.indexOf(x.id)<0; });
-        await fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
-        _npSel={};
-        var idx=_npNotes.findIndex(function(x){ return x.id===cur; });
-        _npCurrent=null; npMarkClean();
-        if(idx>-1) npSelect(idx); else { if($("npTitle"))$("npTitle").value=""; if($("npContent"))$("npContent").value=""; npMarkClean(); }
-        npRenderList();
-        if(typeof showToast==="function") showToast("🗑 Deleted "+ids.length+" note"+(ids.length>1?"s":""));
-      }catch(e){ if(typeof showToast==="function") showToast("Delete failed — try again","error"); }
-    };
-
-    function npSelect(i){
-      if(_npDirty && _npCurrent !== null && _npCurrent !== i){
-        if(!confirm("You have unsaved changes. Discard and switch notes?")) return;
-      }
-      _npCurrent=i; var n=_npNotes[i];
-      if($("npTitle"))$("npTitle").value=n.title||"";
-      if($("npContent"))$("npContent").value=n.content||"";
-      npMarkClean();
-      npRenderList();
-    }
-
-    window.npNewNote=function(){
-      if(_npDirty && _npCurrent !== null){
-        if(!confirm("You have unsaved changes. Discard and create a new note?")) return;
-      }
-      _npNotes.unshift({id:Date.now(),title:"",content:"",updated:new Date().toISOString()});
-      _npCurrent=0;npRenderList();npSelect(0);if($("npTitle"))$("npTitle").focus();
-    };
-
-    window.npSave=async function(){
-      if(_npCurrent===null){npNewNote();return;}
-      _npNotes[_npCurrent].title=($("npTitle")||{}).value||"Untitled";
-      _npNotes[_npCurrent].content=($("npContent")||{}).value||"";
-      _npNotes[_npCurrent].updated=new Date().toISOString();
-      try{
-        await fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
-        npMarkClean();
-        if($("npStatus")){$("npStatus").textContent="Saved";setTimeout(function(){if($("npStatus"))$("npStatus").textContent="";},2000);}
-      }catch(e){}
-      npRenderList();
-    };
-
-    window.npDelete=function(){
-      if(_npCurrent===null)return;
-      if(!confirm("Delete this note?"))return;
-      _npNotes.splice(_npCurrent,1);_npCurrent=_npNotes.length?0:null;
-      if(_npCurrent!==null)npSelect(0);else{if($("npTitle"))$("npTitle").value="";if($("npContent"))$("npContent").value="";}
-      npRenderList();
-      fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
+      clearTimeout(_npSaveT);
+      try{ await npDeleteIds(ids); if(typeof showToast==="function") showToast("🗑 Deleted "+ids.length+" note"+(ids.length>1?"s":"")); }
+      catch(e){ if(typeof showToast==="function") showToast("Delete failed — try again","error"); }
     };
 
     window.npAI=async function(action){
-      var content=($("npContent")||{}).value||"";if(!content){alert("Write something first.");return;}
-      var st=$("npStatus");if(st)st.textContent="Working...";
+      var content=($("npContent")||{}).value||""; if(!content){ alert("Write something first."); return; }
+      npStatus("Working…", true);
       try{
         var r=await fetch("/api/notepad/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:action,content:content})}),d=await r.json();
-        if(d.ok){if($("npContent"))$("npContent").value=d.result;if(st)st.textContent="Done";}
-        else{if(st)st.textContent=d.error||"Error";}
-      }catch(e){if(st)st.textContent="Error";}
-      setTimeout(function(){if($("npStatus"))$("npStatus").textContent="";},3000);
+        if(d.ok){ if($("npContent")) $("npContent").value=d.result; await npFlush(); }
+        else npStatus(d.error||"Error", true);
+      }catch(e){ npStatus("Error", true); }
+    };
+
+    /* 🎙 voice note: record → transcribed → added to this note (or a new one) */
+    window.npVoice=async function(){
+      var b=$("npMicBtn");
+      if(_npRec){ _npRec.stop(); return; }
+      if(!navigator.mediaDevices || !window.MediaRecorder){ npStatus("Voice notes aren't supported in this browser", true); return; }
+      var stream;
+      try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+      catch(e){ npStatus("Microphone blocked — allow it in your browser to record", true); return; }
+      var chunks=[], mime=(MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm"))?"audio/webm":"";
+      _npRec=new MediaRecorder(stream, mime?{mimeType:mime}:undefined);
+      _npRec.ondataavailable=function(e){ if(e.data && e.data.size) chunks.push(e.data); };
+      _npRec.onstop=async function(){
+        stream.getTracks().forEach(function(t){ t.stop(); });
+        _npRec=null; b.textContent="🎙 Voice"; b.style.background=""; b.style.borderColor="";
+        var blob=new Blob(chunks,{type:mime||"audio/webm"});
+        npStatus("✍ Writing out your voice note…", true);
+        var fd=new FormData(); fd.append("audio", blob, (mime.indexOf("mp4")>-1?"memo.mp4":"memo.webm"));
+        try{
+          var d=await (await fetch("/api/notepad/voice",{method:"POST",body:fd})).json();
+          if(!d.ok){ npStatus(d.error||"Couldn't transcribe", true); return; }
+          if(!npCur()){ await npNewNote(true); if($("npTitle")) $("npTitle").value="Voice note "+new Date().toLocaleString(); }
+          var co=$("npContent"); co.value=(co.value.trim()?co.value.replace(/\s+$/,"")+"\n\n":"")+d.text;
+          await npFlush(); npShow();
+          npStatus("🎙 Voice note added");
+        }catch(e){ npStatus("Couldn't transcribe — try again", true); }
+      };
+      _npRec.start();
+      b.textContent="⏹ Stop"; b.style.background="rgba(239,68,68,.35)"; b.style.borderColor="#f87171";
+      npStatus("🔴 Recording… tap ⏹ Stop when you're done", true);
+    };
+
+    /* ⚡ Turn into actions: the team proposes, you tick, it happens */
+    function npEsc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+    var _npProp=null;
+    window.npTurnIntoActions=async function(){
+      var content=(($("npContent")||{}).value||"").trim();
+      if(content.length<10){ npStatus("Write a bit more first", true); return; }
+      await npFlush();
+      var b=$("npActBtn"), box=$("npActions"); b.disabled=true; b.textContent="⏳ Reading your note…";
+      try{
+        var d=await (await fetch("/api/notepad/actions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:content})})).json();
+        if(!d.ok){ npStatus(d.error||"Couldn't read the note", true); return; }
+        _npProp=d;
+        var rows=[];
+        (d.contacts||[]).forEach(function(c,i){ rows.push(['contacts',i,true,(c.existing_id?'📇 Add a note to <b>'+npEsc(c.existing_name)+'</b>':'➕ Add <b>'+npEsc(c.name)+'</b> to Contacts'+(c.email?' ('+npEsc(c.email)+')':'')+(c.company?' · '+npEsc(c.company):''))+(c.note?'<div class="tiny" style="opacity:.75">'+npEsc(c.note)+'</div>':'')]); });
+        (d.tasks||[]).forEach(function(t,i){ rows.push(['tasks',i,true,'📅 <b>'+npEsc(t.title)+'</b> <span class="tiny" style="opacity:.75">'+npEsc(t.date)+' '+npEsc(t.time)+'</span>']); });
+        (d.emails||[]).forEach(function(e,i){ rows.push(['emails',i,!!e.can_send,'✉ Draft an email to <b>'+npEsc(e.name)+'</b>'+(e.can_send?'':' <span class="tiny" style="color:#fbbf24">— no email address saved for them</span>')+'<div class="tiny" style="opacity:.75">'+npEsc(e.purpose)+'</div>']); });
+        if(!rows.length){ box.innerHTML='<div style="color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));">Nothing to act on in this note — no people, to-dos or emails mentioned. <button class="btn btnMini" onclick="document.getElementById(\'npActions\').style.display=\'none\'">OK</button></div>'; box.style.display=""; return; }
+        box.innerHTML='<div style="font-weight:800;color:#c4b5fd;margin-bottom:6px;font-size:calc(14px * var(--fs,1.1));">⚡ Your team can do this — untick anything you don\'t want</div>'+
+          rows.map(function(r){ return '<label style="display:flex;gap:8px;align-items:flex-start;padding:6px 2px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;cursor:pointer;"><input type="checkbox" class="np-act" data-k="'+r[0]+'" data-i="'+r[1]+'" '+(r[2]?'checked':'disabled')+' style="accent-color:#8b5cf6;width:16px;height:16px;margin-top:2px;flex-shrink:0;"><span>'+r[3]+'</span></label>'; }).join('')+
+          '<div style="display:flex;gap:8px;margin-top:8px;"><button class="btn btnPrimary" id="npApply" onclick="npApplyActions()">✔ Do it</button><button class="btn" onclick="document.getElementById(\'npActions\').style.display=\'none\'">Cancel</button>'+
+          '<span class="tiny" style="opacity:.7;align-self:center;">Emails go to Ready for you — nothing sends without you.</span></div>';
+        box.style.display="";
+      }catch(e){ npStatus("Couldn't read the note — try again", true); }
+      finally{ b.disabled=false; b.textContent="⚡ Turn into actions"; }
+    };
+    window.npApplyActions=async function(){
+      if(!_npProp) return;
+      var pick={contacts:[],tasks:[],emails:[]};
+      [].forEach.call(document.querySelectorAll("#npActions .np-act:checked"),function(cb){ pick[cb.getAttribute("data-k")].push(_npProp[cb.getAttribute("data-k")][+cb.getAttribute("data-i")]); });
+      if(!pick.contacts.length && !pick.tasks.length && !pick.emails.length){ $("npActions").style.display="none"; return; }
+      var b=$("npApply"); b.disabled=true; b.textContent="⏳ Doing it…";
+      var n=npCur();
+      try{
+        var d=await (await fetch("/api/notepad/actions/apply",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({contacts:pick.contacts,tasks:pick.tasks,emails:pick.emails,note_title:(n&&n.title)||"your note"})})).json();
+        if(!d.ok){ b.disabled=false; b.textContent="✔ Do it"; npStatus(d.error||"Couldn't do that", true); return; }
+        $("npActions").innerHTML='<div style="font-weight:800;color:#6ee7b7;margin-bottom:4px;font-size:calc(14px * var(--fs,1.1));">✅ Done</div>'+
+          (d.done||[]).map(function(x){ return '<div style="font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;">• '+npEsc(x)+'</div>'; }).join('')+
+          (d.skipped||[]).map(function(x){ return '<div style="font-size:calc(14px * var(--fs,1.1));color:#fbbf24;">• Skipped: '+npEsc(x)+'</div>'; }).join('')+
+          '<div style="margin-top:8px;"><button class="btn btnMini" onclick="document.getElementById(\'npActions\').style.display=\'none\'">Close</button> <span class="tiny" style="opacity:.7">Undo any of it in What your team did.</span></div>';
+        if(typeof showToast==="function") showToast("⚡ "+(d.done||[]).length+" done from your note");
+        try{ if(typeof crmFetchClients==="function") crmFetchClients(); }catch(_){}
+      }catch(e){ b.disabled=false; b.textContent="✔ Do it"; npStatus("Couldn't do that — try again", true); }
     };
 
     // Research screens were folded into teammate chat (V9.9.4) and removed (V11.9).

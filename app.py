@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.4")
+APP_VERSION = os.getenv("APP_VERSION", "14.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -6862,6 +6862,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
                   ("Audience", "audience"), ("Goals", "goals"), ("Notes", "notes"))
                  if (_op.get(k) or "").strip()]
     operator_block = ("\n\nOPERATOR PROFILE (shared context)\n" + "\n".join(_op_lines) + "\n") if _op_lines else ""
+    team_notes_block = _team_notes_block(_op_user) if _op_user and _op_user != "anon" else ""
 
     # Active client (memory profiles) — use cached values
     client_block = ""
@@ -7297,6 +7298,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"{_tools_block}\n"
         f"{_actions_block}"
         f"{operator_block}"
+        f"{team_notes_block}"
         f"{session_objective_block}"
         f"{client_block}"
         f"{shared_memory_block}\n"
@@ -22095,7 +22097,7 @@ AGENT_JOBS: Dict[str, Dict[str, Any]] = {
                   "kind": "followup", "hint": "Contacts whose follow-up date is today or earlier."},
 }
 AGENT_KIND_LABELS = {"intro": "intro emails to new leads", "followup": "follow-up emails",
-                     "new_contact": "new-contact hellos"}
+                     "new_contact": "new-contact hellos", "note_followup": "follow-ups from your notes"}
 AGENT_TRUST_OFFER_AT = 10      # unedited approvals in a row before offering auto-send
 AGENT_DEFAULT_HOUR = 7
 # Event triggers (V12.4): "when X happens, teammate Y does Z". Each rule has
@@ -22338,10 +22340,13 @@ def _agent_handle_event(uname: str, event: str, data: Dict[str, Any]) -> Dict[st
     return {"queued": queued, "sent": sent}
 
 
+_AGENT_QUIET = threading.local()   # set while a flow drafts its own emails (Notepad actions)
+
+
 def _agent_emit(uname: str, event: str, data: Dict[str, Any]) -> None:
     """Something happened — let the teammates react in the background so the
     request that caused it (an add, an import) never waits on the model."""
-    if not _AGENT_EVENTS_ON or not uname or uname == "anon":
+    if not _AGENT_EVENTS_ON or not uname or uname == "anon" or getattr(_AGENT_QUIET, "on", False):
         return
 
     def _run():
@@ -24300,6 +24305,259 @@ def api_notepad_save():
     _save_notes(uname, notes[:200])
     return jsonify({"ok": True})
 
+# ── Notepad V14.5: autosave, pin, team notes, actions, voice ─────────────────
+_NOTES_LOCK = threading.Lock()
+TEAM_NOTES_MAX_CHARS = 4000
+
+
+def _notes_uname() -> str:
+    u = current_user()
+    return ((u.get("username") if isinstance(u, dict) else None) or "") if u else ""
+
+
+@app.post("/api/notepad/note")
+def api_notepad_note_upsert():
+    """Save ONE note by id (autosave). Never rewrites the others, so a note a
+    teammate adds meanwhile can't be lost."""
+    uname = _notes_uname()
+    if not uname:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = request.get_json(silent=True) or {}
+    with _NOTES_LOCK:
+        notes = _load_notes(uname)
+        nid = b.get("id")
+        n = next((x for x in notes if isinstance(x, dict) and str(x.get("id")) == str(nid)), None) if nid not in (None, "") else None
+        was_team = bool(n and n.get("team"))
+        if n is None:
+            if len(notes) >= 200:
+                return jsonify({"ok": False, "error": "Notepad is full (200 notes) — delete some first."}), 400
+            n = {"id": nid if isinstance(nid, int) else int(time.time() * 1000)}
+            notes.insert(0, n)
+        for k in ("title", "content"):
+            if k in b:
+                n[k] = str(b.get(k) or "")[:(120 if k == "title" else 20000)]
+        for k in ("pinned", "team"):
+            if k in b:
+                n[k] = bool(b[k])
+        n["updated"] = now_iso()
+        _save_notes(uname, notes)
+    if was_team or n.get("team"):
+        _invalidate_sys_prompt_cache()   # teammates see team notes from the next message
+    return jsonify({"ok": True, "note": n})
+
+
+@app.post("/api/notepad/delete")
+def api_notepad_delete():
+    uname = _notes_uname()
+    if not uname:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    ids = {str(i) for i in ((request.get_json(silent=True) or {}).get("ids") or [])}
+    with _NOTES_LOCK:
+        notes = _load_notes(uname)
+        gone = [n for n in notes if isinstance(n, dict) and str(n.get("id")) in ids]
+        _save_notes(uname, [n for n in notes if not (isinstance(n, dict) and str(n.get("id")) in ids)])
+    if any(n.get("team") for n in gone):
+        _invalidate_sys_prompt_cache()
+    return jsonify({"ok": True, "deleted": len(gone)})
+
+
+def _team_notes_block(uname: str) -> str:
+    """Notes the operator marked 'Team knows this' — in every teammate's prompt."""
+    try:
+        notes = [n for n in _load_notes(uname) if isinstance(n, dict) and n.get("team") and (n.get("content") or "").strip()]
+    except Exception:
+        return ""
+    if not notes:
+        return ""
+    out, used = [], 0
+    for n in notes:
+        chunk = f"- {(n.get('title') or 'Note').strip()}: {(n.get('content') or '').strip()}"
+        if used + len(chunk) > TEAM_NOTES_MAX_CHARS:
+            chunk = chunk[:max(0, TEAM_NOTES_MAX_CHARS - used)]
+        if chunk:
+            out.append(chunk)
+            used += len(chunk)
+        if used >= TEAM_NOTES_MAX_CHARS:
+            break
+    return ("\n\nTEAM NOTES (the operator wants every teammate to know and follow this — treat as established fact):\n"
+            + "\n".join(out) + "\n")
+
+
+def _note_find_contact(crm: Dict[str, Any], name: str, email: str) -> Optional[Dict[str, Any]]:
+    email, name = (email or "").strip().lower(), (name or "").strip().lower()
+    for c in (crm.get("clients") or {}).values():
+        if not isinstance(c, dict):
+            continue
+        if email and (c.get("email") or "").strip().lower() == email:
+            return c
+        if name and (c.get("name") or "").strip().lower() == name:
+            return c
+    return None
+
+
+@app.post("/api/notepad/actions")
+def api_notepad_actions():
+    """Read a note and PROPOSE what the team should do: contacts to add or
+    update, tasks for the calendar, and emails to draft. Nothing happens until
+    the operator ticks items and applies them."""
+    uname = _notes_uname()
+    if not uname:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    content = str((request.get_json(silent=True) or {}).get("content") or "").strip()[:12000]
+    if len(content) < 10:
+        return jsonify({"ok": False, "error": "Write a bit more first — there's nothing to act on yet."}), 400
+    today = _user_now_local(uname).date()
+    system = ("You turn a small-business owner's notes into concrete next steps. Only use what the note actually says — "
+              "never invent people, emails, phone numbers or dates. Respond ONLY with JSON.")
+    prompt = (f"Today is {today.strftime('%A %Y-%m-%d')}.\nNOTE:\n{content}\n\n"
+              'Return {"contacts":[{"name":"","email":"","phone":"","company":"","note":"one line on what the note says about them"}],'
+              '"tasks":[{"title":"short to-do","date":"YYYY-MM-DD or empty","time":"HH:MM or empty"}],'
+              '"emails":[{"name":"who to email (must be a person in the note)","purpose":"what the email should say/achieve"}]}. '
+              "Contacts = real people or businesses named. Tasks = things the owner said they must do (resolve 'Friday', "
+              "'tomorrow' to dates). Emails = only when the note says to email/follow up/send someone something. Max 10 each.")
+    try:
+        raw = (call_llm(system, [{"role": "user", "content": prompt}], temperature=0.2, model="gpt-4o-mini") or "").strip()
+        data = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+    except Exception:
+        return jsonify({"ok": False, "error": "Couldn't read that note just now — try again in a moment."}), 502
+    crm = _crm_load(uname)
+    contacts = []
+    for c in (data.get("contacts") or [])[:10]:
+        if not isinstance(c, dict) or not str(c.get("name") or "").strip():
+            continue
+        email = str(c.get("email") or "").strip()
+        if email and not EMAIL_RE.match(email):
+            email = ""
+        hit = _note_find_contact(crm, c.get("name"), email)
+        contacts.append({"name": str(c["name"]).strip()[:80], "email": email[:120], "phone": str(c.get("phone") or "").strip()[:40],
+                         "company": str(c.get("company") or "").strip()[:80], "note": str(c.get("note") or "").strip()[:300],
+                         "existing_id": hit.get("id") if hit else "", "existing_name": hit.get("name") if hit else ""})
+    tasks = []
+    for t in (data.get("tasks") or [])[:10]:
+        if isinstance(t, dict) and str(t.get("title") or "").strip():
+            d = str(t.get("date") or "").strip()
+            tasks.append({"title": str(t["title"]).strip()[:150],
+                          "date": d if re.match(r"^\d{4}-\d{2}-\d{2}$", d) else (today + timedelta(days=1)).isoformat(),
+                          "time": str(t.get("time") or "").strip() if re.match(r"^\d{1,2}:\d{2}$", str(t.get("time") or "").strip()) else "09:00"})
+    emails = []
+    for e in (data.get("emails") or [])[:10]:
+        if not isinstance(e, dict) or not str(e.get("name") or "").strip():
+            continue
+        nm = str(e["name"]).strip()
+        hit = _note_find_contact(crm, nm, "")
+        prop = next((c for c in contacts if c["name"].lower() == nm.lower()), None)
+        has_email = bool((hit and EMAIL_RE.match((hit.get("email") or "").strip())) or (prop and prop["email"]))
+        emails.append({"name": nm[:80], "purpose": str(e.get("purpose") or "").strip()[:400], "can_send": has_email})
+    return jsonify({"ok": True, "contacts": contacts, "tasks": tasks, "emails": emails})
+
+
+@app.post("/api/notepad/actions/apply")
+def api_notepad_actions_apply():
+    """Do the ticked actions through the normal teammate tools, so each one is
+    logged in 'What your team did' (with Undo). Emails go to Ready for you as
+    drafts — always to the contact's OWN saved address."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    title = str(b.get("note_title") or "a note").strip()[:80]
+    done: List[str] = []
+    skipped: List[str] = []
+    name_to_id: Dict[str, str] = {}
+    _AGENT_QUIET.on = True            # this flow drafts its own emails — no duplicate "hello" drafts
+    try:
+        for c in (b.get("contacts") or [])[:10]:
+            if not isinstance(c, dict) or not str(c.get("name") or "").strip():
+                continue
+            nm = str(c["name"]).strip()
+            note = str(c.get("note") or "").strip() or f"Mentioned in {title}"
+            if c.get("existing_id"):
+                r = _execute_teammate_tool("crm_log_activity", {"client_id": c["existing_id"], "note": f"From your notes ({title}): {note}"},
+                                           uname, "Notepad", source="notepad")
+                if r.get("ok"):
+                    name_to_id[nm.lower()] = c["existing_id"]; done.append(f"Noted on {nm}'s contact")
+                else:
+                    skipped.append(f"{nm}: {r.get('summary')}")
+            else:
+                r = _execute_teammate_tool("crm_add_client", {"name": nm, "email": c.get("email") or "", "phone": c.get("phone") or "",
+                                                              "company": c.get("company") or "", "notes": note, "tags": ["from-notes"]},
+                                           uname, "Notepad", source="notepad")
+                if r.get("ok"):
+                    name_to_id[nm.lower()] = r.get("client_id"); done.append(f"Added {nm} to Contacts")
+                else:
+                    skipped.append(f"{nm}: {r.get('summary')}")
+        for t in (b.get("tasks") or [])[:10]:
+            if not isinstance(t, dict) or not str(t.get("title") or "").strip():
+                continue
+            r = _execute_teammate_tool("create_calendar_task", {"title": t["title"], "date": t.get("date") or "",
+                                                                "start": t.get("time") or "09:00",
+                                                                "description": f"From your note: {title}"},
+                                       uname, "Notepad", source="notepad")
+            (done if r.get("ok") else skipped).append(f"Task: {t['title']}" if r.get("ok") else f"{t['title']}: {r.get('summary')}")
+        emails = [e for e in (b.get("emails") or [])[:10] if isinstance(e, dict) and str(e.get("name") or "").strip()]
+        if emails:
+            crm = _crm_load(uname)
+            with _AGENT_LOCK:
+                d = _agent_load(uname)
+                for e in emails:
+                    nm = str(e["name"]).strip()
+                    cid = name_to_id.get(nm.lower())
+                    client = (crm.get("clients") or {}).get(cid) if cid else _note_find_contact(crm, nm, "")
+                    if not client or not EMAIL_RE.match((client.get("email") or "").strip()):
+                        skipped.append(f"Email to {nm}: no email address saved for them")
+                        continue
+                    res = _agent_queue(uname, d, "note_followup", "Sunshine", client,
+                                       str(e.get("purpose") or f"Follow up on {title}")[:400],
+                                       f"Follow-up from your note: {client.get('name')}", trigger="From your notes")
+                    if res == "skipped":
+                        skipped.append(f"Email to {nm}: a draft for them is already waiting, or it couldn't be written")
+                    else:
+                        done.append(f"Email to {client.get('name')} drafted — check Ready for you" if res == "queued" else f"Emailed {client.get('name')}")
+                _agent_save(uname, d)
+    finally:
+        _AGENT_QUIET.on = False
+    return jsonify({"ok": True, "done": done, "skipped": skipped})
+
+
+@app.post("/api/notepad/voice")
+def api_notepad_voice():
+    """A short voice memo → text for the Notepad (Whisper)."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    f = request.files.get("audio")
+    if not f:
+        return jsonify({"ok": False, "error": "No recording received."}), 400
+    key = _vc_openai_key(u)
+    if not key:
+        return jsonify({"ok": False, "error": "Voice notes need an OpenAI key — add yours in Settings."}), 400
+    tmp_dir = Path(_tempfile_ve.mkdtemp(prefix="sa_npvoice_"))
+    try:
+        ext = (f.filename or "memo.webm").rsplit(".", 1)[-1].lower()
+        ext = ext if ext in ("webm", "ogg", "mp4", "m4a", "mp3", "wav") else "webm"
+        p = tmp_dir / f"memo.{ext}"
+        f.save(str(p))
+        if p.stat().st_size > 24 * 1024 * 1024:
+            return jsonify({"ok": False, "error": "That recording is too long — keep voice notes under about 20 minutes."}), 400
+        if p.stat().st_size < 1000:
+            return jsonify({"ok": False, "error": "Didn't catch anything — try again a little closer to the mic."}), 400
+        with open(p, "rb") as af:
+            text = OpenAI(api_key=key).audio.transcriptions.create(model="whisper-1", file=af, response_format="text")
+        text = (text if isinstance(text, str) else getattr(text, "text", "") or "").strip()
+        if not text:
+            return jsonify({"ok": False, "error": "Didn't catch any words — try again."}), 400
+        return jsonify({"ok": True, "text": text})
+    except Exception as e:
+        try:
+            _, msg = _classify_openai_error(e)
+        except Exception:
+            msg = str(e)[:160]
+        return jsonify({"ok": False, "error": f"Couldn't transcribe that: {msg}"}), 502
+    finally:
+        _shutil_ve.rmtree(tmp_dir, ignore_errors=True)
+
+
 @app.post("/api/notepad/ai")
 def api_notepad_ai():
     """Run an AI action on a note."""
@@ -25633,15 +25891,16 @@ def _tool_add_to_notepad(uname: str, teammate: str, args: Dict[str, Any]) -> Dic
         return {"ok": False, "summary": "Need note content to add to the Notepad."}
     title = (args.get("title") or "").strip()[:120]
     try:
-        notes = _load_notes(uname)
-        note_id = int(time.time() * 1000)          # matches the UI's Date.now() ids
-        notes.insert(0, {
-            "id": note_id,
-            "title": title,
-            "content": content[:20000],
-            "updated": now_iso(),
-        })
-        _save_notes(uname, notes[:200])
+        with _NOTES_LOCK:   # V14.5: same lock as Notepad autosave, so neither overwrites the other
+            notes = _load_notes(uname)
+            note_id = int(time.time() * 1000)          # matches the UI's Date.now() ids
+            notes.insert(0, {
+                "id": note_id,
+                "title": title,
+                "content": content[:20000],
+                "updated": now_iso(),
+            })
+            _save_notes(uname, notes[:200])
         label = f" “{title}”" if title else ""
         return {"ok": True, "note_id": note_id, "summary": f"Added a note{label} to your Notepad."}
     except Exception as e:
