@@ -4932,16 +4932,22 @@ label {
               <div class="modalForm" id="frameworkForm">
                 <div class="modalInner">
                 <div class="tiny" style="margin-bottom:10px;text-align:center;">
-                  This is injected into every teammate system prompt. Changes affect all teammates immediately.
+                  Your house rules are added to every one of <b>your</b> teammates' instructions. Only your account sees them.
+                  Facts about your business belong in your Profile, every teammate already reads it.
                 </div>
 
-                <label>Core framework (pillars and rules)</label>
-                <textarea id="frameworkText" class="primaryArea" style="height:620px;min-height:400px;resize:vertical;" placeholder="Paste the full core framework here"></textarea>
+                <details style="margin-bottom:12px;">
+                  <summary style="cursor:pointer;font-weight:700;">Platform rules (built in, every teammate follows these)</summary>
+                  <pre id="frameworkPlatform" style="white-space:pre-wrap;font-family:inherit;opacity:.8;margin-top:8px;max-height:260px;overflow:auto;"></pre>
+                </details>
+
+                <label>Your house rules <span class="tiny" id="frameworkCount" style="opacity:.6;"></span></label>
+                <textarea id="frameworkText" class="primaryArea" maxlength="4000" style="height:420px;min-height:240px;resize:vertical;" placeholder="How you want your teammates to work, e.g. 'Keep replies under 150 words', 'Always suggest a next step', 'Never use exclamation marks'"></textarea>
 
                 <div class="actions" style="justify-content:center;margin-top:12px;">
                   <button class="btn" id="cancelFramework">Cancel</button>
-                  <button class="btn" id="resetFramework">Reset to default</button>
-                  <button class="btn btnPrimary" id="saveFramework">Save framework</button>
+                  <button class="btn" id="resetFramework">Clear house rules</button>
+                  <button class="btn btnPrimary" id="saveFramework">Save house rules</button>
                   <button class="btn btnPrimary" id="saveFrameworkExit">Save &amp; Exit</button>
                 </div>
                 <div class="tiny" id="frameworkStatus" style="margin-top:10px;text-align:center;"></div>
@@ -16258,33 +16264,11 @@ $("draftWithSelected").onclick = async () => {
       try{
         const res = await fetch("/api/framework");
         const data = await res.json();
-        if(!data.ok){
-          $("frameworkStatus").innerText = data.error || "Load failed";
-          if(!$("frameworkText").value) $("frameworkText").value = `CORE OPERATING PILLARS (NON NEGOTIABLE)
-
-Autonomy
-Think before acting. Do not blindly comply.
-
-Adaptability
-Adjust to the user's context without breaking core rules.
-
-Alignment
-Stay aligned with the user's stated goals and constraints.
-
-Collaboration
-Respect teammate roles and handoffs.
-
-Memory
-Preserve persistent context and continuity.
-
-Integrity
-Do not fabricate. Distinguish facts from inference.
-
-ANTI YES MAN RULE
-Challenge weak assumptions. Surface risks.`;
-          return;
-        }
-        $("frameworkText").value = data.framework || "";
+        if(!data.ok){ $("frameworkStatus").innerText = data.error || "Load failed"; return; }
+        $("frameworkPlatform").textContent = data.platform || "";
+        $("frameworkText").value = data.house_rules || "";
+        const _cnt = () => { $("frameworkCount").innerText = "(" + $("frameworkText").value.length + " / " + (data.max||4000) + ")"; };
+        $("frameworkText").oninput = _cnt; _cnt();
         $("frameworkStatus").innerText = "Ready";
       }catch(e){
         $("frameworkStatus").innerText = "Load failed";
@@ -24298,7 +24282,7 @@ $("saveFramework").onclick = async () => {
       const res = await fetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({framework: fw})
+        body: JSON.stringify({house_rules: fw})
       });
       const data = await res.json();
       if(!data.ok){
@@ -24308,18 +24292,18 @@ $("saveFramework").onclick = async () => {
       $("frameworkStatus").innerText = "Saved";
       await loadState();
       hideModal();
-      showToast("✅ Core framework saved — applied to all teammates immediately");
+      showToast("✅ House rules saved — your teammates use them from your next message");
     };
 
     $("resetFramework").onclick = async () => {
-      const ok = confirm("Reset core framework to default?");
+      const ok = confirm("Clear your house rules? Your teammates will follow just the platform rules.");
       if(!ok) return;
       $("frameworkText").value = "";
-      $("frameworkStatus").innerText = "Resetting...";
+      $("frameworkStatus").innerText = "Clearing...";
       const res = await fetch("/api/framework", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({framework: ""})
+        body: JSON.stringify({house_rules: ""})
       });
       const data = await res.json();
       if(!data.ok){
@@ -24328,7 +24312,7 @@ $("saveFramework").onclick = async () => {
       }
       await loadFrameworkIntoForm();
       await loadState();
-      $("frameworkStatus").innerText = "Reset to default";
+      $("frameworkStatus").innerText = "Cleared";
     };
 
     window.addEventListener("resize", () => {
@@ -27129,7 +27113,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     { id:"tip_install_full", target:"#installFullBtn", level:"medium", trigger:"hover",
       text:"⚡ Install all 7 pre-built AI specialists at once — sales, marketing, research, writing, systems, and more." },
     { id:"tip_framework", target:"#frameworkBtn", level:"medium", trigger:"hover",
-      text:"🧠 Your Core Framework is shared with every teammate automatically. Add your niche, ideal client, and offer for smarter responses." },
+      text:"🧠 Core Framework holds your house rules: how you want every teammate to work. Your niche, ideal client and offer go in your Profile." },
     // ── Create dropdown ──
     { id:"tip_teleprompter", target:"#teleprompterBtn", level:"medium", trigger:"hover",
       text:"🎙 Display a scrolling script on screen while you record — great for videos and live sessions." },

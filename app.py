@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.4")
+APP_VERSION = os.getenv("APP_VERSION", "13.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -4325,54 +4325,46 @@ When the user says "All teammates to the round table" or activates a group sessi
 """.strip()
 
 
-def load_core_framework() -> str:
-    try:
-        if FRAMEWORK_PATH.exists():
-            txt = FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()
-            return txt if txt else DEFAULT_CORE_FRAMEWORK_TEXT
-    except Exception:
-        pass
-    return DEFAULT_CORE_FRAMEWORK_TEXT
+# V13.5: the framework is PER ACCOUNT. Platform rules (above) are locked in code;
+# each account adds its own "house rules". The old single shared file
+# (FRAMEWORK_PATH) reached every customer's prompts and is no longer read —
+# it stays on disk untouched so nothing written there is lost.
+HOUSE_RULES_MAX = 4000
+_HOUSE_RULES_DIR = DATA / "core_framework"
+_HOUSE_RULES_LOCK = threading.Lock()   # not _json_file_lock: save_json takes that one itself
 
 
-def save_core_framework(text: str) -> None:
-    cleaned = (text or "").strip()
-    if not cleaned:
-        cleaned = DEFAULT_CORE_FRAMEWORK_TEXT
-    # Snapshot the current version to history before overwriting (keep last 10)
-    try:
-        _fw_hist_path = DATA / "core_framework_history.json"
-        with _json_file_lock(_fw_hist_path):
-            try:
-                _hist = json.loads(_fw_hist_path.read_text(encoding="utf-8")) if _fw_hist_path.exists() else []
-                if not isinstance(_hist, list):
-                    _hist = []
-            except Exception:
-                _hist = []
-            if FRAMEWORK_PATH.exists():
-                _prev = FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()
-                if _prev:
-                    _hist.insert(0, {"ts": now_iso(), "text": _prev})
-                    _hist = _hist[:10]
-            _tmp = _fw_hist_path.with_suffix(".tmp")
-            _tmp.write_text(json.dumps(_hist, indent=2), encoding="utf-8")
-            _tmp.replace(_fw_hist_path)
-    except Exception:
-        pass
-    # Atomic write for the framework itself
-    try:
-        _tmp2 = FRAMEWORK_PATH.with_suffix(".tmp")
-        _tmp2.write_text(cleaned, encoding="utf-8")
-        _tmp2.replace(FRAMEWORK_PATH)
-    except Exception:
-        FRAMEWORK_PATH.write_text(cleaned, encoding="utf-8")
+def _house_rules_path(username: str) -> Path:
+    return _HOUSE_RULES_DIR / f"{_safe_name(_team_account_root(username or 'anon') or 'anon')}.json"
 
-# Ensure the framework file always exists with the default framework for local-first users.
-try:
-    if (not FRAMEWORK_PATH.exists()) or (not FRAMEWORK_PATH.read_text(encoding="utf-8", errors="replace").strip()):
-        FRAMEWORK_PATH.write_text(DEFAULT_CORE_FRAMEWORK_TEXT, encoding="utf-8")
-except Exception:
-    pass
+
+def load_house_rules(username: str) -> str:
+    d = load_json(_house_rules_path(username), {}) or {}
+    return str(d.get("text") or "").strip()[:HOUSE_RULES_MAX] if isinstance(d, dict) else ""
+
+
+def save_house_rules(username: str, text: str) -> str:
+    cleaned = (text or "").strip()[:HOUSE_RULES_MAX]
+    p = _house_rules_path(username)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with _HOUSE_RULES_LOCK:
+        d = load_json(p, {}) or {}
+        if not isinstance(d, dict):
+            d = {}
+        hist = d.get("history") if isinstance(d.get("history"), list) else []
+        if d.get("text"):
+            hist = ([{"ts": now_iso(), "text": d["text"]}] + hist)[:10]
+        save_json(p, {"text": cleaned, "updated_at": now_iso(), "history": hist})
+    return cleaned
+
+
+def load_core_framework(username: str = "") -> str:
+    """Platform rules + this account's house rules (never another account's)."""
+    house = load_house_rules(username) if username else ""
+    if not house:
+        return DEFAULT_CORE_FRAMEWORK_TEXT
+    return (DEFAULT_CORE_FRAMEWORK_TEXT + "\n\nHOUSE RULES (set by this account's owner — follow them unless "
+            "they conflict with the rules above):\n" + house)
 
 
 # =========================
@@ -6948,7 +6940,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         shared_memory_block = ""
 
-    framework = load_core_framework()
+    try:
+        framework = load_core_framework(_get_session_username())
+    except Exception:
+        framework = load_core_framework()
 
     lighting_block = ""
     if lighting_mode:
@@ -8915,8 +8910,8 @@ def api_state():
             "max_inline_images": MAX_INLINE_IMAGES
         },
         "framework": {
-            "has_custom": FRAMEWORK_PATH.exists(),
-            "length": len(load_core_framework() or "")
+            "has_custom": bool(load_house_rules(_get_session_username())),
+            "length": len(load_core_framework(_get_session_username()) or "")
         },
         "impersonation": {
             "active":    bool(session.get("_impersonating_as")),
@@ -10353,16 +10348,25 @@ def api_prompts_use(prompt_id: str):
 
 @app.get("/api/framework")
 def api_get_framework():
-    return jsonify({"ok": True, "framework": load_core_framework()})
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify({"ok": True, "platform": DEFAULT_CORE_FRAMEWORK_TEXT,
+                    "house_rules": load_house_rules(u.get("username", "")), "max": HOUSE_RULES_MAX})
 
 
 @app.post("/api/framework")
 def api_set_framework():
+    """Saves THIS account's house rules only. Platform rules can't be edited here."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
     data = request.get_json(force=True) or {}
-    fw = (data.get("framework") or "").strip()
-    save_core_framework(fw)
-    append_log("framework_updated", {"updated_at": now_iso(), "length": len(load_core_framework())})
-    return jsonify({"ok": True, "length": len(load_core_framework())})
+    saved = save_house_rules(uname, data.get("house_rules") or "")
+    _invalidate_sys_prompt_cache()   # this account's teammates pick it up on the next message
+    append_log("framework_updated", {"user": uname, "updated_at": now_iso(), "length": len(saved)})
+    return jsonify({"ok": True, "house_rules": saved, "length": len(saved)})
 
 
 @app.post("/api/install/full")
