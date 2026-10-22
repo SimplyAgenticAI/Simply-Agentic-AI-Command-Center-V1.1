@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.6")
+APP_VERSION = os.getenv("APP_VERSION", "13.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -6793,6 +6793,10 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     )
 
     web_search_rules = (
+        "WEB: Read any page with read_url, and use research_prospect / scan_market / find_leads for "
+        "research. You have no general news or price search: for live data you can't reach, ask them "
+        "to paste the link. Never fabricate search results.\n"
+    ) if tools_enabled else (
         "WEB SEARCH: You do not have a live web browsing tool. When users ask for current prices, "
         "today's news, real-time data, or specific URLs, be honest: tell them to paste the URL or "
         "search result directly into the chat — you can then analyze it accurately and thoroughly. "
@@ -6808,7 +6812,21 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
     except Exception:
         _op_name_for_email = "Operator"
 
-    email_rules = (
+    # With tools on, sending and group email are TOOLS (send_email,
+    # draft_emails_to_contacts). The long no-tools version below told the model
+    # it "cannot send" and to paste drafts in chat, which fought those tools.
+    _email_rules_tools = (
+        "EMAIL\n"
+        "- To email a specific person or address: call send_email (they confirm before it sends).\n"
+        "- To email all or several contacts: call draft_emails_to_contacts (one personal draft each).\n"
+        "- Only when they just want a draft written (no recipient, no sending): write it, then end your reply "
+        "with ONE block the UI turns into an email card:\n"
+        "```email\nSubject: subject line\nBody: Hi Sarah,\nrest of body\n```\n"
+        "  For a sequence of N emails, one block per email, in order, after a short numbered intro list.\n"
+        f"- Body starts with the greeting; no To/From lines inside it. Sign off as {_op_name_for_email}, never "
+        "'[Your Name]'. Never claim an email was sent unless send_email reported success. No em dashes.\n"
+    )
+    email_rules = _email_rules_tools if tools_enabled else (
         "EMAIL CAPABILITY\n"
         "You can draft emails but cannot send them — the UI handles sending.\n"
         "\n"
@@ -6865,15 +6883,13 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
 
     _ctx = _get_cached_sys_context(_op_user or "anon")
     _op = _ctx.get("op") or {}
-    operator_block = (
-        "\n\nOPERATOR PROFILE (shared context)\n"
-        f"Operator: {_op.get('display_name','Operator')}\n"
-        f"Business: {(_op.get('business','') or '').strip()}\n"
-        f"Offers: {(_op.get('offers','') or '').strip()}\n"
-        f"Audience: {(_op.get('audience','') or '').strip()}\n"
-        f"Goals: {(_op.get('goals','') or '').strip()}\n"
-        f"Notes: {(_op.get('notes','') or '').strip()}\n"
-    )
+    # Only the Profile fields the operator actually filled in (empty ones were
+    # sent as blank lines on every message).
+    _op_lines = [f"{lbl}: {(_op.get(k) or '').strip()}" for lbl, k in
+                 (("Operator", "display_name"), ("Business", "business"), ("Offers", "offers"),
+                  ("Audience", "audience"), ("Goals", "goals"), ("Notes", "notes"))
+                 if (_op.get(k) or "").strip()]
+    operator_block = ("\n\nOPERATOR PROFILE (shared context)\n" + "\n".join(_op_lines) + "\n") if _op_lines else ""
 
     # Active client (memory profiles) — use cached values
     client_block = ""
@@ -7112,13 +7128,16 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         # ── Rule 2: Capability confidence (single authoritative statement) ────
         + "2. **Capability confidence**: You CAN generate images, draft and send emails, analyze URLs, "
         "analyze uploaded images, create animations and visuals, and write any type of content. "
-        "You do NOT have live web search — for current data, ask the user to paste the URL or result. "
-        "NEVER say 'I can't do that' for any capability you have. Proceed immediately and confidently.\n"
+        + ("" if tools_enabled else
+           "You do NOT have live web search — for current data, ask the user to paste the URL or result. ")
+        + "NEVER say 'I can't do that' for any capability you have. Proceed immediately and confidently.\n"
 
-        # ── Rule 3: Email requests → always draft immediately ─────────────────
-        + "3. **Email requests — draft immediately**: When asked to email something, produce the full "
-        "draft right now using the email block format. Do NOT say 'I can't send emails directly.' "
-        "The UI handles sending — your job is to write a great email.\n"
+        # ── Rule 3: Email requests ────────────────────────────────────────────
+        + ("3. **Email requests — act immediately**: follow the EMAIL rules above (send_email for a person, "
+           "draft_emails_to_contacts for a group). Never say you can't send email.\n" if tools_enabled else
+           "3. **Email requests — draft immediately**: When asked to email something, produce the full "
+           "draft right now using the email block format. Do NOT say 'I can't send emails directly.' "
+           "The UI handles sending — your job is to write a great email.\n")
 
         + _rule4
 
@@ -7298,7 +7317,7 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
         f"CORE FRAMEWORK:\n{framework}\n\n"
         f"{url_rules}\n"
         f"{image_rules}\n"
-        f"{image_history_rules}\n"
+        f"{image_history_rules if image_history_block else ''}\n"   # only when there are images to refer back to
         f"{vision_analysis_rules}\n"
         f"{visual_rules}\n"
         f"{web_search_rules}\n"

@@ -53,6 +53,23 @@ def test_old_shared_file_is_ignored_and_platform_rules_locked(two):
         app_module.FRAMEWORK_PATH.unlink(missing_ok=True)
 
 
+def test_tools_prompt_has_no_contradictions(two):
+    """V13.7: with tools on, teammates must not be told they can't send email or
+    browse, or to paste group emails in chat — that fought the real tools."""
+    with app_module.app.test_request_context("/"):
+        from flask import session
+        session["user"] = "hr_alice"
+        app_module._invalidate_sys_prompt_cache()
+        p = app_module.teammate_system_prompt(dict(app_module.PREBUILT_LOCKED["Sunshine"]), tools_enabled=True)
+        assert "cannot send" not in p and "do not have a live web browsing tool" not in p.lower()
+        assert "draft_emails_to_contacts" in p and "send_email" in p
+        assert "IMAGE HISTORY MARKERS" not in p          # no images yet, so no image-history rules
+        assert "Business: \n" not in p                   # empty Profile fields aren't sent
+        app_module._invalidate_sys_prompt_cache()
+        q = app_module.teammate_system_prompt(dict(app_module.PREBUILT_LOCKED["Sunshine"]), tools_enabled=False)
+        assert "EMAIL CAPABILITY" in q                   # no-tools paths keep the full draft format
+
+
 def test_house_rules_capped_and_clearable(two):
     (ca, ha), _ = two
     saved = ca.post("/api/framework", headers=ha, json={"house_rules": "x" * 9000}).get_json()["house_rules"]
