@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.3")
+APP_VERSION = os.getenv("APP_VERSION", "14.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -24279,7 +24279,15 @@ def api_notepad_get():
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    return jsonify({"ok": True, "notes": _load_notes(uname)})
+    notes = _load_notes(uname)
+    # Every note needs a stable id so it can be ticked and bulk-deleted (V14.4)
+    missing = [n for n in notes if isinstance(n, dict) and n.get("id") in (None, "")]
+    if missing:
+        base = int(time.time() * 1000)
+        for i, n in enumerate(missing):
+            n["id"] = base + i
+        _save_notes(uname, notes)
+    return jsonify({"ok": True, "notes": notes})
 
 @app.post("/api/notepad")
 def api_notepad_save():

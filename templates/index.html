@@ -5352,6 +5352,10 @@ label {
                     <div id="npSidebar" style="width:210px;flex-shrink:0;border-right:1px solid rgba(42,58,106,.6);display:flex;flex-direction:column;background:rgba(7,10,20,.6);">
                       <div style="padding:10px 10px 8px;border-bottom:1px solid rgba(42,58,106,.5);flex-shrink:0;">
                         <button class="btn btnPrimary" onclick="npNewNote()" style="width:100%;font-size:calc(14px * var(--fs,1.1));padding:6px;">+ New note</button>
+                        <div id="npBulk" style="display:none;align-items:center;gap:6px;margin-top:8px;">
+                          <label style="display:flex;align-items:center;gap:5px;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;cursor:pointer;flex:1;"><input type="checkbox" id="npSelAll" onchange="npSelectAll(this.checked)" style="accent-color:#8b5cf6;width:16px;height:16px;"> All</label>
+                          <button class="btn btnMini" id="npDelSel" onclick="npDeleteSelected()" disabled style="font-size:calc(14px * var(--fs,1.1));color:#fca5a5;border-color:rgba(248,113,113,.4);">🗑 Delete</button>
+                        </div>
                       </div>
                       <div id="npNoteList" style="flex:1;overflow-y:auto;padding:6px;"></div>
                     </div>
@@ -27295,18 +27299,50 @@ document.addEventListener("click", function(e) {
       try { var r=await fetch("/api/notepad"),d=await r.json(); if(d.ok){_npNotes=d.notes||[];npRenderList();} } catch(e) {}
     }
 
+    var _npSel = {};   // note id → ticked (bulk delete)
     function npRenderList() {
       var el=$("npNoteList"); if(!el) return;
       el.innerHTML="";
-      if(!_npNotes.length){el.innerHTML="<div style='font-size:calc(14px * var(--fs,1.1));color:#94a3b8;padding:8px;'>No notes yet.</div>";return;}
+      if($("npBulk")) $("npBulk").style.display=_npNotes.length?"flex":"none";
+      if(!_npNotes.length){el.innerHTML="<div style='font-size:calc(14px * var(--fs,1.1));color:#94a3b8;padding:8px;'>No notes yet.</div>";npUpdateBulk();return;}
       _npNotes.forEach(function(n,i){
         var d=document.createElement("div");
-        d.style.cssText="padding:7px 8px;border-radius:8px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));margin-bottom:3px;border:1px solid transparent;color:#cbd5e1;";
-        d.textContent=n.title||"Untitled";
+        d.style.cssText="display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));margin-bottom:3px;border:1px solid transparent;color:#cbd5e1;";
+        var cb=document.createElement("input"); cb.type="checkbox"; cb.checked=!!_npSel[n.id];
+        cb.style.cssText="accent-color:#8b5cf6;width:16px;height:16px;flex-shrink:0;cursor:pointer;";
+        cb.onclick=function(e){ e.stopPropagation(); _npSel[n.id]=cb.checked; npUpdateBulk(); };
+        var t=document.createElement("span"); t.textContent=n.title||"Untitled";
+        t.style.cssText="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        d.appendChild(cb); d.appendChild(t);
         if(_npCurrent===i){d.style.background="rgba(124,58,237,.22)";d.style.borderColor="rgba(124,58,237,.4)";d.style.color="#e2e8f0";}
         d.onclick=function(){npSelect(i);}; el.appendChild(d);
       });
+      npUpdateBulk();
     }
+    function npUpdateBulk(){
+      var n=_npNotes.filter(function(x){ return _npSel[x.id]; }).length, b=$("npDelSel"), all=$("npSelAll");
+      if(b){ b.disabled=!n; b.textContent=n?("🗑 Delete "+n):"🗑 Delete"; }
+      if(all) all.checked=!!_npNotes.length && n===_npNotes.length;
+    }
+    window.npSelectAll=function(on){ _npSel={}; if(on) _npNotes.forEach(function(x){ _npSel[x.id]=true; }); npRenderList(); };
+    window.npDeleteSelected=async function(){
+      var ids=_npNotes.filter(function(x){ return _npSel[x.id]; }).map(function(x){ return x.id; });
+      if(!ids.length) return;
+      if(!confirm("Delete "+ids.length+" note"+(ids.length>1?"s":"")+"? This can't be undone.")) return;
+      try{
+        // Re-read first so a note a teammate just added isn't wiped by an older list
+        var r=await fetch("/api/notepad"), d=await r.json(); if(d.ok) _npNotes=d.notes||[];
+        var cur=_npCurrent!==null&&_npNotes[_npCurrent]?_npNotes[_npCurrent].id:null;
+        _npNotes=_npNotes.filter(function(x){ return ids.indexOf(x.id)<0; });
+        await fetch("/api/notepad",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:_npNotes})});
+        _npSel={};
+        var idx=_npNotes.findIndex(function(x){ return x.id===cur; });
+        _npCurrent=null; npMarkClean();
+        if(idx>-1) npSelect(idx); else { if($("npTitle"))$("npTitle").value=""; if($("npContent"))$("npContent").value=""; npMarkClean(); }
+        npRenderList();
+        if(typeof showToast==="function") showToast("🗑 Deleted "+ids.length+" note"+(ids.length>1?"s":""));
+      }catch(e){ if(typeof showToast==="function") showToast("Delete failed — try again","error"); }
+    };
 
     function npSelect(i){
       if(_npDirty && _npCurrent !== null && _npCurrent !== i){
