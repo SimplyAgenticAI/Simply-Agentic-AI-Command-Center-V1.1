@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.8")
+APP_VERSION = os.getenv("APP_VERSION", "13.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1788,7 +1788,12 @@ def _visual_job_set(job_id: str, patch: Dict[str, Any]) -> None:
     with VISUAL_JOBS_LOCK:
         cur = VISUAL_JOBS.get(job_id) or {}
         cur.update(patch or {})
+        cur.setdefault("_ts", time.time())
         VISUAL_JOBS[job_id] = cur
+        # Each job holds a whole HTML visual; drop ones older than 2h from memory
+        # (the disk copy stays, so _visual_job_get can still reload it).
+        for jid in [j for j, v in VISUAL_JOBS.items() if time.time() - float(v.get("_ts") or 0) > 7200]:
+            VISUAL_JOBS.pop(jid, None)
     try:
         p = _visual_job_path(job_id)
         p.write_text(json.dumps(VISUAL_JOBS.get(job_id) or {}), encoding="utf-8")
@@ -21169,6 +21174,16 @@ def api_admin_daemons():
         return jsonify({"ok": False, "error": "Forbidden"}), 403
     return jsonify({"ok": True, "daemons": _daemon_status(), "ts": now_iso()})
 
+@app.get("/api/admin/memory")
+def api_admin_memory():
+    """Admin-only: live memory use (app process + whole container incl. ffmpeg)."""
+    u = current_user()
+    if not u or not _is_admin_user(u):
+        return jsonify({"ok": False, "error": "Forbidden"}), 403
+    return jsonify({"ok": True, **_mem_mb(), "ffmpeg_threads": FFMPEG_THREADS,
+                    "threads": threading.active_count()})
+
+
 @app.get("/api/admin/backups")
 def api_admin_backups():
     """Admin-only: list local data backups (timestamp, size) and the
@@ -29365,12 +29380,12 @@ def _api_transcribe_inner():
                 compressed = _os.path.join(tmp_dir, "audio.mp3")
                 try:
                     proc = _sp.run(
-                        [_ffmpeg_bin(), "-y", "-i", audio_path,
+                        [_ffmpeg_bin()] + _ff_limit(["-y", "-i", audio_path,
                          "-vn",          # drop video stream
                          "-ac", "1",     # mono
                          "-ar", "16000", # 16 kHz sample rate
                          "-b:a", "32k",  # 32 kbps — good enough for speech
-                         compressed],
+                         compressed]),
                         capture_output=True, timeout=300
                     )
                     if proc.returncode == 0 and _os.path.getsize(compressed) > 0:
@@ -29535,12 +29550,50 @@ def _ve_start_job(username: str, fn, key: str = "") -> str:
     threading.Thread(target=_run, daemon=True).start()
     return jid
 
+# ── Memory guards (V13.9) ────────────────────────────────────────────────
+# ffmpeg starts one thread per CPU it can SEE — on a shared cloud host that's
+# the host's cores, not ours, and every thread holds video frames in RAM that
+# count against the plan's memory limit. Cap it.
+FFMPEG_THREADS = max(1, int(os.getenv("FFMPEG_THREADS", "2")))
+
+
+def _ff_limit(args: List[str]) -> List[str]:
+    """Add thread caps to an ffmpeg arg list whose LAST item is the output."""
+    t = str(FFMPEG_THREADS)
+    out: List[str] = ["-filter_threads", t, "-filter_complex_threads", t]
+    for a in args[:-1]:
+        if a == "-i":
+            out += ["-threads", t]          # decoder threads for this input
+        out.append(a)
+    return out + ["-threads", t, args[-1]]  # encoder threads
+
+
+def _mem_mb() -> Dict[str, Any]:
+    """Process RSS and whole-container usage (what the host counts, including
+    ffmpeg children). Linux only; returns {} elsewhere."""
+    out: Dict[str, Any] = {}
+    try:
+        for ln in open("/proc/self/status", encoding="utf-8"):
+            if ln.startswith("VmRSS:"):
+                out["app_mb"] = int(ln.split()[1]) // 1024
+    except Exception:
+        pass
+    for p in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        try:
+            out["container_mb"] = int(open(p).read().strip()) // (1024 * 1024)
+            break
+        except Exception:
+            pass
+    return out
+
+
 def _ve_ffmpeg(args: List[str], timeout: int = 900) -> Tuple[bool, str]:
     """Run ffmpeg; return (ok, stderr tail). Raises FileNotFoundError if missing."""
-    proc = _subprocess_ve.run([_ffmpeg_bin()] + args, capture_output=True, timeout=timeout)
+    proc = _subprocess_ve.run([_ffmpeg_bin()] + _ff_limit(args), capture_output=True, timeout=timeout)
     tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-600:]
     if proc.returncode != 0:
         print(f"[VE] ffmpeg rc={proc.returncode}: {tail}", flush=True)
+    print(f"[MEM] after ffmpeg: {_mem_mb()}", flush=True)
     return proc.returncode == 0, tail
 
 @app.get("/api/video/job/<job_id>")
@@ -29752,7 +29805,7 @@ def api_video_autoclip():
     audio_path = vid_dir / "audio.mp3"
     try:
         _subprocess_ve.run(
-            [_ffmpeg_bin(), "-y", "-i", str(orig_path), "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", str(audio_path)],
+            [_ffmpeg_bin()] + _ff_limit(["-y", "-i", str(orig_path), "-vn", "-ar", "16000", "-ac", "1", "-b:a", "32k", str(audio_path)]),
             check=True, capture_output=True, timeout=180
         )
     except FileNotFoundError:
@@ -29921,28 +29974,26 @@ def api_video_convert_to_mp4():
     if "file" not in request.files:
         return jsonify({"ok": False, "error": "No file uploaded"}), 400
     f = request.files["file"]
-    data = f.read()
-    if len(data) > 500 * 1024 * 1024:  # 500 MB cap
-        return jsonify({"ok": False, "error": "File too large (max 500 MB)"}), 400
-    if len(data) < 100:
-        return jsonify({"ok": False, "error": "File too small to convert"}), 400
-
     conv_id = uuid.uuid4().hex[:12]
     conv_dir = _VE_TEMP / f"conv_{conv_id}"
     conv_dir.mkdir(parents=True, exist_ok=True)
     in_path  = conv_dir / "input.webm"
     out_path = conv_dir / "output.mp4"
-    in_path.write_bytes(data)
-    print(f"[CONVERT] user={u.get('username','?')} size={len(data)} id={conv_id}", flush=True)
+    f.save(str(in_path))          # streams to disk — never holds the whole recording in RAM
+    size = in_path.stat().st_size
+    if size > 500 * 1024 * 1024 or size < 100:
+        _shutil_ve.rmtree(conv_dir, ignore_errors=True)
+        return jsonify({"ok": False, "error": "File too large (max 500 MB)" if size >= 100 else "File too small to convert"}), 400
+    print(f"[CONVERT] user={u.get('username','?')} size={size} id={conv_id}", flush=True)
     try:
-        result = _subprocess_ve.run([
-            _ffmpeg_bin(), "-y",
+        result = _subprocess_ve.run([_ffmpeg_bin()] + _ff_limit([
+            "-y",
             "-i", str(in_path),
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",  # crf 18 = near-lossless quality
             "-c:a", "aac", "-b:a", "320k",                          # max audio quality
             "-movflags", "+faststart",   # moves moov atom to front — required for duration display
             str(out_path)
-        ], capture_output=True, timeout=300)
+        ]), capture_output=True, timeout=300)
         if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size < 100:
             err = (result.stderr or b"").decode("utf-8", errors="replace")[-400:]
             print(f"[CONVERT] ffmpeg failed: {err}", flush=True)
@@ -29978,7 +30029,9 @@ def api_video_convert_to_mp4():
 # ═══════════════════════════════════════════════════════════════════
 _VC_ROOT = DATA / "video_clips"
 _VC_LOCK = threading.Lock()
-_VC_RENDER_SEM = threading.Semaphore(2)
+# One render at a time by default: each ffmpeg render holds video frames in RAM,
+# and two at once was enough to push a small plan past its memory limit.
+_VC_RENDER_SEM = threading.Semaphore(max(1, int(os.getenv("VCLIP_RENDER_CONCURRENCY", "1"))))
 _GB = 1024 * 1024 * 1024
 VCLIP_STORAGE_LIMITS = {"founder": 5 * _GB, "solo": 3 * _GB, "teams": 10 * _GB}
 _VC_ASPECTS = {"original": None, "9:16": (720, 1280), "1:1": (720, 720), "16:9": (1280, 720)}
@@ -30207,8 +30260,8 @@ def api_video_transcript():
 
 
 def _vc_silences(media: Path) -> List[Tuple[float, float]]:
-    proc = _subprocess_ve.run([_ffmpeg_bin(), "-hide_banner", "-i", str(media), "-vn",
-                               "-af", "silencedetect=noise=-35dB:d=0.55", "-f", "null", "-"],
+    proc = _subprocess_ve.run([_ffmpeg_bin()] + _ff_limit(["-hide_banner", "-i", str(media), "-vn",
+                               "-af", "silencedetect=noise=-35dB:d=0.55", "-f", "null", "-"]),
                               capture_output=True, timeout=600)
     err = (proc.stderr or b"").decode("utf-8", errors="replace")
     starts = [float(x) for x in re.findall(r"silence_start:\s*(-?[\d.]+)", err)]
@@ -30603,7 +30656,8 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
             args += (["-map", "[ac]", "-c:a", "aac", "-b:a", "160k"] if has_audio else ["-an"])
             args += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
                      "-movflags", "+faststart", "out.part.mp4"]
-            proc = _subprocess_ve.run([_ffmpeg_bin()] + args, capture_output=True, timeout=1800, cwd=str(cdir))
+            proc = _subprocess_ve.run([_ffmpeg_bin()] + _ff_limit(args), capture_output=True, timeout=1800, cwd=str(cdir))
+            print(f"[MEM] after clip render: {_mem_mb()}", flush=True)
             if proc.returncode != 0 or not out_tmp.exists():
                 tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-800:]
                 print(f"[VC] render failed {uname}/{cid}: {tail}", flush=True)
