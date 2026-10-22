@@ -7708,27 +7708,7 @@ if (typeof window.showToast !== "function") {
       return triggers.some(t => s.includes(t));
     }
 
-    function loadModalPos(){
-      try{
-        const raw = localStorage.getItem(MODAL_POS_KEY);
-        if(!raw) return null;
-        const obj = JSON.parse(raw);
-        if(!obj || typeof obj !== "object") return null;
-        if(typeof obj.left !== "number" || typeof obj.top !== "number") return null;
-        return obj;
-      }catch(e){ return null; }
-    }
 
-    function loadModalSize(){
-      try{
-        const raw = localStorage.getItem(MODAL_SIZE_KEY);
-        if(!raw) return null;
-        const obj = JSON.parse(raw);
-        if(!obj || typeof obj !== "object") return null;
-        if(typeof obj.width !== "number" || typeof obj.height !== "number") return null;
-        return obj;
-      }catch(e){ return null; }
-    }
 
     function saveModalSize(width, height){
       try{ localStorage.setItem(MODAL_SIZE_KEY, JSON.stringify({width, height})); }catch(e){}
@@ -8276,23 +8256,7 @@ window.showModal = function showModal(title, body, imgUrl){
       $("opStatus").innerText = text;
     }
 
-    function loadSeatPositions(){
-      try{
-        const raw = localStorage.getItem(STORE_KEY);
-        if(!raw) return {};
-        const obj = JSON.parse(raw);
-        if(!obj || typeof obj !== "object") return {};
-        return obj;
-      }catch(e){
-        return {};
-      }
-    }
 
-    function saveSeatPositions(pos){
-      try{
-        localStorage.setItem(STORE_KEY, JSON.stringify(pos));
-      }catch(e){}
-    }
 
     function clamp(v, min, max){
       return Math.max(min, Math.min(max, v));
@@ -9164,43 +9128,6 @@ window.showModal = function showModal(title, body, imgUrl){
 
 
 
-    async function openEditForTeammate(name){
-      if(!name) return;
-
-      editingTeammate = name;
-      $("editStatus").innerText = "Loading...";
-
-      const res = await fetch("/api/teammate/" + encodeURIComponent(name));
-      const data = await res.json();
-      if(!data.ok){
-        showModal("Error", data.error || "Could not load teammate");
-        return;
-      }
-
-      const t = data.teammate || {};
-      if($("editName")) $("editName").value = t.name || name || "";
-      $("editJobTitle").value = t.job_title || "";
-      $("editVersion").value = t.version || "";
-      $("editMission").value = t.mission || "";
-      $("editGoal").value = t.goal || "";
-      $("editThinking").value = t.thinking_style || "";
-      $("editResponsibilities").value = (t.responsibilities || []).join("\n");
-      $("editWillNotDo").value = (t.will_not_do || []).join("\n");
-      if($("editPreferredModel")) $("editPreferredModel").value = (window._saCanonModel ? window._saCanonModel(t.preferred_model) : t.preferred_model) || "";
-      if($("editTtsVoice")) $("editTtsVoice").value = t.tts_voice || "alloy";
-      if($("etNameDisplay")) $("etNameDisplay").textContent = t.name || name || "";
-      var _av = t.avatar || {};
-      if($("etAvatarGlyph")){
-        if(_av.glyph){ $("etAvatarGlyph").innerHTML = _av.glyph; }
-        else { $("etAvatarGlyph").textContent = (t.name || name || "?")[0].toUpperCase(); }
-        $("etAvatarGlyph").style.background = _av.bg || "#1f2a44";
-      }
-      window._saEditingGlyph = _av.glyph || null;
-      setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 80);
-
-      $("editStatus").innerText = "";
-      showEditModal("Edit " + name);
-    }
 
     $("cancelEdit").onclick = () => hideModal();
 
@@ -9476,34 +9403,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     let _manifestEDGES = [];         // wireframe neighbour graph
     let _manifestCONST = [];         // sparse constellation subset (nebula)
 
-    // Humanoid contour profile: t=0 top of head -> ~0.34 chin/neck (narrowest)
-    // -> 1 base of shoulders. Returns a half-width in px at that slice.
-    function _manifestSilhouetteWidth(t){
-      if(t < 0.34){
-        const ht = t / 0.34;
-        return Math.sin(ht * Math.PI) * 50 + 4; // head: widens then narrows to chin
-      }
-      const st = (t - 0.34) / 0.66;
-      const neck = 16, shoulderW = 108;
-      const widen = Math.min(1, st / 0.4);
-      const taper = st > 0.75 ? 1 - (st - 0.75) * 0.6 : 1;
-      return (neck + (shoulderW - neck) * widen) * taper;
-    }
 
-    function _manifestInitParticles(){
-      _manifestParticles = [];
-      for(let i = 0; i < 90; i++){
-        _manifestParticles.push({
-          angle: Math.random() * Math.PI * 2,
-          baseR: 130 + Math.random() * 140,
-          speed: 0.3 + Math.random() * 0.8,
-          phase: Math.random() * Math.PI * 2,
-          spin: (Math.random() - 0.5) * 0.004,
-          size: 0.8 + Math.random() * 1.8,
-          alpha: 0.25 + Math.random() * 0.55,
-        });
-      }
-    }
 
     function _manifestEnsureOverlay(){
       let ov = document.getElementById("manifestOverlay");
@@ -12864,119 +12764,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     }
 
-    async function startDictation(targetId, statusId){
-      if(!speechSupported()){
-        showToast("🎤 " + micHelpText());
-        return;
-      }
-
-      // FIX: If always-listen is active, stop it before starting a one-shot dictation
-      // so two recognizers don't compete for the mic simultaneously.
-      if(alwaysOn){ stopAlwaysListening(); }
-
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const rec = new SR();
-      rec.lang = "en-US";
-      rec.interimResults = true;
-      rec.continuous = false;
-
-      const target = $(targetId);
-      const status = $(statusId);
-
-      const baseText = (target.value || "").trim();
-      let finalText = "";
-      let _dictSent = false; // FIX: prevent double auto-send if user manually sends first
-
-      status.innerText = "Mic: requesting permission";
-
-      const okPerm = await ensureMicPermission();
-      if(!okPerm){
-        status.innerText = "Mic: blocked";
-        showToast("🎤 Microphone blocked — " + micHelpText());
-        return;
-      }
-
-      status.innerText = "Mic: listening";
-
-      rec.onresult = (event) => {
-        let interim = "";
-
-        for(let i = event.resultIndex; i < event.results.length; i++){
-          const txt = event.results[i][0].transcript;
-          if(event.results[i].isFinal){
-            finalText += txt + " ";
-          }else{
-            interim += txt;
-          }
-        }
-
-        const combined = (baseText + " " + finalText + interim)
-          .replace(/\s+/g, " ")
-          .trim();
-
-        // FIX: if the only thing spoken was a teammate name, switch seats — don't fill the box
-        try{
-          const dtHit = findFirstNameMention(combined);
-          if(dtHit){
-            const withoutName = combined
-              .replace(new RegExp("\\b" + dtHit.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi"), "")
-              .replace(/\s+/g, " ").trim();
-            if(!withoutName){
-              // Only the name was spoken — switch without putting it in the box
-              try{ if(typeof selectSeat === "function") selectSeat(dtHit.name); }catch(_){}
-              try{ if(typeof forceSeatSelectUI === "function") forceSeatSelectUI(dtHit.name); }catch(_){}
-              target.value = baseText;
-              finalText = ""; // prevent onend from re-adding the name
-              return;
-            }
-          }
-        }catch(_){}
-
-        target.value = combined;
-      };
-
-      rec.onerror = (e) => {
-        const errType = (e && e.error) ? e.error : "";
-        if(errType === "no-speech" || errType === "aborted") return;
-        status.innerText = "Mic: error";
-      };
-
-      rec.onend = () => {
-        status.innerText = "Mic: idle";
-        const combined = (baseText + " " + finalText)
-          .replace(/\s+/g, " ")
-          .trim();
-        target.value = combined;
-
-        // AUTO SEND AFTER TALKING STOPS
-        // Sends 2 seconds after speech ends, but only if the user hasn't already sent or edited.
-        try{
-          const snapshot = (combined || "").trim();
-          if(snapshot){
-            setTimeout(() => {
-              try{
-                if(_dictSent) return; // FIX: already sent manually — skip
-                const t = $(targetId);
-                const current = ((t && t.value) ? t.value : "").trim();
-                if(current !== snapshot) return; // user edited; do not auto send
-                _dictSent = true;
-                if(targetId === "opPrompt"){
-                  conveneAll();
-                }else if(targetId === "followMsg"){
-                  sendFollow();
-                }
-              }catch(_){}
-            }, 2000);
-          }
-        }catch(_){}
-      };
-
-      try{
-        rec.start();
-      }catch(e){
-        status.innerText = "Mic: error";
-      }
-    }
 
     $("talkGroupBtn").onclick = function() {
       var btn = $("talkGroupBtn");
@@ -13066,13 +12853,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       if(vt){ vt.classList.toggle("btnPrimary",!!alwaysOn); }
     }
 
-    function getInstalledNamesInOrder(){
-      const installedOrder = (state && state.installed_order) ? state.installed_order : [];
-      const installed = (state && state.installed) ? state.installed : {};
-      const names = installedOrder.filter(n => installed[n]);
-      if(names.length) return names;
-      return Object.keys(installed || {});
-    }
 
     // ═══════════════════════════════════════════════════════════════
     // NAME RECOGNITION  (alias → fuzzy Levenshtein)
@@ -13185,18 +12965,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return null;
     }
 
-    // Strip the canonical name AND all aliases that map to it from text.
-    function removeNameOnce(text,canonName){
-      if(!text||!canonName)return text;
-      const targets=[canonName.toLowerCase()];
-      for(const[alias,canon]of Object.entries(_ALIASES)){if(canon===canonName)targets.push(alias);}
-      let out=text;
-      for(const t of targets){
-        const rx=new RegExp("\\b"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","gi");
-        out=out.replace(rx,"");
-      }
-      return out.replace(/\s+/g," ").trim();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     // WHISPER ENGINE — v2
@@ -13372,12 +13140,6 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
     // ── Core helpers ─────────────────────────────────────────────
     function currentAlwaysTarget(){
       return (alwaysMode==="group")?$("opPrompt"):$("followMsg");
-    }
-    function currentAlwaysStatusEl(){
-      return (alwaysMode==="group")?$("micStatusGroup"):$("micStatusDm");
-    }
-    function _setAlwaysStatus(msg){
-      _whisperSetStatus(msg);
     }
     function resetAlwaysBuffers(){
       _buf="";
@@ -17660,9 +17422,6 @@ $("draftWithSelected").onclick = async () => {
         }
       }
 
-      function _tpAnchorDl(filename){
-        _tpAnchorDlBlob(_tpLastBlob, filename);
-      }
 
       function _tpShowRecBar(scrollOnly){
         var bar=document.getElementById('tpRecBar');
@@ -18597,13 +18356,6 @@ $("draftWithSelected").onclick = async () => {
         : (sel.value || '');
     };
 
-    function crmAudiencePayload(){
-      const a = ($("crmAudience").value||'all');
-      const v = ($("crmAudienceValue").value||'').trim();
-      const p = {};
-      if(a==='all'){ p.all = true; }
-      return {a, v};
-    }
 
     async function crmBroadcastEmail(dry_run=false){
       const st = $("crmBroadcastStatus");
@@ -19520,26 +19272,6 @@ $("draftWithSelected").onclick = async () => {
 
       return container.innerHTML;
     }
-    function crmGuessEmails(name, domain){
-      const cleanDomain = (domain||'').replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/\/.*$/,'').trim().toLowerCase();
-      const nm = (name||'').trim().toLowerCase();
-      const bits = nm.split(/\s+/).filter(Boolean);
-      if(!cleanDomain) return [];
-      const first = bits[0] || 'hello';
-      const last = bits.length > 1 ? bits[bits.length-1] : '';
-      const fi = first ? first[0] : '';
-      const li = last ? last[0] : '';
-      const out = [];
-      const push = (local, score)=> out.push({email:`${local}@${cleanDomain}`, confidence:score});
-      push(first, 0.62);
-      if(last) push(`${first}.${last}`, 0.76);
-      if(last) push(`${fi}${last}`, 0.71);
-      if(last) push(`${first}${li}`, 0.66);
-      push('hello', 0.48);
-      push('info', 0.42);
-      const seen = new Set();
-      return out.filter(x=>{ if(seen.has(x.email)) return false; seen.add(x.email); return true; }).sort((a,b)=>b.confidence-a.confidence);
-    }
 
     window._lastLeadResults = window._lastLeadResults || [];
     window.crmExportLeadsCSV = function(){
@@ -19578,12 +19310,6 @@ $("draftWithSelected").onclick = async () => {
       return `<span style="font-size:calc(14px * var(--fs,1.1));font-weight:600;padding:2px 8px;border-radius:5px;${colors[color]||colors.gray}">${escapeHtml(text)}</span>`;
     }
 
-    function _llConfBadge(c){
-      if(c==='high')   return _llBadge('High confidence','green');
-      if(c==='medium') return _llBadge('Medium confidence','amber');
-      if(c==='low')    return _llBadge('Low confidence','red');
-      return '';
-    }
 
     function _llActivityBadge(a){
       if(a==='active')   return _llBadge('Active online','green');
@@ -20985,109 +20711,6 @@ window.wcalToggleTask = async function(e, taskId){
   }catch(err){ showToast('Update failed'); }
 };
 
-// Shown when the circle is clicked and no teammate was pre-configured —
-// lets the operator pick a teammate + optional client on the spot
-async function wcalOfferDraftFromCircle(taskId, task){
-  // Build a lightweight yes/no first — don't force email if they just want to check done
-  const wantDraft = await new Promise(resolve=>{
-    const overlay=document.createElement('div');
-    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000050;display:flex;align-items:center;justify-content:center;';
-    const box=document.createElement('div');
-    box.style.cssText='background:#141e38;border:1px solid rgba(80,110,200,.35);border-radius:16px;padding:24px;max-width:380px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.6);';
-
-    const title=document.createElement('div');
-    title.style.cssText='font-size:calc(15px * var(--fs,1.1));font-weight:800;color:#e6edff;margin-bottom:6px;';
-    title.textContent='Draft a completion email?';
-
-    const sub=document.createElement('div');
-    sub.style.cssText='font-size:calc(14px * var(--fs,1.1));color:rgba(180,196,255,.7);margin-bottom:16px;line-height:1.5;';
-    sub.textContent=`"${task.title||'Task'}" is marked complete. Have a teammate draft a follow-up email?`;
-
-    // Teammate picker
-    const tmLabel=document.createElement('div');
-    tmLabel.style.cssText='font-size:calc(14px * var(--fs,1.1));font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;';
-    tmLabel.textContent='Teammate';
-    const tmSel=document.createElement('select');
-    tmSel.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:10px;';
-    tmSel.innerHTML='<option value="">— Pick a teammate —</option>';
-    // Populate from installed teammates
-    const populateTm = (state)=>{
-      const names=(state.installed_order||Object.keys(state.installed||{}));
-      names.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; tmSel.appendChild(o); });
-      // Pre-select if task already has one saved
-      if(task.on_complete_teammate) tmSel.value=task.on_complete_teammate;
-    };
-    try{
-      if(window._cachedRegistry && Object.keys(window._cachedRegistry.installed||{}).length){
-        populateTm(window._cachedRegistry);
-      } else {
-        fetch('/api/state').then(r=>r.json()).then(d=>{ window._cachedRegistry=d; populateTm(d); }).catch(()=>{});
-      }
-    }catch(_){}
-
-    // Client name
-    const clLabel=document.createElement('div');
-    clLabel.style.cssText='font-size:calc(14px * var(--fs,1.1));font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;';
-    clLabel.textContent='Client name (optional)';
-    const clInput=document.createElement('input');
-    clInput.type='text'; clInput.placeholder='e.g. Sarah';
-    clInput.value=task.on_complete_client_name||'';
-    clInput.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;outline:none;box-sizing:border-box;margin-bottom:16px;';
-
-    // Log note to CRM
-    const noteLabel=document.createElement('div');
-    noteLabel.style.cssText='font-size:calc(14px * var(--fs,1.1));font-weight:700;color:rgba(160,185,240,.8);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;margin-top:10px;';
-    noteLabel.textContent='Log a note (saved to CRM contact)';
-    const noteInput=document.createElement('textarea');
-    noteInput.placeholder='What happened? e.g. Had a great call, ready to move forward...';
-    noteInput.rows=3;
-    noteInput.style.cssText='width:100%;background:rgba(20,30,60,.7);border:1px solid rgba(80,110,180,.45);border-radius:7px;padding:6px 8px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;outline:none;box-sizing:border-box;resize:vertical;margin-bottom:16px;';
-
-    const btnRow=document.createElement('div');
-    btnRow.style.cssText='display:flex;gap:8px;';
-
-    const draftBtn=document.createElement('button');
-    draftBtn.textContent='Draft Email';
-    draftBtn.style.cssText='flex:1;padding:9px;border-radius:8px;background:rgba(124,58,237,.4);border:1px solid rgba(124,58,237,.6);color:#f3e8ff;font-size:calc(14px * var(--fs,1.1));font-weight:700;cursor:pointer;';
-    draftBtn.onclick=()=>{
-      const tm=tmSel.value.trim();
-      if(!tm){ tmSel.focus(); return; }
-      document.body.removeChild(overlay);
-      resolve({ teammate:tm, clientName:clInput.value.trim(), note:noteInput.value.trim() });
-    };
-
-    const skipBtn=document.createElement('button');
-    skipBtn.textContent='Skip';
-    skipBtn.style.cssText='padding:9px 16px;border-radius:8px;background:transparent;border:1px solid rgba(42,58,106,.5);color:rgba(148,163,184,.6);font-size:calc(14px * var(--fs,1.1));cursor:pointer;';
-    skipBtn.onclick=()=>{ document.body.removeChild(overlay); resolve(null); };
-
-    btnRow.appendChild(draftBtn); btnRow.appendChild(skipBtn);
-    box.appendChild(title); box.appendChild(sub);
-    box.appendChild(tmLabel); box.appendChild(tmSel);
-    box.appendChild(clLabel); box.appendChild(clInput);
-    box.appendChild(noteLabel); box.appendChild(noteInput);
-    box.appendChild(btnRow);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-  });
-
-  if(!wantDraft) return;
-
-  // Merge the picked teammate/client into the task and fire the standard voice picker
-  const enrichedTask = Object.assign({}, task, {
-    on_complete_teammate:     wantDraft.teammate,
-    on_complete_client_name:  wantDraft.clientName,
-    on_complete_client_email: task.on_complete_client_email||'',
-  });
-  // Log note to CRM if provided and contact email is known
-  if(wantDraft.note && (task.on_complete_client_email||'').trim()){
-    fetch('/api/crm/log_note', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ email: task.on_complete_client_email, note: wantDraft.note, task_title: task.title||'' })
-    }).then(function(r){ return r.json(); }).then(function(d){ if(d.ok) showToast('Note logged to CRM'); }).catch(function(){});
-  }
-  wcalFireCompleteAction(taskId, enrichedTask);
-}
 
 // Called when a task with an assigned teammate is marked done — asks voice choice then opens draft
 async function wcalFireCompleteAction(taskId, task){
@@ -23287,9 +22910,6 @@ window._saCalRefreshIfOpen=function(){
 // Keep backward-compat stubs
 async function calFetchEventsForVisibleRange(){ await wcalFetchCurrentRange(); }
 function calRenderMonth(){ wcalRenderMiniMonth(); }
-function calRenderDayPanel(){ }
-function calSetStatus(t){ const el=document.getElementById('calLoadStatus'); if(el) el.innerText=t||''; }
-function calWeekdayHeader(){}
 function calSelectDate(dt){ wcalSelectDate(dt); }
 
 if($("calendarBtn")) $("calendarBtn").onclick = ()=> showCalendarModal();
@@ -23331,7 +22951,6 @@ async function showImageLibraryModal(startTab){
   function _fldSave(d){ try{ localStorage.setItem(_FOLDER_KEY,JSON.stringify(d)); }catch(e){} }
   function _fldGet(tab){ var d=_fldLoad(); return d[tab]||{}; }
   function _fldSet(tab,folders){ var d=_fldLoad(); d[tab]=folders; _fldSave(d); }
-  function _fldGetItem(tab,key){ var f=_fldGet(tab); for(var fn in f){ if(f[fn].indexOf(key)>-1) return fn; } return null; }
   function _fldMoveItem(tab,key,toFolder){
     var f=_fldGet(tab);
     for(var fn in f){ var idx=f[fn].indexOf(key); if(idx>-1){ f[fn].splice(idx,1); if(!f[fn].length) delete f[fn]; } }
@@ -24216,12 +23835,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
     function onboardKey(name, username){
       return `rt_onboard_${ONBOARD_VER}_${name}_${username||"anon"}`;
     }
-    function markOnboardDone(name, username){
-      try{ localStorage.setItem(onboardKey(name, username), "1"); }catch(e){}
-    }
-    function isOnboardDone(name, username){
-      try{ return localStorage.getItem(onboardKey(name, username)) === "1"; }catch(e){ return false; }
-    }
 
     function clearCoach(){
       const el = document.getElementById("coachBubble");
@@ -24229,33 +23842,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
       document.querySelectorAll(".coachGlow").forEach(n => n.classList.remove("coachGlow"));
     }
 
-    function placeCoach(targetEl, title, body, ctaText){
-      clearCoach();
-      if(!targetEl) return null;
-      targetEl.classList.add("coachGlow");
-
-      const r = targetEl.getBoundingClientRect();
-      const bubble = document.createElement("div");
-      bubble.id = "coachBubble";
-      bubble.className = "coachBubble";
-      bubble.innerHTML = `
-        <div class="coachTitle">${title}</div>
-        <div class="coachBody">${body}</div>
-        <div class="coachActions">
-          <button class="btn btnTiny" id="coachSkip">Skip</button>
-          <button class="btn btnTiny btnPrimary" id="coachGo">${ctaText || "Open"}</button>
-        </div>
-      `;
-      document.body.appendChild(bubble);
-
-      // position near target
-      const pad = 10;
-      const top = Math.max(70, r.bottom + pad);
-      const left = Math.min(window.innerWidth - bubble.offsetWidth - 12, Math.max(12, r.left));
-      bubble.style.top = top + "px";
-      bubble.style.left = left + "px";
-      return bubble;
-    }
 
     async function runFirstRunGuidance(){
       // Show admin-only links (Seat Manager, Error Log) for admin users
@@ -24785,67 +24371,8 @@ function _isMobileV1(){
   return w <= 640;
 }
 
-function initTableZoomV1(){
-  try{
-    const fab = document.getElementById('tableZoomFab');
-    const out = document.getElementById('zoomOutBtn');
-    const inn = document.getElementById('zoomInBtn');
-    const fit = document.getElementById('zoomFitBtn');
-    const ctr = document.getElementById('zoomCenterBtn');
-    if(!fab || !out || !inn || !ctr) return;
-
-    const applyFabVis = ()=>{
-      fab.style.display = _isMobileV1() ? 'flex' : 'none';
-    };
-    applyFabVis();
-    window.addEventListener('resize', ()=>{ setTimeout(applyFabVis, 60); }, {passive:true});
-    window.addEventListener('orientationchange', ()=>{ setTimeout(applyFabVis, 220); }, {passive:true});
-
-    const getZoom = ()=>{
-      const v = getComputedStyle(document.documentElement).getPropertyValue('--tableZoom').trim();
-      const f = parseFloat(v);
-      return isFinite(f) ? f : 0.72;
-    };
-    const setZoom = (z)=>{
-      if(z < 0.20) z = 0.20;
-      if(z > 1.00) z = 1.00;
-      document.documentElement.style.setProperty('--tableZoom', z.toFixed(2));
-      setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
-    };
-
-    out.addEventListener('click', ()=>{ setZoom(getZoom() - 0.05); });
-    inn.addEventListener('click', ()=>{ setZoom(getZoom() + 0.05); });
-    if(fit){ fit.addEventListener('click', ()=>{ try{ autoFitZoomV3(); }catch(e){} }); }
-    ctr.addEventListener('click', ()=>{
-      document.documentElement.style.setProperty('--tableShiftX','0px');
-      setTimeout(()=>{ try{ autoCenterTableV3(); }catch(e){} }, 60);
-    });
-
-    // Fit once on mobile start
-    try{ if(_isMobileV1()) autoFitZoomV3(); }catch(e){}
-  }catch(e){}
-}
 
 
-function bindAutoCenterTableV1(){
-  try{
-    // Run after layout settles
-    setTimeout(autoCenterTableV1, 60);
-    setTimeout(autoCenterTableV1, 220);
-
-    window.addEventListener('resize', ()=>{ setTimeout(autoCenterTableV1, 60); }, {passive:true});
-    window.addEventListener('orientationchange', ()=>{ setTimeout(autoCenterTableV1, 220); }, {passive:true});
-
-    // If we open/close overlays that might change scrollbars, re-center
-    document.addEventListener('click', (ev)=>{
-      const t = ev.target;
-      if(!t) return;
-      if(t.id === 'mobileMenuBtn' || t.id === 'drawerCloseBtn' || t.id === 'diagOpenBtn' || t.id === 'diagCloseBtn'){
-        setTimeout(autoCenterTableV1, 120);
-      }
-    }, true);
-  }catch(e){}
-}
 
 function initMobileUIv2(){
   const isMobile = () => window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
@@ -25083,14 +24610,6 @@ function autoCenterTableV3(){
   }catch(e){}
 }
 
-function bindMobileViewportV3(){
-  try{
-    ensureTableViewportV3();
-    setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120);
-    window.addEventListener('resize', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 120); }, {passive:true});
-    window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ try{ autoFitZoomV3(); }catch(e){} }, 220); }, {passive:true});
-  }catch(e){}
-}
 
 
 // ===== ADDITIVE UPGRADE: Mobile Pan + Pinch Zoom for Round Table v4 =====
@@ -25772,12 +25291,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
     });
   }
 
-  async function dismissOnboarding(){
-    saveOnbHidden(true);
-    try{ await fetch("/api/onboarding/dismiss", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({dismissed:true})}); }catch(e){}
-    const panel = onb$("onboardingPanel");
-    if(panel) panel.style.display = "none";
-  }
 
   function focusEl(id){
     try{
@@ -33493,27 +33006,6 @@ setTimeout(_updateStripPad,800);
 /* ── Expand / Minimize / Reopen strip ── */
 var _stripMinimized = false;
 
-function _syncFullChat(name){
-  var fav=ge('mobFullChatAv'),fnm=ge('mobFullChatName'),frl=ge('mobFullChatRole');
-  if(!fav||!fnm) return;
-  var color='rgba(124,58,237,.75)';
-  document.querySelectorAll('.seat').forEach(function(s){
-    var sn=s.querySelector('.seatName');
-    if(sn&&sn.textContent.trim()===name){
-      var ae=s.querySelector('.seatAvatar')||s.querySelector('.avatar');
-      if(ae&&ae.style&&ae.style.background)color=ae.style.background;
-    }
-  });
-  fav.textContent=(name[0]||'?').toUpperCase(); fav.style.background=color;
-  fnm.textContent=name||'';
-  try{
-    var d=(window.state&&window.state.installed||{})[name]||{};
-    frl.textContent=d.job_title||d.role||'';
-  }catch(_){ frl.textContent=''; }
-  /* Mirror thread from desktop */
-  var dt=ge('thread'), ft=ge('mobFullChatThread');
-  if(dt&&ft){ ft.innerHTML=dt.innerHTML; ft.scrollTop=ft.scrollHeight; }
-}
 
 function openFullChat(){
   /* Delegate to the unified bottom sheet (saOpenSheet) */
@@ -36804,7 +36296,6 @@ window.cpOpenComposer = function(postId, prefillDate){
   if(aiStatusEl) aiStatusEl.textContent = '';
 };
 
-function _cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
 
 window.cpCloseComposer = function(){
   var composer = $('cpComposer');
@@ -38558,39 +38049,6 @@ function saWinRestore(key){
   _saRenderTaskbar();
 }
 
-function saWinClose(key){
-  /* key may be a chipKey (id::title) or a plain elementId */
-  var info = window._saMinimized[key];
-  var elementId = info ? info.elementId : key;
-  /* remove only this chip */
-  delete window._saMinimized[key];
-  /* only hide the element if no other chips reference it */
-  var stillReferenced = Object.keys(window._saMinimized).some(function(k){
-    return window._saMinimized[k].elementId === elementId;
-  });
-  var el = document.getElementById(elementId);
-  if(el && !stillReferenced){
-    el.classList.remove('sa-minimized');
-    el.style.setProperty('display','none','important');
-  }
-  if(elementId==='modalWin'){
-    document.body.classList.remove('modal-open');
-    document.body.style.overflow='';
-    var ov=document.getElementById('overlay');
-    if(ov) ov.classList.remove('show');
-  }
-  _saRenderTaskbar();
-  var closes={dashboardModal:'saCloseDashboard',communityPanel:'closeCommunityPanel',
-    ragModal:'saCloseRag',stackModal:'closeStackModal',
-    orchestraModal:function(){if(window._saCloseModal)window._saCloseModal('orchestraModal');},
-    deepDiveModal:function(){if(window._saCloseModal)window._saCloseModal('deepDiveModal');},
-    pipelineModal:function(){if(window._saClosePipeline)window._saClosePipeline();},
-    fusionModal:function(){if(window._saCloseModal)window._saCloseModal('fusionModal');}
-  };
-  var h=closes[elementId];
-  if(typeof h==='function') h();
-  else if(typeof h==='string'&&window[h]) window[h]();
-}
 </script>
 
   <!-- ===== COMMAND PALETTE ===== -->

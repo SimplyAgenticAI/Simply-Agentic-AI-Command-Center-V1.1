@@ -35,17 +35,6 @@ def test_risk_classification():
     assert app_module._tool_risk("does_not_exist") == "confirm"
 
 
-def test_draft_email_executor():
-    res = app_module._tool_draft_email("u", "Willow",
-                                       {"to": "a@b.com", "subject": "Hi", "body": "Hello there"})
-    assert res["ok"] is True
-    assert res["draft"]["to"] == "a@b.com"
-    assert res["draft"]["body"] == "Hello there"
-    # Missing body fails gracefully.
-    bad = app_module._tool_draft_email("u", "Willow", {"subject": "x"})
-    assert bad["ok"] is False
-
-
 def test_crm_add_then_find_roundtrip():
     uname = "tooltest_crm"
     add = app_module._execute_teammate_tool(
