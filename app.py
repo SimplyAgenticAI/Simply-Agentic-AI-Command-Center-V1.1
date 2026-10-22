@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.3")
+APP_VERSION = os.getenv("APP_VERSION", "13.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -7067,6 +7067,9 @@ def teammate_system_prompt(defn: Dict[str, Any], lighting_mode: bool = False,
             "- send_email — email someone for the operator. ALWAYS call this for any 'email/send this to X' "
             "request and compose the full email yourself. The system shows the operator a Confirm card before "
             "anything is actually sent, so this is safe and is the correct tool — don't just paste the email in chat.\n"
+            "- draft_emails_to_contacts — when they want to email ALL (or several) clients/contacts/leads, CALL this: it "
+            "writes a separate personal draft for each contact and opens them in the Email Console to review and send. "
+            "Never write one generic email in chat for a group.\n"
             "Lead with action. Only ask a clarifying question when you genuinely can't proceed without it. "
             "Calling a tool IS real execution, so acting is fully consistent with the PROMISE RULE.\n"
         )
@@ -26265,6 +26268,112 @@ def _tool_send_email(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[st
         return {"ok": False, "summary": f"Send failed: {e}"}
 
 
+# ── Personal email to many contacts (V13.4) ─────────────────────────────────
+# One draft PER contact, written from that contact's own record, queued in the
+# Email Console. Nothing sends until the operator clicks send on each one, and
+# the recipient is always the contact's own saved email (the model never picks it).
+EMAIL_BATCH_MAX = 50
+_EMAIL_BATCH_LOCK = threading.Lock()
+
+
+def _email_batch_path(uname: str) -> Path:
+    return _AGENT_DIR / "email_batches" / f"{_safe_name(uname or 'anon')}.json"
+
+
+def _email_batch_targets(uname: str, stage: str = "", tag: str = "") -> List[Dict[str, Any]]:
+    out = []
+    for c in (_crm_load(uname).get("clients") or {}).values():
+        if not isinstance(c, dict) or c.get("email_unsubscribed"):
+            continue
+        if not EMAIL_RE.match((c.get("email") or "").strip()):
+            continue
+        if stage and (c.get("pipeline_stage") or "Lead").lower() != stage.lower():
+            continue
+        if tag and tag.lower() not in [str(t).lower() for t in (c.get("tags") or [])]:
+            continue
+        out.append(c)
+    out.sort(key=lambda c: str(c.get("name") or "").lower())
+    return out
+
+
+def _tool_draft_emails_to_contacts(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    purpose = (args.get("purpose") or "").strip()
+    if not purpose:
+        return {"ok": False, "summary": "Need to know what the emails are about."}
+    targets = _email_batch_targets(uname, (args.get("stage") or "").strip(), (args.get("tag") or "").strip())
+    if not targets:
+        return {"ok": False, "summary": "None of those contacts have an email address saved, so there's no one to draft to."}
+    skipped_over_cap = max(0, len(targets) - EMAIL_BATCH_MAX)
+    targets = targets[:EMAIL_BATCH_MAX]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        drafts = list(pool.map(lambda c: _agent_draft_email(uname, c, purpose[:600]), targets))
+    items = []
+    for c, d in zip(targets, drafts):
+        if not d:
+            continue
+        items.append({"client_id": c.get("id"), "name": c.get("name") or "", "to": (c.get("email") or "").strip(),
+                      "subject": d[0], "body": d[1], "status": "draft"})
+    if not items:
+        return {"ok": False, "summary": "Couldn't write the drafts just now — try again in a moment."}
+    batch = {"id": uuid.uuid4().hex[:12], "teammate": teammate, "purpose": purpose[:600],
+             "created_at": now_iso(), "items": items}
+    with _EMAIL_BATCH_LOCK:
+        p = _email_batch_path(uname)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        save_json(p, batch)
+    extra = f" ({skipped_over_cap} more left out — {EMAIL_BATCH_MAX} max at a time)" if skipped_over_cap else ""
+    return {"ok": True, "batch_id": batch["id"], "count": len(items),
+            "summary": f"Drafted {len(items)} personal emails in your Email Console{extra} — review and send each one."}
+
+
+def _email_batch_item(uname: str, bid: str, idx: int) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    b = load_json(_email_batch_path(uname), {}) or {}
+    if not isinstance(b, dict) or b.get("id") != bid:
+        return None, None
+    items = b.get("items") or []
+    return b, (items[idx] if 0 <= idx < len(items) else None)
+
+
+@app.get("/api/email_batch")
+def api_email_batch():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    b = load_json(_email_batch_path(u.get("username", "")), {}) or {}
+    return jsonify({"ok": True, "batch": b if isinstance(b, dict) and b.get("id") else None})
+
+
+@app.post("/api/email_batch/<bid>/<int:idx>/<action>")
+def api_email_batch_act(bid: str, idx: int, action: str):
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    if action not in ("send", "skip"):
+        return jsonify({"ok": False, "error": "Unknown action"}), 400
+    body = request.get_json(silent=True) or {}
+    with _EMAIL_BATCH_LOCK:
+        b, it = _email_batch_item(uname, bid, idx)
+        if not it:
+            return jsonify({"ok": False, "error": "That draft is gone — ask your teammate to draft again."}), 404
+        if it.get("status") == "sent":
+            return jsonify({"ok": True, "status": "sent"})
+        if action == "skip":
+            it["status"] = "skipped"
+            save_json(_email_batch_path(uname), b)
+            return jsonify({"ok": True, "status": "skipped"})
+        subject = (body.get("subject") or it.get("subject") or "").strip()[:200]
+        text = (body.get("body") or it.get("body") or "").strip()
+        appr = {"client_id": it.get("client_id"), "teammate": b.get("teammate") or "", "kind": "batch"}
+        ok, err = _agent_send(uname, appr, subject, text)   # sends ONLY to the contact's own saved email
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 400
+        it.update({"status": "sent", "subject": subject, "body": text, "sent_at": now_iso()})
+        save_json(_email_batch_path(uname), b)
+    return jsonify({"ok": True, "status": "sent"})
+
+
 def _tool_set_session_objective(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Change the team-wide session objective (mirrors POST /api/os/session_objective).
     Title is required; context is optional and preserved when not provided."""
@@ -26928,6 +27037,13 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "to": {"type": "string", "description": "Recipient email address."},
          "subject": {"type": "string"}, "body": {"type": "string", "description": "Full email body, signed off appropriately."}},
          "required": ["to", "body"]}},
+    {"name": "draft_emails_to_contacts", "risk": "auto", "executor": _tool_draft_emails_to_contacts,
+     "description": "Write a SEPARATE personal email draft for EACH of the operator's contacts (all of them, or one pipeline stage or tag), using each person's own name, company and notes, and open them as a queue in the Email Console where the operator reviews and sends each one. Use this WHENEVER they ask to email/draft to all (or several) clients, contacts, leads or customers — never paste one generic email in chat. Nothing sends until the operator clicks send.",
+     "parameters": {"type": "object", "properties": {
+         "purpose": {"type": "string", "description": "What the emails should say/achieve, in the operator's words plus any detail they gave (offer, date, link)."},
+         "stage": {"type": "string", "description": "Optional: only contacts in this pipeline stage, e.g. 'Lead'."},
+         "tag": {"type": "string", "description": "Optional: only contacts with this tag."}},
+         "required": ["purpose"]}},
     {"name": "book_meeting", "risk": "confirm", "executor": _tool_book_meeting,
      "description": "Book a REAL Google Calendar event, with a Google Meet video link by default and optional attendee invites. Use WHENEVER the operator asks to book/set up/schedule a meeting, call, or Google Meet. Compute the concrete date (YYYY-MM-DD) and start time (HH:MM) yourself from what they say. The system shows the operator a Confirm card before anything is booked, so this is safe — don't just describe the meeting, call this tool so they get the Confirm button.",
      "parameters": {"type": "object", "properties": {
@@ -26986,7 +27102,8 @@ def _result_card_blocks(cards: List[Dict[str, Any]]) -> str:
     """Machine-readable [result_card] blocks the chat renders as rich cards."""
     return "".join("\n[result_card]" + json.dumps(c, ensure_ascii=False).replace("[/", "[\\/") + "[/result_card]"
                    for c in cards if isinstance(c, dict))
-_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook", "add_to_notepad"}
+_MUTATING_TOOLS = {"crm_add_client", "crm_log_activity", "draft_social_post", "save_to_vault", "build_growth_playbook", "add_to_notepad",
+                   "draft_emails_to_contacts"}
 
 
 def _effective_tool_risk(name: str, external_used: bool) -> str:

@@ -8767,6 +8767,7 @@ window.showModal = function showModal(title, body, imgUrl){
 
     function applyEmailDraft(draft, teammateName){
       if(!draft) return;
+      if(window._emBatchExit) window._emBatchExit();   // a single draft replaces any open queue
 
       lastEmailDraftBy = teammateName || selectedSeat || "";
 
@@ -8814,6 +8815,95 @@ window.showModal = function showModal(title, body, imgUrl){
     }
     // Expose globally so calendar and other features can call it without the email console being open first
     window.applyEmailDraft = applyEmailDraft;
+
+    // ── Email queue (V13.4): one personal draft per contact, reviewed and sent
+    //    one at a time in the Email Console. Recipient comes from the contact.
+    (function(){
+      var B = null, at = 0;
+      function el(id){ return document.getElementById(id); }
+      function bar(){
+        var b = el('emailBatchBar');
+        if(!b){
+          var form = el('emailConsoleForm'), inner = form && form.querySelector('.modalInner');
+          if(!inner) return null;
+          b = document.createElement('div'); b.id = 'emailBatchBar';
+          b.style.cssText = 'display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:10px 12px;border-radius:12px;border:1px solid rgba(124,58,237,.55);background:rgba(10,14,30,.98);font-size:calc(14px * var(--fs,1.1));';
+          inner.insertBefore(b, inner.firstChild);
+        }
+        return b;
+      }
+      function keepEdits(){
+        var it = B && B.items[at]; if(!it || it.status !== 'draft') return;
+        it.subject = el('emailSubject').value; it.body = el('emailBody').value;
+      }
+      function left(){ return B ? B.items.filter(function(x){ return x.status === 'draft'; }).length : 0; }
+      function show(i){
+        if(!B) return;
+        at = Math.max(0, Math.min(i, B.items.length - 1));
+        var it = B.items[at], b = bar(); if(!b) return;
+        el('emailTo').value = it.to; el('emailTo').readOnly = true;
+        el('emailSubject').value = it.subject || ''; el('emailBody').value = it.body || '';
+        if(el('emailCc')) el('emailCc').value = '';
+        var done = it.status !== 'draft';
+        el('emailSubject').readOnly = done; el('emailBody').readOnly = done;
+        ['emailAttachBtn','draftWithSelected'].forEach(function(id){ if(el(id)) el(id).style.display = 'none'; });
+        var sb = el('sendEmailBtn'); if(sb){ sb.disabled = done; sb.textContent = done ? (it.status === 'sent' ? '✅ Sent' : 'Skipped') : '✅ Send to ' + (it.name || it.to); }
+        b.style.display = 'flex';
+        b.innerHTML = '<b style="color:#c4b5fd;">✉ ' + (at + 1) + ' of ' + B.items.length + '</b>'
+          + '<span style="opacity:.85;">' + escapeHtml(it.name || it.to) + (done ? ' · ' + it.status : '') + '</span>'
+          + '<span style="opacity:.6;">· ' + left() + ' left to review</span>'
+          + '<span style="flex:1"></span>'
+          + '<button class="btn btnMini" id="_ebPrev"' + (at ? '' : ' disabled') + '>◀ Prev</button>'
+          + '<button class="btn btnMini" id="_ebNext"' + (at < B.items.length - 1 ? '' : ' disabled') + '>Next ▶</button>'
+          + (done ? '' : '<button class="btn btnMini" id="_ebSkip">Skip</button>')
+          + '<button class="btn btnMini" id="_ebDone" style="opacity:.75;">Done</button>';
+        el('_ebPrev').onclick = function(){ keepEdits(); show(at - 1); };
+        el('_ebNext').onclick = function(){ keepEdits(); show(at + 1); };
+        if(el('_ebSkip')) el('_ebSkip').onclick = function(){ act('skip'); };
+        el('_ebDone').onclick = function(){ window._emBatchExit(); };
+      }
+      function nextOpen(){
+        for(var k = 1; k <= B.items.length; k++){ var j = (at + k) % B.items.length; if(B.items[j].status === 'draft') return j; }
+        return -1;
+      }
+      async function act(action){
+        var it = B.items[at]; keepEdits();
+        var sb = el('sendEmailBtn'); if(sb) sb.disabled = true;
+        try{
+          var r = await fetch('/api/email_batch/' + encodeURIComponent(B.id) + '/' + at + '/' + action, {method:'POST',
+            headers:{'Content-Type':'application/json'}, body: JSON.stringify({subject: it.subject, body: it.body})});
+          var d = await r.json();
+          if(!d.ok){ showToast(d.error || 'Failed', 'error'); if(sb) sb.disabled = false; return; }
+          it.status = d.status;
+          if(action === 'send') showToast('✉ Sent to ' + (it.name || it.to));
+          var n = nextOpen();
+          if(n < 0){ show(at); showToast('All done — every draft is sent or skipped'); } else show(n);
+        }catch(e){ showToast('Failed — check your connection', 'error'); if(sb) sb.disabled = false; }
+      }
+      window._emBatchActive = function(){ return !!B; };
+      window._emBatchSend = function(){ return act('send'); };
+      window._emBatchExit = function(){
+        if(!B) return; B = null;
+        var b = el('emailBatchBar'); if(b) b.style.display = 'none';
+        if(el('emailTo')) el('emailTo').readOnly = false;
+        if(el('emailSubject')) el('emailSubject').readOnly = false;
+        if(el('emailBody')) el('emailBody').readOnly = false;
+        ['emailAttachBtn','draftWithSelected'].forEach(function(id){ if(el(id)) el(id).style.display = ''; });
+        var sb = el('sendEmailBtn'); if(sb){ sb.disabled = false; sb.textContent = '✅ Approve and send'; }
+      };
+      window.saOpenEmailBatch = async function(){
+        try{
+          var d = await (await fetch('/api/email_batch')).json();
+          if(!d.ok || !d.batch || !(d.batch.items || []).length) return;
+          showEmailConsoleModal('Email Console — ' + d.batch.items.length + ' personal drafts');
+          B = d.batch;
+          lastEmailDraftBy = B.teammate || '';
+          try{ setEmailFrom(lastEmailDraftBy); }catch(_){}
+          var first = B.items.findIndex(function(x){ return x.status === 'draft'; });
+          show(first < 0 ? 0 : first);
+        }catch(_){}
+      };
+    })();
 
     function getActiveTeammateOptions(){
       const installed = (state && state.installed) ? state.installed : {};
@@ -15549,6 +15639,7 @@ $("draftWithSelected").onclick = async () => {
     };
 
     $("sendEmailBtn").onclick = async () => {
+      if(window._emBatchActive && window._emBatchActive()) return window._emBatchSend();
       const toAddr = $("emailTo").value.trim();
       const subj = $("emailSubject").value.trim();
       const body = $("emailBody").value.trim();
@@ -17046,6 +17137,7 @@ Challenge weak assumptions. Surface risks.`;
     });
 
     function showEmailConsoleModal(titleText="Email Console"){
+      if(window._emBatchExit) window._emBatchExit();   // any normal open leaves queue mode
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       hideAllModalForms();
@@ -28884,6 +28976,10 @@ document.addEventListener("click", function(e) {
                 // read_notepad tool, actually open the Notepad on screen.
                 if(/opened your notepad/i.test(_act)){
                   try{ if(typeof showNotepadModal === "function") showNotepadModal(); }catch(_){}
+                }
+                // draft_emails_to_contacts: open the per-contact queue in the Email Console
+                if(/personal emails in your email console/i.test(_act)){
+                  try{ if(window.saOpenEmailBatch) window.saOpenEmailBatch(); }catch(_){}
                 }
               }
             }catch(_){}
