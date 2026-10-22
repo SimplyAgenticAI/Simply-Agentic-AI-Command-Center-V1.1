@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.2")
+APP_VERSION = os.getenv("APP_VERSION", "13.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -7375,6 +7375,18 @@ def _to_anthropic_content(content: ContentType) -> ContentType:
     return out or ""
 
 
+def _auth_error_message(e: Exception) -> str:
+    """Key-rejected message that names the right provider and quotes its reason.
+    OpenAI's reason includes the masked tail of the key it received (sk-...abcd),
+    so the user can see whether the key they just saved is the one being used."""
+    raw = str(e) or ""
+    is_claude = type(e).__module__.startswith("anthropic") or "x-api-key" in raw.lower()
+    m = re.search(r"""['"]message['"]\s*:\s*['"]([^'"]{3,240})""", raw)
+    reason = (m.group(1) if m else raw[:200]).split(" You can find")[0].strip()
+    who = "Claude" if is_claude else "OpenAI"
+    return f"{who} rejected the API key — go to Settings and check your {who} key is correct and active. ({who} said: {reason})"
+
+
 def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     """Returns (http_status, friendly_user_message). Uses exception type first,
     falls back to string matching only for untyped exceptions."""
@@ -7382,7 +7394,7 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
     try:
         from openai import RateLimitError, AuthenticationError, BadRequestError, APIConnectionError
         if isinstance(e, AuthenticationError):
-            return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+            return 401, _auth_error_message(e)
         if isinstance(e, RateLimitError):
             code = getattr(getattr(e, 'error', None), 'code', None) or ''
             if 'quota' in str(code).lower() or 'insufficient_quota' in str(e).lower():
@@ -7401,8 +7413,8 @@ def _classify_openai_error(e: Exception) -> Tuple[int, str]:
         pass
     # ── Fallback: string match on raw error (for non-SDK errors) ──────────────
     s = (str(e) or "").lower()
-    if "incorrect api key" in s or "invalid api key" in s or ("authentication" in s and "api" in s):
-        return 401, "API key issue — go to Settings and check your OpenAI key is correct and active."
+    if "incorrect api key" in s or "invalid api key" in s or "x-api-key" in s or ("authentication" in s and "api" in s):
+        return 401, _auth_error_message(e)
     if "insufficient_quota" in s or "exceeded your current quota" in s:
         return 402, "Your OpenAI account has run out of credits. Top up at platform.openai.com/account/billing."
     if "rate limit" in s or "429" in s:
