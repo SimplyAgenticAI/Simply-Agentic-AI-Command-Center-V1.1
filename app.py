@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.0")
+APP_VERSION = os.getenv("APP_VERSION", "15.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23902,7 +23902,36 @@ _LF_LOCK = threading.Lock()
 _LF_DEFAULTS = {"enabled": True, "title": "", "intro": "Tell us a little about what you need and we'll get right back to you.",
                 "button": "Send", "thanks": "Thanks! We got your message and will be in touch shortly.",
                 "phone": True, "company": False, "message": True, "stage": "Lead", "tag": "website-form",
-                "auto_reply": True, "reply_hint": ""}
+                "auto_reply": True, "reply_hint": "",
+                # V15.1 lead magnet: a free file or link they get right after submitting
+                "magnet_on": False, "magnet_name": "", "magnet_button": "", "magnet_url": "",
+                "magnet_file": "", "magnet_filename": ""}
+_LF_MAGNET_EXTS = {"pdf", "png", "jpg", "jpeg", "zip", "docx", "xlsx", "pptx", "txt", "csv", "epub", "mp3", "mp4"}
+_LF_MAGNET_MAX = 25 * 1024 * 1024
+_LF_DL_DAYS = 7
+
+
+def _lf_files_dir(uname: str) -> Path:
+    return _LF_DIR / "files" / _safe_name(uname or "anon")
+
+
+def _lf_rm(p: Path) -> None:
+    """Best-effort delete — a file still being downloaded may be locked (Windows)."""
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _lf_magnet_ready(d: Dict[str, Any]) -> bool:
+    if not d.get("magnet_on") or not (d.get("magnet_name") or "").strip():
+        return False
+    return bool(d.get("magnet_file") or re.match(r"^https?://", d.get("magnet_url") or ""))
+
+
+def _lf_dl_signer():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(app.secret_key, salt="leadform-magnet")
 
 
 def _lf_path(uname: str) -> Path:
@@ -23972,12 +24001,22 @@ def api_leadform_save():
     _lf_load(uname, create=True)
     with _LF_LOCK:
         d = _lf_load(uname)
-        for k in ("title", "intro", "button", "thanks", "tag", "reply_hint", "stage"):
+        for k in ("title", "intro", "button", "thanks", "tag", "reply_hint", "stage", "magnet_name", "magnet_button"):
             if k in b:
                 d[k] = str(b.get(k) or "").strip()[:(600 if k in ("intro", "thanks", "reply_hint") else 80)]
-        for k in ("enabled", "phone", "company", "message", "auto_reply"):
+        if "magnet_url" in b:
+            url = str(b.get("magnet_url") or "").strip()[:500]
+            if url and not re.match(r"^https?://", url):
+                return jsonify({"ok": False, "error": "The download link must start with http:// or https://"}), 400
+            if url and d.get("magnet_file"):        # one or the other: a pasted link replaces the file
+                _lf_rm(_lf_files_dir(uname) / d["magnet_file"])
+                d.update({"magnet_file": "", "magnet_filename": ""})
+            d["magnet_url"] = url
+        for k in ("enabled", "phone", "company", "message", "auto_reply", "magnet_on"):
             if k in b:
                 d[k] = bool(b[k])
+        if b.get("magnet_on") and not (d.get("magnet_file") or d.get("magnet_url")):
+            return jsonify({"ok": False, "error": "Add a file or a link for the free download first."}), 400
         if b.get("new_link"):
             idx = load_json(_lf_index_path(), {}) or {}
             idx.pop(d.get("token"), None)
@@ -23986,6 +24025,87 @@ def api_leadform_save():
             save_json(_lf_index_path(), idx)
         save_json(_lf_path(uname), d)
     return api_leadform_get()
+
+
+@app.post("/api/leadform/magnet")
+def api_leadform_magnet_upload():
+    """Upload (or remove) the lead-magnet file."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    _lf_load(uname, create=True)
+    fdir = _lf_files_dir(uname)
+    if request.form.get("remove") or (request.get_json(silent=True) or {}).get("remove"):
+        with _LF_LOCK:
+            d = _lf_load(uname)
+            if d.get("magnet_file"):
+                _lf_rm(fdir / d["magnet_file"])
+            d.update({"magnet_file": "", "magnet_filename": ""})
+            if not d.get("magnet_url"):
+                d["magnet_on"] = False
+            save_json(_lf_path(uname), d)
+        return api_leadform_get()
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Choose a file to upload."}), 400
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in _LF_MAGNET_EXTS:
+        return jsonify({"ok": False, "error": "Use a PDF, image, Word/Excel/PowerPoint file, ZIP, text, ePub, MP3 or MP4."}), 400
+    fdir.mkdir(parents=True, exist_ok=True)
+    stored = f"magnet_{uuid.uuid4().hex[:12]}.{ext}"
+    f.save(str(fdir / stored))
+    if (fdir / stored).stat().st_size > _LF_MAGNET_MAX:
+        (fdir / stored).unlink(missing_ok=True)
+        return jsonify({"ok": False, "error": "That file is over 25 MB — use a link to it instead."}), 400
+    with _LF_LOCK:
+        d = _lf_load(uname)
+        if d.get("magnet_file") and d["magnet_file"] != stored:
+            _lf_rm(fdir / d["magnet_file"])
+        d.update({"magnet_file": stored, "magnet_filename": re.sub(r"[^\w .()\-]+", "", f.filename)[:120] or f"download.{ext}",
+                  "magnet_url": ""})   # an uploaded file replaces any link
+        if not d.get("magnet_name"):
+            d["magnet_name"] = d["magnet_filename"].rsplit(".", 1)[0][:80]
+        save_json(_lf_path(uname), d)
+    return api_leadform_get()
+
+
+@app.get("/f/<token>/d/<sig>")
+def public_lead_magnet_download(token, sig):
+    """The free download, via a private per-visitor link from the thank-you
+    screen (valid 7 days). The first use is logged on their contact."""
+    ok_rl, _msg = _rate_limit_check(f"leadform_dl:{_get_client_ip()}", 30)
+    if not ok_rl:
+        return "Too many requests — try again in a minute.", 429
+    owner = _lf_owner(token)
+    d = _lf_load(owner) if owner else {}
+    if not owner or d.get("token") != token or not _lf_magnet_ready(d):
+        return "This download isn't available anymore.", 404
+    try:
+        data = _lf_dl_signer().loads(sig, max_age=_LF_DL_DAYS * 86400)
+    except Exception:
+        return "This download link has expired — fill in the form again to get a fresh one.", 410
+    if data.get("o") != owner:
+        return "Not found", 404
+    cid = str(data.get("c") or "")
+    key = f"leadform_dl_logged:{owner}:{cid}"
+    if cid and key not in _LF_LOGGED:
+        _LF_LOGGED.add(key)
+        try:
+            if cid in (_crm_load(owner).get("clients") or {}):
+                _crm_activity_append(owner, cid, "note", f"Downloaded “{d.get('magnet_name')}” from your lead form")
+        except Exception as e:
+            _capture_error(e, context="leadform_dl_log")
+    if d.get("magnet_file"):
+        from flask import send_file as _sf
+        p = _lf_files_dir(owner) / d["magnet_file"]
+        if not p.exists():
+            return "This download isn't available anymore.", 404
+        return _sf(str(p), as_attachment=True, download_name=d.get("magnet_filename") or p.name)
+    return redirect(d["magnet_url"], 302)
+
+
+_LF_LOGGED: set = set()   # contacts whose download was already logged (this process)
 
 
 def _lf_page(d: Dict[str, Any], token: str, embed: bool, owner: str) -> str:
@@ -24011,6 +24131,12 @@ def _lf_page(d: Dict[str, Any], token: str, embed: bool, owner: str) -> str:
     if d.get("message"):
         fields += ('<div class="f"><label for="i_message">How can we help?</label>'
                    '<textarea id="i_message" name="message" rows="4" placeholder="A few words about what you need…"></textarea></div>')
+    magnet = _lf_magnet_ready(d)
+    mname = (d.get("magnet_name") or "").strip()
+    btn = (d.get("magnet_button") or "").strip() or (f"Send me the {mname}" if len(mname) <= 28 else "Get my free download") \
+        if magnet else (d.get("button") or "Send")
+    magnet_html = (f'<div class="mg"><div class="mg-ic">🎁</div><div><div class="mg-k">FREE DOWNLOAD</div>'
+                   f'<div class="mg-n">{e(mname)}</div></div></div>') if magnet else ""
     page_bg = "transparent" if embed else (
         "radial-gradient(1100px 600px at 15% -10%,rgba(124,58,237,.28),transparent 60%),"
         "radial-gradient(900px 500px at 110% 110%,rgba(56,189,248,.14),transparent 60%),#070b18")
@@ -24050,13 +24176,20 @@ button:disabled{{opacity:.6;transform:none;cursor:wait}}
 .ok .tick{{width:64px;height:64px;margin:0 auto 16px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:32px;box-shadow:0 10px 26px rgba(16,185,129,.35)}}
 .ok p{{font-size:18px;line-height:1.55;color:#e2e8f0;margin:0}}
+.mg{{display:flex;gap:14px;align-items:center;margin:0 0 20px;padding:14px 16px;border-radius:13px;
+  background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(56,189,248,.10));border:1px solid rgba(167,139,250,.45)}}
+.mg-ic{{font-size:30px;line-height:1}}.mg-k{{font-size:12px;font-weight:800;letter-spacing:.12em;color:#c4b5fd}}
+.mg-n{{font-size:17px;font-weight:700;color:#f8fafc;margin-top:2px;line-height:1.35}}
+.dl{{display:block;margin-top:20px;padding:15px;border-radius:12px;text-decoration:none;color:#fff;font-weight:700;font-size:17px;
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);box-shadow:0 10px 26px rgba(79,70,229,.35)}}
+.dl:hover{{filter:brightness(1.08)}}
 @keyframes in{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:none}}}}
 @media(max-width:520px){{.card{{padding:24px 18px 20px;border-radius:{'0' if embed else '16px'}}}.two{{grid-template-columns:1fr;gap:0}}h1{{font-size:23px}}}}
 </style></head><body><div class="card" id="c">
-<h1>{e(d.get('title'))}</h1><p class="i">{e(d.get('intro'))}</p>
+<h1>{e(d.get('title'))}</h1><p class="i">{e(d.get('intro'))}</p>{magnet_html}
 <form id="fm" novalidate>{fields}
 <div class="hp" aria-hidden="true"><label for="i_hp">Website</label><input id="i_hp" name="hp_website" tabindex="-1" autocomplete="off"></div>
-<button id="b" type="submit">{e(d.get('button') or 'Send')}</button><div class="msg" id="m" role="alert"></div></form>
+<button id="b" type="submit">{e(btn)}</button><div class="msg" id="m" role="alert"></div></form>
 <div class="fine">🔒 Your details are only shared with us.</div></div>
 <script>
 document.getElementById('fm').addEventListener('submit',function(ev){{
@@ -24069,6 +24202,8 @@ document.getElementById('fm').addEventListener('submit',function(ev){{
      if(!d.ok){{b.disabled=false;b.textContent=label;m.textContent=d.error||'Something went wrong — please try again.';return;}}
      var c=document.getElementById('c');c.innerHTML='<div class="ok"><div class="tick">✓</div><p></p></div>';
      c.querySelector('p').textContent=d.message;
+     if(d.download_url){{var a=document.createElement('a');a.className='dl';a.href=d.download_url;a.target='_blank';a.rel='noopener';
+       a.textContent='⬇ Download '+(d.download_name||'your free download');c.querySelector('.ok').appendChild(a);}}
    }}).catch(function(){{b.disabled=false;b.textContent=label;m.textContent='Could not send — check your connection and try again.';}});
 }});
 </script></body></html>"""
@@ -24139,6 +24274,8 @@ def public_lead_form_submit(token):
             if client:
                 purpose = ("Reply to someone who just filled in the contact form on your website. Thank them, answer what they "
                            "asked if you can, and suggest one easy next step (a quick call or a reply)."
+                           + (f" They signed up to get the free “{d.get('magnet_name')}” and already downloaded it — mention it "
+                              "naturally (hope it helps) and connect it to how you can help next." if _lf_magnet_ready(d) else "")
                            + (f" Their message: {message}" if message else " They didn't leave a message.")
                            + (f" How to reply: {d.get('reply_hint')}" if d.get("reply_hint") else ""))
                 try:
@@ -24158,7 +24295,11 @@ def public_lead_form_submit(token):
         d2["submissions"] = ([{"name": name, "email": email, "at": now_iso(), "client_id": cid,
                                "existing": bool(existing), "drafted": drafted}] + (d2.get("submissions") or []))[:50]
         save_json(_lf_path(owner), d2)
-    return jsonify({"ok": True, "message": thanks})
+    out = {"ok": True, "message": thanks}
+    if _lf_magnet_ready(d):
+        out["download_url"] = f"/f/{token}/d/" + _lf_dl_signer().dumps({"o": owner, "c": cid})
+        out["download_name"] = d.get("magnet_name")
+    return jsonify(out)
 
 
 # =========================

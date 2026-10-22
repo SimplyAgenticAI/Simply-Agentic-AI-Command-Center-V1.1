@@ -67,6 +67,45 @@ def test_submit_creates_contact_and_one_reply(lf, flask_app):
     assert c.get("/api/leadform").get_json()["count"] == 2
 
 
+def test_lead_magnet_file_download_and_reply(lf, flask_app, monkeypatch):
+    import io
+    c, h, _ = lf
+    purposes = []
+    monkeypatch.setattr(app_module, "_agent_draft_email", lambda u, cl, purpose: (purposes.append(purpose), ("Hi", "Hello"))[1])
+    bad = c.post("/api/leadform/magnet", headers=h, data={"file": (io.BytesIO(b"x"), "evil.exe")}, content_type="multipart/form-data")
+    assert bad.status_code == 400
+    assert c.post("/api/leadform", headers=h, json={"magnet_on": True, "magnet_name": "X"}).status_code == 400   # nothing to give yet
+    r = c.post("/api/leadform/magnet", headers=h, data={"file": (io.BytesIO(b"%PDF-1.4 guide"), "Pricing Checklist.pdf")},
+               content_type="multipart/form-data").get_json()
+    assert r["ok"] and r["form"]["magnet_filename"] == "Pricing Checklist.pdf" and r["form"]["magnet_name"] == "Pricing Checklist"
+    assert c.post("/api/leadform", headers=h, json={"magnet_on": True}).get_json()["form"]["magnet_on"] is True
+    anon = flask_app.test_client()
+    tok = _token(c)
+    page = anon.get(f"/f/{tok}").get_data(as_text=True)
+    assert "FREE DOWNLOAD" in page and "Send me the Pricing Checklist" in page
+    res = anon.post(f"/f/{tok}", json={"name": "Ana", "email": "ana@example.com"}).get_json()
+    assert res["download_url"].startswith(f"/f/{tok}/d/") and res["download_name"] == "Pricing Checklist"
+    assert "Pricing Checklist" in purposes[0]                                    # reply draft mentions it
+    dl = anon.get(res["download_url"])
+    assert dl.status_code == 200 and dl.get_data() == b"%PDF-1.4 guide" and "attachment" in dl.headers["Content-Disposition"]
+    anon.get(res["download_url"])                                               # second download isn't logged again
+    cid = next(iter(app_module._crm_load(U)["clients"]))
+    logged = [a for a in app_module._crm_activity_log(U, cid) if "Downloaded" in str(a)]
+    assert len(logged) == 1
+    assert anon.get(res["download_url"] + "x").status_code == 410                 # tampered link
+
+
+def test_lead_magnet_link_redirects(lf, flask_app):
+    c, h, _ = lf
+    assert c.post("/api/leadform", headers=h, json={"magnet_url": "javascript:alert(1)"}).status_code == 400
+    assert c.post("/api/leadform", headers=h, json={"magnet_on": True, "magnet_name": "Guide", "magnet_url": "https://example.com/guide.pdf"}).get_json()["form"]["magnet_file"] == ""
+    anon = flask_app.test_client()
+    tok = _token(c)
+    res = anon.post(f"/f/{tok}", json={"name": "Bo", "email": "bo@example.com"}).get_json()
+    r = anon.get(res["download_url"])
+    assert r.status_code == 302 and r.headers["Location"] == "https://example.com/guide.pdf"
+
+
 def test_honeypot_bad_email_and_new_link(lf, flask_app):
     c, h, _ = lf
     tok = _token(c)

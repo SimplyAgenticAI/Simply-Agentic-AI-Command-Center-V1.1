@@ -38569,6 +38569,16 @@ else { setTimeout(load, 1500); }
         '<label class="lf-chk"><input type="checkbox" id="lfCompany"'+(f.company?' checked':'')+'> Company</label>'+
         '<label class="lf-chk"><input type="checkbox" id="lfMessage"'+(f.message?' checked':'')+'> Message</label></div>'+
         '<label>Thank-you message<textarea id="lfThanks" rows="2" maxlength="600">'+esc(f.thanks)+'</textarea></label></div>'+
+      '<div class="lf-sec"><div class="lf-h">🎁 Free download (lead magnet)</div>'+
+        '<div class="lf-sub" style="margin-top:0">Give people a guide, checklist or template for filling in the form. They get it right away on the thank-you screen, and their contact shows they downloaded it.</div>'+
+        '<label class="lf-chk" style="font-weight:700"><input type="checkbox" id="lfMgOn"'+(f.magnet_on?' checked':'')+'> Offer a free download</label>'+
+        '<div class="lf-sub2"><label>What it\'s called<input type="text" id="lfMgName" maxlength="80" placeholder="e.g. The 5-Minute Pricing Checklist" value="'+esc(f.magnet_name)+'"></label>'+
+        '<label>Button text (optional)<input type="text" id="lfMgBtn" maxlength="80" placeholder="e.g. Send me the checklist" value="'+esc(f.magnet_button)+'"></label></div>'+
+        '<div class="lf-row" style="margin-bottom:10px">'+
+          (f.magnet_file?'<span style="font-size:calc(14px * var(--fs,1.1))">📎 <b>'+esc(f.magnet_filename)+'</b></span><button class="btn btnMini" id="lfMgRm">Remove file</button>'
+                        :'<button class="btn btnMini" id="lfMgUp">⬆ Upload a file</button><span class="tiny" style="opacity:.7">PDF, image, Office, ZIP… up to 25 MB</span>')+
+          '<input type="file" id="lfMgFile" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.zip,.docx,.xlsx,.pptx,.txt,.csv,.epub,.mp3,.mp4"></div>'+
+        '<label>…or a link to it <span class="tiny" style="opacity:.7">(a link replaces an uploaded file)</span><input type="text" id="lfMgUrl" maxlength="500" placeholder="https://drive.google.com/…" value="'+esc(f.magnet_url)+'"></label></div>'+
       '<div class="lf-sec"><div class="lf-h">What happens next</div>'+
         '<div class="lf-sub2"><label>New leads go into this stage<select id="lfStage">'+stages+'</select></label>'+
         '<label>And get this tag<input type="text" id="lfTag" maxlength="80" value="'+esc(f.tag)+'"></label></div>'+
@@ -38584,6 +38594,23 @@ else { setTimeout(load, 1500); }
     document.getElementById('lfCopyEmbed').onclick=function(){ copy(d.embed,'Website code'); };
     document.getElementById('lfSave').onclick=function(){ save({}); };
     document.getElementById('lfOn').onchange=function(){ save({}, this.checked?'✅ Form is on':'Form is off — the link shows "not available"'); };
+    var up=document.getElementById('lfMgUp'), fi=document.getElementById('lfMgFile'), rm=document.getElementById('lfMgRm');
+    if(up) up.onclick=function(){ fi.click(); };
+    fi.onchange=function(){
+      var file=fi.files[0]; if(!file) return;
+      if(file.size>25*1024*1024){ toast('That file is over 25 MB — paste a link to it instead','error'); return; }
+      var fd=new FormData(); fd.append('file',file);
+      toast('⬆ Uploading '+file.name+'…');
+      fetch('/api/leadform/magnet',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){
+        if(!d.ok){ toast(d.error||'Upload failed','error'); return; }
+        render(d); toast('📎 File added — tick "Offer a free download" and Save','success');
+      }).catch(function(){ toast('Upload failed — try again','error'); });
+    };
+    if(rm) rm.onclick=function(){
+      if(!confirm('Remove the file?')) return;
+      fetch('/api/leadform/magnet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({remove:true})})
+        .then(function(r){return r.json();}).then(function(d){ if(d.ok) render(d); });
+    };
     document.getElementById('lfNewLink').onclick=function(){
       if(!confirm('Make a new link? The old link and any website code using it stop working.')) return;
       save({new_link:true},'🔄 New link ready — update your website code');
@@ -38594,7 +38621,8 @@ else { setTimeout(load, 1500); }
   function save(extra,msg){
     var b=Object.assign({enabled:chk('lfOn'),title:val('lfTitle'),button:val('lfButton'),intro:val('lfIntro'),thanks:val('lfThanks'),
       phone:chk('lfPhone'),company:chk('lfCompany'),message:chk('lfMessage'),stage:val('lfStage'),tag:val('lfTag'),
-      auto_reply:chk('lfAuto'),reply_hint:val('lfHint')},extra||{});
+      auto_reply:chk('lfAuto'),reply_hint:val('lfHint'),
+      magnet_on:chk('lfMgOn'),magnet_name:val('lfMgName'),magnet_button:val('lfMgBtn'),magnet_url:val('lfMgUrl').trim()},extra||{});
     post(b).then(function(d){
       if(!d.ok){ toast(d.error||'Could not save','error'); return; }
       render(d); toast(msg||'✔ Lead form saved','success');
