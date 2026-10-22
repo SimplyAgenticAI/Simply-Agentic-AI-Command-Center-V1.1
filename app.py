@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.9")
+APP_VERSION = os.getenv("APP_VERSION", "15.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23989,49 +23989,87 @@ def api_leadform_save():
 
 
 def _lf_page(d: Dict[str, Any], token: str, embed: bool, owner: str) -> str:
+    """The public form, styled like Simply: deep navy, a crisp glass card,
+    purple gradient button (V15.0 — was a plain white box)."""
     import html as _h
     e = lambda s: _h.escape(str(s or ""), quote=True)
-    color = (_vc_brand(owner) or {}).get("color") or "#7c3aed"
-    color = color if re.match(r"^#[0-9a-fA-F]{6}$", color) else "#7c3aed"
-    field = lambda name, label, typ="text", req=False: (
-        f'<label>{e(label)}{" *" if req else ""}<input name="{name}" type="{typ}" '
-        f'{"required" if req else ""} autocomplete="{ {"name": "name", "email": "email", "phone": "tel", "company": "organization"}.get(name, "off") }"></label>')
-    fields = field("name", "Your name", req=True) + field("email", "Email", "email", True)
+    ac = {"name": "name", "email": "email", "phone": "tel", "company": "organization"}
+
+    def field(name, label, typ="text", req=False, ph=""):
+        return (f'<div class="f"><label for="i_{name}">{e(label)}{"<span>*</span>" if req else ""}</label>'
+                f'<input id="i_{name}" name="{name}" type="{typ}" placeholder="{e(ph)}" '
+                f'{"required" if req else ""} autocomplete="{ac.get(name, "off")}"></div>')
+    fields = '<div class="two">' + field("name", "Your name", req=True, ph="Jane Smith") + \
+             field("email", "Email", "email", True, ph="jane@company.com") + '</div>'
+    extra = []
     if d.get("phone"):
-        fields += field("phone", "Phone", "tel")
+        extra.append(field("phone", "Phone", "tel", ph="(555) 123-4567"))
     if d.get("company"):
-        fields += field("company", "Company")
+        extra.append(field("company", "Company", ph="Company name"))
+    if extra:
+        fields += ('<div class="two">' + "".join(extra) + '</div>') if len(extra) == 2 else extra[0]
     if d.get("message"):
-        fields += '<label>How can we help?<textarea name="message" rows="4"></textarea></label>'
-    bg = "transparent" if embed else "#f6f7fb"
+        fields += ('<div class="f"><label for="i_message">How can we help?</label>'
+                   '<textarea id="i_message" name="message" rows="4" placeholder="A few words about what you need…"></textarea></div>')
+    page_bg = "transparent" if embed else (
+        "radial-gradient(1100px 600px at 15% -10%,rgba(124,58,237,.28),transparent 60%),"
+        "radial-gradient(900px 500px at 110% 110%,rgba(56,189,248,.14),transparent 60%),#070b18")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(d.get('title'))}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-*{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:{bg};color:#111827;}}
-.card{{max-width:540px;margin:{'0' if embed else '40px'} auto;background:#fff;border-radius:14px;padding:26px;{'' if embed else 'box-shadow:0 10px 40px rgba(0,0,0,.08);'}}}
-h1{{font-size:24px;margin:0 0 6px}}p.i{{color:#4b5563;margin:0 0 18px;font-size:16px;line-height:1.5}}
-label{{display:block;font-size:15px;font-weight:600;margin:0 0 14px;color:#374151}}
-input,textarea{{display:block;width:100%;margin-top:6px;padding:11px 12px;border:1px solid #d1d5db;border-radius:9px;font:inherit;font-size:16px}}
-input:focus,textarea:focus{{outline:2px solid {color};border-color:transparent}}
-button{{width:100%;padding:13px;border:0;border-radius:10px;background:{color};color:#fff;font-size:17px;font-weight:700;cursor:pointer}}
-button:disabled{{opacity:.6}}.hp{{position:absolute;left:-5000px}}.msg{{margin-top:12px;font-size:15px}}.err{{color:#b91c1c}}
-.ok{{text-align:center;font-size:18px;line-height:1.5;padding:30px 6px}}
+*{{box-sizing:border-box}}
+html,body{{margin:0;min-height:100%}}
+body{{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:{page_bg};color:#e2e8f0;
+  display:flex;align-items:{'stretch' if embed else 'center'};justify-content:center;padding:{'0' if embed else '32px 16px'};min-height:100vh;}}
+.card{{width:100%;max-width:560px;background:linear-gradient(180deg,rgba(17,24,48,.96),rgba(10,15,32,.96));
+  border:1px solid rgba(124,58,237,.45);border-radius:18px;padding:30px 30px 24px;
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 24px 60px rgba(0,0,0,.55);position:relative;overflow:hidden;}}
+.card:before{{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,#7c3aed,#6366f1,#38bdf8);}}
+h1{{font-size:26px;line-height:1.25;margin:2px 0 8px;font-weight:800;letter-spacing:-.01em;color:#f8fafc;}}
+p.i{{color:#a5b4cc;margin:0 0 22px;font-size:16px;line-height:1.6}}
+.two{{display:grid;grid-template-columns:1fr 1fr;gap:14px}}
+.f{{margin:0 0 16px}}
+label{{display:block;font-size:14px;font-weight:600;color:#c7d2fe;margin:0 0 7px;letter-spacing:.01em}}
+label span{{color:#a78bfa;margin-left:3px}}
+input,textarea{{display:block;width:100%;padding:13px 14px;border:1px solid rgba(110,135,215,.35);border-radius:11px;
+  background:rgba(4,8,22,.7);color:#f1f5f9;font:inherit;font-size:16px;transition:border-color .15s,box-shadow .15s}}
+input::placeholder,textarea::placeholder{{color:#5b6785}}
+input:focus,textarea:focus{{outline:none;border-color:#a78bfa;box-shadow:0 0 0 3px rgba(124,58,237,.28)}}
+textarea{{resize:vertical;min-height:110px}}
+button{{width:100%;margin-top:6px;padding:15px;border:0;border-radius:12px;cursor:pointer;
+  background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;font:inherit;font-size:17px;font-weight:700;letter-spacing:.01em;
+  box-shadow:0 10px 26px rgba(79,70,229,.35);transition:transform .12s,box-shadow .12s,opacity .12s}}
+button:hover{{transform:translateY(-1px);box-shadow:0 14px 30px rgba(79,70,229,.45)}}
+button:disabled{{opacity:.6;transform:none;cursor:wait}}
+.hp{{position:absolute;left:-5000px;top:auto;width:1px;height:1px;overflow:hidden}}
+.msg{{margin-top:12px;font-size:15px;color:#fca5a5;min-height:1px}}
+.fine{{margin-top:16px;text-align:center;font-size:13px;color:#64748b}}
+.fine a{{color:#8b93b5;text-decoration:none}}
+.ok{{text-align:center;padding:26px 6px 10px;animation:in .35s ease-out}}
+.ok .tick{{width:64px;height:64px;margin:0 auto 16px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#10b981,#059669);color:#fff;font-size:32px;box-shadow:0 10px 26px rgba(16,185,129,.35)}}
+.ok p{{font-size:18px;line-height:1.55;color:#e2e8f0;margin:0}}
+@keyframes in{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:none}}}}
+@media(max-width:520px){{.card{{padding:24px 18px 20px;border-radius:{'0' if embed else '16px'}}}.two{{grid-template-columns:1fr;gap:0}}h1{{font-size:23px}}}}
 </style></head><body><div class="card" id="c">
 <h1>{e(d.get('title'))}</h1><p class="i">{e(d.get('intro'))}</p>
-<form id="f" novalidate>{fields}
-<label class="hp" aria-hidden="true">Website<input name="hp_website" tabindex="-1" autocomplete="off"></label>
-<button id="b" type="submit">{e(d.get('button') or 'Send')}</button><div class="msg err" id="m"></div></form></div>
+<form id="fm" novalidate>{fields}
+<div class="hp" aria-hidden="true"><label for="i_hp">Website</label><input id="i_hp" name="hp_website" tabindex="-1" autocomplete="off"></div>
+<button id="b" type="submit">{e(d.get('button') or 'Send')}</button><div class="msg" id="m" role="alert"></div></form>
+<div class="fine">🔒 Your details are only shared with us.</div></div>
 <script>
-document.getElementById('f').addEventListener('submit',function(ev){{
+document.getElementById('fm').addEventListener('submit',function(ev){{
   ev.preventDefault();var f=ev.target,b=document.getElementById('b'),m=document.getElementById('m'),o={{}};
   new FormData(f).forEach(function(v,k){{o[k]=v;}});
   if(!o.name||!o.email||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(o.email)){{m.textContent='Please add your name and a valid email.';return;}}
-  b.disabled=true;m.textContent='';
+  b.disabled=true;var label=b.textContent;b.textContent='Sending…';m.textContent='';
   fetch(location.pathname,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}})
    .then(function(r){{return r.json();}}).then(function(d){{
-     if(!d.ok){{b.disabled=false;m.textContent=d.error||'Something went wrong — please try again.';return;}}
-     var c=document.getElementById('c');c.innerHTML='';var t=document.createElement('div');t.className='ok';t.textContent=d.message;c.appendChild(t);
-   }}).catch(function(){{b.disabled=false;m.textContent='Could not send — check your connection and try again.';}});
+     if(!d.ok){{b.disabled=false;b.textContent=label;m.textContent=d.error||'Something went wrong — please try again.';return;}}
+     var c=document.getElementById('c');c.innerHTML='<div class="ok"><div class="tick">✓</div><p></p></div>';
+     c.querySelector('p').textContent=d.message;
+   }}).catch(function(){{b.disabled=false;b.textContent=label;m.textContent='Could not send — check your connection and try again.';}});
 }});
 </script></body></html>"""
 
