@@ -37072,6 +37072,7 @@ window.addEventListener('focus', function(){
             <div class="vc-actions">
               <button class="vc-btn vc-apply" id="vcApply" onclick="vcApply()" disabled>✔ Save changes</button>
               <button class="vc-btn" onclick="vcDownload()">⬇ Download</button>
+              <button class="vc-btn" id="vcKeepBtn" onclick="vcToggleKeep()" title="Kept clips are never cleaned up automatically">📌 Keep</button>
               <button class="vc-btn" onclick="vcDuplicate()" title="Make a copy to try a different version">⧉</button>
               <button class="vc-btn vc-danger" onclick="vcDelete()" title="Delete clip">🗑</button>
             </div>
@@ -37241,7 +37242,9 @@ window.addEventListener('focus', function(){
       $('vcClipCount').textContent=S.clips.length?String(S.clips.length):'';
       var mb=function(b){return (b/1048576).toFixed(0)+' MB';};
       var pct=d.limit?Math.min(100,Math.round(d.usage/d.limit*100)):0;
-      $('vcStorage').innerHTML='Storage: '+mb(d.usage)+' of '+(d.limit/1073741824).toFixed(0)+' GB <span style="display:inline-block;width:80px;height:5px;border-radius:3px;background:rgba(255,255,255,.1);vertical-align:middle;margin-left:4px;"><span style="display:block;height:100%;width:'+pct+'%;border-radius:3px;background:'+(pct>85?'#ef4444':'#a78bfa')+';"></span></span>';
+      $('vcStorage').innerHTML='Storage: '+mb(d.usage)+' of '+(d.limit/1073741824).toFixed(0)+' GB <span style="display:inline-block;width:80px;height:5px;border-radius:3px;background:rgba(255,255,255,.1);vertical-align:middle;margin-left:4px;"><span style="display:block;height:100%;width:'+pct+'%;border-radius:3px;background:'+(pct>85?'#ef4444':'#a78bfa')+';"></span></span>'+
+        (d.auto_free>1048576?'<div style="color:#6ee7b7;margin-top:2px;" title="Clips you\'ve used drop their editing copy '+d.slim_days+' days later (the finished video stays). Clips never used are deleted after '+d.unused_days+' days. 📌 Keep stops both.">🧹 ~'+mb(d.auto_free)+' frees up on its own this week</div>':
+         '<div style="color:#94a3b8;margin-top:2px;" title="Clips you\'ve used drop their editing copy '+d.slim_days+' days later (the finished video stays). Clips never used are deleted after '+d.unused_days+' days. 📌 Keep stops both.">🧹 Old clips clean up on its own · 📌 Keep to save one</div>');
       renderGrid();
       if(S.sel){ var c=byId(S.sel); if(c) refreshEditor(c,false); else { S.sel=null; showEditor(null); } }
       schedulePoll();
@@ -37262,11 +37265,13 @@ window.addEventListener('focus', function(){
       var thumb=(c.status==='ready'&&c.thumb)?'background-image:url(/api/vclips/'+c.id+'/thumb?v='+(c.version||0)+')':'';
       var badge=c.status==='rendering'?'<span class="vc-badge">⏳ Rendering</span>':(c.status==='error'?'<span class="vc-badge err">⚠ Error</span>':(c.stale?'<span class="vc-badge edit">✏ Edited</span>':''));
       var score=c.score?'<span class="vc-badge score">🔥 '+(+c.score)+'</span>':'';
+      var L=c.life||{};
+      if(!badge && L.expires_in_days!=null && L.expires_in_days<=7) badge='<span class="vc-badge err" title="Deletes on its own unless you use it, open it or tap Keep">⏳ '+L.expires_in_days+'d left</span>';
       var asp=c.aspect==='original'?'':(' · '+esc(c.aspect));
       return '<div class="vc-card'+(S.sel===c.id?' sel':'')+'" data-id="'+esc(c.id)+'">'+
         '<div class="vc-thumb" style="'+thumb+(c.aspect==='16:9'?';aspect-ratio:16/10':'')+'">'+(thumb?'':(c.status==='rendering'?'<div class="vc-spin"></div>':'🎞'))+'</div>'+badge+score+
         '<input type="checkbox" class="vc-cchk" '+(S.checked[c.id]?'checked':'')+' title="Select">'+
-        '<div class="vc-cinfo"><div class="vc-ctitle">'+esc(c.title)+'</div><div class="vc-csub">'+fmt(c.duration)+asp+(c.captions&&c.captions.on?' · CC':'')+'</div></div></div>';
+        '<div class="vc-cinfo"><div class="vc-ctitle">'+(c.kept?'📌 ':'')+esc(c.title)+'</div><div class="vc-csub">'+fmt(c.duration)+asp+(c.captions&&c.captions.on?' · CC':'')+'</div></div></div>';
     }).join('');
     [].forEach.call(g.querySelectorAll('.vc-card'),function(el){
       var id=el.getAttribute('data-id');
@@ -37332,7 +37337,10 @@ window.addEventListener('focus', function(){
   };
 
   /* ── editor ─────────────────────────────────────── */
-  function select(id){ S.sel=id; S.words=null; S.pendingDeleted=null; S.wordEdits={}; renderGrid(); var c=byId(id); refreshEditor(c,true); }
+  function select(id){
+    S.sel=id; S.words=null; S.pendingDeleted=null; S.wordEdits={}; renderGrid(); var c=byId(id); refreshEditor(c,true);
+    post('/api/vclips/'+id+'/touch');   /* opening a clip resets its unused-clip timer */
+  }
   function showEditor(c){ $('vcEmpty').style.display=c?'none':''; $('vcEdit').style.display=c?'':'none'; }
   function setChips(box,val){ [].forEach.call($(box).querySelectorAll('button'),function(b){ b.classList.toggle('on',b.getAttribute('data-v')===val); }); }
   function chipVal(box){ var b=$(box).querySelector('button.on'); return b?b.getAttribute('data-v'):null; }
@@ -37366,7 +37374,9 @@ window.addEventListener('focus', function(){
     if(c.status!=='ready' && full){ p.removeAttribute('src'); p.load(); S.lastVer[c.id+'@p']=''; }
     var mb=c.size?(' · '+(c.size/1048576).toFixed(1)+' MB'):'';
     $('vcMeta').innerHTML=fmt(c.duration)+' · '+esc(c.aspect==='original'?'Original size':c.aspect)+(c.width?(' · '+c.width+'×'+c.height):'')+mb+(c.reason?('<br><span style="color:#fbbf24">🔥 '+esc(c.reason)+'</span>'):'')+(c.note?('<br><span style="color:#fbbf24">ℹ '+esc(c.note)+'</span>'):'')+
-      (c.stale?'<br><span class="vc-edited">✏ Saved edits render when you download or post</span>':'');
+      (c.stale?'<br><span class="vc-edited">✏ Saved edits render when you download or post</span>':'')+lifeNote(c);
+    $('vcKeepBtn').textContent=c.kept?'📌 Kept':'📌 Keep';
+    $('vcKeepBtn').classList.toggle('vc-pri',!!c.kept);
     $('vcErr').style.display=c.error?'':'none'; $('vcErr').textContent=c.error||'';
     // after a re-render, fields already match the saved clip — reload them unless the user is mid-edit
     if(full || (!rendering && $('vcApply').disabled)){
@@ -37398,6 +37408,23 @@ window.addEventListener('focus', function(){
     $('vcApply').textContent=rendering?'⏳ Rendering…':'✔ Save changes';
     livePreview();
   }
+  /* V14.3 storage lifecycle — what happens to this clip on its own */
+  function lifeNote(c){
+    var L=c.life||{}, s='<br><span style="color:#94a3b8">';
+    if(c.slim) return s+'🔒 Editing closed — the source copy was cleared to save space. The finished video is still here.</span>';
+    if(c.kept) return s+'📌 Kept — never cleaned up automatically.</span>';
+    if(L.slim_in_days!=null) return s+'🧹 Editing copy clears in '+L.slim_in_days+' day'+(L.slim_in_days===1?'':'s')+' (the finished video stays). 📌 Keep to edit it later.</span>';
+    if(L.expires_in_days!=null) return s+(L.expires_in_days<=7?'<span style="color:#fbbf24">':'<span>')+'⏳ Deletes in '+L.expires_in_days+' day'+(L.expires_in_days===1?'':'s')+' unless you download it, post it or tap 📌 Keep.</span></span>';
+    return '';
+  }
+  window.vcToggleKeep=function(){
+    var c=byId(S.sel); if(!c) return;
+    post('/api/vclips/'+c.id,{kept:!c.kept}).then(function(d){
+      if(!d.ok){ toast(d.error||'Could not update','error'); return; }
+      toast(d.clip.kept?'📌 Kept — this clip won\'t be cleaned up':'Unpinned — normal clean-up applies','success');
+      load();
+    });
+  };
   /* "Follow the speaker" only means something for vertical/square uploads */
   function reframeRow(){ var c=byId(S.sel), a=chipVal('vcAspect')||'original'; $('vcReframeRow').style.display=(c&&!c.rec&&a!=='original'&&a!=='16:9')?'':'none'; }
 
@@ -37408,7 +37435,11 @@ window.addEventListener('focus', function(){
     $('vcPanePost').style.display=p==='post'?'':'none';
     if(p==='text'){ var c=byId(S.sel); if(c && S.words===null) loadWords(c); }
   };
-  window.vcDirty=function(){ var c=byId(S.sel); $('vcApply').disabled=!c||c.status==='rendering'; S.dirty=true; reframeRow(); livePreview(); };
+  window.vcDirty=function(){
+    var c=byId(S.sel);
+    if(c&&c.slim){ toast('Editing is closed for this clip — its source copy was cleared to save space','warning'); return; }
+    $('vcApply').disabled=!c||c.status==='rendering'; S.dirty=true; reframeRow(); livePreview();
+  };
   window.vcNudge=function(which,d){ var el=$(which==='start'?'vcStart':'vcEnd'); el.value=Math.max(0,(+el.value||0)+d).toFixed(1); vcDirty(); };
 
   window.vcApply=function(){
@@ -37563,7 +37594,7 @@ window.addEventListener('focus', function(){
   var LV={c:null, raf:0, groups:[], skip:[], cuts:[], kw:{}};
   function livePreview(){
     var c=byId(S.sel), box=$('vcLive'), p=$('vcPlayer');
-    var useLive=!!(c && c.status!=='rendering' && c.m_start!=null && (S.dirty||c.stale));
+    var useLive=!!(c && !c.slim && c.status!=='rendering' && c.m_start!=null && (S.dirty||c.stale));
     box.classList.toggle('on',useLive); p.style.display=useLive?'none':'';
     if(!useLive){ var lv=$('vcLiveVid'); if(lv&&!lv.paused) lv.pause(); return; }
     if(!p.paused) p.pause();

@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.2")
+APP_VERSION = os.getenv("APP_VERSION", "14.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -28951,6 +28951,89 @@ def _vc_usage(uname: str) -> int:
 def _vc_limit(uname: str) -> int:
     return VCLIP_STORAGE_LIMITS.get(_normalize_plan_key(_get_user_plan(uname)), 3 * _GB)
 
+
+# ── Clip storage lifecycle (V14.3) ───────────────────────────────────────
+# Clips keep a full-quality source copy (master.mp4, plus the screen/camera
+# tracks for recordings) so they can be re-edited. That copy is most of the
+# space. So, unless a clip is Kept (pinned):
+#   • USED clips (downloaded / sent to the planner / scheduled): the source copy
+#     is dropped VCLIP_SLIM_DAYS after use — the finished video stays, editing closes.
+#   • UNUSED clips: deleted after VCLIP_UNUSED_DAYS with no use and no opening.
+VCLIP_SLIM_DAYS = int(os.getenv("VCLIP_SLIM_DAYS", "7"))
+VCLIP_UNUSED_DAYS = int(os.getenv("VCLIP_UNUSED_DAYS", "30"))
+_VC_SWEPT: Dict[str, float] = {}
+
+
+def _vc_ts(s: Any) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(s).rstrip("Z")) if s else None
+    except ValueError:
+        return None
+
+
+def _vc_last_active(c: Dict[str, Any]) -> Optional[datetime]:
+    ts = [t for t in (_vc_ts(c.get("created_at")), _vc_ts(c.get("opened_at")), _vc_ts(c.get("used_at"))) if t]
+    return max(ts) if ts else None
+
+
+def _vc_source_files(uname: str, cid: str) -> List[Path]:
+    d = _vc_dir(uname) / cid
+    return [p for p in [d / "master.mp4"] + list(d.glob("rec_*.mkv")) if p.exists()]
+
+
+def _vc_lifecycle(uname: str, c: Dict[str, Any]) -> Dict[str, Any]:
+    """What will happen to this clip on its own: {expires_in_days, slim_in_days, frees}."""
+    out: Dict[str, Any] = {"expires_in_days": None, "slim_in_days": None, "frees": 0}
+    if c.get("kept") or c.get("status") == "rendering":
+        return out
+    now = _utcnow()
+    used = _vc_ts(c.get("used_at"))
+    if used:
+        if not c.get("slim") and not c.get("stale"):
+            out["slim_in_days"] = max(0, VCLIP_SLIM_DAYS - (now - used).days)
+            out["frees"] = sum(p.stat().st_size for p in _vc_source_files(uname, c["id"]))
+    else:
+        last = _vc_last_active(c) or now
+        out["expires_in_days"] = max(0, VCLIP_UNUSED_DAYS - (now - last).days)
+        d = _vc_dir(uname) / c["id"]
+        out["frees"] = sum(p.stat().st_size for p in d.rglob("*") if p.is_file()) if d.exists() else 0
+    return out
+
+
+def _vc_mark_used(uname: str, cids: List[str]) -> None:
+    for cid in cids:
+        _vc_update(uname, cid, lambda x: x.update({"used_at": now_iso()}))
+
+
+def _vc_sweep(uname: str, force: bool = False) -> Dict[str, int]:
+    """Apply the lifecycle rules. Runs at most hourly per user (on library load)."""
+    now_m = time.monotonic()
+    if not force and now_m - _VC_SWEPT.get(uname, -1e9) < 3600:
+        return {"slimmed": 0, "deleted": 0}
+    _VC_SWEPT[uname] = now_m
+    slimmed = deleted = 0
+    with _VC_ACTIVE_LOCK:
+        active = {cid for (un, cid) in _VC_ACTIVE if un == uname}
+    for c in _vc_load(uname):
+        cid = c.get("id") or ""
+        if not re.match(r'^[a-f0-9]{6,32}$', cid) or cid in active or c.get("kept") or c.get("status") == "rendering":
+            continue
+        life = _vc_lifecycle(uname, c)
+        if life["expires_in_days"] == 0:
+            with _VC_LOCK:
+                _vc_save(uname, [x for x in _vc_load(uname) if x.get("id") != cid])
+            _shutil_ve.rmtree(_vc_dir(uname) / cid, ignore_errors=True)
+            deleted += 1
+        elif life["slim_in_days"] == 0 and _vc_file(uname, c):
+            for p in _vc_source_files(uname, cid):
+                try: p.unlink()
+                except Exception: pass
+            _vc_update(uname, cid, lambda x: x.update({"slim": True}))
+            slimmed += 1
+    if slimmed or deleted:
+        print(f"[VC] storage sweep {uname}: slimmed={slimmed} deleted={deleted}", flush=True)
+    return {"slimmed": slimmed, "deleted": deleted}
+
 def _vc_file(uname: str, c: Optional[Dict[str, Any]], kind: str = "file") -> Optional[Path]:
     """Current rendered clip (kind='file') or thumbnail (kind='thumb') path, if present."""
     if not c or not re.match(r'^[a-f0-9]{6,32}$', str(c.get("id") or "")):
@@ -29789,8 +29872,32 @@ def api_vclips_list():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = u.get("username", "")
     _vc_recover_orphans(uname, u)
-    return jsonify({"ok": True, "clips": [_vc_public(c) for c in _vc_load(uname)],
+    try:
+        _vc_sweep(uname)
+    except Exception as e:
+        _capture_error(e, context="vc_sweep")
+    clips, auto_free = [], 0
+    for c in _vc_load(uname):
+        pc = _vc_public(c)
+        life = _vc_lifecycle(uname, c)
+        pc["life"] = life
+        if (life["slim_in_days"] is not None and life["slim_in_days"] <= 7) or \
+           (life["expires_in_days"] is not None and life["expires_in_days"] <= 7):
+            auto_free += life["frees"]
+        clips.append(pc)
+    return jsonify({"ok": True, "clips": clips, "auto_free": auto_free,
+                    "slim_days": VCLIP_SLIM_DAYS, "unused_days": VCLIP_UNUSED_DAYS,
                     "usage": _vc_usage(uname), "limit": _vc_limit(uname), "brand": _vc_brand(uname)})
+
+
+@app.post("/api/vclips/<cid>/touch")
+def api_vclips_touch(cid):
+    """Opening a clip counts as activity — resets its unused-clip timer."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    c = _vc_update(u.get("username", ""), cid, lambda x: x.update({"opened_at": now_iso()}))
+    return jsonify({"ok": bool(c)})
 
 
 @app.post("/api/vclips")
@@ -29843,6 +29950,8 @@ def api_vclips_update(cid):
     rerender = False
     def _apply(x):
         nonlocal rerender
+        if "kept" in b:
+            x["kept"] = bool(b["kept"])
         if "title" in b:
             x["title"] = (str(b.get("title") or "").strip() or "Untitled clip")[:80]
         if "start" in b or "end" in b:
@@ -29894,6 +30003,16 @@ def api_vclips_update(cid):
         if "social" in b and isinstance(b["social"], dict):
             x["social"] = {"caption": str(b["social"].get("caption") or "")[:2200],
                            "hashtags": [str(h).strip().lstrip("#")[:40] for h in (b["social"].get("hashtags") or []) if str(h).strip()][:30]}
+    if c.get("slim"):
+        # Source copy was cleared to save space — only title / caption / Keep can change
+        probe_c = dict(c, words=[dict(w) for w in (c.get("words") or [])])
+        try:
+            _apply(probe_c)
+        except _VcError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 400
+        if rerender:
+            return jsonify({"ok": False, "error": "Editing is closed for this clip — its source copy was cleared "
+                            f"{VCLIP_SLIM_DAYS} days after you used it, to save space. The finished video is still here."}), 409
     try:
         c = _vc_update(uname, cid, _apply)
     except _VcError as ve:
@@ -29957,6 +30076,8 @@ def api_vclips_duplicate(cid):
     new = dict(c)
     new.update({"id": uuid.uuid4().hex[:12], "title": (c.get("title") or "Clip")[:72] + " (copy)",
                 "created_at": now_iso(), "updated_at": now_iso()})
+    for k in ("used_at", "opened_at", "kept"):   # a copy starts its own storage timers
+        new.pop(k, None)
     src, dst = _vc_dir(uname) / cid, _vc_dir(uname) / new["id"]
     _shutil_ve.copytree(src, dst, dirs_exist_ok=True)
     with _VC_LOCK:
@@ -29994,6 +30115,7 @@ def api_vclips_file(cid):
     if not p:
         return jsonify({"ok": False, "error": "Clip not ready"}), 404
     if request.args.get("download"):
+        _vc_mark_used(uname, [cid])
         name = re.sub(r"[^A-Za-z0-9 _\-]+", "", c.get("title") or "clip").strip() or "clip"
         return _sf(str(p), mimetype="video/mp4", as_attachment=True, download_name=f"{name}.mp4")
     return _sf(str(p), mimetype="video/mp4", conditional=True)
@@ -30084,6 +30206,7 @@ def api_vclips_zip():
                     name = f"{base} ({n}).mp4"; n += 1
                 used.add(name)
                 z.write(p, name)
+                _vc_mark_used(uname, [i])
 
     @after_this_request
     def _rm(resp):
@@ -30401,7 +30524,9 @@ def api_vclips_to_planner(cid):
     if not _vc_file(uname, c):
         return jsonify({"ok": False, "error": "Clip isn't ready yet."}), 404
     b = request.get_json(silent=True) or {}
-    return jsonify({"ok": True, "post": _vc_add_planner_draft(uname, c, b.get("platforms") or [])})
+    post = _vc_add_planner_draft(uname, c, b.get("platforms") or [])
+    _vc_mark_used(uname, [cid])
+    return jsonify({"ok": True, "post": post})
 
 
 _SP_PLATFORMS = ("facebook", "instagram", "youtube", "tiktok", "linkedin")
@@ -30453,6 +30578,7 @@ def _vc_plan_week(u: Dict[str, Any], clip_ids: List[str], platforms: List[str], 
         local = datetime(day.year, day.month, day.day, hour, 0, tzinfo=tz)
         utc = local.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         post = _vc_add_planner_draft(uname, c, platforms, local.strftime("%Y-%m-%dT%H:%M:%S"), utc, base_url)
+        _vc_mark_used(uname, [c["id"]])
         out.append(post["id"])
     return out
 
