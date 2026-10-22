@@ -4466,6 +4466,7 @@ label {
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
             <button class="saDropItem" id="contentPlannerBtn" onclick="saToggleDrop('saManageDrop');showContentPlannerModal()">📅 Content Planner</button>
             <button class="saDropItem" id="imageLibBtn">🖼 Media Library</button>
+            <button class="saDropItem" id="leadFormBtn" onclick="saToggleDrop('saManageDrop');saOpenLeadForm()">📥 Lead Form</button>
           </div>
           </div>
         </div>
@@ -38510,6 +38511,102 @@ function load(){
 // Delay so the table renders first and the strip never blocks initial paint.
 if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', function(){ setTimeout(load, 1500); }); }
 else { setTimeout(load, 1500); }
+})();
+</script>
+
+<style>
+/* ── Lead Form panel (V14.9) ─────────────────────────────── */
+#lfOverlay{position:fixed;inset:0;z-index:1000020;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}
+#lfCard{width:min(760px,100%);background:#0d1328;border:1px solid rgba(124,58,237,.45);border-radius:18px;padding:22px 24px;color:#e2e8f0;box-shadow:0 24px 80px rgba(0,0,0,.7);}
+#lfCard h2{margin:0;font-size:calc(19px * var(--fs,1.1));}
+#lfCard .lf-sub{color:#94a3b8;font-size:calc(14px * var(--fs,1.1));margin:4px 0 16px;line-height:1.5;}
+#lfCard .lf-sec{border-top:1px solid rgba(255,255,255,.08);padding-top:14px;margin-top:14px;}
+#lfCard .lf-h{font-size:calc(14px * var(--fs,1.1));font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a5b4fc;margin-bottom:8px;}
+#lfCard label{display:block;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;margin-bottom:10px;}
+#lfCard input[type=text],#lfCard textarea,#lfCard select{display:block;width:100%;box-sizing:border-box;margin-top:5px;background:rgba(14,22,48,.9);border:1px solid rgba(80,110,200,.35);border-radius:9px;padding:8px 10px;color:#e2e8f0;font-size:calc(14px * var(--fs,1.1));font-family:inherit;outline:none;}
+#lfCard .lf-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+#lfCard .lf-chk{display:flex;align-items:center;gap:7px;margin:0 14px 8px 0;cursor:pointer;}
+#lfCard .lf-chk input{accent-color:#8b5cf6;width:17px;height:17px;}
+#lfCard .lf-link{flex:1;min-width:200px;font-family:monospace;background:rgba(0,0,0,.35);border-radius:8px;padding:8px 10px;font-size:calc(14px * var(--fs,1.1));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#lfCard .lf-sub2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+#lfCard .lf-list div{font-size:calc(14px * var(--fs,1.1));padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);color:#cbd5e1;}
+@media(max-width:640px){ #lfCard .lf-sub2{grid-template-columns:1fr;} #lfOverlay{padding:12px;} }
+</style>
+<script>
+/* ═══ LEAD FORM — a form for your website; every submission becomes a contact
+   and a reply draft waits in Ready for you within seconds (V14.9) ═══ */
+(function(){
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function toast(m,t){ if(window.showToast) window.showToast(m,t); }
+  function post(body){ return fetch('/api/leadform',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();}); }
+  function copy(text,label){
+    if(navigator.clipboard) navigator.clipboard.writeText(text).then(function(){ toast('📋 '+label+' copied'); });
+    else prompt('Copy:',text);
+  }
+  function close(){ var o=document.getElementById('lfOverlay'); if(o) o.remove(); }
+  function render(d){
+    var f=d.form||{}, o=document.getElementById('lfOverlay');
+    if(!o){ o=document.createElement('div'); o.id='lfOverlay'; o.onclick=function(e){ if(e.target===o) close(); }; document.body.appendChild(o); }
+    var stages=(d.stages||['Lead']).map(function(s){ return '<option'+(s===f.stage?' selected':'')+'>'+esc(s)+'</option>'; }).join('');
+    var recent=(d.recent||[]).length?(d.recent||[]).map(function(s){
+      return '<div>'+(s.existing?'📇 ':'➕ ')+'<b>'+esc(s.name)+'</b> · '+esc(s.email)+' <span style="opacity:.6">· '+esc(String(s.at||'').slice(0,16).replace('T',' '))+(s.drafted?' · reply drafted':'')+'</span></div>';
+    }).join(''):'<div style="opacity:.7">Nobody yet — share your link or add the form to your website.</div>';
+    o.innerHTML='<div id="lfCard">'+
+      '<div class="lf-row" style="justify-content:space-between"><h2>📥 Lead Form</h2><button class="btn btnMini" id="lfClose">✕</button></div>'+
+      '<div class="lf-sub">Put this form on your website or share the link. Everyone who fills it in becomes a contact, and a personal reply waits for you in <b>Ready for you</b> within seconds.</div>'+
+      '<label class="lf-chk" style="font-weight:700"><input type="checkbox" id="lfOn"'+(f.enabled?' checked':'')+'> Form is on</label>'+
+      '<div class="lf-sec"><div class="lf-h">Your form</div>'+
+        '<div class="lf-row"><div class="lf-link" title="'+esc(d.url)+'">'+esc(d.url)+'</div>'+
+        '<button class="btn btnMini" id="lfCopyLink">📋 Copy link</button><a class="btn btnMini" href="'+esc(d.url)+'" target="_blank" rel="noopener">↗ Open</a></div>'+
+        '<label style="margin-top:10px">Add it to your website (paste this where you want the form)<textarea id="lfEmbed" rows="3" readonly>'+esc(d.embed)+'</textarea></label>'+
+        '<button class="btn btnMini" id="lfCopyEmbed">📋 Copy website code</button></div>'+
+      '<div class="lf-sec"><div class="lf-h">What it asks</div>'+
+        '<div class="lf-sub2"><label>Title<input type="text" id="lfTitle" maxlength="80" value="'+esc(f.title)+'"></label>'+
+        '<label>Button text<input type="text" id="lfButton" maxlength="80" value="'+esc(f.button)+'"></label></div>'+
+        '<label>Intro line<textarea id="lfIntro" rows="2" maxlength="600">'+esc(f.intro)+'</textarea></label>'+
+        '<div class="lf-row" style="margin-bottom:6px"><span style="font-size:calc(14px * var(--fs,1.1));color:#94a3b8;margin-right:6px">Name and email are always asked. Also ask:</span>'+
+        '<label class="lf-chk"><input type="checkbox" id="lfPhone"'+(f.phone?' checked':'')+'> Phone</label>'+
+        '<label class="lf-chk"><input type="checkbox" id="lfCompany"'+(f.company?' checked':'')+'> Company</label>'+
+        '<label class="lf-chk"><input type="checkbox" id="lfMessage"'+(f.message?' checked':'')+'> Message</label></div>'+
+        '<label>Thank-you message<textarea id="lfThanks" rows="2" maxlength="600">'+esc(f.thanks)+'</textarea></label></div>'+
+      '<div class="lf-sec"><div class="lf-h">What happens next</div>'+
+        '<div class="lf-sub2"><label>New leads go into this stage<select id="lfStage">'+stages+'</select></label>'+
+        '<label>And get this tag<input type="text" id="lfTag" maxlength="80" value="'+esc(f.tag)+'"></label></div>'+
+        '<label class="lf-chk"><input type="checkbox" id="lfAuto"'+(f.auto_reply?' checked':'')+'> ⚡ Draft a personal reply right away (you approve it in Ready for you)</label>'+
+        '<label>How to reply (optional)<textarea id="lfHint" rows="2" maxlength="600" placeholder="e.g. Offer a free 15-minute call and share my booking link.">'+esc(f.reply_hint)+'</textarea></label></div>'+
+      '<div class="lf-row" style="margin-top:14px;justify-content:space-between">'+
+        '<button class="btn" id="lfNewLink" title="Turns off the old link and makes a new one">🔄 New link</button>'+
+        '<button class="btn btnPrimary" id="lfSave">✔ Save</button></div>'+
+      '<div class="lf-sec"><div class="lf-h">Latest ('+(+d.count||0)+' total)</div><div class="lf-list">'+recent+'</div></div>'+
+    '</div>';
+    document.getElementById('lfClose').onclick=close;
+    document.getElementById('lfCopyLink').onclick=function(){ copy(d.url,'Link'); };
+    document.getElementById('lfCopyEmbed').onclick=function(){ copy(d.embed,'Website code'); };
+    document.getElementById('lfSave').onclick=function(){ save({}); };
+    document.getElementById('lfOn').onchange=function(){ save({}, this.checked?'✅ Form is on':'Form is off — the link shows "not available"'); };
+    document.getElementById('lfNewLink').onclick=function(){
+      if(!confirm('Make a new link? The old link and any website code using it stop working.')) return;
+      save({new_link:true},'🔄 New link ready — update your website code');
+    };
+  }
+  function val(id){ return (document.getElementById(id)||{}).value||''; }
+  function chk(id){ return !!(document.getElementById(id)||{}).checked; }
+  function save(extra,msg){
+    var b=Object.assign({enabled:chk('lfOn'),title:val('lfTitle'),button:val('lfButton'),intro:val('lfIntro'),thanks:val('lfThanks'),
+      phone:chk('lfPhone'),company:chk('lfCompany'),message:chk('lfMessage'),stage:val('lfStage'),tag:val('lfTag'),
+      auto_reply:chk('lfAuto'),reply_hint:val('lfHint')},extra||{});
+    post(b).then(function(d){
+      if(!d.ok){ toast(d.error||'Could not save','error'); return; }
+      render(d); toast(msg||'✔ Lead form saved','success');
+    });
+  }
+  window.saOpenLeadForm=function(){
+    fetch('/api/leadform').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ toast(d.error||'Could not open the lead form','error'); return; }
+      render(d);
+    }).catch(function(){ toast('Could not open the lead form','error'); });
+  };
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape' && document.getElementById('lfOverlay')) close(); });
 })();
 </script>
 

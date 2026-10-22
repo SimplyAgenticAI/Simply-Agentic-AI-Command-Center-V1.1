@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "14.8")
+APP_VERSION = os.getenv("APP_VERSION", "14.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -2729,7 +2729,10 @@ def _add_security_headers(response):
         response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-SA-Extension-Key"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         return response
-    response.headers["X-Frame-Options"]        = "SAMEORIGIN"
+    if not (request.path or "").startswith("/f/"):
+        # The public lead form (/f/, V14.9) is made to be embedded on the owner's
+        # website, so it gets frame-ancestors * in the CSP below instead.
+        response.headers["X-Frame-Options"]    = "SAMEORIGIN"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"]        = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]     = "geolocation=(), camera=(self), microphone=(self)"
@@ -2752,6 +2755,8 @@ def _add_security_headers(response):
         "object-src 'none'; "
         "base-uri 'self';"
     )
+    if (request.path or "").startswith("/f/"):
+        csp += " frame-ancestors *;"
     response.headers["Content-Security-Policy"] = csp
     return response
 
@@ -2861,7 +2866,7 @@ _CSRF_EXEMPT_PATHS = {
     "/api/login", "/api/logout", "/api/reset_request", "/api/reset_password",
     "/api/register", "/api/me",
 }
-_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/book/", "/api/public/booking/")
+_CSRF_EXEMPT_PREFIXES = ("/stripe/", "/oauth/", "/static/", "/book/", "/api/public/booking/", "/f/")
 
 def _csrf_token_for_session() -> str:
     """Return the CSRF token for the current session, creating one if absent."""
@@ -3328,6 +3333,10 @@ def _auth_guard() -> Optional[Any]:
         # actually protect the writes here; see the Booking Link routes.
         return None
     if request.path.startswith("/api/public/booking/"):
+        return None
+    if request.path.startswith("/f/"):
+        # Public lead form (V14.9): visitors have no session. Rate limits + a
+        # honeypot protect the submit, like the booking page.
         return None
     if request.path.startswith("/vclip/"):
         # Signed public clip links (social media_url) — the token is the auth
@@ -22097,7 +22106,8 @@ AGENT_JOBS: Dict[str, Dict[str, Any]] = {
                   "kind": "followup", "hint": "Contacts whose follow-up date is today or earlier."},
 }
 AGENT_KIND_LABELS = {"intro": "intro emails to new leads", "followup": "follow-up emails",
-                     "new_contact": "new-contact hellos", "note_followup": "follow-ups from your notes"}
+                     "new_contact": "new-contact hellos", "note_followup": "follow-ups from your notes",
+                     "form_reply": "replies to your lead form"}
 AGENT_TRUST_OFFER_AT = 10      # unedited approvals in a row before offering auto-send
 AGENT_DEFAULT_HOUR = 7
 # Event triggers (V12.4): "when X happens, teammate Y does Z". Each rule has
@@ -23877,6 +23887,240 @@ def api_share_view(token: str):
 
 
 # ── OPERATOR DASHBOARD ────────────────────────────────────────────────────────
+
+
+# =========================
+# LEAD FORM (V14.9)
+# =========================
+# A hosted form at /f/<token> the owner links to or embeds on their website.
+# Each submission becomes a contact (or a note on an existing one) and, if
+# auto-reply is on, a personal reply draft lands in Ready for you within
+# seconds — always to the visitor's own email, never sent without approval
+# unless the owner later trusts "replies to your lead form".
+_LF_DIR = DATA / "lead_forms"
+_LF_LOCK = threading.Lock()
+_LF_DEFAULTS = {"enabled": True, "title": "", "intro": "Tell us a little about what you need and we'll get right back to you.",
+                "button": "Send", "thanks": "Thanks! We got your message and will be in touch shortly.",
+                "phone": True, "company": False, "message": True, "stage": "Lead", "tag": "website-form",
+                "auto_reply": True, "reply_hint": ""}
+
+
+def _lf_path(uname: str) -> Path:
+    return _LF_DIR / f"{_safe_name(uname or 'anon')}.json"
+
+
+def _lf_index_path() -> Path:
+    return _LF_DIR / "_tokens.json"
+
+
+def _lf_load(uname: str, create: bool = False) -> Dict[str, Any]:
+    d = load_json(_lf_path(uname), {}) or {}
+    if not isinstance(d, dict):
+        d = {}
+    if create and not d.get("token"):
+        with _LF_LOCK:
+            d = load_json(_lf_path(uname), {}) or {}
+            if not d.get("token"):
+                d = dict(_LF_DEFAULTS, **d)
+                d["token"] = secrets.token_urlsafe(9).replace("-", "x").replace("_", "y")
+                d.setdefault("submissions", [])
+                d.setdefault("count", 0)
+                idx = load_json(_lf_index_path(), {}) or {}
+                idx[d["token"]] = uname
+                save_json(_lf_index_path(), idx)
+                save_json(_lf_path(uname), d)
+    for k, v in _LF_DEFAULTS.items():
+        d.setdefault(k, v)
+    return d
+
+
+def _lf_owner(token: str) -> str:
+    if not re.match(r"^[A-Za-z0-9]{6,32}$", token or ""):
+        return ""
+    return str((load_json(_lf_index_path(), {}) or {}).get(token) or "")
+
+
+def _lf_public_url(token: str) -> str:
+    base = (PUBLIC_BASE_URL or request.host_url).rstrip("/")
+    return f"{base}/f/{token}"
+
+
+@app.get("/api/leadform")
+def api_leadform_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    d = _lf_load(uname, create=True)
+    if not d.get("title"):
+        d["title"] = ((_load_operator_profile(uname) or {}).get("business") or "").split("\n")[0][:60] or "Get in touch"
+    url = _lf_public_url(d["token"])
+    embed = (f'<iframe src="{url}?embed=1" title="Contact form" loading="lazy" '
+             'style="width:100%;max-width:560px;height:620px;border:0;border-radius:14px;"></iframe>')
+    stages = (_crm_load(uname).get("pipeline") or {}).get("stages") or _default_pipeline_stages()
+    return jsonify({"ok": True, "form": {k: d.get(k) for k in _LF_DEFAULTS}, "url": url, "embed": embed,
+                    "count": int(d.get("count") or 0), "recent": (d.get("submissions") or [])[:10], "stages": stages})
+
+
+@app.post("/api/leadform")
+def api_leadform_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    b = request.get_json(silent=True) or {}
+    _lf_load(uname, create=True)
+    with _LF_LOCK:
+        d = _lf_load(uname)
+        for k in ("title", "intro", "button", "thanks", "tag", "reply_hint", "stage"):
+            if k in b:
+                d[k] = str(b.get(k) or "").strip()[:(600 if k in ("intro", "thanks", "reply_hint") else 80)]
+        for k in ("enabled", "phone", "company", "message", "auto_reply"):
+            if k in b:
+                d[k] = bool(b[k])
+        if b.get("new_link"):
+            idx = load_json(_lf_index_path(), {}) or {}
+            idx.pop(d.get("token"), None)
+            d["token"] = secrets.token_urlsafe(9).replace("-", "x").replace("_", "y")
+            idx[d["token"]] = uname
+            save_json(_lf_index_path(), idx)
+        save_json(_lf_path(uname), d)
+    return api_leadform_get()
+
+
+def _lf_page(d: Dict[str, Any], token: str, embed: bool, owner: str) -> str:
+    import html as _h
+    e = lambda s: _h.escape(str(s or ""), quote=True)
+    color = (_vc_brand(owner) or {}).get("color") or "#7c3aed"
+    color = color if re.match(r"^#[0-9a-fA-F]{6}$", color) else "#7c3aed"
+    field = lambda name, label, typ="text", req=False: (
+        f'<label>{e(label)}{" *" if req else ""}<input name="{name}" type="{typ}" '
+        f'{"required" if req else ""} autocomplete="{ {"name": "name", "email": "email", "phone": "tel", "company": "organization"}.get(name, "off") }"></label>')
+    fields = field("name", "Your name", req=True) + field("email", "Email", "email", True)
+    if d.get("phone"):
+        fields += field("phone", "Phone", "tel")
+    if d.get("company"):
+        fields += field("company", "Company")
+    if d.get("message"):
+        fields += '<label>How can we help?<textarea name="message" rows="4"></textarea></label>'
+    bg = "transparent" if embed else "#f6f7fb"
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(d.get('title'))}</title>
+<style>
+*{{box-sizing:border-box}}body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:{bg};color:#111827;}}
+.card{{max-width:540px;margin:{'0' if embed else '40px'} auto;background:#fff;border-radius:14px;padding:26px;{'' if embed else 'box-shadow:0 10px 40px rgba(0,0,0,.08);'}}}
+h1{{font-size:24px;margin:0 0 6px}}p.i{{color:#4b5563;margin:0 0 18px;font-size:16px;line-height:1.5}}
+label{{display:block;font-size:15px;font-weight:600;margin:0 0 14px;color:#374151}}
+input,textarea{{display:block;width:100%;margin-top:6px;padding:11px 12px;border:1px solid #d1d5db;border-radius:9px;font:inherit;font-size:16px}}
+input:focus,textarea:focus{{outline:2px solid {color};border-color:transparent}}
+button{{width:100%;padding:13px;border:0;border-radius:10px;background:{color};color:#fff;font-size:17px;font-weight:700;cursor:pointer}}
+button:disabled{{opacity:.6}}.hp{{position:absolute;left:-5000px}}.msg{{margin-top:12px;font-size:15px}}.err{{color:#b91c1c}}
+.ok{{text-align:center;font-size:18px;line-height:1.5;padding:30px 6px}}
+</style></head><body><div class="card" id="c">
+<h1>{e(d.get('title'))}</h1><p class="i">{e(d.get('intro'))}</p>
+<form id="f" novalidate>{fields}
+<label class="hp" aria-hidden="true">Website<input name="hp_website" tabindex="-1" autocomplete="off"></label>
+<button id="b" type="submit">{e(d.get('button') or 'Send')}</button><div class="msg err" id="m"></div></form></div>
+<script>
+document.getElementById('f').addEventListener('submit',function(ev){{
+  ev.preventDefault();var f=ev.target,b=document.getElementById('b'),m=document.getElementById('m'),o={{}};
+  new FormData(f).forEach(function(v,k){{o[k]=v;}});
+  if(!o.name||!o.email||!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(o.email)){{m.textContent='Please add your name and a valid email.';return;}}
+  b.disabled=true;m.textContent='';
+  fetch(location.pathname,{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(o)}})
+   .then(function(r){{return r.json();}}).then(function(d){{
+     if(!d.ok){{b.disabled=false;m.textContent=d.error||'Something went wrong — please try again.';return;}}
+     var c=document.getElementById('c');c.innerHTML='';var t=document.createElement('div');t.className='ok';t.textContent=d.message;c.appendChild(t);
+   }}).catch(function(){{b.disabled=false;m.textContent='Could not send — check your connection and try again.';}});
+}});
+</script></body></html>"""
+
+
+@app.get("/f/<token>")
+def public_lead_form(token):
+    ok_rl, _msg = _rate_limit_check(f"leadform_page:{_get_client_ip()}", 60)
+    if not ok_rl:
+        return "Too many requests — try again in a minute.", 429
+    owner = _lf_owner(token)
+    d = _lf_load(owner) if owner else {}
+    if not owner or d.get("token") != token or not d.get("enabled"):
+        return "This form isn't available.", 404
+    if not d.get("title"):
+        d["title"] = ((_load_operator_profile(owner) or {}).get("business") or "").split("\n")[0][:60] or "Get in touch"
+    resp = make_response(_lf_page(d, token, bool(request.args.get("embed")), owner))
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    return resp
+
+
+@app.post("/f/<token>")
+def public_lead_form_submit(token):
+    ip = _get_client_ip()
+    ok_rl, msg = _rate_limit_check(f"leadform_submit:{ip}", 5)
+    if not ok_rl:
+        return jsonify({"ok": False, "error": "Too many tries — please wait a minute."}), 429
+    owner = _lf_owner(token)
+    d = _lf_load(owner) if owner else {}
+    if not owner or d.get("token") != token or not d.get("enabled"):
+        return jsonify({"ok": False, "error": "This form isn't available."}), 404
+    ok_rl2, _ = _rate_limit_check(f"leadform_owner:{owner}", 60)   # cap a flood against one account
+    if not ok_rl2:
+        return jsonify({"ok": False, "error": "This form is busy — please try again shortly."}), 429
+    p = request.get_json(silent=True) or request.form.to_dict() or {}
+    thanks = d.get("thanks") or _LF_DEFAULTS["thanks"]
+    if str(p.get("hp_website") or "").strip():
+        append_log("leadform_spam_blocked", {"owner": owner, "ip": ip, "at": now_iso()})
+        return jsonify({"ok": True, "message": thanks})          # look successful to bots
+    name = str(p.get("name") or "").strip()[:120]
+    email = str(p.get("email") or "").strip()[:200]
+    if not name or not EMAIL_RE.match(email):
+        return jsonify({"ok": False, "error": "Please add your name and a valid email."}), 400
+    phone = str(p.get("phone") or "").strip()[:40] if d.get("phone") else ""
+    company = str(p.get("company") or "").strip()[:120] if d.get("company") else ""
+    message = str(p.get("message") or "").strip()[:3000] if d.get("message") else ""
+
+    crm = _crm_load(owner)
+    existing = _note_find_contact(crm, "", email)
+    _AGENT_QUIET.on = bool(d.get("auto_reply"))     # the form's own reply replaces the generic "hello"
+    try:
+        if existing:
+            cid = existing["id"]
+            _execute_teammate_tool("crm_log_activity", {"client_id": cid, "note": "Filled in your lead form" + (f": {message}" if message else ".")},
+                                   owner, "Lead form", source="leadform")
+        else:
+            r = _execute_teammate_tool("crm_add_client", {"name": name, "email": email, "phone": phone, "company": company,
+                                                          "notes": (f"From your website form: {message}" if message else "From your website form."),
+                                                          "tags": [d.get("tag") or "website-form"], "pipeline_stage": d.get("stage") or "Lead"},
+                                       owner, "Lead form", source="leadform")
+            if not r.get("ok"):
+                _capture_error(Exception(r.get("summary")), context="leadform_add")
+                return jsonify({"ok": True, "message": thanks})   # the visitor did nothing wrong
+            cid = r.get("client_id")
+        drafted = False
+        if d.get("auto_reply"):
+            client = (_crm_load(owner).get("clients") or {}).get(cid)
+            if client:
+                purpose = ("Reply to someone who just filled in the contact form on your website. Thank them, answer what they "
+                           "asked if you can, and suggest one easy next step (a quick call or a reply)."
+                           + (f" Their message: {message}" if message else " They didn't leave a message.")
+                           + (f" How to reply: {d.get('reply_hint')}" if d.get("reply_hint") else ""))
+                try:
+                    with _AGENT_LOCK:
+                        ad = _agent_load(owner)
+                        res = _agent_queue(owner, ad, "form_reply", "Sunshine", client, purpose[:900],
+                                           f"Reply to {client.get('name')} (website form)", trigger="Lead form")
+                        _agent_save(owner, ad)
+                    drafted = res in ("queued", "sent")
+                except Exception as e:
+                    _capture_error(e, context="leadform_reply")
+    finally:
+        _AGENT_QUIET.on = False
+    with _LF_LOCK:
+        d2 = _lf_load(owner)
+        d2["count"] = int(d2.get("count") or 0) + 1
+        d2["submissions"] = ([{"name": name, "email": email, "at": now_iso(), "client_id": cid,
+                               "existing": bool(existing), "drafted": drafted}] + (d2.get("submissions") or []))[:50]
+        save_json(_lf_path(owner), d2)
+    return jsonify({"ok": True, "message": thanks})
 
 
 # =========================
