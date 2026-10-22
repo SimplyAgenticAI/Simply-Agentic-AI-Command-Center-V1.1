@@ -36799,6 +36799,9 @@ window.addEventListener('focus', function(){
   #veToolbar{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px 4px;}
   #veToolbar button{flex:1;min-width:110px;}
   #veToolbar .ve-mini,#veToolbar .ve-auto button{flex:0 0 auto;min-width:0;}   /* V14.1: compact, not stretched */
+  .ve-fmt{width:100%;flex-basis:100%;display:flex;gap:4px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:3px;}
+  #veToolbar .ve-fmt button{flex:1;min-width:0;background:none;border:none;border-radius:8px;color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:7px 4px;cursor:pointer;}
+  #veToolbar .ve-fmt button.on{background:rgba(124,58,237,.4);color:#fff;}
   @media(max-width:680px){
     #veBody{flex-direction:column;overflow-y:auto;}
     #veSidebar{width:100%;max-height:none;border-right:none;border-bottom:1px solid rgba(42,58,106,.4);flex-shrink:0;overflow-y:visible;}
@@ -36865,7 +36868,10 @@ window.addEventListener('focus', function(){
 
       <!-- AI + Tool buttons (shown after upload) -->
       <div id="veToolbar">
-        <button id="vcMakeShortsBtn" onclick="vcMakeShorts()" style="display:none;width:100%;flex-basis:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:12px;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;padding:12px 10px;cursor:pointer;box-shadow:0 6px 20px rgba(236,72,153,.35);" title="AI finds the best moments and makes captioned vertical shorts">⚡ Make my shorts</button>
+        <div id="vcShortsFmt" class="ve-fmt" style="display:none;" title="Shape of the clips Make my shorts creates">
+          <button type="button" data-v="9:16" class="on">📱 9:16</button><button type="button" data-v="1:1">⬛ 1:1</button><button type="button" data-v="16:9">🖥 16:9</button>
+        </div>
+        <button id="vcMakeShortsBtn" onclick="vcMakeShorts()" style="display:none;width:100%;flex-basis:100%;background:linear-gradient(135deg,#f59e0b,#ec4899);border:none;border-radius:12px;color:#fff;font-size:calc(15px * var(--fs,1.1));font-weight:800;padding:12px 10px;cursor:pointer;box-shadow:0 6px 20px rgba(236,72,153,.35);" title="AI finds the best moments and makes captioned clips in the format you picked">⚡ Make my shorts</button>
         <div id="vcAutoBanner" style="display:none;width:100%;flex-basis:100%;"></div>
         <details id="veMoreTools" class="ve-more" style="display:none;width:100%;flex-basis:100%;">
           <summary>⋯ More tools</summary>
@@ -37313,7 +37319,8 @@ window.addEventListener('focus', function(){
     if(window._veStatus) window._veStatus('Transcribing + picking the best moments… clips will appear in My Clips as they finish.','info');
     S.busy=true;
     setTimeout(function(){ vcShowTab('clips'); }, 1200);
-    post('/api/vclips/make_shorts',{video_id:st.vid,duration:st.dur}).then(function(d){
+    var fb=document.querySelector('#vcShortsFmt button.on'), aspect=fb?fb.getAttribute('data-v'):'9:16';
+    post('/api/vclips/make_shorts',{video_id:st.vid,duration:st.dur,aspect:aspect}).then(function(d){
       S.busy=false; b.disabled=false; b.textContent='⚡ Make my shorts';
       if(!d.ok){ toast(d.error||'Could not make shorts','error'); if(window._veStatus) window._veStatus(d.error||'Could not make shorts','err'); load(); return; }
       toast('✅ '+(d.clip_ids||[]).length+' shorts ready, with captions and hashtags written. Hit 📅 Schedule all to line them up for next week.','success');
@@ -37337,6 +37344,18 @@ window.addEventListener('focus', function(){
       if(box==='vcCapStyle' && !$('vcCapOn').checked){ $('vcCapOn').checked=true; vcDirty(); }
     });
   });
+
+  /* Make-my-shorts format picker (9:16 / 1:1 / 16:9) — remembered per browser */
+  (function(){
+    var box=$('vcShortsFmt'); if(!box) return;
+    function pick(v){ [].forEach.call(box.querySelectorAll('button'),function(b){ b.classList.toggle('on',b.getAttribute('data-v')===v); }); }
+    try{ var saved=localStorage.getItem('vcShortsFmt'); if(saved) pick(saved); }catch(_){}
+    box.addEventListener('click',function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      pick(b.getAttribute('data-v'));
+      try{ localStorage.setItem('vcShortsFmt',b.getAttribute('data-v')); }catch(_){}
+    });
+  })();
 
   function refreshEditor(c,full){
     showEditor(c); if(!c) return;
@@ -37770,6 +37789,7 @@ window.addEventListener('focus', function(){
       if(pw) pw.style.display='none';
       _veVidId = videoId;
       $('vcMakeShortsBtn').style.display='block';
+      $('vcShortsFmt').style.display='';
       $('veMoreTools').style.display='';
       ['veAutoClipBtn','veExtractAudioBtn','veTranscriptBtn','veMuteExportBtn','veScreenshotBtn'].forEach(function(id){ if($(id)) $(id).style.display=''; });
       $('veExportPanel').style.display='block';

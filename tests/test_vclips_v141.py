@@ -49,6 +49,21 @@ def test_master_preview_needs_the_file(vc):
     assert c.get(f"/api/vclips/{cid}/master").status_code == 200
 
 
+def test_make_shorts_honours_16_9(vc, monkeypatch):
+    c, h, uname, *_ = vc
+    seen = {}
+    monkeypatch.setattr(app_module, "_ve_source_path", lambda vid: app_module.DATA / "x.mp4")
+    monkeypatch.setattr(app_module, "_ve_start_job", lambda u, work, key="": (seen.setdefault("work", work), "job1")[1])
+    assert c.post("/api/vclips/make_shorts", headers=h, json={"video_id": "abc", "aspect": "16:9"}).get_json()["ok"]
+    monkeypatch.setattr(app_module, "_ve_source_transcript", lambda u, vid: [{"w": "hi", "s": 0, "e": 1}])
+    monkeypatch.setattr(app_module, "_ve_probe", lambda p: {"duration": 60, "has_audio": True, "w": 1920, "h": 1080})
+    monkeypatch.setattr(app_module, "_vc_pick_moments", lambda *a: [{"title": "A", "hook": "", "start": 0, "end": 30, "score": 80, "reason": ""}])
+    monkeypatch.setattr(app_module, "_vc_render", lambda *a: {"ok": True})
+    monkeypatch.setattr(app_module, "_vc_write_social", lambda *a, **k: (None, ""))
+    res = seen["work"]()
+    assert app_module._vc_get(uname, res["clip_ids"][0])["aspect"] == "16:9"
+
+
 def test_schedule_needs_clips(vc):
     c, h, *_ = vc
     assert c.post("/api/vclips/schedule", headers=h, json={"ids": []}).status_code == 400
