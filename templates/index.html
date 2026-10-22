@@ -4433,7 +4433,6 @@ label {
             <button class="saDropItem" id="manageTeamBtn">➕ Add / Dismiss</button>
             <button class="saDropItem" id="installFullBtn">⚡ Install Full Team</button>
             <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
-            <button class="saDropItem" id="frameworkBtn">🧠 Core Framework</button>
             <button class="saDropItem" onclick="saToggleDrop('saTeamDrop');saOpenIdeas()">💡 Ideas: what teammates can do</button>
             <div class="saMoreHead">Overview</div>
             <button class="saDropItem" id="dashboardNavBtn" onclick="saOpenDashboard()">📊 Dashboard</button>
@@ -4626,7 +4625,6 @@ label {
             <button class="btn" data-click="editTeammatesBtn" onclick="closeMobileDrawer()">✏️ Edit Teammates</button>
             <button class="btn" data-click="manageTeamBtn" onclick="closeMobileDrawer()">➕ Add / Dismiss</button>
             <button class="btn" data-click="installFullBtn" onclick="closeMobileDrawer()">⚡ Install Full Team</button>
-            <button class="btn" data-click="frameworkBtn" onclick="closeMobileDrawer()">🧠 Core Framework</button>
             <button class="btn" onclick="closeMobileDrawer();setTimeout(saOpenIdeas,200);">💡 Ideas: what teammates can do</button>
           </div>
         </div>
@@ -4929,29 +4927,6 @@ label {
                 </div>
               </div>
 
-              <div class="modalForm" id="frameworkForm">
-                <div class="modalInner">
-                <div class="tiny" style="margin-bottom:10px;text-align:center;">
-                  Your house rules are added to every one of <b>your</b> teammates' instructions. Only your account sees them.
-                  Facts about your business belong in your Profile, every teammate already reads it.
-                </div>
-
-                <details style="margin-bottom:12px;">
-                  <summary style="cursor:pointer;font-weight:700;">Platform rules (built in, every teammate follows these)</summary>
-                  <pre id="frameworkPlatform" style="white-space:pre-wrap;font-family:inherit;opacity:.8;margin-top:8px;max-height:260px;overflow:auto;"></pre>
-                </details>
-
-                <label>Your house rules <span class="tiny" id="frameworkCount" style="opacity:.6;"></span></label>
-                <textarea id="frameworkText" class="primaryArea" maxlength="4000" style="height:420px;min-height:240px;resize:vertical;" placeholder="How you want your teammates to work, e.g. 'Keep replies under 150 words', 'Always suggest a next step', 'Never use exclamation marks'"></textarea>
-
-                <div class="actions" style="justify-content:center;margin-top:12px;">
-                  <button class="btn" id="cancelFramework">Cancel</button>
-                  <button class="btn" id="resetFramework">Clear house rules</button>
-                  <button class="btn btnPrimary" id="saveFramework">Save house rules</button>
-                  <button class="btn btnPrimary" id="saveFrameworkExit">Save &amp; Exit</button>
-                </div>
-                <div class="tiny" id="frameworkStatus" style="margin-top:10px;text-align:center;"></div>
-                </div>
               </div>
 
 
@@ -5725,9 +5700,14 @@ label {
       <textarea id="opm_goals" rows="4" placeholder="Current goals"></textarea>
     </div>
     <div>
-      <label>Notes</label>
-      <textarea id="opm_notes" rows="4" placeholder="Anything else teammates should know"></textarea>
+      <label>Notes <span class="tiny" style="opacity:.7;font-weight:500;">— other facts about your business</span></label>
+      <textarea id="opm_notes" rows="4" placeholder="Hours, location, what makes you different…"></textarea>
     </div>
+  </div>
+  <div style="margin-top:14px;">
+    <label>How your team should work <span class="tiny" style="opacity:.7;font-weight:500;">— tone and style for every teammate, in every chat</span></label>
+    <textarea id="opm_house" rows="4" maxlength="4000" placeholder="e.g. Keep replies under 150 words. Always suggest a next step. Never use exclamation marks."></textarea>
+    <div class="tiny" style="opacity:.7;margin-top:4px;">Longer reference material (price lists, FAQs) works best as a Notepad note marked 🧠 Team knows this.</div>
   </div>
   <div class="actions" style="justify-content:center;margin-top:14px;">
     <button class="btn" id="operatorProfileCloseBtn">Close</button>
@@ -7981,7 +7961,6 @@ function applyModalPos(){
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("settingsForm")) $("settingsForm").style.display = "none";
             if($("apiKeyHelpForm")) $("apiKeyHelpForm").style.display = "none";
       if($("crmForm")) $("crmForm").style.display = "none";
@@ -8098,22 +8077,6 @@ window.showModal = function showModal(title, body, imgUrl){
 
       document.body.classList.add('modal-open');
       $("overlay").classList.add("show");
-      applyModalPos();
-
-      const sc = $("modalScroll");
-      if(sc) sc.scrollTop = 0;
-    }
-
-    function showFrameworkModal(){
-      $("modalTitle").innerText = "Core framework";
-      $("modalBody").innerText = "";
-      hideAllModalForms();
-      $("modalBody").style.display = "none";
-      $("frameworkForm").style.cssText = "display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
-      $("frameworkStatus").innerText = "Loading...";
-
-      $("overlay").classList.add("show");
-      try{ ensureModalMinSize(1100, 820); }catch(e){}
       applyModalPos();
 
       const sc = $("modalScroll");
@@ -9102,6 +9065,10 @@ window.showModal = function showModal(title, body, imgUrl){
         if($("opm_offers")) $("opm_offers").value = p.offers || '';
         if($("opm_goals")) $("opm_goals").value = p.goals || '';
         if($("opm_notes")) $("opm_notes").value = p.notes || '';
+        try{   // "How your team should work" = this account's house rules (was the Core Framework screen)
+          const fw = await (await fetch('/api/framework')).json();
+          if(fw.ok && $("opm_house")){ $("opm_house").value = fw.house_rules || ''; $("opm_house").dataset.saved = fw.house_rules || ''; }
+        }catch(_){}
         if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = 'Ready';
       }catch(e){
         if($("operatorProfileStatus")) $("operatorProfileStatus").innerText = e && e.message ? e.message : 'Load failed';
@@ -9123,6 +9090,12 @@ window.showModal = function showModal(title, body, imgUrl){
         const res = await fetch('/api/operator_profile', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
         const data = await res.json();
         if(!data.ok) throw new Error(data.error || 'Save failed');
+        const hr = $("opm_house");
+        if(hr && hr.value.trim() !== (hr.dataset.saved || '').trim()){
+          const fr = await (await fetch('/api/framework', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({house_rules: hr.value})})).json();
+          if(!fr.ok) throw new Error(fr.error || 'Could not save how your team should work');
+          hr.dataset.saved = fr.house_rules || '';
+        }
         // Keep global cache fresh for email sign-off replacement
         window._operatorProfile = payload;
         window.operatorProfileCache = payload;
@@ -12161,11 +12134,12 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
         <div style="height:10px"></div>
 
-        <div class="tiny">Notes</div>
-        <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Anything else teammates should know...">${safe(p.notes||"")}</textarea>
+        <div class="tiny">Notes — other facts about your business</div>
+        <textarea id="op_notes" class="followBox" style="min-height:70px" placeholder="Hours, location, what makes you different...">${safe(p.notes||"")}</textarea>
 
         <div style="height:12px"></div>
         <div class="pillRow" style="justify-content:flex-end">
+          <button class="btn btnMini" id="opHouse" title="Tone and style for every teammate">How your team should work →</button>
           <button class="btn btnMini" id="opReload">Reload</button>
           <button class="btn btnPrimary" id="opSave">Save</button>
           <button class="btn btnPrimary" id="opSaveExit">Save &amp; Exit</button>
@@ -12175,6 +12149,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
 
       const bind = (id, fn)=>{ const el=$(id); if(el) el.addEventListener("click", fn); };
       bind("opReload", async()=>{ await refreshThread(); });
+      bind("opHouse", ()=>{ if(typeof openOperatorProfileModal === "function") openOperatorProfileModal().then(()=>{ const h=$("opm_house"); if(h){ h.scrollIntoView({block:"center"}); h.focus(); } }); });
       bind("opSave", async()=>{
         const payload = {
           display_name: $("op_display_name").value,
@@ -16044,23 +16019,6 @@ $("draftWithSelected").onclick = async () => {
       showToast("✅ Teammate created and added to the round table");
     };
 
-    // Core framework
-    async function loadFrameworkIntoForm(){
-      $("frameworkStatus").innerText = "Loading...";
-      try{
-        const res = await fetch("/api/framework");
-        const data = await res.json();
-        if(!data.ok){ $("frameworkStatus").innerText = data.error || "Load failed"; return; }
-        $("frameworkPlatform").textContent = data.platform || "";
-        $("frameworkText").value = data.house_rules || "";
-        const _cnt = () => { $("frameworkCount").innerText = "(" + $("frameworkText").value.length + " / " + (data.max||4000) + ")"; };
-        $("frameworkText").oninput = _cnt; _cnt();
-        $("frameworkStatus").innerText = "Ready";
-      }catch(e){
-        $("frameworkStatus").innerText = "Load failed";
-      }
-    }
-
     // ===== PROMPT LIBRARY =====
     const TEAMMATE_ORDER = ["Alex","Willow","Ava","Orion","Sunshine","Luna","Atlis"];
     let plActiveTeammate = "";
@@ -16587,13 +16545,6 @@ $("draftWithSelected").onclick = async () => {
     })();
     // ===== END RESPONSE VAULT =====
 
-    $("frameworkBtn").onclick = async () => {
-      showFrameworkModal();
-      await loadFrameworkIntoForm();
-    };
-
-    $("cancelFramework").onclick = () => hideModal();
-
     // ===== Settings (per-user OpenAI key + email SMTP) =====
     // ===== Google connect status helpers (Gmail + Calendar) =====
     async function refreshGoogleStatuses(){
@@ -16735,7 +16686,6 @@ $("draftWithSelected").onclick = async () => {
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
       // ensure all other forms are hidden (avoid null errors that can break the Settings button)
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
@@ -19075,7 +19025,6 @@ $("draftWithSelected").onclick = async () => {
       if(!standalone && window.saSetModalPin) window.saSetModalPin('crm');
       showModal();
       try{ ensureModalMinSize(1100, 820); }catch(e){}
-      if($("frameworkForm")) $("frameworkForm").style.display = "none";
       if($("modalForm")) $("modalForm").style.display = "none";
       if($("manageForm")) $("manageForm").style.display = "none";
       if($("createForm")) $("createForm").style.display = "none";
@@ -22893,7 +22842,7 @@ function wcalWireButtons(){
 window.showCalendarModal=function showCalendarModal(){
   showModal();
   if(typeof hideAllModalForms==='function') hideAllModalForms();
-  else ['frameworkForm','modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','teamForm','customizeForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
+  else ['modalForm','manageForm','createForm','settingsForm','apiKeyHelpForm','crmForm','emailConsoleForm','teamForm','customizeForm'].forEach(id=>{ const el=document.getElementById(id); if(el) el.style.display='none'; });
   const calForm=document.getElementById('calendarForm');
   if(calForm) calForm.style.display='flex';
   const modalBody=document.getElementById('modalBody'); if(modalBody) modalBody.style.display='none';
@@ -23805,8 +23754,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // saveCreate already calls hideModal(); Save & Exit = same
     if($("saveCreateExit")) $("saveCreateExit").onclick = async () => { await $("saveCreate").onclick(); };
 
-    // saveFramework already calls hideModal(); Save & Exit = same
-    if($("saveFrameworkExit")) $("saveFrameworkExit").onclick = async () => { await $("saveFramework").onclick(); };
 
     // saveSettings does NOT hideModal on its own — Save & Exit adds that
     if($("saveSettingsExit")) $("saveSettingsExit").onclick = async () => {
@@ -23885,45 +23832,6 @@ $("settingsBtn").onclick = () => showSettingsModal();
 
     // run on load (after state is available)
     setTimeout(() => { try{ runFirstRunGuidance(); }catch(e){} }, 600);
-
-$("saveFramework").onclick = async () => {
-      $("frameworkStatus").innerText = "Saving...";
-      const fw = $("frameworkText").value || "";
-      const res = await fetch("/api/framework", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({house_rules: fw})
-      });
-      const data = await res.json();
-      if(!data.ok){
-        $("frameworkStatus").innerText = data.error || "Save failed";
-        return;
-      }
-      $("frameworkStatus").innerText = "Saved";
-      await loadState();
-      hideModal();
-      showToast("✅ House rules saved — your teammates use them from your next message");
-    };
-
-    $("resetFramework").onclick = async () => {
-      const ok = confirm("Clear your house rules? Your teammates will follow just the platform rules.");
-      if(!ok) return;
-      $("frameworkText").value = "";
-      $("frameworkStatus").innerText = "Clearing...";
-      const res = await fetch("/api/framework", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({house_rules: ""})
-      });
-      const data = await res.json();
-      if(!data.ok){
-        $("frameworkStatus").innerText = data.error || "Reset failed";
-        return;
-      }
-      await loadFrameworkIntoForm();
-      await loadState();
-      $("frameworkStatus").innerText = "Cleared";
-    };
 
     window.addEventListener("resize", () => {
       if(state && state.ok){
@@ -26649,8 +26557,6 @@ if(typeof maybeAutoShowOnboarding === "function"){
       text:"➕ Add new teammates to your Round Table or dismiss ones you're not currently using." },
     { id:"tip_install_full", target:"#installFullBtn", level:"medium", trigger:"hover",
       text:"⚡ Install all 7 pre-built AI specialists at once — sales, marketing, research, writing, systems, and more." },
-    { id:"tip_framework", target:"#frameworkBtn", level:"medium", trigger:"hover",
-      text:"🧠 Core Framework holds your house rules: how you want every teammate to work. Your niche, ideal client and offer go in your Profile." },
     // ── Create dropdown ──
     { id:"tip_teleprompter", target:"#teleprompterBtn", level:"medium", trigger:"hover",
       text:"🎙 Display a scrolling script on screen while you record — great for videos and live sessions." },
@@ -38458,7 +38364,6 @@ function saWinRestore(key){
     {icon:'✂️',label:'Video Editor',fn:function(){if(window.showVideoEditorModal)window.showVideoEditorModal();}},
     {icon:'⚙️',label:'Settings',fn:function(){var b=document.getElementById('settingsBtn');if(b)b.click();}},
     {icon:'🧑‍💼',label:'Operator Profile',fn:function(){var b=document.getElementById('operatorProfileBtn');if(b)b.click();}},
-    {icon:'🧠',label:'Core Framework',fn:function(){var b=document.getElementById('frameworkBtn');if(b)b.click();}},
     {icon:'🔑',label:'API Keys',fn:function(){var b=document.getElementById('openApiKeyHelpBtn');if(b)b.click();}},
   ];
   var _idx=0,_fil=CMDS;
