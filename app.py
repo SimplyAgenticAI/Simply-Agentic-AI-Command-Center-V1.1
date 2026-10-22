@@ -396,7 +396,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "13.1")
+APP_VERSION = os.getenv("APP_VERSION", "13.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17847,6 +17847,7 @@ def api_crm_clients_delete(client_id: str):
     clients.pop(client_id, None)
     crm["clients"] = clients
     _crm_save(uname, crm)
+    _agent_drop_pending_for(uname, {client_id})
     return jsonify({"ok": True})
 
 @app.post("/api/crm/clients/bulk")
@@ -17892,15 +17893,7 @@ def api_crm_clients_bulk():
     crm["clients"] = clients
     _crm_save(uname, crm)
     if deleted:
-        # Clearing a stage must not leave teammate drafts (e.g. new-contact
-        # hellos) waiting in Ready for you for people who no longer exist.
-        gone = set(deleted)
-        with _AGENT_LOCK:
-            d = _agent_load(uname)
-            keep = [a for a in d["approvals"] if not (a.get("status") == "pending" and a.get("client_id") in gone)]
-            if len(keep) != len(d["approvals"]):
-                d["approvals"] = keep
-                _agent_save(uname, d)
+        _agent_drop_pending_for(uname, set(deleted))
     return jsonify({"ok": True, "changed": changed})
 
 
@@ -23223,6 +23216,18 @@ def _agent_save(uname: str, d: Dict[str, Any]) -> None:
     save_json(_agent_path(uname), d)
 
 
+def _agent_drop_pending_for(uname: str, gone: set) -> None:
+    """Deleted contacts must not leave teammate drafts waiting in Ready for you."""
+    if not gone:
+        return
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        keep = [a for a in d["approvals"] if not (a.get("status") == "pending" and a.get("client_id") in gone)]
+        if len(keep) != len(d["approvals"]):
+            d["approvals"] = keep
+            _agent_save(uname, d)
+
+
 def _agent_pending_client_ids(uname: str) -> set:
     return {a.get("client_id") for a in _agent_load(uname).get("approvals") or [] if a.get("status") == "pending"}
 
@@ -23451,7 +23456,10 @@ def _agent_tick() -> None:
 
 def _agent_view(uname: str) -> Dict[str, Any]:
     d = _agent_load(uname)
-    pending = [a for a in d["approvals"] if a.get("status") == "pending"]
+    # Hide drafts for contacts deleted by any path (incl. ones removed before this fix)
+    live_ids = set((_crm_load(uname).get("clients") or {}).keys())
+    pending = [a for a in d["approvals"] if a.get("status") == "pending"
+               and (not a.get("client_id") or a.get("client_id") in live_ids)]
     offers = []
     for kind, label in AGENT_KIND_LABELS.items():
         t = (d.get("trust") or {}).get(kind) or {}

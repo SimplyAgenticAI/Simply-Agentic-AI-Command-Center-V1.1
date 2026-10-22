@@ -111,6 +111,22 @@ def test_clearing_contacts_drops_their_pending_drafts(bulk):
     assert [a["client_id"] for a in app_module._agent_load(uname)["approvals"]] == [ids[2]]
 
 
+def test_single_delete_drops_draft_and_stale_drafts_are_hidden(bulk):
+    c, h, uname = bulk
+    app_module._crm_save(uname, {"clients": {}, "pipeline": {"stages": app_module._default_pipeline_stages()}})
+    ids = [c.post("/api/crm/clients", headers=h, json={"name": f"S {i}"}).get_json()["client"]["id"] for i in range(2)]
+    with app_module._AGENT_LOCK:
+        d = app_module._agent_load(uname)
+        d["approvals"] = [{"id": f"s{i}", "status": "pending", "client_id": cid} for i, cid in enumerate(ids)] + \
+                         [{"id": "stale", "status": "pending", "client_id": "deleted-before-fix"}]
+        app_module._agent_save(uname, d)
+    assert c.delete(f"/api/crm/clients/{ids[0]}", headers=h).get_json()["ok"]
+    stored = [a["client_id"] for a in app_module._agent_load(uname)["approvals"]]
+    assert ids[0] not in stored and ids[1] in stored
+    shown = [a["client_id"] for a in c.get("/api/agent").get_json()["approvals"]]
+    assert shown == [ids[1]]  # the leftover draft for an already-gone contact is hidden
+
+
 def test_bulk_move_stage(bulk):
     c, h, uname = bulk
     app_module._crm_save(uname, {"clients": {}, "pipeline": {"stages": app_module._default_pipeline_stages()}})
