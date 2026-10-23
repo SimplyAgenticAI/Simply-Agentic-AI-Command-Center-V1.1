@@ -60,6 +60,36 @@ def test_connections_list_pages_without_tokens_and_posts_keep_picks(flask_app):
         app_module._invalidate_users_cache()
 
 
+def test_live_links_built_and_kept_on_edit(flask_app):
+    links = app_module._sp_live_links({"facebook": {"ok": True, "info": "111_222, 333_444"},
+                                       "youtube": {"ok": True, "info": "dQw4w9WgXcQ"},
+                                       "instagram": {"ok": False, "info": "nope"},
+                                       "linkedin": {"ok": True, "info": "<script>"}})
+    assert [l["url"] for l in links] == ["https://www.facebook.com/111_222", "https://www.facebook.com/333_444",
+                                         "https://youtu.be/dQw4w9WgXcQ"]
+    assert links[0]["label"] == "View on Facebook (1)"
+    uname = "splinkuser"
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+    app_module._invalidate_users_cache()
+    try:
+        app_module._save_sp_posts(uname, [{"id": "p1", "caption": "x", "platforms": ["facebook"], "status": "draft",
+                                           "live_links": links[:1]}])
+        c = flask_app.test_client()
+        with c.session_transaction() as s:
+            s["user"] = uname
+        h = {"X-CSRF-Token": c.get("/api/csrf_token").get_json()["csrf_token"]}
+        r = c.post("/api/social/posts", headers=h, json={"id": "p1", "caption": "x", "platforms": ["facebook"],
+                                                          "scheduled_at": "2031-01-05T09:00:00", "status": "draft"}).get_json()
+        assert r["post"]["live_links"] == links[:1]                       # moving a post keeps its links
+    finally:
+        data = app_module.load_users()
+        (data.get("users") or {}).pop(uname, None)
+        app_module.save_users(data)
+        app_module._invalidate_users_cache()
+
+
 def test_facebook_routes_by_media(monkeypatch):
     calls = []
     monkeypatch.setattr(app_module.requests, "post", lambda url, data=None, timeout=None: calls.append((url, data)) or _Resp())

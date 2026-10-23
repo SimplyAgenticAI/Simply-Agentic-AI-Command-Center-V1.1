@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.4")
+APP_VERSION = os.getenv("APP_VERSION", "15.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33996,7 +33996,7 @@ def api_sp_posts_create():
         "error": "",
     }
     # Keep server-owned fields across edits (they used to be wiped on every save)
-    for k in ("lc_post_id", "published_at", "publish_results", "source"):
+    for k in ("lc_post_id", "published_at", "publish_results", "source", "live_links"):
         if prev.get(k):
             post[k] = prev[k]
     if body.get("source") and not post.get("source"):
@@ -35111,12 +35111,34 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
     return results
 
 
+def _sp_live_links(results: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Links to the live posts, from the ids each platform returned (V15.5)."""
+    links: List[Dict[str, str]] = []
+    for platform, r in (results or {}).items():
+        if not r.get("ok"):
+            continue
+        ids = [x.strip() for x in str(r.get("info") or "").split(",") if re.match(r"^[\w\-:.]{3,80}$", x.strip())]
+        for n, pid in enumerate(ids):
+            url = ""
+            if platform == "facebook" and re.match(r"^\d+(_\d+)?$", pid):
+                url = f"https://www.facebook.com/{pid}"
+            elif platform == "youtube" and re.match(r"^[\w\-]{8,20}$", pid):
+                url = f"https://youtu.be/{pid}"
+            elif platform == "linkedin" and pid.startswith("urn:li:"):
+                url = f"https://www.linkedin.com/feed/update/{pid}"
+            if url:
+                links.append({"platform": platform, "url": url,
+                              "label": f"View on {platform.capitalize()}" + (f" ({n + 1})" if len(ids) > 1 else "")})
+    return links
+
+
 def _sp_apply_results(post: Dict[str, Any], results: Dict[str, Any]) -> None:
     all_ok = bool(results) and all(r["ok"] for r in results.values())
     any_ok = any(r["ok"] for r in results.values())
     post["status"] = "published" if all_ok else ("partial" if any_ok else "failed")
     post["published_at"] = now_iso()
     post["publish_results"] = results
+    post["live_links"] = _sp_live_links(results)
     post["error"] = "" if all_ok else "; ".join(f"{p}: {r['info']}" for p, r in results.items() if not r["ok"])[:600]
 
 

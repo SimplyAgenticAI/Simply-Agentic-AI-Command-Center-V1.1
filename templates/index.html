@@ -35610,8 +35610,9 @@ function saUseGlyph(){
     <div style="display:flex;align-items:center;gap:7px;flex-shrink:0;">
       <!-- Segmented view toggle -->
       <div style="display:flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.20);border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);">
-        <button id="cpViewCalBtn" onclick="cpSetView('calendar')" style="padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(79,70,229,.6));border:none;border-right:1px solid rgba(255,255,255,.1);color:#ddd6fe;cursor:pointer;letter-spacing:.01em;">📅 Calendar</button>
-        <button id="cpViewQueueBtn" onclick="cpSetView('queue')" style="padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;background:transparent;border:none;color:#a8b4c8;cursor:pointer;">📋 Queue</button>
+        <button id="cpViewCalBtn" class="cp-seg on" onclick="cpSetView('calendar')">📅 Month</button>
+        <button id="cpViewWeekBtn" class="cp-seg" onclick="cpSetView('week')">🗓 Week</button>
+        <button id="cpViewQueueBtn" class="cp-seg" onclick="cpSetView('queue')">📋 Queue</button>
       </div>
       <button onclick="cpOpenImportCSV()" class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;">⬆ Import CSV</button>
       <button onclick="cpOpenComposer(null)" class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:7px 16px;">✦ New Post</button>
@@ -35637,6 +35638,20 @@ function saUseGlyph(){
           <button onclick="cpMonthNav(1)" class="cp-btn" style="padding:7px 18px;font-size:calc(16px * var(--fs,1.1));line-height:1;">›</button>
         </div>
         <div id="cpCalGrid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;"></div>
+      </div>
+
+      <!-- Week view (V15.5) -->
+      <div id="cpWeekView" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <button onclick="cpWeekNav(-1)" class="cp-btn" style="padding:7px 18px;font-size:calc(16px * var(--fs,1.1));line-height:1;">‹</button>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div id="cpWeekLabel" style="font-size:calc(18px * var(--fs,1.1));font-weight:800;color:#f1f5f9;"></div>
+            <button onclick="cpWeekToday()" class="cp-btn" style="font-size:calc(14px * var(--fs,1.1));padding:4px 10px;color:#a78bfa;">This week</button>
+          </div>
+          <button onclick="cpWeekNav(1)" class="cp-btn" style="padding:7px 18px;font-size:calc(16px * var(--fs,1.1));line-height:1;">›</button>
+        </div>
+        <div id="cpWeekGrid" class="cp-week"></div>
+        <div style="font-size:calc(14px * var(--fs,1.1));color:#8a96aa;margin-top:10px;">Drag a post to another day to move it. Click an empty spot in a day to add a post.</div>
       </div>
 
       <!-- Queue view -->
@@ -35774,6 +35789,30 @@ function saUseGlyph(){
         #cpComposer .cpw-left,#cpComposer .cpw-right{overflow:visible;}
         #cpComposer .cpw-right{border-left:none;border-top:1px solid rgba(255,255,255,.07);}
       }
+      /* V15.5 — view switch, week view, rich calendar entries, drag to reschedule */
+      .cp-seg{padding:6px 14px;font-size:calc(14px * var(--fs,1.1));font-weight:600;background:transparent;border:none;border-right:1px solid rgba(255,255,255,.1);color:#a8b4c8;cursor:pointer;}
+      .cp-seg:last-child{border-right:none;}
+      .cp-seg.on{background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(79,70,229,.6));color:#fff;font-weight:700;}
+      .cp-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;}
+      .cp-wday{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;min-height:420px;padding:8px;display:flex;flex-direction:column;gap:6px;cursor:pointer;}
+      .cp-wday.today{border-color:rgba(167,139,250,.6);box-shadow:inset 0 0 0 1px rgba(167,139,250,.25);}
+      .cp-wday-h{font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#c4b5fd;text-align:center;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.07);}
+      .cp-card{display:flex;flex-direction:column;gap:5px;background:rgba(14,22,48,.92);border:1px solid rgba(110,135,215,.3);border-left:3px solid #64748b;border-radius:10px;padding:7px 8px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;}
+      .cp-card:hover{border-color:rgba(167,139,250,.6);}
+      .cp-card[draggable=true]{cursor:grab;}
+      .cp-card .t{display:flex;gap:6px;align-items:center;font-weight:800;color:#f1f5f9;}
+      .cp-card .t .pg{font-weight:600;color:#93c5fd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      .cp-card .cap{color:#cbd5e1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;}
+      .cp-card .th{width:100%;height:84px;border-radius:7px;object-fit:cover;background:#0b1022;}
+      .cp-card .vid{height:40px;border-radius:7px;background:#0b1022;display:flex;align-items:center;justify-content:center;color:#94a3b8;}
+      .cp-card a{color:#6ee7b7;text-decoration:none;font-weight:700;}
+      .cp-chip{display:flex;align-items:center;gap:5px;font-size:calc(14px * var(--fs,1.1));padding:3px 5px;border-radius:6px;background:rgba(14,22,48,.9);border:1px solid rgba(110,135,215,.28);border-left:3px solid #64748b;margin-top:3px;cursor:pointer;overflow:hidden;}
+      .cp-chip[draggable=true]{cursor:grab;}
+      .cp-chip img{width:20px;height:20px;border-radius:4px;object-fit:cover;flex-shrink:0;}
+      .cp-chip .tm{font-weight:800;color:#f1f5f9;flex-shrink:0;}
+      .cp-chip .lb{color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .cp-drop{outline:2px dashed #a78bfa !important;outline-offset:-2px;background:rgba(124,58,237,.12) !important;}
+      @media(max-width:900px){ .cp-week{grid-template-columns:1fr;} .cp-wday{min-height:0;} }
     </style>
 
   </div>
@@ -36130,28 +36169,116 @@ window.cpDisconnect = function(platform){
 
 function cpRender(){
   if(_cpView === 'calendar') cpRenderCalendar();
+  else if(_cpView === 'week') cpRenderWeek();
   else cpRenderQueue();
 }
 
 window.cpSetView = function(v){
   _cpView = v;
-  var cal = $('cpCalendarView'), queue = $('cpQueueView');
-  var calBtn = $('cpViewCalBtn'), queueBtn = $('cpViewQueueBtn');
-  var activeStyle  = 'background:linear-gradient(135deg,rgba(124,58,237,.7),rgba(79,70,229,.6));color:#ddd6fe;border-right:1px solid rgba(255,255,255,.1);';
-  var inactiveStyle = 'background:transparent;color:#a8b4c8;border-right:none;';
-  if(v === 'calendar'){
-    if(cal) cal.style.display = 'block';
-    if(queue) queue.style.display = 'none';
-    if(calBtn) calBtn.style.cssText += activeStyle;
-    if(queueBtn) queueBtn.style.cssText += inactiveStyle;
-  } else {
-    if(cal) cal.style.display = 'none';
-    if(queue) queue.style.display = 'block';
-    if(calBtn) calBtn.style.cssText += inactiveStyle;
-    if(queueBtn) queueBtn.style.cssText += activeStyle;
-  }
+  var views = {calendar:'cpCalendarView', week:'cpWeekView', queue:'cpQueueView'};
+  var btns = {calendar:'cpViewCalBtn', week:'cpViewWeekBtn', queue:'cpViewQueueBtn'};
+  Object.keys(views).forEach(function(k){
+    var el=$(views[k]); if(el) el.style.display = (k===v) ? 'block' : 'none';
+    var b=$(btns[k]); if(b) b.classList.toggle('on', k===v);
+  });
   cpRender();
 };
+
+/* ── V15.5: shared post bits — time, Page names, thumbnail, drag rules ── */
+function cpPostDate(p){ return (p.scheduled_at || (p.status==='published'||p.status==='partial' ? (p.published_at||'') : '') || p.created_at || '').slice(0,10); }
+function cpPostTime(p){
+  var s=p.scheduled_at || p.published_at || ''; if(!s || s.length<16) return '';
+  var d=new Date(s.length===19&&!/Z$/.test(s)?s:s); if(isNaN(d.getTime())) return s.slice(11,16);
+  return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+}
+function cpPostWhere(p){
+  var pages=((_cpConns.facebook||{}).pages||[]), names=[];
+  (p.platforms||[]).forEach(function(pl){
+    if(pl==='facebook'){
+      var ids=p.fb_page_ids||[];
+      var fbn=pages.filter(function(x){ return ids.length ? ids.indexOf(x.id)>=0 : x===pages[0]; }).map(function(x){ return x.name; });
+      names.push(fbn.length ? fbn.join(', ') : 'Facebook');
+    } else names.push((PLAT_COLORS[pl]||{label:pl}).label);
+  });
+  return names.join(' · ') || 'No account picked';
+}
+function cpPostColor(p){ var pl=(p.platforms||[])[0]; return (PLAT_COLORS[pl]||{dot:'#64748b'}).dot; }
+function cpIsVideo(u){ return /\.(mp4|mov|m4v|webm)(\?|$)|\/vclip\//i.test(u||''); }
+function cpMovable(p){ return p.status!=='published' && p.status!=='partial' && p.status!=='publishing'; }
+function cpLinksHtml(p){
+  return (p.live_links||[]).map(function(l){ return '<a href="'+_esc(l.url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">↗ '+_esc(l.label)+'</a>'; }).join(' ');
+}
+function cpCardHtml(p){
+  var u=p.media_url||'', st=STATUS_COLORS[p.status]||'#a8b4c8';
+  var media = u ? (cpIsVideo(u) ? '<div class="vid">🎬 Video</div>' : '<img class="th" src="'+_esc(u)+'" alt="" loading="lazy" onerror="this.remove()">') : '';
+  var label={draft:'Draft',scheduled:'Scheduled',publishing:'Publishing…',published:'Published',partial:'Partly posted',failed:'Failed'}[p.status]||p.status;
+  return '<div class="cp-card" data-pid="'+_esc(p.id)+'"'+(cpMovable(p)?' draggable="true"':'')+' style="border-left-color:'+cpPostColor(p)+';" onclick="event.stopPropagation();cpOpenComposer(\''+_esc(p.id)+'\')" title="'+_esc((p.caption||'').slice(0,200))+'">'
+    +'<div class="t"><span>'+(cpPostTime(p)||'—')+'</span><span class="pg">'+_esc(cpPostWhere(p))+'</span></div>'
+    +media+'<div class="cap">'+_esc(p.caption||'')+'</div>'
+    +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><span style="color:'+st+';font-weight:700;">● '+label+'</span>'+cpLinksHtml(p)+'</div></div>';
+}
+function cpChipHtml(p){
+  var u=p.media_url||'';
+  var th = u && !cpIsVideo(u) ? '<img src="'+_esc(u)+'" alt="" loading="lazy" onerror="this.remove()">' : (u ? '<span>🎬</span>' : '');
+  return '<div class="cp-chip" data-pid="'+_esc(p.id)+'"'+(cpMovable(p)?' draggable="true"':'')+' style="border-left-color:'+cpPostColor(p)+';" onclick="event.stopPropagation();cpOpenComposer(\''+_esc(p.id)+'\')" title="'+_esc(cpPostWhere(p)+' — '+(p.caption||'').slice(0,160))+'">'
+    +th+'<span class="tm">'+(cpPostTime(p)||'')+'</span><span class="lb">'+_esc(cpPostWhere(p))+'</span>'
+    +'<span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-left:auto;background:'+(STATUS_COLORS[p.status]||'#a8b4c8')+';"></span></div>';
+}
+
+/* Week view */
+var _cpWeekStart = (function(){ var d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-d.getDay()); return d; })();
+function cpKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+window.cpWeekNav=function(dir){ _cpWeekStart=new Date(_cpWeekStart.getTime()+dir*7*86400000); cpRenderWeek(); };
+window.cpWeekToday=function(){ var d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-d.getDay()); _cpWeekStart=d; cpRenderWeek(); };
+function cpRenderWeek(){
+  var grid=$('cpWeekGrid'), label=$('cpWeekLabel'); if(!grid) return;
+  var end=new Date(_cpWeekStart.getTime()+6*86400000);
+  var fmt=function(d){ return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}); };
+  if(label) label.textContent=fmt(_cpWeekStart)+' – '+fmt(end)+', '+end.getFullYear();
+  var todayKey=cpKey(new Date()), html='';
+  for(var i=0;i<7;i++){
+    var d=new Date(_cpWeekStart.getTime()+i*86400000), key=cpKey(d);
+    var posts=_cpPosts.filter(function(p){ return cpPostDate(p)===key; }).sort(function(a,b){ return (a.scheduled_at||'') < (b.scheduled_at||'') ? -1 : 1; });
+    html+='<div class="cp-wday'+(key===todayKey?' today':'')+'" data-date="'+key+'" onclick="cpDayClick(event,\''+key+'\')">'
+      +'<div class="cp-wday-h">'+d.toLocaleDateString(undefined,{weekday:'short'})+' '+d.getDate()+'</div>'
+      +posts.map(cpCardHtml).join('')+'</div>';
+  }
+  grid.innerHTML=html;
+}
+
+/* Drag a post to another day to reschedule it (keeps its time of day) */
+window.cpMovePost=async function(pid, dateKey){
+  var p=_cpPosts.find(function(x){ return x.id===pid; }); if(!p) return;
+  if(!cpMovable(p)){ showToast('Published posts can\'t be moved','error'); return; }
+  var time=(p.scheduled_at && p.scheduled_at.length>=16) ? p.scheduled_at.slice(11,16) : '09:00';
+  var local=dateKey+'T'+time;
+  if(cpPostDate(p)===dateKey) return;
+  if(p.status==='scheduled' && new Date(local).getTime() < Date.now()-60000){ showToast('That day and time has already passed — pick a later day','error'); return; }
+  var body={id:p.id, caption:p.caption||'', platforms:p.platforms||[], lc_accounts:p.lc_accounts||[], fb_page_ids:p.fb_page_ids||[],
+            media_url:p.media_url||'', scheduled_at:local+':00', scheduled_utc:cpUtc(local), status:p.status||'draft'};
+  try{
+    var d=await (await fetch('/api/social/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    if(!d.ok){ showToast(d.error||'Could not move it','error'); }
+    else showToast('📅 Moved to '+new Date(local).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}));
+  }catch(e){ showToast('Could not move it — check your connection','error'); }
+  await cpLoadState();
+};
+(function(){
+  var dragId=null;
+  document.addEventListener('dragstart',function(e){
+    var el=e.target.closest && e.target.closest('#contentPlannerModal [data-pid][draggable=true]'); if(!el) return;
+    dragId=el.getAttribute('data-pid'); try{ e.dataTransfer.setData('text/plain',dragId); e.dataTransfer.effectAllowed='move'; }catch(_){}
+  });
+  document.addEventListener('dragover',function(e){
+    if(!dragId) return; var day=e.target.closest && e.target.closest('#contentPlannerModal [data-date]'); if(!day) return;
+    e.preventDefault(); document.querySelectorAll('#contentPlannerModal .cp-drop').forEach(function(x){ if(x!==day) x.classList.remove('cp-drop'); }); day.classList.add('cp-drop');
+  });
+  document.addEventListener('drop',function(e){
+    var day=e.target.closest && e.target.closest('#contentPlannerModal [data-date]'); if(!day||!dragId) return;
+    e.preventDefault(); day.classList.remove('cp-drop'); var id=dragId; dragId=null; cpMovePost(id, day.getAttribute('data-date'));
+  });
+  document.addEventListener('dragend',function(){ dragId=null; document.querySelectorAll('#contentPlannerModal .cp-drop').forEach(function(x){ x.classList.remove('cp-drop'); }); });
+})();
 
 window.cpMonthNav = function(dir){
   _cpCurMonth += dir;
@@ -36176,12 +36303,12 @@ function cpRenderCalendar(){
 
   var postMap = {};
   _cpPosts.forEach(function(p){
-    var dt = p.scheduled_at || p.created_at || '';
-    if(!dt) return;
-    var key = dt.slice(0,10);
+    var key = cpPostDate(p);
+    if(!key) return;
     if(!postMap[key]) postMap[key] = [];
     postMap[key].push(p);
   });
+  Object.keys(postMap).forEach(function(k){ postMap[k].sort(function(a,b){ return (a.scheduled_at||'') < (b.scheduled_at||'') ? -1 : 1; }); });
 
   var today = new Date();
   var todayKey = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -36207,22 +36334,13 @@ function cpRenderCalendar(){
     var isToday = key === todayKey;
     var dayPosts = postMap[key] || [];
 
-    var pills = dayPosts.slice(0,3).map(function(p){
-      var plats = p.platforms || [];
-      var dotColor = plats.length > 0 ? (PLAT_COLORS[plats[0]] || {dot:'#cbd5e1'}).dot : '#cbd5e1';
-      var statusColor = STATUS_COLORS[p.status] || '#a8b4c8';
-      return '<div class="cp-post-pill" onclick="event.stopPropagation();cpOpenComposer(\''+p.id+'\')" title="'+_esc((p.caption||'').slice(0,80))+'">'
-        +'<span style="width:6px;height:6px;border-radius:50%;background:'+dotColor+';flex-shrink:0;box-shadow:0 0 5px '+dotColor+'99;"></span>'
-        +'<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 24px);">'+_esc((p.caption||'').slice(0,20))+'</span>'
-        +'<span style="width:5px;height:5px;border-radius:50%;background:'+statusColor+';flex-shrink:0;margin-left:auto;"></span>'
-        +'</div>';
-    }).join('');
+    var pills = dayPosts.slice(0,3).map(cpChipHtml).join('');
 
     var more = dayPosts.length > 3
-      ? '<div style="font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;margin-top:3px;padding-left:2px;">+' + (dayPosts.length-3) + ' more</div>'
+      ? '<div style="font-size:calc(14px * var(--fs,1.1));color:#a78bfa;margin-top:3px;padding-left:2px;cursor:pointer;" onclick="event.stopPropagation();cpJumpToWeek(\''+key+'\')">+' + (dayPosts.length-3) + ' more — see the week</div>'
       : '';
 
-    html += '<div class="cp-day'+(isToday?' today':'')+'" onclick="cpDayClick(event,\''+key+'\')">'
+    html += '<div class="cp-day'+(isToday?' today':'')+'" data-date="'+key+'" onclick="cpDayClick(event,\''+key+'\')">'
       +'<div style="font-size:calc(14px * var(--fs,1.1));font-weight:'+(isToday?'900':'600')+';color:'+(isToday?'#c4b5fd':'#a8b4c8')+';margin-bottom:3px;display:flex;align-items:center;gap:4px;">'
       +d+(isToday?'<span style="font-size:calc(14px * var(--fs,1.1));background:rgba(124,58,237,.5);border-radius:4px;padding:1px 5px;color:#ddd6fe;font-weight:700;">Today</span>':'')
       +'</div>'
@@ -36243,8 +36361,11 @@ function cpRenderCalendar(){
 }
 
 window.cpDayClick = function(e, dateKey){
-  if(e.target !== e.currentTarget) return;
+  if(e.target.closest('[data-pid]') || e.target.closest('a,button')) return;   /* clicks on a post open that post */
   cpOpenComposer(null, dateKey);
+};
+window.cpJumpToWeek = function(dateKey){
+  var d=new Date(dateKey+'T00:00'); d.setDate(d.getDate()-d.getDay()); _cpWeekStart=d; cpSetView('week');
 };
 
 function cpRenderQueue(){
@@ -36305,7 +36426,8 @@ function cpRenderQueue(){
         +'<div style="flex:1;min-width:0;">'
         +'<div style="font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;line-height:1.55;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;">'+_esc(p.caption||'')+'</div>'
         +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'
-        +platDots
+        +'<span style="font-size:calc(14px * var(--fs,1.1));font-weight:700;color:'+cpPostColor(p)+';">'+_esc(cpPostWhere(p))+'</span>'
+        +(cpLinksHtml(p)?'<span style="font-size:calc(14px * var(--fs,1.1));">'+cpLinksHtml(p).replace(/<a /g,'<a style="color:#6ee7b7;font-weight:700;text-decoration:none;" ')+'</span>':'')
         +'<span style="font-size:calc(14px * var(--fs,1.1));color:#aab8cc;display:flex;align-items:center;gap:3px;"><span>🕐</span>'+dt+'</span>'
         +'<span style="font-size:calc(14.5px * var(--fs,1.1));font-weight:700;background:'+statusColor+'22;border:1px solid '+statusColor+'44;border-radius:5px;padding:1px 7px;color:'+statusColor+';">'+statusLabel+'</span>'
         +'</div>'
@@ -36410,7 +36532,11 @@ window.cpOpenComposer = function(postId, prefillDate){
   if(delWrap) delWrap.style.display = post ? 'block' : 'none';
 
   var statusEl = $('cpComposerStatus');
-  if(statusEl) statusEl.textContent = '';
+  if(statusEl){
+    statusEl.textContent = '';
+    if(post && (post.live_links||[]).length)
+      statusEl.innerHTML = 'Live: ' + cpLinksHtml(post).replace(/<a /g,'<a style="color:#6ee7b7;font-weight:700;text-decoration:none;" ');
+  }
 
   var aiStatusEl = $('cpAiStatus');
   if(aiStatusEl) aiStatusEl.textContent = '';
