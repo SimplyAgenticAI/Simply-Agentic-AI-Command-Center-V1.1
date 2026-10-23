@@ -62,7 +62,7 @@ def test_connections_list_pages_without_tokens_and_posts_keep_picks(flask_app):
 
 def test_live_links_built_and_kept_on_edit(flask_app):
     links = app_module._sp_live_links({"facebook": {"ok": True, "info": "111_222, 333_444"},
-                                       "youtube": {"ok": True, "info": "dQw4w9WgXcQ"},
+                                       "youtube": {"ok": True, "info": "https://youtu.be/dQw4w9WgXcQ"},   # what uploads return
                                        "instagram": {"ok": False, "info": "nope"},
                                        "linkedin": {"ok": True, "info": "<script>"}})
     assert [l["url"] for l in links] == ["https://www.facebook.com/111_222", "https://www.facebook.com/333_444",

@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.1")
+APP_VERSION = os.getenv("APP_VERSION", "16.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -35333,7 +35333,9 @@ def _sp_live_links(results: Dict[str, Any]) -> List[Dict[str, str]]:
             links += [{"platform": "instagram", "url": u, "label": "View on Instagram" + (f" ({n + 1})" if len(perma) > 1 else "")}
                       for n, u in enumerate(perma)]
             continue
-        ids = [x.strip() for x in str(r.get("info") or "").split(",") if re.match(r"^[\w\-:.]{3,80}$", x.strip())]
+        # V16.2: YouTube uploads report "https://youtu.be/<id>" — take the id from it
+        ids = [re.sub(r"^https://youtu\.be/", "", x.strip()) for x in str(r.get("info") or "").split(",")]
+        ids = [x for x in ids if re.match(r"^[\w\-:.]{3,80}$", x)]
         for n, pid in enumerate(ids):
             url = ""
             if platform == "facebook" and re.match(r"^\d+(_\d+)?$", pid):
