@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.3")
+APP_VERSION = os.getenv("APP_VERSION", "16.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3302,7 +3302,10 @@ def health_check() -> Any:
     """Health check for Render and uptime monitors. Verifies storage is accessible."""
     try:
         assert DATA.exists(), "DATA directory missing"
-        return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso()})
+        # V16.4 diagnostic: which host this request reached and which base URL the
+        # server loaded (neither is secret) — explains the onrender → domain redirect.
+        return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso(),
+                        "host": request.host, "base_url_host": urlparse(PUBLIC_BASE_URL).netloc if PUBLIC_BASE_URL else ""})
     except Exception:
         return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
