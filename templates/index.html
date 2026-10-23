@@ -35646,104 +35646,135 @@ function saUseGlyph(){
 
     </div>
 
-    <!-- Composer panel -->
-    <div id="cpComposer" style="display:none;width:390px;min-width:340px;flex-shrink:0;border-left:1px solid rgba(255,255,255,.10);background:rgba(8,12,28,.80);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);overflow-y:auto;flex-direction:column;">
-
-      <!-- Composer header -->
-      <div style="padding:16px 18px 14px;border-bottom:1px solid rgba(255,255,255,.09);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:rgba(255,255,255,.03);">
-        <div id="cpComposerTitle" style="font-size:calc(15px * var(--fs,1.1));font-weight:800;color:#f1f5f9;letter-spacing:-.01em;">✦ New Post</div>
-        <button onclick="cpCloseComposer()" class="cp-btn" style="padding:4px 10px;font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;">✕</button>
-      </div>
-
-      <div style="padding:16px 18px;flex:1;display:flex;flex-direction:column;gap:14px;">
-
-        <!-- Caption -->
-        <div>
-          <div class="cp-label">Caption</div>
-          <textarea id="cpCaption" placeholder="Write your post caption…" class="cp-input" style="height:115px;resize:vertical;"></textarea>
-          <div id="cpCaptionCount" style="font-size:calc(14.5px * var(--fs,1.1));color:#8a96aa;text-align:right;margin-top:3px;">0 chars</div>
+    <!-- Composer — its own window (V15.4), was a narrow side strip -->
+    <div id="cpComposer" style="display:none;">
+      <div class="cpw-card" role="dialog" aria-label="Create post">
+        <div class="cpw-head">
+          <div id="cpComposerTitle" class="cpw-title">✦ New Post</div>
+          <button onclick="cpCloseComposer()" class="cp-btn" title="Close">✕</button>
         </div>
 
-        <!-- AI Draft panel -->
-        <div style="background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.28);border-radius:12px;padding:12px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(124,58,237,.12);">
-          <div style="font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#c4b5fd;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
-            <span style="font-size:calc(15px * var(--fs,1.1));">✦</span> Draft with AI
+        <div class="cpw-body">
+          <!-- Left: everything you fill in -->
+          <div class="cpw-left">
+            <div>
+              <div class="cp-label">Post to</div>
+              <div id="cpPlatformChecks" class="cpw-accts"></div>
+            </div>
+
+            <div>
+              <div class="cp-label">Caption</div>
+              <textarea id="cpCaption" placeholder="What do you want to say?" class="cp-input cpw-caption" oninput="cpUpdateCharCount();cpPreview();"></textarea>
+              <div class="cpw-row" style="justify-content:space-between;margin-top:4px;">
+                <button type="button" class="cp-btn" onclick="cpToggleAi()" id="cpAiToggle">✦ Write it with AI</button>
+                <div id="cpCaptionCount" class="cpw-hint">0 chars</div>
+              </div>
+              <div id="cpAiBox" class="cpw-ai" style="display:none;">
+                <input id="cpAiTopic" placeholder="What's the post about?" class="cp-input"/>
+                <div class="cpw-row" style="margin-top:7px;">
+                  <select id="cpAiTeammate" class="cp-input" style="flex:1;">
+                    <option value="Luna">✦ Luna</option>
+                    <option value="Alex">⚡ Alex</option>
+                    <option value="Sunshine">☀ Sunshine</option>
+                  </select>
+                  <select id="cpAiTone" class="cp-input" style="flex:1;">
+                    <option value="engaging">Engaging</option>
+                    <option value="professional">Professional</option>
+                    <option value="casual">Casual</option>
+                    <option value="educational">Educational</option>
+                    <option value="promotional">Promotional</option>
+                  </select>
+                  <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" class="cp-btn cp-btn-primary">Draft</button>
+                </div>
+                <div id="cpAiStatus" class="cpw-hint" style="margin-top:5px;min-height:14px;"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="cp-label">Photo or video <span style="font-weight:400;text-transform:none;color:#8a96aa;">(optional for Facebook)</span></div>
+              <div class="cpw-row">
+                <input id="cpMediaUrl" type="url" placeholder="Paste an image or video link…" class="cp-input" style="flex:1;" oninput="cpPreview()"/>
+                <button type="button" class="cp-btn" onclick="cpPickClip()" title="Use one of your clips from My Clips">🎞 My Clips</button>
+              </div>
+              <div id="cpClipPick" style="display:none;margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid rgba(124,58,237,.3);border-radius:10px;"></div>
+              <div id="cpMediaHint" class="cpw-hint" style="margin-top:4px;"></div>
+            </div>
+
+            <div>
+              <div class="cp-label">When</div>
+              <div class="cpw-row">
+                <input id="cpScheduledAt" type="datetime-local" class="cp-input" style="flex:1;"/>
+                <button type="button" class="cp-btn" onclick="cpQuickTime(1)">+1 hour</button>
+                <button type="button" class="cp-btn" onclick="cpQuickTime(24)">Tomorrow</button>
+              </div>
+              <div class="cpw-hint" style="margin-top:4px;">Leave empty and press <b>Publish now</b> to post right away.</div>
+            </div>
+
+            <input type="hidden" id="cpEditingPostId" value="" />
           </div>
-          <input id="cpAiTopic" placeholder="Topic / idea for this post…" class="cp-input" style="font-size:calc(14px * var(--fs,1.1));padding:7px 10px;background:rgba(255,255,255,.06);"/>
-          <div style="display:flex;gap:6px;margin-top:7px;">
-            <select id="cpAiTeammate" class="cp-input" style="flex:1;padding:6px 8px;font-size:calc(14px * var(--fs,1.1));cursor:pointer;background:rgba(255,255,255,.07);">
-              <option value="Luna">✦ Luna</option>
-              <option value="Alex">⚡ Alex</option>
-              <option value="Sunshine">☀ Sunshine</option>
-            </select>
-            <select id="cpAiTone" class="cp-input" style="flex:1;padding:6px 8px;font-size:calc(14px * var(--fs,1.1));cursor:pointer;background:rgba(255,255,255,.07);">
-              <option value="engaging">Engaging</option>
-              <option value="professional">Professional</option>
-              <option value="casual">Casual</option>
-              <option value="educational">Educational</option>
-              <option value="promotional">Promotional</option>
-            </select>
-            <button id="cpAiDraftBtn" onclick="cpDraftWithAI()" class="cp-btn cp-btn-primary" style="font-size:calc(14px * var(--fs,1.1));padding:6px 12px;white-space:nowrap;">Draft</button>
-          </div>
-          <div id="cpAiStatus" style="font-size:calc(14px * var(--fs,1.1));color:#7c6aaa;margin-top:5px;min-height:14px;"></div>
-        </div>
 
-        <!-- Platforms -->
-        <div>
-          <div class="cp-label">Platforms</div>
-          <div id="cpPlatformChecks" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(24,119,242,.10);border:1px solid rgba(24,119,242,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#93c5fd;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
-              <input type="checkbox" value="facebook" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#1877F2;width:14px;height:14px;"> 𝔣 Facebook
-            </label>
-            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(225,48,108,.10);border:1px solid rgba(225,48,108,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#fda4af;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
-              <input type="checkbox" value="instagram" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#E1306C;width:14px;height:14px;"> ◎ Instagram
-            </label>
-            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(255,0,0,.08);border:1px solid rgba(255,60,60,.24);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#fca5a5;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
-              <input type="checkbox" value="youtube" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#FF0000;width:14px;height:14px;"> ▶ YouTube
-            </label>
-            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(238,29,82,.08);border:1px solid rgba(238,29,82,.24);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#fda4af;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
-              <input type="checkbox" value="tiktok" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#EE1D52;width:14px;height:14px;"> ♪ TikTok
-            </label>
-            <label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(10,102,194,.10);border:1px solid rgba(10,102,194,.3);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#93c5fd;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:all .14s;">
-              <input type="checkbox" value="linkedin" onchange="cpPlatformToggle(this)" style="cursor:pointer;accent-color:#0A66C2;width:14px;height:14px;"> in LinkedIn
-            </label>
+          <!-- Right: live preview -->
+          <div class="cpw-right">
+            <div class="cp-label">Preview</div>
+            <div class="cpw-pv">
+              <div class="cpw-pv-top">
+                <img id="cpPvAvatar" alt="" src="" onerror="this.style.visibility='hidden'">
+                <div><div id="cpPvName" class="cpw-pv-name">Your Page</div><div class="cpw-pv-meta">Just now · 🌍</div></div>
+              </div>
+              <div id="cpPvText" class="cpw-pv-text"></div>
+              <div id="cpPvMedia" class="cpw-pv-media"></div>
+              <div class="cpw-pv-bar"><span>👍 Like</span><span>💬 Comment</span><span>↗ Share</span></div>
+            </div>
+            <div class="cpw-hint" style="margin-top:8px;">How it will look on Facebook. Other platforms show it a little differently.</div>
           </div>
         </div>
 
-        <!-- Schedule Date/Time -->
-        <div>
-          <div class="cp-label">Schedule Date &amp; Time</div>
-          <input id="cpScheduledAt" type="datetime-local" class="cp-input"/>
+        <div class="cpw-foot">
+          <div id="cpDeleteWrap" style="display:none;"><button onclick="cpDeleteCurrentPost()" class="cp-btn cp-btn-red">🗑 Delete</button></div>
+          <div id="cpComposerStatus" class="cpw-status"></div>
+          <button onclick="cpSavePost('draft')" class="cp-btn">💾 Save draft</button>
+          <button onclick="cpSavePost('scheduled')" class="cp-btn cp-btn-blue">🗓 Schedule</button>
+          <button onclick="cpPublishNow()" class="cp-btn cp-btn-primary">🚀 Publish now</button>
         </div>
-
-        <!-- Media URL -->
-        <div>
-          <div class="cp-label">Media URL <span style="font-weight:400;text-transform:none;color:#8a96aa;">(image / video)</span></div>
-          <div style="display:flex;gap:6px;">
-            <input id="cpMediaUrl" type="url" placeholder="https://…" class="cp-input" style="flex:1;"/>
-            <button type="button" class="cp-btn" onclick="cpPickClip()" title="Use one of your clips from My Clips" style="white-space:nowrap;">🎞 My Clips</button>
-          </div>
-          <div id="cpClipPick" style="display:none;margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid rgba(124,58,237,.3);border-radius:10px;"></div>
-          <div id="cpMediaHint" style="font-size:calc(14.5px * var(--fs,1.1));color:#8a96aa;margin-top:4px;">Required for Instagram · Optional for Facebook</div>
-        </div>
-
-        <input type="hidden" id="cpEditingPostId" value="" />
-
-        <!-- Action buttons -->
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:2px;">
-          <button onclick="cpSavePost('draft')" class="cp-btn" style="width:100%;padding:10px;font-size:calc(14px * var(--fs,1.1));justify-content:center;">💾 Save as Draft</button>
-          <button onclick="cpSavePost('scheduled')" class="cp-btn cp-btn-blue" style="width:100%;padding:10px;font-size:calc(14px * var(--fs,1.1));font-weight:700;">🗓 Schedule</button>
-          <button onclick="cpPublishNow()" class="cp-btn cp-btn-primary" style="width:100%;padding:10px;font-size:calc(14px * var(--fs,1.1));font-weight:700;">🚀 Publish Now</button>
-        </div>
-        <div id="cpComposerStatus" style="font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;min-height:16px;text-align:center;"></div>
-
-        <!-- Delete -->
-        <div id="cpDeleteWrap" style="display:none;border-top:1px solid rgba(255,255,255,.07);padding-top:12px;">
-          <button onclick="cpDeleteCurrentPost()" class="cp-btn cp-btn-red" style="width:100%;padding:8px;font-size:calc(14px * var(--fs,1.1));">🗑 Delete Post</button>
-        </div>
-
       </div>
     </div>
+    <style>
+      #cpComposer{position:fixed;inset:0;z-index:5;background:rgba(3,6,18,.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+      #cpComposer .cpw-card{width:min(1120px,100%);max-height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0e1430,#0a0f24);border:1px solid rgba(124,58,237,.45);border-radius:18px;box-shadow:0 30px 90px rgba(0,0,0,.65);overflow:hidden;}
+      #cpComposer .cpw-head{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.08);}
+      #cpComposer .cpw-title{font-size:calc(17px * var(--fs,1.1));font-weight:800;color:#f1f5f9;}
+      #cpComposer .cpw-body{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:0;flex:1;min-height:0;overflow:hidden;}
+      #cpComposer .cpw-left{padding:18px 20px;display:flex;flex-direction:column;gap:18px;overflow-y:auto;}
+      #cpComposer .cpw-right{padding:18px 20px;border-left:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.02);overflow-y:auto;}
+      #cpComposer .cpw-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+      #cpComposer .cpw-hint{font-size:calc(14px * var(--fs,1.1));color:#8a96aa;}
+      #cpComposer .cpw-caption{min-height:170px;resize:vertical;font-size:calc(15px * var(--fs,1.1));line-height:1.55;}
+      #cpComposer .cpw-ai{margin-top:8px;background:rgba(124,58,237,.10);border:1px solid rgba(124,58,237,.3);border-radius:12px;padding:12px;}
+      #cpComposer .cpw-accts{display:flex;flex-wrap:wrap;gap:8px;}
+      #cpComposer .cpw-acct{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#cbd5e1;user-select:none;}
+      #cpComposer .cpw-acct input{display:none;}
+      #cpComposer .cpw-acct.on{border-color:#a78bfa;background:rgba(124,58,237,.22);color:#fff;box-shadow:0 0 0 2px rgba(167,139,250,.25);}
+      #cpComposer .cpw-acct.off{opacity:.55;cursor:default;}
+      #cpComposer .cpw-acct img,#cpComposer .cpw-acct .ic{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;}
+      #cpComposer .cpw-pv{background:#fff;color:#1c1e21;border-radius:12px;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+      #cpComposer .cpw-pv-top{display:flex;gap:10px;align-items:center;padding:12px 12px 6px;}
+      #cpComposer .cpw-pv-top img{width:40px;height:40px;border-radius:50%;background:#e4e6eb;object-fit:cover;}
+      #cpComposer .cpw-pv-name{font-weight:700;font-size:15px;}
+      #cpComposer .cpw-pv-meta{font-size:14px;color:#65676b;}
+      #cpComposer .cpw-pv-text{padding:4px 12px 10px;font-size:15px;line-height:1.45;white-space:pre-wrap;word-break:break-word;min-height:20px;}
+      #cpComposer .cpw-pv-text:empty:before{content:"Your caption shows here…";color:#8a8d91;}
+      #cpComposer .cpw-pv-media img,#cpComposer .cpw-pv-media video{display:block;width:100%;max-height:420px;object-fit:cover;background:#000;}
+      #cpComposer .cpw-pv-bar{display:flex;justify-content:space-around;padding:9px 6px;border-top:1px solid #e4e6eb;color:#65676b;font-size:14px;font-weight:600;}
+      #cpComposer .cpw-foot{display:flex;align-items:center;gap:8px;padding:12px 20px;border-top:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);flex-wrap:wrap;}
+      #cpComposer .cpw-status{flex:1;min-width:120px;font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;}
+      @media(max-width:820px){
+        #cpComposer{padding:0;}
+        #cpComposer .cpw-card{border-radius:0;height:100%;}
+        #cpComposer .cpw-body{grid-template-columns:1fr;overflow-y:auto;}
+        #cpComposer .cpw-left,#cpComposer .cpw-right{overflow:visible;}
+        #cpComposer .cpw-right{border-left:none;border-top:1px solid rgba(255,255,255,.07);}
+      }
+    </style>
 
   </div>
 
@@ -35815,32 +35846,77 @@ var _LC_ICON = {};
 function _lcInfo(){ return {}; }
 function _lcOn(){ return false; }
 function cpRenderLcStatus(){ var el=$('cpLcStatus'); if(el) el.innerHTML=''; }
-/* Composer targets: platform checkboxes */
+/* Composer "Post to" (V15.4): one chip per connected Facebook Page (with its
+   picture), plus a chip per other platform. Not-connected ones offer Connect. */
+var _CP_ICON = {facebook:'f', instagram:'◎', youtube:'▶', tiktok:'♪', linkedin:'in'};
 function cpRenderComposerTargets(post){
   var box=$('cpPlatformChecks'); if(!box) return;
-  if(!_lcOn()){ if(box.dataset.mode==='lc'){ box.innerHTML=box.dataset.legacy||box.innerHTML; } box.dataset.mode='legacy';
-    var plats=post?(post.platforms||[]):[];
-    box.querySelectorAll('input').forEach(function(cb){ cb.checked=plats.indexOf(cb.value)>=0; });
-    return; }
-  if(box.dataset.mode!=='lc'){ box.dataset.legacy=box.innerHTML; box.dataset.mode='lc'; }
-  var accts=(_lcInfo().accounts||[]);
-  var chosen=post?(post.lc_accounts||[]):[], plats2=post?(post.platforms||[]):[];
-  if(!accts.length){ return; }
-  box.innerHTML=accts.map(function(a){
-    var on=chosen.length?chosen.indexOf(a.id)>=0:(plats2.indexOf(a.platform)>=0);
-    return '<label style="display:flex;align-items:center;gap:7px;padding:8px 10px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.28);border-radius:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:600;color:#e2e8f0;'+(a.expired?'opacity:.55;':'')+'" title="'+_esc(a.platform)+(a.expired?' — reconnect':'')+'">'
-      +'<input type="checkbox" data-lc="1" data-platform="'+_esc(a.platform)+'" value="'+_esc(a.id)+'"'+(on&&!a.expired?' checked':'')+(a.expired?' disabled':'')+' style="accent-color:#a78bfa;width:15px;height:15px;">'
-      +'<span style="font-weight:800;min-width:16px;text-align:center;">'+(_LC_ICON[a.platform]||'•')+'</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+_esc(a.name||a.platform)+'</span></label>';
-  }).join('');
+  var plats=post?(post.platforms||[]):[], fbIds=post?(post.fb_page_ids||[]):[];
+  var fb=_cpConns.facebook||{}, pages=(fb.pages||[]);
+  var html='';
+  if(fb.connected && pages.length){
+    pages.forEach(function(pg,i){
+      var on = post ? (plats.indexOf('facebook')>=0 && (fbIds.length ? fbIds.indexOf(pg.id)>=0 : i===0)) : i===0;
+      html+='<label class="cpw-acct'+(on?' on':'')+'" title="Facebook Page: '+_esc(pg.name)+'">'
+        +'<input type="checkbox" data-fbpage="'+_esc(pg.id)+'" value="facebook"'+(on?' checked':'')+'>'
+        +'<img src="'+_esc(pg.picture||'')+'" alt="" onerror="this.outerHTML=\'<span class=ic style=background:#1877F2>f</span>\'">'
+        +'<span>'+_esc(pg.name)+'</span><span style="color:#93c5fd;font-weight:900;">f</span></label>';
+    });
+  } else {
+    html+='<span class="cpw-acct off"><span class="ic" style="background:#1877F2">f</span>Facebook <a href="#" onclick="event.preventDefault();cpConnect(\'facebook\')" style="color:#a78bfa;">Connect</a></span>';
+  }
+  ['instagram','youtube','tiktok','linkedin'].forEach(function(p){
+    var c=_cpConns[p]||{}, col=PLAT_COLORS[p];
+    if(c.connected){
+      var on=plats.indexOf(p)>=0;
+      html+='<label class="cpw-acct'+(on?' on':'')+'"><input type="checkbox" value="'+p+'"'+(on?' checked':'')+'>'
+        +'<span class="ic" style="background:'+col.dot+'">'+_CP_ICON[p]+'</span><span>'+_esc(c.page_name||c.name||col.label)+'</span></label>';
+    } else {
+      html+='<span class="cpw-acct off" title="Not connected yet"><span class="ic" style="background:'+col.dot+'">'+_CP_ICON[p]+'</span>'+col.label
+        +' <a href="#" onclick="event.preventDefault();cpConnect(\''+p+'\')" style="color:#a78bfa;">Connect</a></span>';
+    }
+  });
+  box.innerHTML=html;
+  box.querySelectorAll('input').forEach(function(cb){
+    cb.onchange=function(){ cb.closest('.cpw-acct').classList.toggle('on',cb.checked); cpPreview(); };
+  });
 }
 function cpTargets(){
-  var out={platforms:[], lc_accounts:[]};
+  var out={platforms:[], lc_accounts:[], fb_page_ids:[]};
   document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){
-    if(cb.getAttribute('data-lc')){ out.lc_accounts.push(cb.value); var p=cb.getAttribute('data-platform'); if(p && out.platforms.indexOf(p)<0) out.platforms.push(p); }
-    else out.platforms.push(cb.value);
+    if(cb.getAttribute('data-fbpage')) out.fb_page_ids.push(cb.getAttribute('data-fbpage'));
+    if(out.platforms.indexOf(cb.value)<0) out.platforms.push(cb.value);
   });
   return out;
 }
+/* Live Facebook-style preview of the post being written */
+window.cpPreview=function(){
+  var t=$('cpPvText'); if(!t) return;
+  t.textContent=($('cpCaption')||{}).value||'';
+  var first=document.querySelector('#cpPlatformChecks input[data-fbpage]:checked');
+  var pages=((_cpConns.facebook||{}).pages||[]), pg=first?pages.filter(function(x){return x.id===first.getAttribute('data-fbpage');})[0]:pages[0];
+  $('cpPvName').textContent=pg?pg.name:'Your Page';
+  var av=$('cpPvAvatar'); if(pg&&pg.picture){ av.style.visibility=''; if(av.getAttribute('src')!==pg.picture) av.src=pg.picture; } else av.style.visibility='hidden';
+  var url=(($('cpMediaUrl')||{}).value||'').trim(), m=$('cpPvMedia');
+  if(m.getAttribute('data-url')!==url){
+    m.setAttribute('data-url',url); m.innerHTML='';
+    if(/^https?:\/\//i.test(url)){
+      var isVid=/\.(mp4|mov|m4v|webm)(\?|$)|\/vclip\//i.test(url);
+      var el=document.createElement(isVid?'video':'img'); el.src=url;
+      if(isVid){ el.controls=true; el.muted=true; el.playsInline=true; }
+      el.onerror=function(){ m.innerHTML='<div style="padding:14px;color:#65676b;font-size:14px;">Couldn\'t load a preview of that link.</div>'; };
+      m.appendChild(el);
+    }
+  }
+};
+window.cpToggleAi=function(){ var b=$('cpAiBox'); if(b){ b.style.display=b.style.display==='none'?'':'none'; if(b.style.display==='') ($('cpAiTopic')||{}).focus&&$('cpAiTopic').focus(); } };
+window.cpQuickTime=function(hours){
+  var d=new Date(Date.now()+hours*3600000);
+  if(hours>=24){ d.setHours(9,0,0,0); }
+  d.setMinutes(Math.ceil(d.getMinutes()/15)*15,0,0);
+  var pad=function(n){return String(n).padStart(2,'0');};
+  $('cpScheduledAt').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+};
 window.cpPickClip=async function(){
   var box=$('cpClipPick'); if(!box) return;
   if(box.style.display!=='none'){ box.style.display='none'; return; }
@@ -35860,7 +35936,7 @@ window.cpPickClip=async function(){
         var id=row.getAttribute('data-id');
         var r=await (await fetch('/api/vclips/'+encodeURIComponent(id)+'/public_link')).json();
         if(!r.ok){ alert(r.error||'Could not get a link for that clip'); return; }
-        $('cpMediaUrl').value=r.url; box.style.display='none';
+        $('cpMediaUrl').value=r.url; box.style.display='none'; cpPreview();
         var c=ready.find(function(x){ return x.id===id; });
         var cap=$('cpCaption'); if(cap && !cap.value.trim() && c && c.social && c.social.caption){
           cap.value=c.social.caption+((c.social.hashtags||[]).length?'\n\n'+c.social.hashtags.map(function(h){return '#'+h;}).join(' '):''); cpUpdateCharCount(); }
@@ -35887,6 +35963,7 @@ function cpRenderPlatformPills(){
     var c = _cpConns[p] || {};
     var connected = c.connected;
     var name = c.page_name || c.name || '';
+    if(p === 'facebook' && (c.pages||[]).length > 1) name = 'Facebook · ' + c.pages.length + ' Pages';   /* V15.4: all Pages, not just the first */
     var displayName = connected ? (name || PLAT_COLORS[p].label) : PLAT_COLORS[p].label;
     var col = PLAT_COLORS[p];
     var connStyle = connected
@@ -36323,9 +36400,11 @@ window.cpOpenComposer = function(postId, prefillDate){
   var idEl = $('cpEditingPostId');
   if(idEl) idEl.value = _cpEditingId || '';
 
-  // Targets: platform checkboxes
+  // Targets: Pages + platforms, then the live preview
   cpRenderComposerTargets(post);
-  var mh=$('cpMediaHint'); if(mh) mh.textContent = 'Image or video link — use 🎞 to pick one of your clips. Required for Instagram.';
+  var mh=$('cpMediaHint'); if(mh) mh.textContent = 'Use 🎞 My Clips to pick a video you made. Instagram always needs a photo or video.';
+  var ab=$('cpAiBox'); if(ab) ab.style.display='none';
+  cpPreview();
 
   var delWrap = $('cpDeleteWrap');
   if(delWrap) delWrap.style.display = post ? 'block' : 'none';
@@ -36372,6 +36451,7 @@ window.cpSavePost = async function(status){
       caption: caption,
       platforms: platforms,
       lc_accounts: tg.lc_accounts,
+      fb_page_ids: tg.fb_page_ids,
       media_url: mediaUrl,
       scheduled_at: scheduledAt ? (scheduledAt.length===16 ? scheduledAt+':00' : scheduledAt) : '',
       scheduled_utc: cpUtc(scheduledAt),
@@ -36405,7 +36485,7 @@ window.cpPublishNow = async function(){
       // Saved as a draft first (was 'scheduled' with no time), then published
       var res = await fetch('/api/social/posts', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, media_url:mediaUrl, status:'draft'}),
+        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, fb_page_ids:tg2.fb_page_ids, media_url:mediaUrl, status:'draft'}),
       });
       var d = await res.json();
       if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }

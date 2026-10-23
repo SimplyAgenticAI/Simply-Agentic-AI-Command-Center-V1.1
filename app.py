@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.3")
+APP_VERSION = os.getenv("APP_VERSION", "15.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33890,7 +33890,20 @@ def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
         pages = [{"id": fb["page_id"], "access_token": fb["access_token"], "name": fb.get("page_name") or ""}]
     if not pages:
         return False, "No Facebook Pages connected"
-    page = pages[0]
+    # V15.4: post to every Page the composer picked (default: the first Page)
+    wanted = [str(x) for x in (post.get("fb_page_ids") or [])]
+    targets = [p for p in pages if str(p.get("id")) in wanted] if wanted else pages[:1]
+    if not targets:
+        return False, "The chosen Facebook Page isn't connected anymore — reconnect Facebook"
+    if len(targets) > 1:
+        ids, errs = [], []
+        for pg in targets:
+            ok1, info1 = _sp_publish_facebook(dict(post, fb_page_ids=[str(pg.get("id"))]), conns)
+            (ids if ok1 else errs).append(info1 if ok1 else f"{pg.get('name') or pg.get('id')}: {info1}")
+        if errs:
+            return False, "; ".join(errs) + (f" (posted on {len(ids)} other Page{'s' if len(ids) != 1 else ''})" if ids else "")
+        return True, ", ".join(ids)
+    page = targets[0]
     page_id = page.get("id")
     page_token = page.get("access_token")
     if not page_id or not page_token:
@@ -33971,6 +33984,8 @@ def api_sp_posts_create():
         "caption": (body.get("caption") or "").strip(),
         "platforms": body.get("platforms") or [],
         "lc_accounts": [str(a) for a in (body.get("lc_accounts") or []) if a][:40],
+        # V15.4: which connected Facebook Pages to post to (empty = the first Page)
+        "fb_page_ids": [str(a) for a in (body.get("fb_page_ids") or []) if re.match(r"^\d{3,40}$", str(a))][:20],
         "media_url": (body.get("media_url") or "").strip(),
         "scheduled_at": (body.get("scheduled_at") or "").strip(),
         "scheduled_utc": (body.get("scheduled_utc") or "").strip(),   # browser-computed UTC instant
@@ -34420,6 +34435,13 @@ def api_sp_connections():
             "name": c.get("name") or "",
             "page_name": page_name,
         }
+        if platform == "facebook":
+            if not pages and c.get("page_id"):
+                pages = [{"id": c["page_id"], "name": c.get("page_name") or ""}]
+            # Every connected Page (names + public profile pictures — tokens never leave the server)
+            summary[platform]["pages"] = [{"id": str(p.get("id")), "name": p.get("name") or "Page",
+                                           "picture": f"https://graph.facebook.com/{p.get('id')}/picture?type=square"}
+                                          for p in pages if p.get("id")]
     lc = conns.get("leadconnector") if isinstance(conns.get("leadconnector"), dict) else {}
     summary["leadconnector"] = {"connected": bool(lc.get("token") and lc.get("location_id")),
                                 "location_id": lc.get("location_id") or "",
