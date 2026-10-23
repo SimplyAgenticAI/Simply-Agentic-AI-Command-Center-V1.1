@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.4")
+APP_VERSION = os.getenv("APP_VERSION", "16.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -5652,8 +5652,22 @@ def smtp_ready_for_user(u: Optional[Dict[str, Any]]) -> Tuple[bool, str]:
 def _google_oauth_ready() -> Tuple[bool, str]:
     # Manual OAuth flow (no google-auth libraries required).
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not PUBLIC_BASE_URL:
-        return False, "Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL in your server environment."
+        missing = [n for n, v in (("GOOGLE_CLIENT_ID", GOOGLE_CLIENT_ID), ("GOOGLE_CLIENT_SECRET", GOOGLE_CLIENT_SECRET),
+                                  ("PUBLIC_BASE_URL", PUBLIC_BASE_URL)) if not v]
+        return False, ("Google OAuth is not configured. The server is missing: " + ", ".join(missing) + "."
+                       + _env_name_hints(missing))
     return True, ""
+
+def _env_name_hints(missing: List[str]) -> str:
+    """V16.5 diagnostic: env var NAMES (never values) that look like a missing one —
+    e.g. a stray space or typo in Render — so the cause is visible, not guessed."""
+    def norm(s: str) -> str:
+        return re.sub(r"[^A-Z]", "", s.upper())
+    near = sorted({k for k in os.environ for m in missing
+                   if k != m and (norm(k) == norm(m) or norm(m)[:10] in norm(k))})
+    return (" Found similar names: " + ", ".join(repr(k) for k in near) + " — rename to the exact name.") if near else \
+           " No similar names found — the value isn't reaching this server (check it's on this Render service, then redeploy)."
+
 
 def _gmail_libs_ready() -> Tuple[bool, str]:
     # Backward-compatible name used by older code paths.
