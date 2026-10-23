@@ -36051,7 +36051,7 @@ window.addEventListener('message', function(e){ if(e && e.data && e.data.spConne
 window.cpConnect = async function(platform){
   var s = await cpGetSetup();
   if(s.ready && s.ready[platform]){
-    var path = platform==='instagram' ? 'facebook' : platform;
+    var path = platform==='instagram' ? ((s.connect_path||{}).instagram || 'facebook') : platform;   /* V16.0: Instagram Login when set up */
     var w = window.open('/social/connect/'+path, 'spConnect', 'width=620,height=760');
     if(!w){ location.href='/social/connect/'+path; return; }
     var iv=setInterval(function(){ if(w.closed){ clearInterval(iv); cpLoadState(); } }, 1000);

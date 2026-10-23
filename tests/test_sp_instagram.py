@@ -56,6 +56,66 @@ def test_photo_needs_media_and_failed_processing_is_reported(monkeypatch):
     assert not ok and "couldn't process" in info
 
 
+def test_instagram_login_account_posts_via_instagram_api(monkeypatch):
+    urls = []
+    monkeypatch.setattr(app_module.requests, "post",
+                        lambda url, data=None, timeout=None: urls.append(url) or _R({"id": "X"}))
+    monkeypatch.setattr(app_module.requests, "get",
+                        lambda url, params=None, timeout=None: urls.append(url) or _R({"permalink": "https://www.instagram.com/p/Q/"}))
+    ok, info = app_module._ig_publish_one({"id": "55", "access_token": "t", "via": "instagram"}, "https://x.example/a.jpg", "Hi")
+    assert ok and all(u.startswith("https://graph.instagram.com/") for u in urls)
+    urls.clear()
+    app_module._ig_publish_one({"id": "55", "access_token": "t"}, "https://x.example/a.jpg", "Hi")
+    assert all(u.startswith("https://graph.facebook.com/") for u in urls)
+
+
+def test_both_connect_routes_keep_each_others_accounts():
+    conns = {}
+    app_module._ig_merge_accounts(conns, [{"id": "1", "access_token": "a", "username": "me", "via": "instagram"}], "facebook")
+    app_module._ig_merge_accounts(conns, [{"id": "2", "access_token": "b", "username": "biz", "via": "facebook"}], "instagram")
+    assert [a["id"] for a in conns["instagram"]["accounts"]] == ["2", "1"]
+    app_module._ig_merge_accounts(conns, [], "instagram")                 # Facebook reconnect with no Page-linked IG
+    assert [a["id"] for a in conns["instagram"]["accounts"]] == ["1"]
+
+
+def test_connect_callback_saves_direct_account(flask_app, monkeypatch):
+    monkeypatch.setattr(app_module, "INSTAGRAM_APP_ID", "IGAPP")
+    monkeypatch.setattr(app_module, "INSTAGRAM_APP_SECRET", "IGSEC")
+    monkeypatch.setattr(app_module.requests, "post", lambda url, data=None, timeout=None: _R(
+        {"data": [{"access_token": "SHORT", "user_id": "777"}]}))
+
+    def fake_get(url, params=None, timeout=None):
+        if url.endswith("/access_token"):
+            return _R({"access_token": "LONG", "expires_in": 5184000})
+        return _R({"user_id": "17840000", "username": "jeffpersonal", "profile_picture_url": ""})
+    monkeypatch.setattr(app_module.requests, "get", fake_get)
+    uname = "spigdirect"
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+    app_module._invalidate_users_cache()
+    try:
+        app_module._save_sp_conns(uname, {})
+        c = flask_app.test_client()
+        with c.session_transaction() as s:
+            s["user"] = uname
+        r = c.get("/social/connect/instagram")
+        assert r.status_code == 302 and r.headers["Location"].startswith("https://www.instagram.com/oauth/authorize")
+        with c.session_transaction() as s:
+            state = s["sp_ig_state"]
+        page = c.get(f"/social/callback/instagram?code=abc%23_&state={state}").get_data(as_text=True)
+        assert "Instagram connected" in page and "@jeffpersonal" in page
+        ig = c.get("/api/social/connections").get_json()["connections"]["instagram"]
+        assert ig["connected"] and ig["accounts"][0]["username"] == "jeffpersonal"
+        assert app_module._load_sp_conns(uname)["instagram"]["accounts"][0]["access_token"] == "LONG"
+        assert c.get("/api/social/setup").get_json()["connect_path"]["instagram"] == "instagram"
+    finally:
+        data = app_module.load_users()
+        (data.get("users") or {}).pop(uname, None)
+        app_module.save_users(data)
+        app_module._invalidate_users_cache()
+
+
 def test_missing_instagram_reason_names_the_cause(monkeypatch):
     monkeypatch.delenv("META_INSTAGRAM", raising=False)
     assert "META_INSTAGRAM" in app_module._ig_missing_reason("t", [], {})

@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.9")
+APP_VERSION = os.getenv("APP_VERSION", "16.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -484,6 +484,10 @@ CALENDAR_SCOPES = [
 # Social Media Content Planner — set these on Render as env vars
 META_APP_ID      = os.getenv("META_APP_ID", "")
 META_APP_SECRET  = os.getenv("META_APP_SECRET", "")
+# V16.0: Instagram Login — connects an Instagram Creator/Business account directly,
+# no Facebook Page needed. Its own App ID/Secret (Meta app → Instagram → API setup).
+INSTAGRAM_APP_ID     = os.getenv("INSTAGRAM_APP_ID", "")
+INSTAGRAM_APP_SECRET = os.getenv("INSTAGRAM_APP_SECRET", "")
 TIKTOK_CLIENT_KEY    = os.getenv("TIKTOK_CLIENT_KEY", "")
 TIKTOK_CLIENT_SECRET = os.getenv("TIKTOK_CLIENT_SECRET", "")
 LINKEDIN_CLIENT_ID     = os.getenv("LINKEDIN_CLIENT_ID", "")
@@ -33947,13 +33951,14 @@ def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: 
     """Create the media container, wait for Instagram to finish processing a
     video (Reels fail if published early), publish, then fetch the permalink."""
     ig_id, tok = acct["id"], acct["access_token"]
+    base = _IG_GRAPH if acct.get("via") == "instagram" else "https://graph.facebook.com/v19.0"   # V16.0
     data: Dict[str, Any] = {"caption": caption, "access_token": tok}
     video = _sp_is_video(media_url)
     if video:
         data.update({"video_url": media_url, "media_type": "REELS"})
     else:
         data["image_url"] = media_url
-    r1 = requests.post(f"https://graph.facebook.com/v19.0/{ig_id}/media", data=data, timeout=60)
+    r1 = requests.post(f"{base}/{ig_id}/media", data=data, timeout=60)
     res1 = r1.json()
     if r1.status_code != 200 or not res1.get("id"):
         return False, (res1.get("error") or {}).get("message", "Instagram couldn't take that photo or video")
@@ -33961,7 +33966,7 @@ def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: 
     if video:
         waited = 0
         while True:
-            st = requests.get(f"https://graph.facebook.com/v19.0/{cid}",
+            st = requests.get(f"{base}/{cid}",
                               params={"fields": "status_code", "access_token": tok}, timeout=20).json()
             code = st.get("status_code")
             if code == "FINISHED":
@@ -33972,13 +33977,13 @@ def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: 
                 return False, "Instagram is still processing the video — try publishing again in a few minutes"
             time.sleep(poll_s)
             waited += poll_s
-    r2 = requests.post(f"https://graph.facebook.com/v19.0/{ig_id}/media_publish",
+    r2 = requests.post(f"{base}/{ig_id}/media_publish",
                        data={"creation_id": cid, "access_token": tok}, timeout=60)
     res2 = r2.json()
     if r2.status_code != 200 or not res2.get("id"):
         return False, (res2.get("error") or {}).get("message", "Instagram publish failed")
     try:
-        link = requests.get(f"https://graph.facebook.com/v19.0/{res2['id']}",
+        link = requests.get(f"{base}/{res2['id']}",
                             params={"fields": "permalink", "access_token": tok}, timeout=15).json().get("permalink")
     except Exception:
         link = None
@@ -34743,14 +34748,12 @@ def sp_callback_facebook():
             iba = pg.get("instagram_business_account") or {}
             if iba.get("id") and not any(a["id"] == iba["id"] for a in ig_accts):
                 ig_accts.append({"id": iba["id"], "username": iba.get("username") or "", "picture": iba.get("profile_picture_url") or "",
-                                 "access_token": pg.get("access_token"), "page_id": pg.get("id")})
+                                 "access_token": pg.get("access_token"), "page_id": pg.get("id"), "via": "facebook"})
         conns = _load_sp_conns(uname)
         conns["facebook"] = {"access_token": long_token, "name": me.get("name", ""), "pages": pages, "connected_at": now_iso()}
-        if ig_accts:
-            conns["instagram"] = {"access_token": ig_accts[0]["access_token"], "ig_user_id": ig_accts[0]["id"],
-                                  "name": ig_accts[0]["username"] or me.get("name", ""), "accounts": ig_accts, "connected_at": now_iso()}
-            conns.pop("instagram_issue", None)
-        else:
+        # Page-linked accounts replace the old Page-linked ones; Instagram Login accounts are kept (V16.0)
+        _ig_merge_accounts(conns, ig_accts, "instagram")
+        if not ig_accts and not (conns.get("instagram") or {}).get("accounts"):
             conns["instagram_issue"] = _ig_missing_reason(long_token, pages, pages_data)
         _save_sp_conns(uname, conns)
         ig_note = (f" Instagram also connected ({', '.join('@' + a['username'] for a in ig_accts if a['username']) or len(ig_accts)})!"
@@ -34964,23 +34967,136 @@ def api_sp_setup():
     base = (PUBLIC_BASE_URL or request.host_url or "").rstrip("/")
     ready = {
         "facebook": bool(META_APP_ID and META_APP_SECRET),
-        "instagram": bool(META_APP_ID and META_APP_SECRET),
+        "instagram": bool((INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET) or (META_APP_ID and META_APP_SECRET)),
         "youtube": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET),
         "tiktok": bool(TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET),
         "linkedin": bool(LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET),
     }
-    out: Dict[str, Any] = {"ok": True, "ready": ready, "admin": _is_admin_user(u)}
+    ig_direct = bool(INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET)
+    out: Dict[str, Any] = {"ok": True, "ready": ready, "admin": _is_admin_user(u),
+                           "connect_path": {"instagram": "instagram" if ig_direct else "facebook"}}
     if out["admin"]:
         out["redirects"] = {
-            "facebook": f"{base}/social/callback/facebook", "instagram": f"{base}/social/callback/facebook",
+            "facebook": f"{base}/social/callback/facebook", "instagram": f"{base}/social/callback/instagram",
             "youtube": f"{base}/social/callback/youtube", "tiktok": f"{base}/social/callback/tiktok",
             "linkedin": f"{base}/social/callback/linkedin",
         }
-        out["env"] = {"facebook": ["META_APP_ID", "META_APP_SECRET"], "instagram": ["META_APP_ID", "META_APP_SECRET"],
+        out["env"] = {"facebook": ["META_APP_ID", "META_APP_SECRET"], "instagram": ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET"],
                       "youtube": ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
                       "tiktok": ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET"],
                       "linkedin": ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"]}
     return jsonify(out)
+
+
+# ── OAuth: Instagram Login (V16.0) — direct, no Facebook Page ──
+_IG_GRAPH = "https://graph.instagram.com/v21.0"
+_IG_SCOPES = "instagram_business_basic,instagram_business_content_publish"
+
+
+def _ig_merge_accounts(conns: dict, new: List[Dict[str, Any]], keep_via: str) -> None:
+    """Put `new` accounts into conns['instagram'], keeping the other connect route's accounts."""
+    ig = conns.get("instagram") or {}
+    kept = [a for a in (ig.get("accounts") or []) if (a.get("via") or "facebook") == keep_via]
+    ids = {str(a["id"]) for a in new}
+    accts = list(new) + [a for a in kept if str(a.get("id")) not in ids]
+    if not accts:
+        conns.pop("instagram", None)
+        return
+    conns["instagram"] = {"access_token": accts[0]["access_token"], "ig_user_id": accts[0]["id"],
+                          "name": accts[0].get("username") or "", "accounts": accts, "connected_at": now_iso()}
+    conns.pop("instagram_issue", None)
+
+
+def _ig_refresh_tokens(uname: str, conns: dict) -> None:
+    """Instagram Login tokens last 60 days; refresh any within 15 days of expiring."""
+    changed = False
+    for a in ((conns.get("instagram") or {}).get("accounts") or []):
+        if a.get("via") != "instagram" or not a.get("expires_at"):
+            continue
+        try:
+            left = datetime.fromisoformat(a["expires_at"]) - datetime.utcnow()
+        except Exception:
+            continue
+        if left > timedelta(days=15) or left < timedelta(0):
+            continue
+        try:
+            d = requests.get("https://graph.instagram.com/refresh_access_token",
+                             params={"grant_type": "ig_refresh_token", "access_token": a["access_token"]}, timeout=15).json()
+        except Exception:
+            continue
+        if d.get("access_token"):
+            a["access_token"] = d["access_token"]
+            a["expires_at"] = (datetime.utcnow() + timedelta(seconds=int(d.get("expires_in") or 5184000))).isoformat()
+            changed = True
+    if changed:
+        ig = conns.get("instagram") or {}
+        if ig.get("accounts"):
+            ig["access_token"] = ig["accounts"][0]["access_token"]
+        _save_sp_conns(uname, conns)
+
+
+@app.get("/social/connect/instagram")
+def sp_connect_instagram():
+    u = current_user()
+    if not u: return redirect("/login")
+    if not (INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET):
+        return redirect("/social/connect/facebook")          # not set up yet → the Page-linked route
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    state = secrets.token_urlsafe(24)
+    session["sp_ig_state"] = state
+    try: _store_oauth_state("sp_ig_" + state, uname)
+    except Exception: pass
+    from urllib.parse import urlencode
+    params = {"client_id": INSTAGRAM_APP_ID, "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/instagram",
+              "response_type": "code", "scope": _IG_SCOPES, "state": state}
+    return redirect(f"https://www.instagram.com/oauth/authorize?{urlencode(params)}")
+
+
+@app.get("/social/callback/instagram")
+def sp_callback_instagram():
+    u = current_user()
+    if not u: return redirect("/login")
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    if request.args.get("error"):
+        why = request.args.get("error_description") or request.args.get("error_reason") or request.args.get("error")
+        return _sp_page("Instagram connect cancelled", _html_escape(str(why)[:300]), ok=False)
+    state = request.args.get("state", "")
+    state_ok = bool(state) and session.get("sp_ig_state") == state
+    if not state_ok:
+        try: state_ok = bool(_consume_oauth_state("sp_ig_" + state))
+        except Exception: pass
+    if not state_ok:
+        return _sp_page("Please try connecting again", "The sign-in link expired.", ok=False, status=400)
+    code = (request.args.get("code") or "").split("#")[0]
+    try:
+        r = requests.post("https://api.instagram.com/oauth/access_token", data={
+            "client_id": INSTAGRAM_APP_ID, "client_secret": INSTAGRAM_APP_SECRET, "grant_type": "authorization_code",
+            "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/instagram", "code": code}, timeout=20)
+        d = r.json()
+        if isinstance(d.get("data"), list) and d["data"]:
+            d = d["data"][0]
+        short = d.get("access_token")
+        if not short:
+            err = d.get("error")
+            msg = d.get("error_message") or (err.get("message") if isinstance(err, dict) else err)
+            return _sp_page("Instagram didn't connect", _html_escape(str(msg or "No access token came back")[:300]), ok=False, status=400)
+        lt = requests.get("https://graph.instagram.com/access_token", params={
+            "grant_type": "ig_exchange_token", "client_secret": INSTAGRAM_APP_SECRET, "access_token": short}, timeout=20).json()
+        token = lt.get("access_token") or short
+        expires = (datetime.utcnow() + timedelta(seconds=int(lt.get("expires_in") or 3600))).isoformat()
+        me = requests.get(f"{_IG_GRAPH}/me", params={"fields": "user_id,username,profile_picture_url,account_type",
+                                                      "access_token": token}, timeout=15).json()
+        ig_id = str(me.get("user_id") or me.get("id") or d.get("user_id") or "")
+        if not ig_id:
+            return _sp_page("Instagram didn't connect", "Instagram didn't say which account this is — please try again.", ok=False, status=400)
+        acct = {"id": ig_id, "username": me.get("username") or "", "picture": me.get("profile_picture_url") or "",
+                "access_token": token, "expires_at": expires, "via": "instagram"}
+        conns = _load_sp_conns(uname)
+        _ig_merge_accounts(conns, [acct], "facebook")
+        _save_sp_conns(uname, conns)
+        return _sp_page("✓ Instagram connected!", f"@{_html_escape(acct['username'] or ig_id)} is ready to post from the Content Planner.")
+    except Exception as e:
+        return _sp_page("Instagram connect error", _html_escape(str(e)[:300]), ok=False, status=500)
 
 
 # ── OAuth: LinkedIn (personal profile posting) ──
@@ -35190,6 +35306,8 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
         if platform == "facebook":
             ok, info = _sp_publish_facebook(post, conns)
         elif platform == "instagram":
+            try: _ig_refresh_tokens(uname, conns)
+            except Exception: pass
             ok, info = _sp_publish_instagram(post, conns)
         elif platform == "youtube":
             ok, info = _sp_publish_youtube(uname, post, conns)
