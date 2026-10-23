@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.5")
+APP_VERSION = os.getenv("APP_VERSION", "15.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33930,37 +33930,86 @@ def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
-def _sp_publish_instagram(post: dict, conns: dict) -> Tuple[bool, str]:
+def _sp_is_video(url: str) -> bool:
+    return bool(re.search(r"(\.(mp4|mov|m4v|webm|avi)(\?|$))|/vclip/", url or "", re.I))
+
+
+def _ig_accounts(conns: dict) -> List[Dict[str, Any]]:
+    """Every connected Instagram account (V15.6). Older connections stored one."""
     ig = conns.get("instagram") or {}
-    ig_user_id = ig.get("ig_user_id")
-    ig_token = ig.get("access_token")
-    if not ig_user_id or not ig_token:
+    accts = [a for a in (ig.get("accounts") or []) if a.get("id") and a.get("access_token")]
+    if not accts and ig.get("ig_user_id") and ig.get("access_token"):
+        accts = [{"id": ig["ig_user_id"], "access_token": ig["access_token"], "username": ig.get("name") or ""}]
+    return accts
+
+
+def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: int = 5, max_wait_s: int = 300) -> Tuple[bool, str]:
+    """Create the media container, wait for Instagram to finish processing a
+    video (Reels fail if published early), publish, then fetch the permalink."""
+    ig_id, tok = acct["id"], acct["access_token"]
+    data: Dict[str, Any] = {"caption": caption, "access_token": tok}
+    video = _sp_is_video(media_url)
+    if video:
+        data.update({"video_url": media_url, "media_type": "REELS"})
+    else:
+        data["image_url"] = media_url
+    r1 = requests.post(f"https://graph.facebook.com/v19.0/{ig_id}/media", data=data, timeout=60)
+    res1 = r1.json()
+    if r1.status_code != 200 or not res1.get("id"):
+        return False, (res1.get("error") or {}).get("message", "Instagram couldn't take that photo or video")
+    cid = res1["id"]
+    if video:
+        waited = 0
+        while True:
+            st = requests.get(f"https://graph.facebook.com/v19.0/{cid}",
+                              params={"fields": "status_code", "access_token": tok}, timeout=20).json()
+            code = st.get("status_code")
+            if code == "FINISHED":
+                break
+            if code in ("ERROR", "EXPIRED"):
+                return False, "Instagram couldn't process that video — check it's an MP4 between 3 and 90 seconds"
+            if waited >= max_wait_s:
+                return False, "Instagram is still processing the video — try publishing again in a few minutes"
+            time.sleep(poll_s)
+            waited += poll_s
+    r2 = requests.post(f"https://graph.facebook.com/v19.0/{ig_id}/media_publish",
+                       data={"creation_id": cid, "access_token": tok}, timeout=60)
+    res2 = r2.json()
+    if r2.status_code != 200 or not res2.get("id"):
+        return False, (res2.get("error") or {}).get("message", "Instagram publish failed")
+    try:
+        link = requests.get(f"https://graph.facebook.com/v19.0/{res2['id']}",
+                            params={"fields": "permalink", "access_token": tok}, timeout=15).json().get("permalink")
+    except Exception:
+        link = None
+    return True, link or res2["id"]
+
+
+def _sp_publish_instagram(post: dict, conns: dict) -> Tuple[bool, str]:
+    accts = _ig_accounts(conns)
+    if not accts:
         return False, "Instagram not connected"
     media_url = (post.get("media_url") or "").strip()
     caption = (post.get("caption") or "").strip()
     if not media_url:
-        return False, "Instagram requires a media URL"
-    is_video = any(media_url.lower().endswith(ext) for ext in (".mp4", ".mov", ".avi"))
-    container_data: dict = {"caption": caption, "access_token": ig_token}
-    if is_video:
-        container_data["video_url"] = media_url
-        container_data["media_type"] = "REELS"
-    else:
-        container_data["image_url"] = media_url
-    try:
-        r1 = requests.post(f"https://graph.facebook.com/v19.0/{ig_user_id}/media", data=container_data, timeout=30)
-        res1 = r1.json()
-        if r1.status_code != 200 or not res1.get("id"):
-            return False, (res1.get("error") or {}).get("message", "Failed to create media container")
-        container_id = res1["id"]
-        r2 = requests.post(f"https://graph.facebook.com/v19.0/{ig_user_id}/media_publish",
-                           data={"creation_id": container_id, "access_token": ig_token}, timeout=30)
-        res2 = r2.json()
-        if r2.status_code == 200 and res2.get("id"):
-            return True, res2["id"]
-        return False, (res2.get("error") or {}).get("message", "Instagram publish failed")
-    except Exception as e:
-        return False, str(e)
+        return False, "Instagram needs a photo or video — add one to this post"
+    wanted = [str(x) for x in (post.get("ig_account_ids") or [])]
+    targets = [a for a in accts if str(a["id"]) in wanted] if wanted else accts[:1]
+    if not targets:
+        return False, "The chosen Instagram account isn't connected anymore — reconnect Facebook"
+    done, errs = [], []
+    for a in targets:
+        try:
+            ok, info = _ig_publish_one(a, media_url, caption)
+        except Exception as e:
+            ok, info = False, str(e)[:200]
+        if ok:
+            done.append(info)
+        else:
+            errs.append(f"@{a.get('username') or a['id']}: {info}" if len(targets) > 1 else info)
+    if errs:
+        return False, "; ".join(errs) + (f" (posted on {len(done)} other account{'s' if len(done) != 1 else ''})" if done else "")
+    return True, ", ".join(done)
 
 @app.get("/api/social/posts")
 def api_sp_posts_get():
@@ -33986,6 +34035,7 @@ def api_sp_posts_create():
         "lc_accounts": [str(a) for a in (body.get("lc_accounts") or []) if a][:40],
         # V15.4: which connected Facebook Pages to post to (empty = the first Page)
         "fb_page_ids": [str(a) for a in (body.get("fb_page_ids") or []) if re.match(r"^\d{3,40}$", str(a))][:20],
+        "ig_account_ids": [str(a) for a in (body.get("ig_account_ids") or []) if re.match(r"^\d{3,40}$", str(a))][:20],
         "media_url": (body.get("media_url") or "").strip(),
         "scheduled_at": (body.get("scheduled_at") or "").strip(),
         "scheduled_utc": (body.get("scheduled_utc") or "").strip(),   # browser-computed UTC instant
@@ -34138,9 +34188,10 @@ def api_sp_publish(post_id):
         return jsonify({"ok": False, "error": "Pick at least one platform."}), 400
     if post.get("status") == "publishing":
         return jsonify({"ok": True, "status": "publishing"})
-    if "youtube" in platforms:
-        # Video uploads can take minutes — publish in the background; the
-        # Queue shows "Publishing…" and updates when it's done.
+    if "youtube" in platforms or (_sp_is_video(post.get("media_url") or "") and ({"instagram", "facebook"} & set(platforms))):
+        # Video uploads can take minutes (YouTube, Instagram Reels, Facebook
+        # video) — publish in the background; the Queue shows "Publishing…"
+        # and updates when it's done.
         post["status"] = "publishing"
         _save_sp_posts(uname, posts)
 
@@ -34442,6 +34493,10 @@ def api_sp_connections():
             summary[platform]["pages"] = [{"id": str(p.get("id")), "name": p.get("name") or "Page",
                                            "picture": f"https://graph.facebook.com/{p.get('id')}/picture?type=square"}
                                           for p in pages if p.get("id")]
+        if platform == "instagram":
+            summary[platform]["accounts"] = [{"id": str(a["id"]), "username": a.get("username") or "",
+                                              "picture": a.get("picture") or ""} for a in _ig_accounts(conns)]
+            summary[platform]["connected"] = bool(summary[platform]["accounts"]) or summary[platform]["connected"]
     lc = conns.get("leadconnector") if isinstance(conns.get("leadconnector"), dict) else {}
     summary["leadconnector"] = {"connected": bool(lc.get("token") and lc.get("location_id")),
                                 "location_id": lc.get("location_id") or "",
@@ -34648,23 +34703,25 @@ def sp_callback_facebook():
         pages_resp = requests.get(
             "https://graph.facebook.com/v19.0/me/accounts",
             params={"access_token": long_token,
-                    "fields": "id,name,access_token,instagram_business_account"},
+                    "fields": "id,name,access_token,instagram_business_account{id,username,profile_picture_url}"},
             timeout=20)
         pages_data = pages_resp.json()
         pages = []
-        ig_user_id = None
-        ig_token = None
+        ig_accts = []   # V15.6: every Instagram account linked to any of the Pages
         for pg in (pages_data.get("data") or []):
             pages.append({"id": pg.get("id"), "name": pg.get("name"), "access_token": pg.get("access_token")})
-            if pg.get("instagram_business_account") and not ig_user_id:
-                ig_user_id = (pg.get("instagram_business_account") or {}).get("id")
-                ig_token = pg.get("access_token")
+            iba = pg.get("instagram_business_account") or {}
+            if iba.get("id") and not any(a["id"] == iba["id"] for a in ig_accts):
+                ig_accts.append({"id": iba["id"], "username": iba.get("username") or "", "picture": iba.get("profile_picture_url") or "",
+                                 "access_token": pg.get("access_token"), "page_id": pg.get("id")})
         conns = _load_sp_conns(uname)
         conns["facebook"] = {"access_token": long_token, "name": me.get("name", ""), "pages": pages, "connected_at": now_iso()}
-        if ig_user_id:
-            conns["instagram"] = {"access_token": ig_token, "ig_user_id": ig_user_id, "name": me.get("name", ""), "connected_at": now_iso()}
+        if ig_accts:
+            conns["instagram"] = {"access_token": ig_accts[0]["access_token"], "ig_user_id": ig_accts[0]["id"],
+                                  "name": ig_accts[0]["username"] or me.get("name", ""), "accounts": ig_accts, "connected_at": now_iso()}
         _save_sp_conns(uname, conns)
-        ig_note = " Instagram Business also connected!" if ig_user_id else ""
+        ig_note = (f" Instagram also connected ({', '.join('@' + a['username'] for a in ig_accts if a['username']) or len(ig_accts)})!"
+                   if ig_accts else "")
         return make_response(
             f"<html><head><meta http-equiv='refresh' content='3;url=/'></head>"
             f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"
@@ -35116,6 +35173,12 @@ def _sp_live_links(results: Dict[str, Any]) -> List[Dict[str, str]]:
     links: List[Dict[str, str]] = []
     for platform, r in (results or {}).items():
         if not r.get("ok"):
+            continue
+        if platform == "instagram":
+            perma = [x.strip() for x in str(r.get("info") or "").split(",")
+                     if re.match(r"^https://(www\.)?instagram\.com/[\w./\-]+$", x.strip())]
+            links += [{"platform": "instagram", "url": u, "label": "View on Instagram" + (f" ({n + 1})" if len(perma) > 1 else "")}
+                      for n, u in enumerate(perma)]
             continue
         ids = [x.strip() for x in str(r.get("info") or "").split(",") if re.match(r"^[\w\-:.]{3,80}$", x.strip())]
         for n, pid in enumerate(ids):

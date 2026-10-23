@@ -35904,8 +35904,19 @@ function cpRenderComposerTargets(post){
   } else {
     html+='<span class="cpw-acct off"><span class="ic" style="background:#1877F2">f</span>Facebook <a href="#" onclick="event.preventDefault();cpConnect(\'facebook\')" style="color:#a78bfa;">Connect</a></span>';
   }
+  var ig=_cpConns.instagram||{}, igAccts=(ig.accounts||[]), igIds=post?(post.ig_account_ids||[]):[];
+  if(igAccts.length){
+    igAccts.forEach(function(a,i){
+      var on = post && plats.indexOf('instagram')>=0 && (igIds.length ? igIds.indexOf(a.id)>=0 : i===0);
+      html+='<label class="cpw-acct'+(on?' on':'')+'" title="Instagram: @'+_esc(a.username)+'">'
+        +'<input type="checkbox" data-igacct="'+_esc(a.id)+'" value="instagram"'+(on?' checked':'')+'>'
+        +(a.picture?'<img src="'+_esc(a.picture)+'" alt="" onerror="this.outerHTML=\'<span class=ic style=background:#E1306C>◎</span>\'">':'<span class="ic" style="background:#E1306C">◎</span>')
+        +'<span>@'+_esc(a.username||'instagram')+'</span><span style="color:#fda4af;font-weight:900;">◎</span></label>';
+    });
+  }
   ['instagram','youtube','tiktok','linkedin'].forEach(function(p){
     var c=_cpConns[p]||{}, col=PLAT_COLORS[p];
+    if(p==='instagram' && igAccts.length) return;   /* shown above, one chip per account */
     if(c.connected){
       var on=plats.indexOf(p)>=0;
       html+='<label class="cpw-acct'+(on?' on':'')+'"><input type="checkbox" value="'+p+'"'+(on?' checked':'')+'>'
@@ -35921,9 +35932,10 @@ function cpRenderComposerTargets(post){
   });
 }
 function cpTargets(){
-  var out={platforms:[], lc_accounts:[], fb_page_ids:[]};
+  var out={platforms:[], lc_accounts:[], fb_page_ids:[], ig_account_ids:[]};
   document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){
     if(cb.getAttribute('data-fbpage')) out.fb_page_ids.push(cb.getAttribute('data-fbpage'));
+    if(cb.getAttribute('data-igacct')) out.ig_account_ids.push(cb.getAttribute('data-igacct'));
     if(out.platforms.indexOf(cb.value)<0) out.platforms.push(cb.value);
   });
   return out;
@@ -36198,6 +36210,10 @@ function cpPostWhere(p){
       var ids=p.fb_page_ids||[];
       var fbn=pages.filter(function(x){ return ids.length ? ids.indexOf(x.id)>=0 : x===pages[0]; }).map(function(x){ return x.name; });
       names.push(fbn.length ? fbn.join(', ') : 'Facebook');
+    } else if(pl==='instagram'){
+      var accts=((_cpConns.instagram||{}).accounts||[]), iids=p.ig_account_ids||[];
+      var ign=accts.filter(function(a){ return iids.length ? iids.indexOf(a.id)>=0 : a===accts[0]; }).map(function(a){ return '@'+a.username; });
+      names.push(ign.length ? ign.join(', ') : 'Instagram');
     } else names.push((PLAT_COLORS[pl]||{label:pl}).label);
   });
   return names.join(' · ') || 'No account picked';
@@ -36254,7 +36270,7 @@ window.cpMovePost=async function(pid, dateKey){
   var local=dateKey+'T'+time;
   if(cpPostDate(p)===dateKey) return;
   if(p.status==='scheduled' && new Date(local).getTime() < Date.now()-60000){ showToast('That day and time has already passed — pick a later day','error'); return; }
-  var body={id:p.id, caption:p.caption||'', platforms:p.platforms||[], lc_accounts:p.lc_accounts||[], fb_page_ids:p.fb_page_ids||[],
+  var body={id:p.id, caption:p.caption||'', platforms:p.platforms||[], lc_accounts:p.lc_accounts||[], fb_page_ids:p.fb_page_ids||[], ig_account_ids:p.ig_account_ids||[],
             media_url:p.media_url||'', scheduled_at:local+':00', scheduled_utc:cpUtc(local), status:p.status||'draft'};
   try{
     var d=await (await fetch('/api/social/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
@@ -36578,6 +36594,7 @@ window.cpSavePost = async function(status){
       platforms: platforms,
       lc_accounts: tg.lc_accounts,
       fb_page_ids: tg.fb_page_ids,
+      ig_account_ids: tg.ig_account_ids,
       media_url: mediaUrl,
       scheduled_at: scheduledAt ? (scheduledAt.length===16 ? scheduledAt+':00' : scheduledAt) : '',
       scheduled_utc: cpUtc(scheduledAt),
@@ -36611,7 +36628,7 @@ window.cpPublishNow = async function(){
       // Saved as a draft first (was 'scheduled' with no time), then published
       var res = await fetch('/api/social/posts', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, fb_page_ids:tg2.fb_page_ids, media_url:mediaUrl, status:'draft'}),
+        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, fb_page_ids:tg2.fb_page_ids, ig_account_ids:tg2.ig_account_ids, media_url:mediaUrl, status:'draft'}),
       });
       var d = await res.json();
       if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }
