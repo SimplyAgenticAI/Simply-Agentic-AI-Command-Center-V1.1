@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.2")
+APP_VERSION = os.getenv("APP_VERSION", "15.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33898,13 +33898,18 @@ def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
     text = (post.get("caption") or "").strip()
     media_url = (post.get("media_url") or "").strip()
     data = {"message": text, "access_token": page_token}
-    if media_url:
+    is_video = bool(media_url) and bool(re.search(r"(\.(mp4|mov|m4v|webm)(\?|$))|/vclip/", media_url, re.I))
+    if is_video:
+        # Videos (incl. Video Editor clips) go to /videos — /photos rejects them (V15.3 fix)
+        endpoint = f"https://graph.facebook.com/v19.0/{page_id}/videos"
+        data = {"description": text, "file_url": media_url, "access_token": page_token}
+    elif media_url:
         endpoint = f"https://graph.facebook.com/v19.0/{page_id}/photos"
         data["url"] = media_url
     else:
         endpoint = f"https://graph.facebook.com/v19.0/{page_id}/feed"
     try:
-        r = requests.post(endpoint, data=data, timeout=20)
+        r = requests.post(endpoint, data=data, timeout=120 if is_video else 20)
         result = r.json()
         if r.status_code == 200 and (result.get("id") or result.get("post_id")):
             return True, result.get("id") or result.get("post_id", "ok")
@@ -34564,7 +34569,11 @@ def sp_connect_facebook():
         "client_id": META_APP_ID,
         "redirect_uri": redirect_uri,
         "state": state,
-        "scope": "pages_manage_posts,pages_read_engagement,instagram_basic,instagram_content_publish,pages_show_list",
+        # Facebook Pages only by default — asking for Instagram scopes the Meta app
+        # hasn't enabled makes the whole login fail ("Invalid Scopes"). Set
+        # META_INSTAGRAM=1 once the app has the Instagram permissions too.
+        "scope": "pages_show_list,pages_read_engagement,pages_manage_posts"
+                 + (",instagram_basic,instagram_content_publish" if os.getenv("META_INSTAGRAM", "").strip() in ("1", "true", "yes") else ""),
         "response_type": "code",
     }
     return redirect(f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}")
