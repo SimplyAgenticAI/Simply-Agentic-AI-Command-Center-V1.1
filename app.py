@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.0")
+APP_VERSION = os.getenv("APP_VERSION", "16.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -13377,7 +13377,7 @@ footer a{color:var(--pl);text-decoration:none;}
 
 <footer class="a6">
   <a href="/pricing">Plans &amp; Pricing</a> &nbsp;&middot;&nbsp; <a href="/login">Sign In</a> &nbsp;&middot;&nbsp; <a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
-  <div style="margin-top:10px;opacity:.4;">&copy; 2025–2026 Simply Agentic AI. All rights reserved.</div>
+  <div style="margin-top:10px;opacity:.4;">&copy; 2025–2026 MacRandle Acres. Simply Agentic AI is a product of MacRandle Acres, 1247 Johnson Rd, Salisbury, MD 21804. All rights reserved.</div>
 </footer>
 
 <script>
