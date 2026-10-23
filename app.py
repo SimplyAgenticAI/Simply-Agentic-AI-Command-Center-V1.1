@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.2")
+APP_VERSION = os.getenv("APP_VERSION", "16.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -473,6 +473,12 @@ SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Simply Agentic AI")
 # Gmail OAuth (recommended for Gmail accounts; avoids SMTP 535 BadCredentials)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# V16.3: YouTube can use its own Google project (sensitive scopes only), so its
+# verification isn't tied to Gmail's restricted-scope security assessment.
+YOUTUBE_CLIENT_ID = os.getenv("YOUTUBE_CLIENT_ID", "")
+YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
+YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
+                  "https://www.googleapis.com/auth/youtube.readonly"]
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
@@ -1140,13 +1146,13 @@ def _now_epoch() -> int:
     except Exception:
         return 0
 
-def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
+def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str, client: Optional[Tuple[str, str]] = None) -> str:
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
     scope_str = " ".join(scopes)
     # Manual URL build (avoid extra deps)
     from urllib.parse import urlencode
     params = {
-        "client_id": GOOGLE_CLIENT_ID,
+        "client_id": (client or (GOOGLE_CLIENT_ID, ""))[0],
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scope_str,
@@ -1157,18 +1163,19 @@ def _oauth_auth_url(scopes: List[str], redirect_path: str, state: str) -> str:
     }
     return f"{GOOGLE_AUTH_URI}?{urlencode(params)}"
 
-def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[str, Any]], str]:
+def _oauth_exchange_code(code: str, redirect_path: str, client: Optional[Tuple[str, str]] = None) -> Tuple[Optional[Dict[str, Any]], str]:
     ok, reason = _google_oauth_ready()
     if not ok:
         return None, reason
+    cid, csec = client or (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
     redirect_uri = f"{PUBLIC_BASE_URL}{redirect_path}"
     try:
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
                 "code": code,
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
+                "client_id": cid,
+                "client_secret": csec,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -1185,16 +1192,17 @@ def _oauth_exchange_code(code: str, redirect_path: str) -> Tuple[Optional[Dict[s
     except Exception as e:
         return None, f"Token exchange error: {e}"
 
-def _oauth_refresh_token(refresh_token: str, scopes: List[str]) -> Tuple[Optional[Dict[str, Any]], str]:
+def _oauth_refresh_token(refresh_token: str, scopes: List[str], client: Optional[Tuple[str, str]] = None) -> Tuple[Optional[Dict[str, Any]], str]:
     ok, reason = _google_oauth_ready()
     if not ok:
         return None, reason
+    cid, csec = client or (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET)
     try:
         r = requests.post(
             GOOGLE_TOKEN_URI,
             data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
+                "client_id": cid,
+                "client_secret": csec,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },
@@ -1227,12 +1235,12 @@ def _token_expired(token_info: Dict[str, Any]) -> bool:
     except Exception:
         return False
 
-def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
+def _get_access_token_from_store(token_info: Dict[str, Any], scopes: List[str], client: Optional[Tuple[str, str]] = None) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
     if not token_info:
         return None, None, "Not connected."
     # refresh if needed
     if _token_expired(token_info) and token_info.get("refresh_token"):
-        refreshed, err = _oauth_refresh_token(token_info.get("refresh_token"), scopes)
+        refreshed, err = _oauth_refresh_token(token_info.get("refresh_token"), scopes, client)
         if not refreshed:
             return None, None, err or "Token refresh failed."
         return refreshed.get("access_token"), refreshed, ""
@@ -3322,6 +3330,23 @@ def _handle_413(e):
     except Exception:
         pass
     raise e
+
+@app.before_request
+def _canonical_host_redirect() -> Optional[Any]:
+    """V16.3: once PUBLIC_BASE_URL is the real domain, page visits to the old
+    *.onrender.com address move there, so sign-ins and OAuth return to the same
+    site. API calls, POSTs and health checks are left alone (extension, webhooks)."""
+    if not PUBLIC_BASE_URL or request.method not in ("GET", "HEAD"):
+        return None
+    host = (request.host or "").split(":")[0].lower()
+    target = urlparse(PUBLIC_BASE_URL).netloc.lower()
+    if not host.endswith(".onrender.com") or not target or target == host or target.endswith(".onrender.com"):
+        return None
+    if request.path.startswith(("/api/", "/health", "/ping", "/healthz")):
+        return None
+    qs = request.query_string.decode("utf-8", "ignore")
+    return redirect(f"{PUBLIC_BASE_URL}{request.path}" + (f"?{qs}" if qs else ""), code=301)
+
 
 @app.before_request
 def _auth_guard() -> Optional[Any]:
@@ -34789,11 +34814,17 @@ def sp_connect_youtube():
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     try: _store_oauth_state("sp_yt_" + state, uname)
     except Exception: pass
-    auth_url = _oauth_auth_url(
-        ["https://www.googleapis.com/auth/youtube.force-ssl",
-         "https://www.googleapis.com/auth/youtube.readonly"],
-        "/social/callback/youtube", state)
+    yc = _yt_client()
+    auth_url = _oauth_auth_url(YOUTUBE_SCOPES if yc else
+                               ["https://www.googleapis.com/auth/youtube.force-ssl",
+                                "https://www.googleapis.com/auth/youtube.readonly"],
+                               "/social/callback/youtube", state, yc)
     return redirect(auth_url)
+
+def _yt_client() -> Optional[Tuple[str, str]]:
+    """YouTube's own Google keys when set; None = the shared Google keys."""
+    return (YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET) if (YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET) else None
+
 
 @app.get("/social/callback/youtube")
 def sp_callback_youtube():
@@ -34814,7 +34845,8 @@ def sp_callback_youtube():
         except Exception: pass
     if not state_ok:
         return make_response("<h2>State mismatch — try again.</h2>", 400)
-    token_data, err = _oauth_exchange_code(request.args.get("code", ""), "/social/callback/youtube")
+    yc = _yt_client()
+    token_data, err = _oauth_exchange_code(request.args.get("code", ""), "/social/callback/youtube", yc)
     if err:
         return make_response(f"<html><body style='background:#0f172a;color:#e2e8f0;padding:40px;font-family:sans-serif;'>"
                              f"<h2>YouTube OAuth error</h2><p>{err}</p>"
@@ -34838,6 +34870,7 @@ def sp_callback_youtube():
         "expires_at": token_data.get("expires_at", 0),
         "channel_name": channel_name, "channel_id": channel_id,
         "name": channel_name, "connected_at": now_iso(),
+        "client": "youtube" if yc else "google",      # which keys refresh this token
     }
     _save_sp_conns(uname, conns)
     return make_response(
@@ -35210,7 +35243,7 @@ def _sp_youtube_token(uname: str, conns: Dict[str, Any]) -> Tuple[Optional[str],
     if not yt.get("access_token"):
         return None, "YouTube isn't connected."
     tok, refreshed, err = _get_access_token_from_store(
-        yt, ["https://www.googleapis.com/auth/youtube.force-ssl"])
+        yt, YOUTUBE_SCOPES, _yt_client() if yt.get("client") == "youtube" else None)
     if not tok:
         if "__INVALID_GRANT__" in (err or ""):
             return None, "YouTube access expired — reconnect YouTube."
