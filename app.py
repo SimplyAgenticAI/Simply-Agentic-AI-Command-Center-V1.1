@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.1")
+APP_VERSION = os.getenv("APP_VERSION", "15.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17653,9 +17653,10 @@ def api_crm_clients_delete(client_id: str):
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     crm = _crm_load(uname)
     clients = crm.get("clients") or {}
-    clients.pop(client_id, None)
+    gone = clients.pop(client_id, None)
     crm["clients"] = clients
     _crm_save(uname, crm)
+    _crm_remember_removed(uname, [gone] if gone else [])
     _agent_drop_pending_for(uname, {client_id})
     return jsonify({"ok": True})
 
@@ -17677,6 +17678,7 @@ def api_crm_clients_bulk():
     clients = crm.get("clients") or {}
     changed = 0
     deleted: List[str] = []
+    removed_recs: List[Dict[str, Any]] = []
     for cid in ids:
         if cid not in clients or not isinstance(clients[cid], dict):
             continue
@@ -17692,7 +17694,7 @@ def api_crm_clients_bulk():
                 tags.append(value)
                 c["tags"] = tags
         elif action == "delete":
-            del clients[cid]
+            removed_recs.append(clients.pop(cid))
             deleted.append(cid)
             changed += 1
             continue
@@ -17702,6 +17704,7 @@ def api_crm_clients_bulk():
     crm["clients"] = clients
     _crm_save(uname, crm)
     if deleted:
+        _crm_remember_removed(uname, removed_recs)
         _agent_drop_pending_for(uname, set(deleted))
     return jsonify({"ok": True, "changed": changed})
 
@@ -19810,7 +19813,7 @@ def _crm_make_lead_from_search_row(row: Dict[str, Any], niche: str, location: st
     }
 
 
-def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40) -> List[Dict[str, Any]]:
+def _crm_discover_public_leads(niche: str, location: str, lead_count: int, search_mode: str, existing_domains: Optional[set] = None, specific_areas: Optional[List[str]] = None, require_contact: str = "any", min_score: int = 40, allow_fallback: bool = True) -> List[Dict[str, Any]]:
     queries = _crm_build_queries_v2(niche, location, lead_count, search_mode, specific_areas=specific_areas)
     seen_domains = set([_crm_extract_domain(x) for x in (existing_domains or set()) if x])
     out: List[Dict[str, Any]] = []
@@ -19876,7 +19879,9 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
     # Pass 3: deterministic fallback rows from raw results so the user always gets a usable list.
     fallback_pool = list(raw_results)  # copy ref before clearing
     raw_results.clear()                # free search-result memory before fallback pass
-    if len(out) < lead_count:
+    # Automatic runs (morning job, quickstart) pass allow_fallback=False: they add
+    # leads to the pipeline unattended, so filler rows only add noise (V15.2).
+    if allow_fallback and len(out) < lead_count:
         for row in fallback_pool:
             item = _crm_fallback_candidate_from_result(row, niche, location, row.get('query') or '') or _crm_make_lead_from_search_row(row, niche, location, row.get('query') or '', min_score=max(35, int(min_score or 40) - 5))
             if include_item(item) and len(out) >= lead_count:
@@ -22006,6 +22011,96 @@ def api_quickstart_skip():
     return jsonify({"ok": True})
 
 
+# ── Lead quality (V15.2) ─────────────────────────────────────────────────
+# Automatic lead finding (morning job, quickstart) used to (a) re-add leads the
+# operator had deleted — nothing remembered them — and (b) add national brands
+# ("Keller Williams", "RE/MAX") instead of specific teams and people.
+_REMOVED_DIR = DATA / "crm_removed"
+_REMOVED_LOCK = threading.Lock()
+
+
+def _lead_domain(c: Dict[str, Any]) -> str:
+    w = str(c.get("website") or "").strip()
+    if not w:
+        m = re.search(r"Website:\s*(\S+)", str(c.get("notes") or ""))
+        w = m.group(1) if m else ""
+    try:
+        return _crm_extract_domain(w) if w else ""
+    except Exception:
+        return ""
+
+
+def _crm_remember_removed(uname: str, contacts: List[Dict[str, Any]]) -> None:
+    """Deleted contacts go on a 'don't add again' list for automatic lead finding."""
+    if not contacts:
+        return
+    p = _REMOVED_DIR / f"{_safe_name(uname or 'anon')}.json"
+    with _REMOVED_LOCK:
+        d = load_json(p, {}) or {}
+        for k in ("domains", "emails", "names"):
+            d.setdefault(k, [])
+        for c in contacts:
+            if not isinstance(c, dict):
+                continue
+            dom, em = _lead_domain(c), str(c.get("email") or "").strip().lower()
+            nm = str(c.get("company") or c.get("name") or "").strip().lower()
+            if dom and dom not in d["domains"]:
+                d["domains"].append(dom)
+            if em and em not in d["emails"]:
+                d["emails"].append(em)
+            if nm and nm not in d["names"]:
+                d["names"].append(nm)
+        for k in ("domains", "emails", "names"):
+            d[k] = d[k][-3000:]
+        p.parent.mkdir(parents=True, exist_ok=True)
+        save_json(p, d)
+
+
+def _crm_removed(uname: str) -> Dict[str, set]:
+    d = load_json(_REMOVED_DIR / f"{_safe_name(uname or 'anon')}.json", {}) or {}
+    return {k: set(d.get(k) or []) for k in ("domains", "emails", "names")}
+
+
+def _vet_leads(uname: str, leads: List[Dict[str, Any]], audience: str, cap: int) -> List[Dict[str, Any]]:
+    """Keep only leads that are new, not previously removed, and a SPECIFIC
+    team / person / local business (not a national brand, franchise HQ or
+    directory) matching the operator's audience. Fewer, better — never filler."""
+    removed = _crm_removed(uname)
+    clients = (_crm_load(uname).get("clients") or {}).values()
+    have_dom = {_lead_domain(c) for c in clients if isinstance(c, dict)} - {""}
+    have_em = {str(c.get("email") or "").strip().lower() for c in clients if isinstance(c, dict)} - {""}
+    have_nm = {str(c.get("company") or c.get("name") or "").strip().lower() for c in clients if isinstance(c, dict)} - {""}
+    fresh = []
+    for it in leads:
+        dom = _lead_domain(it)
+        em = str(it.get("email") or "").strip().lower()
+        nm = str(it.get("company") or it.get("name") or "").strip().lower()
+        if (dom and (dom in removed["domains"] or dom in have_dom)) or (em and (em in removed["emails"] or em in have_em)) \
+                or (nm and (nm in removed["names"] or nm in have_nm)):
+            continue
+        fresh.append(it)
+    if not fresh:
+        return []
+    cands = [{"i": i, "name": it.get("name"), "company": it.get("company"), "website": it.get("website"),
+              "why": str(it.get("warm_reason") or "")[:160]} for i, it in enumerate(fresh[:20])]
+    prompt = (f"The business owner sells to: {audience or 'small businesses'}.\n"
+              f"Candidate leads found on the web:\n{json.dumps(cands, ensure_ascii=False)}\n\n"
+              "Keep ONLY candidates that are a specific, individual team, person or independent local business the owner "
+              "could actually email — e.g. 'The Stacey Smith Team', 'Jane Doe, Realtor', 'Ortiz HVAC'. REJECT national or "
+              "regional brands, franchise or corporate headquarters, brokerages as a whole (e.g. 'Keller Williams', 'RE/MAX', "
+              "'eXp Realty', 'Compass' on their own), directories, listing sites, news, and anything that doesn't match who "
+              "the owner sells to. When unsure, reject. Respond ONLY with JSON: {\"keep\": [indexes]}")
+    try:
+        raw = (call_llm("You vet sales leads strictly. Quality over quantity.", [{"role": "user", "content": prompt}],
+                        temperature=0, model="gpt-4o-mini") or "").strip()
+        keep = json.loads(raw[raw.find("{"): raw.rfind("}") + 1]).get("keep") or []
+        keep = [int(k) for k in keep if str(k).lstrip("-").isdigit()]
+    except Exception as e:
+        _capture_error(e, context="vet_leads")
+        return []        # can't check quality → add nothing rather than junk
+    return [fresh[i] for i in keep if 0 <= i < min(len(fresh), 20)][:cap]
+
+
 def _quickstart_add_leads(uname: str, leads: List[Dict[str, Any]], tags: List[str],
                           new_ids: Optional[List[str]] = None) -> Tuple[int, int]:
     """Add found leads to Contacts as stage Lead (skips duplicates, respects the
@@ -22081,11 +22176,12 @@ def api_quickstart():
     _set_user_flag(uname, "quickstart_done", True)
 
     def _work():
-        res = _tool_find_leads(uname, "Quickstart", {"niche": customer, "location": location, "count": 10})
+        res = _tool_find_leads(uname, "Quickstart", {"niche": customer, "location": location, "count": 15, "strict": True})
         if not res.get("ok"):
             return {"ok": False, "error": res.get("summary") or "Lead search failed."}
-        added, with_email = _quickstart_add_leads(uname, res.get("leads") or [], ["first-leads", customer, location])
-        return {"ok": True, "found": len(res.get("leads") or []), "added": added, "with_email": with_email}
+        good = _vet_leads(uname, res.get("leads") or [], f"{customer} in {location}".strip(), 10)
+        added, with_email = _quickstart_add_leads(uname, good, ["first-leads", customer, location])
+        return {"ok": True, "found": len(good), "added": added, "with_email": with_email}
     return jsonify({"ok": True, "job_id": _ve_start_job(uname, _work, key="quickstart")})
 
 
@@ -22273,16 +22369,19 @@ def _agent_run_job(uname: str, key: str) -> Dict[str, Any]:
         niche, loc = _parse_audience((_load_operator_profile(uname) or {}).get("audience") or "")
         if not niche:
             return {"ok": False, "note": "Add who you sell to (e.g. 'roofers in Austin, TX') in your business profile."}
-        res = _tool_find_leads(uname, teammate, {"niche": niche, "location": loc, "count": cap})
+        audience = ((_load_operator_profile(uname) or {}).get("audience") or "").strip()
+        res = _tool_find_leads(uname, teammate, {"niche": niche, "location": loc, "count": 15, "strict": True})
         if not res.get("ok"):
             return {"ok": False, "note": res.get("summary") or "Lead search failed."}
+        good = _vet_leads(uname, res.get("leads") or [], audience, cap)
         ids: List[str] = []
-        _quickstart_add_leads(uname, res.get("leads") or [], ["found-by-teammate", niche, loc], new_ids=ids)
+        _quickstart_add_leads(uname, good, ["found-by-teammate", niche, loc], new_ids=ids)
         clients = (_crm_load(uname).get("clients") or {})
         targets = [clients[i] for i in ids if i in clients and clients[i].get("email")]
         purpose = "First hello to a new prospect who has never heard from us. Say briefly why we reached out to them specifically."
         title_fn = lambda c: f"Intro to {c.get('company') or c.get('name')}"
-        note = f"Found {len(ids)} new lead{'s' if len(ids) != 1 else ''}"
+        note = (f"Found {len(ids)} new lead{'s' if len(ids) != 1 else ''}" if ids
+                else "No new leads passed the quality check today — only specific teams and people get added")
     else:
         today_s = _user_now_local(uname).strftime("%Y-%m-%d")
         clients = (_crm_load(uname).get("clients") or {})
@@ -26447,8 +26546,10 @@ def _tool_find_leads(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[st
                     have.add(w)
         except Exception:
             pass
+        strict = bool(args.get("strict"))
         found = _crm_discover_public_leads(niche, location, count, "balanced", existing_domains=have,
-                                           require_contact="phone_or_email", min_score=1)
+                                           require_contact="phone_or_email", min_score=40 if strict else 1,
+                                           allow_fallback=not strict)
     except Exception as e:
         return {"ok": False, "summary": f"Lead search failed: {e}"}
     finally:
@@ -26811,8 +26912,9 @@ def _action_reverse(uname: str, tool: str, u: Dict[str, Any]) -> Tuple[bool, str
         crm = _crm_load(uname)
         if cid not in (crm.get("clients") or {}):
             return True, "That contact was already removed."
-        crm["clients"].pop(cid, None)
+        gone = crm["clients"].pop(cid, None)
         _crm_save(uname, crm)
+        _crm_remember_removed(uname, [gone] if gone else [])   # undone → don't let the team re-add it
         try:
             _crm_activity_path(uname, cid).unlink(missing_ok=True)
         except Exception:

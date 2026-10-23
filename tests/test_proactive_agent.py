@@ -95,8 +95,13 @@ def test_new_leads_job_uses_profile_and_drafts_intros(agent, monkeypatch):
         seen.update(args)
         return {"ok": True, "leads": [{"name": "Bob's Roofing", "company": "Bob's Roofing", "email": "bob@roof.example"}]}
     monkeypatch.setattr(app_module, "_tool_find_leads", fake_find)
+    _orig_llm = app_module.call_llm
+    monkeypatch.setattr(app_module, "call_llm",                                # V15.2 quality check passes it;
+                        lambda system, msgs, **k: '{"keep": [0]}' if "Candidate leads" in msgs[0]["content"]
+                        else _orig_llm(system, msgs, **k))                   # drafting keeps the fixture's stub
     r = app_module._agent_run_job(uname, "new_leads")
     assert r["ok"] and r["queued"] == 1 and seen["niche"] == "roofers" and seen["location"] == "Austin, TX"
+    assert seen["strict"] is True                                              # no filler in the automatic run
     ap = c.get("/api/agent").get_json()["approvals"]
     assert any(a["kind"] == "intro" and a["to"] == "bob@roof.example" for a in ap)
 

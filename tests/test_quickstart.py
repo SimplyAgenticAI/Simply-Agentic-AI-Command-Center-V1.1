@@ -42,11 +42,12 @@ def test_quickstart_adds_leads_and_hides_itself(newbie, monkeypatch):
             {"name": "Ace Roofs", "company": "Ace Roofs", "email": "", "phone": "555-0100", "website": "", "warm_reason": ""},
             {"name": "Bob's Roofing", "company": "Bob's Roofing", "email": "bob@roof.example"}]}   # duplicate
     monkeypatch.setattr(app_module, "_tool_find_leads", fake_find)
+    monkeypatch.setattr(app_module, "call_llm", lambda *a, **k: '{"keep": [0, 1, 2]}')   # V15.2 quality check
     d = c.post("/api/quickstart", headers=h, json={"business": "Websites for contractors",
                                                   "customer": "roofers", "location": "Austin, TX"}).get_json()
     j = _wait(c, d["job_id"])
     assert j["ok"] and j["added"] == 2 and j["with_email"] == 1, j
-    assert seen == {"niche": "roofers", "location": "Austin, TX", "count": 10}
+    assert seen == {"niche": "roofers", "location": "Austin, TX", "count": 15, "strict": True}
     prof = app_module._load_operator_profile(uname)
     assert prof["business"] == "Websites for contractors" and prof["audience"] == "roofers in Austin, TX"
     assert "roofers" in app_module._os_load(uname)["session_objective"]["title"]
