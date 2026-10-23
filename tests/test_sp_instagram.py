@@ -56,6 +56,18 @@ def test_photo_needs_media_and_failed_processing_is_reported(monkeypatch):
     assert not ok and "couldn't process" in info
 
 
+def test_missing_instagram_reason_names_the_cause(monkeypatch):
+    monkeypatch.delenv("META_INSTAGRAM", raising=False)
+    assert "META_INSTAGRAM" in app_module._ig_missing_reason("t", [], {})
+    monkeypatch.setenv("META_INSTAGRAM", "1")
+    monkeypatch.setattr(app_module.requests, "get", lambda url, params=None, timeout=None: _R(
+        {"data": [{"permission": "pages_show_list", "status": "granted"}]}))
+    assert "wasn't allowed" in app_module._ig_missing_reason("t", [{"name": "P"}], {})
+    monkeypatch.setattr(app_module.requests, "get", lambda url, params=None, timeout=None: _R({"data": [
+        {"permission": "instagram_basic", "status": "granted"}, {"permission": "instagram_content_publish", "status": "granted"}]}))
+    assert "My Shop" in app_module._ig_missing_reason("t", [{"name": "My Shop"}], {})
+
+
 def test_live_link_and_connections_hide_tokens(flask_app):
     links = app_module._sp_live_links({"instagram": {"ok": True, "info": "https://www.instagram.com/p/XYZ/, 1789"}})
     assert [l["url"] for l in links] == ["https://www.instagram.com/p/XYZ/"]

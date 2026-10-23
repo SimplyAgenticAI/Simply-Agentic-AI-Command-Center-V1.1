@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "15.8")
+APP_VERSION = os.getenv("APP_VERSION", "15.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -34497,6 +34497,8 @@ def api_sp_connections():
             summary[platform]["accounts"] = [{"id": str(a["id"]), "username": a.get("username") or "",
                                               "picture": a.get("picture") or ""} for a in _ig_accounts(conns)]
             summary[platform]["connected"] = bool(summary[platform]["accounts"]) or summary[platform]["connected"]
+            summary[platform]["issue"] = "" if summary[platform]["connected"] else (conns.get("instagram_issue") or "")
+            summary[platform]["requested"] = _ig_instagram_scopes_on()
     lc = conns.get("leadconnector") if isinstance(conns.get("leadconnector"), dict) else {}
     summary["leadconnector"] = {"connected": bool(lc.get("token") and lc.get("location_id")),
                                 "location_id": lc.get("location_id") or "",
@@ -34655,6 +34657,34 @@ def sp_connect_facebook():
     }
     return redirect(f"https://www.facebook.com/v19.0/dialog/oauth?{urlencode(params)}")
 
+def _ig_instagram_scopes_on() -> bool:
+    return os.getenv("META_INSTAGRAM", "").strip().lower() in ("1", "true", "yes")
+
+
+def _ig_missing_reason(token: str, pages: list, pages_data: dict) -> str:
+    """V15.9 diagnostic: say exactly why a Facebook connect found no Instagram account."""
+    if not _ig_instagram_scopes_on():
+        return ("Instagram access wasn't requested — the META_INSTAGRAM setting isn't on for this server. "
+                "Add META_INSTAGRAM=1 in Render, redeploy, then click Connect again.")
+    try:
+        perms = requests.get("https://graph.facebook.com/v19.0/me/permissions",
+                             params={"access_token": token}, timeout=10).json().get("data") or []
+        granted = {p.get("permission") for p in perms if p.get("status") == "granted"}
+    except Exception:
+        granted = None
+    if granted is not None and not {"instagram_basic", "instagram_content_publish"} <= granted:
+        return ("Instagram permission wasn't allowed on the Facebook screen. Click Connect again, "
+                "choose \"Edit access\" / \"Edit settings\", and turn on Instagram for your account.")
+    if pages_data.get("error"):
+        return "Facebook wouldn't list your Pages: " + str((pages_data["error"] or {}).get("message") or "unknown error")[:200]
+    if not pages:
+        return "No Facebook Pages were shared — Instagram posts go through a Page linked to the Instagram account."
+    names = ", ".join((p.get("name") or "Page") for p in pages[:5])
+    return (f"None of your Pages ({names}) has an Instagram account linked. In Instagram, switch to a Business or "
+            "Creator account and link it to one of these Pages (Settings → Account type and tools), then Connect again. "
+            "If it's already linked, click Connect, choose \"Edit access\", and make sure that Page and the Instagram account are both ticked.")
+
+
 @app.get("/social/callback/facebook")
 def sp_callback_facebook():
     u = current_user()
@@ -34719,9 +34749,14 @@ def sp_callback_facebook():
         if ig_accts:
             conns["instagram"] = {"access_token": ig_accts[0]["access_token"], "ig_user_id": ig_accts[0]["id"],
                                   "name": ig_accts[0]["username"] or me.get("name", ""), "accounts": ig_accts, "connected_at": now_iso()}
+            conns.pop("instagram_issue", None)
+        else:
+            conns["instagram_issue"] = _ig_missing_reason(long_token, pages, pages_data)
         _save_sp_conns(uname, conns)
         ig_note = (f" Instagram also connected ({', '.join('@' + a['username'] for a in ig_accts if a['username']) or len(ig_accts)})!"
-                   if ig_accts else "")
+                   if ig_accts else
+                   f"</p><p style='color:#fca5a5;max-width:560px;margin:10px auto;'>Instagram not connected: "
+                   f"{_html_escape(conns['instagram_issue'])}")
         return make_response(
             f"<html><head><meta http-equiv='refresh' content='3;url=/'></head>"
             f"<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;text-align:center;'>"

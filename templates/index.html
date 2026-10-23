@@ -36022,6 +36022,8 @@ function cpRenderPlatformPills(){
     var connected = c.connected;
     var name = c.page_name || c.name || '';
     if(p === 'facebook' && (c.pages||[]).length > 1) name = 'Facebook · ' + c.pages.length + ' Pages';   /* V15.4: all Pages, not just the first */
+    if(p === 'instagram' && (c.accounts||[]).length) name = (c.accounts.length > 1) ? 'Instagram · ' + c.accounts.length + ' accounts' : '@' + c.accounts[0].username;
+    var issue = (p === 'instagram' && !connected && c.issue) ? c.issue : '';
     var displayName = connected ? (name || PLAT_COLORS[p].label) : PLAT_COLORS[p].label;
     var col = PLAT_COLORS[p];
     var connStyle = connected
@@ -36034,7 +36036,9 @@ function cpRenderPlatformPills(){
       ? '<button onclick="cpDisconnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.32);border-radius:5px;color:#fca5a5;padding:1px 6px;cursor:pointer;font-weight:700;line-height:1.6;">✕</button>'
       : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);border-radius:5px;color:#c4b5fd;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;">Connect</button>';
     return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;'+connStyle+'backdrop-filter:blur(10px);">'
-      +dot+'<span>'+icons[p]+' '+_esc(displayName)+'</span>'+actionBtn+'</div>';
+      +dot+'<span>'+icons[p]+' '+_esc(displayName)+'</span>'
+      +(issue ? '<button onclick="alert(this.getAttribute(\'data-why\'))" data-why="'+_esc('Instagram not connected: '+issue)+'" title="'+_esc(issue)+'" style="margin-left:4px;font-size:calc(14px * var(--fs,1.1));background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.45);border-radius:5px;color:#fcd34d;padding:1px 7px;cursor:pointer;font-weight:800;line-height:1.6;">⚠ Why?</button>' : '')
+      +actionBtn+'</div>';
   }).join('');
 }
 
