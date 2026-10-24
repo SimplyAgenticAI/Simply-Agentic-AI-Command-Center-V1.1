@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.5")
+APP_VERSION = os.getenv("APP_VERSION", "16.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -480,7 +480,11 @@ YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
                   "https://www.googleapis.com/auth/youtube.readonly"]
 # Public base URL for OAuth redirect, e.g. https://your-app.onrender.com
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+# V16.6: on Render with no PUBLIC_BASE_URL reaching the process (confirmed by the
+# V16.5 diagnostic), use the live domain so OAuth return addresses still work.
+if not PUBLIC_BASE_URL and os.getenv("RENDER"):
+    PUBLIC_BASE_URL = "https://www.simplyagenticai.com"
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"]
 CALENDAR_SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
