@@ -35709,7 +35709,11 @@ function saUseGlyph(){
               <div class="cp-label">Photo or video <span style="font-weight:400;text-transform:none;color:#8a96aa;">(optional for Facebook)</span></div>
               <div class="cpw-row">
                 <input id="cpMediaUrl" type="url" placeholder="Paste an image or video link…" class="cp-input" style="flex:1;" oninput="cpPreview()"/>
+                <button type="button" class="cp-btn" onclick="cpPickUpload('image')" title="Upload a photo from your computer or phone">🖼 Upload photo</button>
+                <button type="button" class="cp-btn" onclick="cpPickUpload('video')" title="Upload a video from your computer or phone">🎬 Upload video</button>
                 <button type="button" class="cp-btn" onclick="cpPickClip()" title="Use one of your clips from My Clips">🎞 My Clips</button>
+                <input type="file" id="cpUploadImage" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif" style="display:none" onchange="cpUploadMedia(this)">
+                <input type="file" id="cpUploadVideo" accept="video/mp4,video/quicktime,video/webm,.mov,.m4v" style="display:none" onchange="cpUploadMedia(this)">
               </div>
               <div id="cpClipPick" style="display:none;margin-top:6px;max-height:220px;overflow-y:auto;border:1px solid rgba(124,58,237,.3);border-radius:10px;"></div>
               <div id="cpMediaHint" class="cpw-hint" style="margin-top:4px;"></div>
@@ -35975,6 +35979,41 @@ window.cpQuickTime=function(hours){
   var pad=function(n){return String(n).padStart(2,'0');};
   $('cpScheduledAt').value=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
 };
+/* V17.1: plain photo / video upload (stored on our server, public link fills the media box) */
+window.cpPickUpload=function(kind){
+  var el=$(kind==='video'?'cpUploadVideo':'cpUploadImage');
+  if(el){ el.value=''; el.click(); }
+};
+window.cpUploadMedia=function(input){
+  var f=input && input.files && input.files[0]; if(!f) return;
+  var isVideo=input.id==='cpUploadVideo', max=isVideo?500:25;
+  var hint=$('cpMediaHint');
+  if(f.size > max*1024*1024){ if(hint) hint.textContent='That file is too big. The limit is '+max+' MB.'; return; }
+  var fd=new FormData(); fd.append('file', f);
+  if(hint) hint.textContent='Uploading '+f.name+'…';
+  /* XHR (for the % progress) skips the fetch wrapper, so get a fresh CSRF token first */
+  (window._nativeFetch||fetch)('/api/csrf_token',{credentials:'same-origin'}).then(function(r){ return r.json(); })
+    .then(function(t){ cpSendUpload(fd, f, (t&&t.csrf_token)||window._csrfToken||'', hint); })
+    .catch(function(){ cpSendUpload(fd, f, window._csrfToken||'', hint); });
+};
+function cpSendUpload(fd, f, tok, hint){
+  var xhr=new XMLHttpRequest();
+  xhr.open('POST','/api/social/media');
+  xhr.withCredentials=true;
+  if(tok) xhr.setRequestHeader('X-CSRF-Token', tok);
+  xhr.upload.onprogress=function(e){ if(e.lengthComputable && hint) hint.textContent='Uploading '+_esc(f.name)+'… '+Math.round(e.loaded*100/e.total)+'%'; };
+  xhr.onload=function(){
+    var d={}; try{ d=JSON.parse(xhr.responseText||'{}'); }catch(_){}
+    if(xhr.status===200 && d.ok){
+      var box=$('cpMediaUrl'); if(box){ box.value=d.url; }
+      if(hint) hint.textContent='✓ '+(d.kind==='video'?'Video':'Photo')+' uploaded: '+(d.name||f.name);
+      if(typeof cpPreview==='function') cpPreview();
+    } else if(hint){ hint.textContent=(d.error||('Upload failed (HTTP '+xhr.status+')')); }
+  };
+  xhr.onerror=function(){ if(hint) hint.textContent='Upload failed. Check your connection and try again.'; };
+  xhr.send(fd);
+}
+
 window.cpPickClip=async function(){
   var box=$('cpClipPick'); if(!box) return;
   if(box.style.display!=='none'){ box.style.display='none'; return; }

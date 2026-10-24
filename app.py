@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.0")
+APP_VERSION = os.getenv("APP_VERSION", "17.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3377,7 +3377,7 @@ def _auth_guard() -> Optional[Any]:
         # Public lead form (V14.9): visitors have no session. Rate limits + a
         # honeypot protect the submit, like the booking page.
         return None
-    if request.path.startswith("/vclip/"):
+    if request.path.startswith(("/vclip/", "/spm/")):
         # Signed public clip links (social media_url) — the token is the auth
         return None
     if request.path.startswith("/admin/"):
@@ -35239,6 +35239,122 @@ def _html_escape(s: str) -> str:
     return (str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
 
 
+# V17.1: plain photo/video uploads for the Content Planner. Files live on disk;
+# each gets a signed public link (Instagram/Facebook/TikTok fetch media by URL).
+_SPM_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
+_SPM_VIDEO_EXT = {".mp4", ".mov", ".m4v", ".webm"}
+_SPM_IMAGE_MAX = 25 * 1024 * 1024
+_SPM_VIDEO_MAX = 500 * 1024 * 1024
+
+
+def _spm_signer():
+    from itsdangerous import URLSafeSerializer
+    return URLSafeSerializer(app.secret_key, salt="spmedia-public")
+
+
+def _spm_dir(uname: str) -> Path:
+    d = DATA / "sp_media" / re.sub(r"[^\w.\-]", "_", uname or "anon")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _spm_path(uname: str, mid: str, ext: str) -> Optional[Path]:
+    if not re.match(r"^[a-f0-9]{24}$", mid or "") or ext not in (".jpg", ".mp4", ".mov", ".m4v", ".webm"):
+        return None
+    p = _spm_dir(uname) / f"{mid}{ext}"
+    return p if p.exists() else None
+
+
+def _spm_public_url(uname: str, mid: str, ext: str) -> str:
+    return f"{PUBLIC_BASE_URL}/spm/{_spm_signer().dumps([uname, mid])}{ext}"
+
+
+def _spm_to_jpeg(src: Path, dst: Path) -> Tuple[bool, str]:
+    """Instagram only takes JPEG photos, so every photo is stored as JPEG."""
+    try:
+        from PIL import Image, ImageOps
+    except Exception:
+        return False, "Photo conversion isn't available on the server yet. Upload a JPG for now."
+    try:
+        with Image.open(src) as im:
+            im = ImageOps.exif_transpose(im)
+            if im.mode in ("RGBA", "LA", "P"):
+                im = im.convert("RGBA")
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                bg.paste(im, mask=im.split()[-1])
+                im = bg
+            else:
+                im = im.convert("RGB")
+            im.thumbnail((4096, 4096))
+            im.save(dst, "JPEG", quality=90, optimize=True)
+        return True, ""
+    except Exception as e:
+        return False, f"That photo couldn't be read: {str(e)[:120]}"
+
+
+@app.post("/api/social/media")
+def api_sp_media_upload():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Pick a photo or video to upload."}), 400
+    ext = Path(f.filename).suffix.lower()
+    kind = "image" if ext in _SPM_IMAGE_EXT else "video" if ext in _SPM_VIDEO_EXT else ""
+    if not kind:
+        return jsonify({"ok": False, "error": "Use a photo (JPG, PNG, WEBP, HEIC) or a video (MP4, MOV)."}), 400
+    mid = secrets.token_hex(12)
+    d = _spm_dir(uname)
+    raw = d / f"{mid}.upload{ext}"
+    f.save(str(raw))
+    size = raw.stat().st_size
+    if size > (_SPM_IMAGE_MAX if kind == "image" else _SPM_VIDEO_MAX):
+        raw.unlink(missing_ok=True)
+        lim = "25 MB" if kind == "image" else "500 MB"
+        return jsonify({"ok": False, "error": f"That file is too big. The limit is {lim}."}), 400
+    if kind == "image":
+        out_ext = ".jpg"
+        ok, err = _spm_to_jpeg(raw, d / f"{mid}.jpg")
+        raw.unlink(missing_ok=True)
+        if not ok:
+            return jsonify({"ok": False, "error": err}), 400
+    else:
+        out_ext = ext
+        raw.rename(d / f"{mid}{ext}")
+    return jsonify({"ok": True, "kind": kind, "url": _spm_public_url(uname, mid, out_ext),
+                    "name": f.filename[:120]})
+
+
+@app.get("/spm/<token><any('.jpg','.mp4','.mov','.m4v','.webm'):ext>")
+def sp_media_public(token, ext):
+    """Signed public link to an uploaded planner photo/video (the token is the auth)."""
+    from flask import send_file as _sf
+    try:
+        uname, mid = _spm_signer().loads(token)
+    except Exception:
+        return "Not found", 404
+    p = _spm_path(str(uname), str(mid), ext)
+    if not p:
+        return "Not found", 404
+    mt = {".jpg": "image/jpeg", ".mp4": "video/mp4", ".mov": "video/quicktime",
+          ".m4v": "video/mp4", ".webm": "video/webm"}[ext]
+    return _sf(str(p), mimetype=mt, conditional=True)
+
+
+def _spm_local_file(uname: str, url: str) -> Optional[Path]:
+    """Our own upload links resolve straight to the file on disk (owner only)."""
+    m = re.search(r"/spm/([^/?#]+?)(\.jpg|\.mp4|\.mov|\.m4v|\.webm)(?:[?#]|$)", url or "")
+    if not m:
+        return None
+    try:
+        owner, mid = _spm_signer().loads(m.group(1))
+    except Exception:
+        return None
+    return _spm_path(str(owner), str(mid), m.group(2)) if str(owner) == uname else None
+
+
 def _sp_media_file(uname: str, url: str) -> Tuple[Optional[Path], bool, str]:
     """Return (local_path, is_temp, error) for a post's media URL. Our own
     signed clip links resolve straight to the file on disk; other https URLs
@@ -35246,6 +35362,9 @@ def _sp_media_file(uname: str, url: str) -> Tuple[Optional[Path], bool, str]:
     url = (url or "").strip()
     if not url:
         return None, False, "This post has no video attached."
+    sp = _spm_local_file(uname, url)
+    if sp:
+        return sp, False, ""
     m = re.search(r"/vclip/([^/?#]+)\.mp4", url)
     if m:
         try:
