@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.2")
+APP_VERSION = os.getenv("APP_VERSION", "17.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -34065,12 +34065,55 @@ def _sp_publish_instagram(post: dict, conns: dict) -> Tuple[bool, str]:
         return False, "; ".join(errs) + (f" (posted on {len(done)} other account{'s' if len(done) != 1 else ''})" if done else "")
     return True, ", ".join(done)
 
+# V17.3: what each platform can take. Text-only posts can't go to YouTube or
+# TikTok (video only); Instagram needs a photo or a video.
+_SP_NEEDS = {"youtube": "video", "tiktok": "video", "instagram": "media"}
+_SP_NEEDS_MSG = {"video": "needs a video", "media": "needs a photo or video"}
+_SP_STALE_PUBLISHING_S = 20 * 60
+
+
+def _sp_media_problems(platforms: List[str], media_url: str) -> Dict[str, str]:
+    """{platform: reason} for selected platforms this post's media can't go to."""
+    media_url = (media_url or "").strip()
+    is_video = bool(media_url) and _sp_is_video(media_url)
+    out: Dict[str, str] = {}
+    for pl in platforms or []:
+        need = _SP_NEEDS.get(pl)
+        if need == "video" and not is_video:
+            out[pl] = _SP_NEEDS_MSG["video"] + (" (this post has a photo)" if media_url else "")
+        elif need == "media" and not media_url:
+            out[pl] = _SP_NEEDS_MSG["media"]
+    return out
+
+
+def _sp_unstick(posts: List[Dict[str, Any]]) -> bool:
+    """Posts left 'publishing' by a server restart (the background job dies with
+    it) would stay stuck forever and refuse a retry. Mark them interrupted."""
+    changed = False
+    now = _utcnow()
+    for p in posts:
+        if p.get("status") != "publishing":
+            continue
+        try:
+            started = datetime.fromisoformat(str(p.get("publishing_started") or "").replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            started = None
+        if started is None or (now - started).total_seconds() > _SP_STALE_PUBLISHING_S:
+            p["status"] = "failed"
+            p["error"] = "Publishing was interrupted (the server restarted). Press Publish now to try again."
+            changed = True
+    return changed
+
+
 @app.get("/api/social/posts")
 def api_sp_posts_get():
     u = current_user()
     if not u: return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
-    return jsonify({"ok": True, "posts": _load_sp_posts(uname)})
+    posts = _load_sp_posts(uname)
+    if _sp_unstick(posts):
+        _save_sp_posts(uname, posts)
+    return jsonify({"ok": True, "posts": posts})
 
 @app.post("/api/social/posts")
 def api_sp_posts_create():
@@ -34240,13 +34283,22 @@ def api_sp_publish(post_id):
     platforms = post.get("platforms") or []
     if not platforms:
         return jsonify({"ok": False, "error": "Pick at least one platform."}), 400
+    if _sp_unstick([post]):
+        _save_sp_posts(uname, posts)
     if post.get("status") == "publishing":
         return jsonify({"ok": True, "status": "publishing"})
-    if {"youtube", "tiktok"} & set(platforms) or (_sp_is_video(post.get("media_url") or "") and ({"instagram", "facebook"} & set(platforms))):
+    problems = _sp_media_problems(platforms, post.get("media_url") or "")
+    if problems and len(problems) == len(set(platforms)):
+        names = ", ".join(pl.title() if pl != "youtube" else "YouTube" for pl in problems)
+        return jsonify({"ok": False, "error": f"{names} can't take this post: " +
+                        "; ".join(f"{pl} {why}" for pl, why in problems.items()), "problems": problems}), 400
+    has_video = _sp_is_video(post.get("media_url") or "")
+    if has_video and ({"youtube", "tiktok", "instagram", "facebook"} & set(platforms)):
         # Video uploads can take minutes (YouTube, Instagram Reels, Facebook
         # video) — publish in the background; the Queue shows "Publishing…"
         # and updates when it's done.
         post["status"] = "publishing"
+        post["publishing_started"] = now_iso()
         _save_sp_posts(uname, posts)
 
         def _bg(pid=post_id):
@@ -35607,7 +35659,11 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
     """Publish one post to each of its platforms. Returns per-platform results."""
     conns = _load_sp_conns(uname)
     results: Dict[str, Any] = {}
+    problems = _sp_media_problems(post.get("platforms") or [], post.get("media_url") or "")
     for platform in post.get("platforms") or []:
+        if platform in problems:
+            results[platform] = {"ok": False, "info": f"Skipped: {problems[platform]}"}
+            continue
         if platform == "facebook":
             ok, info = _sp_publish_facebook(post, conns)
         elif platform == "instagram":

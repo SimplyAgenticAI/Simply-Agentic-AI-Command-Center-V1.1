@@ -35675,6 +35675,7 @@ function saUseGlyph(){
             <div>
               <div class="cp-label">Post to</div>
               <div id="cpPlatformChecks" class="cpw-accts"></div>
+              <div id="cpMediaWarn" class="cpw-warn" style="display:none;"></div>
             </div>
 
             <div>
@@ -35775,6 +35776,9 @@ function saUseGlyph(){
       #cpComposer .cpw-accts{display:flex;flex-wrap:wrap;gap:8px;}
       #cpComposer .cpw-acct{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#cbd5e1;user-select:none;}
       #cpComposer .cpw-acct input{display:none;}
+      #cpComposer .cpw-warn{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:#fde68a;font-size:calc(14px * var(--fs,1.1));line-height:1.5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+      #cpComposer .cpw-warn b{color:#fff;}
+      #cpComposer .cpw-acct.cant{opacity:.6;border-style:dashed;}
       #cpComposer .cpw-acct.on{border-color:#a78bfa;background:rgba(124,58,237,.22);color:#fff;box-shadow:0 0 0 2px rgba(167,139,250,.25);}
       #cpComposer .cpw-acct.off{opacity:.55;cursor:default;}
       #cpComposer .cpw-acct img,#cpComposer .cpw-acct .ic{width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;}
@@ -35954,7 +35958,52 @@ function cpTargets(){
   return out;
 }
 /* Live Facebook-style preview of the post being written */
+/* V17.3: which selected platforms can't take this post's media (same rules as the server) */
+var CP_NEEDS={youtube:'video', tiktok:'video', instagram:'media'};
+function cpMediaProblems(){
+  var url=(($('cpMediaUrl')||{}).value||'').trim(), vid=!!url && cpIsVideo(url), out={};
+  cpTargets().platforms.forEach(function(p){
+    var need=CP_NEEDS[p];
+    if(need==='video' && !vid) out[p]= url ? 'needs a video, not a photo' : 'needs a video';
+    else if(need==='media' && !url) out[p]='needs a photo or video';
+  });
+  return out;
+}
+function cpMediaCheck(){
+  var box=$('cpMediaWarn'); if(!box) return {};
+  var probs=cpMediaProblems(), keys=Object.keys(probs);
+  document.querySelectorAll('#cpPlatformChecks .cpw-acct').forEach(function(l){
+    var cb=l.querySelector('input'); l.classList.toggle('cant', !!(cb && cb.checked && probs[cb.value]));
+  });
+  if(!keys.length){ box.style.display='none'; box.innerHTML=''; return probs; }
+  var label=function(p){ return (PLAT_COLORS[p]||{label:p}).label; };
+  var names=keys.map(label), others=cpTargets().platforms.filter(function(p){ return !probs[p]; });
+  var list=names.length>1 ? names.slice(0,-1).join(', ')+' and '+names[names.length-1] : names[0];
+  var why=keys.every(function(k){ return CP_NEEDS[k]==='video'; }) ? 'only accept videos' : 'need a photo or video';
+  box.innerHTML='<span>⚠ <b>'+_esc(list)+'</b> '+(names.length>1?why:why.replace('only accept','only accepts').replace('need ','needs '))
+    +'. Add one with <b>Upload video</b> or <b>My Clips</b>'+(others.length?', or post to the others only.':'.')+'</span>'
+    +(others.length?'<button type="button" class="cp-btn" onclick="cpDropIncompatible()">Post to the others only</button>':'');
+  box.style.display='flex';
+  return probs;
+}
+window.cpDropIncompatible=function(){
+  var probs=cpMediaProblems();
+  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){
+    if(probs[cb.value]){ cb.checked=false; var l=cb.closest('.cpw-acct'); if(l) l.classList.remove('on'); }
+  });
+  cpPreview();
+};
+/* Stops Schedule / Publish when a selected platform can't take the media */
+function cpBlockIfIncompatible(){
+  var probs=cpMediaCheck();
+  if(!Object.keys(probs).length) return false;
+  cpSetStatus('Fix the warning under "Post to" first.');
+  var b=$('cpMediaWarn'); if(b && b.scrollIntoView) b.scrollIntoView({block:'nearest', behavior:'smooth'});
+  return true;
+}
+
 window.cpPreview=function(){
+  cpMediaCheck();
   var t=$('cpPvText'); if(!t) return;
   t.textContent=($('cpCaption')||{}).value||'';
   var first=document.querySelector('#cpPlatformChecks input[data-fbpage]:checked');
@@ -36657,6 +36706,7 @@ window.cpUpdateCharCount = function(){
 window.cpSavePost = async function(status){
   var caption = ($('cpCaption')||{}).value || '';
   if(!caption.trim()){ cpSetStatus('Caption is required'); return; }
+  if(status === 'scheduled' && cpBlockIfIncompatible()) return;   /* drafts may be unfinished */
 
   var tg = cpTargets(), platforms = tg.platforms;
   if(!platforms.length && !tg.lc_accounts.length && status !== 'draft'){ cpSetStatus(_lcOn()?'Pick at least one account':'Select at least one platform'); return; }
@@ -36697,6 +36747,7 @@ window.cpSavePost = async function(status){
 };
 
 window.cpPublishNow = async function(){
+  if(cpBlockIfIncompatible()) return;
   var postId = _cpEditingId;
   if(!postId){
     // Save first then publish
