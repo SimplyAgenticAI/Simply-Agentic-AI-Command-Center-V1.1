@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.9")
+APP_VERSION = os.getenv("APP_VERSION", "17.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3311,7 +3311,8 @@ def health_check() -> Any:
         return jsonify({"status": "ok", "app": APP_TITLE, "ts": now_iso(),
                         "host": request.host, "base_url_host": urlparse(PUBLIC_BASE_URL).netloc if PUBLIC_BASE_URL else "",
                         # V16.8 diagnostic: public app IDs only (never secrets), to confirm which app OAuth uses
-                        "instagram_app_id": INSTAGRAM_APP_ID, "instagram_secret_set": bool(INSTAGRAM_APP_SECRET)})
+                        "instagram_app_id": INSTAGRAM_APP_ID, "instagram_secret_set": bool(INSTAGRAM_APP_SECRET),
+                        "ig_last_connect": dict(_IG_LAST)})
     except Exception:
         return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
@@ -35091,9 +35092,21 @@ def _ig_refresh_tokens(uname: str, conns: dict) -> None:
         _save_sp_conns(uname, conns)
 
 
+# V17.0 diagnostic: the last Instagram connect attempt, step by step (no tokens,
+# no usernames) - shown on /health so a failure point is read, not guessed.
+_IG_LAST: Dict[str, Any] = {}
+
+
+def _ig_note(stage: str, detail: Any = "") -> None:
+    _IG_LAST.clear()
+    _IG_LAST.update({"ts": now_iso(), "stage": stage, "detail": str(detail or "")[:240]})
+    print(f"[IG-CONNECT] {stage} {str(detail or '')[:240]}", flush=True)
+
+
 @app.get("/social/connect/instagram")
 def sp_connect_instagram():
     u = current_user()
+    _ig_note("connect_clicked", "logged_in" if u else "no_session")
     if not u: return redirect("/login")
     if not (INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET):
         return redirect("/social/connect/facebook")          # not set up yet → the Page-linked route
@@ -35114,10 +35127,12 @@ def sp_connect_instagram():
 @app.get("/social/callback/instagram")
 def sp_callback_instagram():
     u = current_user()
+    _ig_note("callback_reached", ("logged_in" if u else "no_session") + " args=" + ",".join(sorted(request.args.keys())))
     if not u: return redirect("/login")
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
     if request.args.get("error"):
         why = request.args.get("error_description") or request.args.get("error_reason") or request.args.get("error")
+        _ig_note("instagram_returned_error", why)
         return _sp_page("Instagram connect cancelled", _html_escape(str(why)[:300]), ok=False)
     state = request.args.get("state", "")
     state_ok = bool(state) and session.get("sp_ig_state") == state
@@ -35125,6 +35140,7 @@ def sp_callback_instagram():
         try: state_ok = bool(_consume_oauth_state("sp_ig_" + state))
         except Exception: pass
     if not state_ok:
+        _ig_note("state_mismatch", "session_state=" + ("yes" if session.get("sp_ig_state") else "none"))
         return _sp_page("Please try connecting again", "The sign-in link expired.", ok=False, status=400)
     code = (request.args.get("code") or "").split("#")[0]
     try:
@@ -35138,6 +35154,7 @@ def sp_callback_instagram():
         if not short:
             err = d.get("error")
             msg = d.get("error_message") or (err.get("message") if isinstance(err, dict) else err)
+            _ig_note("token_exchange_failed", f"http={r.status_code} {msg or d}")
             return _sp_page("Instagram didn't connect", _html_escape(str(msg or "No access token came back")[:300]), ok=False, status=400)
         lt = requests.get("https://graph.instagram.com/access_token", params={
             "grant_type": "ig_exchange_token", "client_secret": INSTAGRAM_APP_SECRET, "access_token": short}, timeout=20).json()
@@ -35147,14 +35164,17 @@ def sp_callback_instagram():
                                                       "access_token": token}, timeout=15).json()
         ig_id = str(me.get("user_id") or me.get("id") or d.get("user_id") or "")
         if not ig_id:
+            _ig_note("profile_read_failed", {k: v for k, v in me.items() if k != "access_token"})
             return _sp_page("Instagram didn't connect", "Instagram didn't say which account this is — please try again.", ok=False, status=400)
         acct = {"id": ig_id, "username": me.get("username") or "", "picture": me.get("profile_picture_url") or "",
                 "access_token": token, "expires_at": expires, "via": "instagram"}
         conns = _load_sp_conns(uname)
         _ig_merge_accounts(conns, [acct], "facebook")
         _save_sp_conns(uname, conns)
+        _ig_note("saved", f"accounts={len(((_load_sp_conns(uname).get('instagram') or {}).get('accounts') or []))} type={me.get('account_type')}")
         return _sp_page("✓ Instagram connected!", f"@{_html_escape(acct['username'] or ig_id)} is ready to post from the Content Planner.")
     except Exception as e:
+        _ig_note("exception", repr(e))
         return _sp_page("Instagram connect error", _html_escape(str(e)[:300]), ok=False, status=500)
 
 
