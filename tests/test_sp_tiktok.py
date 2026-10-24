@@ -49,7 +49,7 @@ def test_posts_publicly_when_allowed_and_waits_for_processing(monkeypatch, tmp_p
     calls = _setup(monkeypatch, tmp_path, ["SELF_ONLY", "PUBLIC_TO_EVERYONE"],
                    [{"status": "PROCESSING_UPLOAD"}, {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [777]}])
     conns = {"tiktok": {"access_token": "T", "expires_at": app_module._now_epoch() + 3600}}
-    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4"}, conns)
+    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4", "options": {"tiktok": {"privacy": "PUBLIC_TO_EVERYONE", "allow_comment": True}}}, conns)
     assert ok and info == "tiktok:777"
     assert calls["init"]["post_info"]["privacy_level"] == "PUBLIC_TO_EVERYONE"
     assert calls["init"]["source_info"] == {"source": "FILE_UPLOAD", "video_size": 1000, "chunk_size": 1000, "total_chunk_count": 1}
@@ -59,7 +59,7 @@ def test_posts_publicly_when_allowed_and_waits_for_processing(monkeypatch, tmp_p
 def test_unapproved_app_posts_private_and_says_so(monkeypatch, tmp_path):
     calls = _setup(monkeypatch, tmp_path, ["SELF_ONLY"], [{"status": "PUBLISH_COMPLETE"}])
     conns = {"tiktok": {"access_token": "T", "expires_at": app_module._now_epoch() + 3600}}
-    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4"}, conns)
+    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4", "options": {"tiktok": {"privacy": "PUBLIC_TO_EVERYONE", "allow_comment": True}}}, conns)
     assert ok and "private until TikTok approves" in info
     assert calls["init"]["post_info"]["privacy_level"] == "SELF_ONLY"
 
@@ -67,8 +67,21 @@ def test_unapproved_app_posts_private_and_says_so(monkeypatch, tmp_path):
 def test_failed_processing_is_reported(monkeypatch, tmp_path):
     _setup(monkeypatch, tmp_path, ["SELF_ONLY"], [{"status": "FAILED", "fail_reason": "duration_check"}])
     conns = {"tiktok": {"access_token": "T", "expires_at": app_module._now_epoch() + 3600}}
-    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4"}, conns)
+    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4", "options": {"tiktok": {"privacy": "PUBLIC_TO_EVERYONE", "allow_comment": True}}}, conns)
     assert not ok and "duration_check" in info
+
+
+def test_tiktok_needs_a_privacy_choice_and_sends_toggles(monkeypatch, tmp_path):
+    calls = _setup(monkeypatch, tmp_path, ["PUBLIC_TO_EVERYONE", "SELF_ONLY"], [{"status": "PUBLISH_COMPLETE"}])
+    conns = {"tiktok": {"access_token": "T", "expires_at": app_module._now_epoch() + 3600}}
+    ok, info = app_module._sp_publish_tiktok("u", {"caption": "Hi", "media_url": "https://x/a.mp4"}, conns)
+    assert not ok and "Choose who can view" in info
+    post = {"caption": "Hi", "media_url": "https://x/a.mp4", "options": app_module._sp_clean_options(
+        {"tiktok": {"privacy": "SELF_ONLY", "allow_duet": True, "disclose": True, "branded_content": True, "ai_generated": True}})}
+    ok, _ = app_module._sp_publish_tiktok("u", post, conns)
+    pi = calls["init"]["post_info"]
+    assert ok and pi["privacy_level"] == "SELF_ONLY" and pi["disable_comment"] and not pi["disable_duet"]
+    assert pi["brand_content_toggle"] and not pi["brand_organic_toggle"] and pi["is_aigc"]
 
 
 def test_expired_token_is_refreshed_and_saved(monkeypatch):

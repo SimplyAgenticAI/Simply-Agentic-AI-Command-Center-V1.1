@@ -35682,7 +35682,11 @@ function saUseGlyph(){
               <div class="cp-label">Caption</div>
               <textarea id="cpCaption" placeholder="What do you want to say?" class="cp-input cpw-caption" oninput="cpUpdateCharCount();cpPreview();"></textarea>
               <div class="cpw-row" style="justify-content:space-between;margin-top:4px;">
-                <button type="button" class="cp-btn" onclick="cpToggleAi()" id="cpAiToggle">✦ Write it with AI</button>
+                <div class="cpw-row" style="position:relative;">
+                  <button type="button" class="cp-btn" onclick="cpToggleAi()" id="cpAiToggle">✦ Write it with AI</button>
+                  <button type="button" class="cp-btn" onclick="cpToggleEmoji()" id="cpEmojiBtn" title="Add an emoji">😊 Emoji</button>
+                  <div id="cpEmojiBox" class="cpe-box" style="display:none;"></div>
+                </div>
                 <div id="cpCaptionCount" class="cpw-hint">0 chars</div>
               </div>
               <div id="cpAiBox" class="cpw-ai" style="display:none;">
@@ -35721,6 +35725,10 @@ function saUseGlyph(){
             </div>
 
             <div>
+              <div id="cpSettingsWrap" style="display:none;margin-bottom:18px;">
+                <div class="cp-label">Platform settings</div>
+                <div id="cpSettings"></div>
+              </div>
               <div class="cp-label">When</div>
               <div class="cpw-row">
                 <input id="cpScheduledAt" type="datetime-local" class="cp-input" style="flex:1;"/>
@@ -35776,6 +35784,28 @@ function saUseGlyph(){
       #cpComposer .cpw-accts{display:flex;flex-wrap:wrap;gap:8px;}
       #cpComposer .cpw-acct{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#cbd5e1;user-select:none;}
       #cpComposer .cpw-acct input{display:none;}
+      #cpComposer .cps-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px 14px;margin-top:10px;display:flex;flex-direction:column;gap:10px;}
+      #cpComposer .cps-head{display:flex;align-items:center;gap:8px;font-size:calc(15px * var(--fs,1.1));color:#f1f5f9;}
+      #cpComposer .cps-save{margin-left:auto;background:transparent;border:1px solid rgba(167,139,250,.4);color:#c4b5fd;border-radius:8px;padding:3px 10px;font-size:calc(14px * var(--fs,1.1));cursor:pointer;font-weight:700;}
+      #cpComposer .cps-save:hover{background:rgba(124,58,237,.18);}
+      #cpComposer .cps-f{display:flex;flex-direction:column;gap:5px;flex:1;min-width:180px;}
+      #cpComposer .cps-f>span{font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;font-weight:600;}
+      #cpComposer .cps-row{display:flex;gap:10px;flex-wrap:wrap;}
+      #cpComposer .cps-inline{display:flex;gap:16px;flex-wrap:wrap;}
+      #cpComposer .cps-chk{display:flex;flex-wrap:wrap;align-items:center;gap:7px;font-size:calc(14px * var(--fs,1.1));color:#e2e8f0;cursor:pointer;}
+      #cpComposer .cps-chk input{width:17px;height:17px;accent-color:#7c3aed;}
+      #cpComposer .cps-chk small{flex-basis:100%;padding-left:24px;color:#8a96aa;font-size:calc(14px * var(--fs,1.1));}
+      #cpComposer .cps-chk.dis{opacity:.5;cursor:not-allowed;}
+      #cpComposer .cps-sub{padding-left:22px;display:flex;flex-direction:column;gap:8px;border-left:2px solid rgba(167,139,250,.3);}
+      #cpComposer .cps-note{font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;}
+      #cpComposer .cps-legal{font-size:calc(14px * var(--fs,1.1));color:#8a96aa;}
+      #cpComposer .cps-legal a{color:#c4b5fd;}
+      #cpComposer .cpe-box{position:absolute;top:100%;left:0;z-index:20;margin-top:6px;width:min(360px,90vw);max-height:300px;overflow-y:auto;background:#121a3a;border:1px solid rgba(124,58,237,.45);border-radius:14px;padding:10px;box-shadow:0 18px 50px rgba(0,0,0,.55);}
+      #cpComposer .cpe-cat{font-size:calc(14px * var(--fs,1.1));color:#a8b4c8;font-weight:700;margin:6px 2px 4px;}
+      #cpComposer .cpe-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:2px;}
+      #cpComposer .cpe-e{background:none;border:none;font-size:22px;padding:4px;border-radius:8px;cursor:pointer;line-height:1;}
+      #cpComposer .cpe-e:hover{background:rgba(255,255,255,.1);}
+      #cpComposer .cpw-hint.over{color:#fca5a5;font-weight:700;}
       #cpComposer .cpw-warn{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.4);color:#fde68a;font-size:calc(14px * var(--fs,1.1));line-height:1.5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
       #cpComposer .cpw-warn b{color:#fff;}
       #cpComposer .cpw-acct.cant{opacity:.6;border-style:dashed;}
@@ -35958,6 +35988,196 @@ function cpTargets(){
   return out;
 }
 /* Live Facebook-style preview of the post being written */
+/* ===== V17.4: per-platform settings (Metricool-style presets), emoji picker, character limits ===== */
+var _cpOpts = {};            /* this post's settings, by platform */
+var _cpPresets = null;       /* the user's saved defaults */
+var _cpYtCats = {};
+var _cpTtCreator = null, _cpTtCreatorLoading = false;
+var _cpSettingsSig = '';
+var CP_TT_PRIV = {PUBLIC_TO_EVERYONE:'Everyone', MUTUAL_FOLLOW_FRIENDS:'Friends (people who follow each other)', FOLLOWER_OF_CREATOR:'Followers', SELF_ONLY:'Only me'};
+var CP_LIMITS = {facebook:63206, instagram:2200, linkedin:3000, tiktok:2200, youtube:5000};
+
+function cpLoadPresets(){
+  if(_cpPresets) return Promise.resolve(_cpPresets);
+  return fetch('/api/social/presets').then(function(r){ return r.json(); }).then(function(d){
+    _cpPresets = (d && d.presets) || {}; _cpYtCats = (d && d.youtube_categories) || {}; return _cpPresets;
+  }).catch(function(){ _cpPresets = {}; return _cpPresets; });
+}
+function cpLoadTtCreator(){
+  if(_cpTtCreator || _cpTtCreatorLoading) return;
+  _cpTtCreatorLoading = true;
+  fetch('/api/social/tiktok/creator').then(function(r){ return r.json(); }).then(function(d){
+    _cpTtCreator = d && d.ok ? d.creator : {error:(d && d.error) || 'Could not reach TikTok'};
+  }).catch(function(){ _cpTtCreator = {error:'Could not reach TikTok'}; })
+    .then(function(){ _cpTtCreatorLoading = false; _cpSettingsSig=''; cpRenderSettings(); });
+}
+/* Defaults for a platform the first time its card shows on this post */
+function cpOptsFor(p){
+  if(!_cpOpts[p]){
+    var base = {youtube:{privacy:'public', made_for_kids:false, category:'22', tags:[], ai_content:false, notify:true, title:''},
+                tiktok:{privacy:'', allow_comment:false, allow_duet:false, allow_stitch:false, disclose:false, your_brand:false, branded_content:false, ai_generated:false},
+                instagram:{type:'', share_to_feed:true, alt_text:''},
+                facebook:{video_title:''}, linkedin:{visibility:'PUBLIC'}}[p] || {};
+    var pre = (_cpPresets||{})[p] || {};
+    _cpOpts[p] = Object.assign({}, base, pre);
+    if(p==='tiktok') _cpOpts[p].privacy = '';          /* TikTok: chosen on every post, never preset */
+  }
+  return _cpOpts[p];
+}
+function cpCollectOptions(){
+  var out = {};
+  cpTargets().platforms.forEach(function(p){ if(_cpOpts[p]) out[p] = _cpOpts[p]; });
+  return out;
+}
+function cpSel(p, k, val, opts){
+  return '<select class="cp-input" data-o="'+p+'.'+k+'">'+opts.map(function(o){
+    return '<option value="'+_esc(o[0])+'"'+(String(val)===String(o[0])?' selected':'')+(o[2]?' disabled':'')+'>'+_esc(o[1])+'</option>'; }).join('')+'</select>';
+}
+function cpChk(p, k, val, label, disabled, note){
+  return '<label class="cps-chk'+(disabled?' dis':'')+'"><input type="checkbox" data-o="'+p+'.'+k+'"'+(val?' checked':'')+(disabled?' disabled':'')+'> <span>'+label+'</span>'
+    +(note?'<small>'+note+'</small>':'')+'</label>';
+}
+function cpTxt(p, k, val, ph, max){
+  return '<input class="cp-input" data-o="'+p+'.'+k+'" value="'+_esc(val||'')+'" placeholder="'+_esc(ph||'')+'"'+(max?' maxlength="'+max+'"':'')+'>';
+}
+function cpCard(p, inner){
+  var c = PLAT_COLORS[p]||{label:p, dot:'#a78bfa'};
+  return '<div class="cps-card"><div class="cps-head"><span style="color:'+c.dot+';font-weight:900;">●</span> <b>'+_esc(c.label)+'</b>'
+    +'<button type="button" class="cps-save" onclick="cpSavePreset(\''+p+'\', this)" title="New posts start with these '+_esc(c.label)+' settings">Save as my default</button></div>'+inner+'</div>';
+}
+function cpRenderSettings(){
+  var wrap=$('cpSettingsWrap'), box=$('cpSettings'); if(!wrap || !box) return;
+  var plats = cpTargets().platforms.filter(function(p){ return ['youtube','tiktok','instagram','facebook','linkedin'].indexOf(p)>=0; });
+  var url = (($('cpMediaUrl')||{}).value||'').trim(), vid = !!url && cpIsVideo(url);
+  var sig = plats.join(',')+'|'+(url?(vid?'v':'p'):'-')+'|'+(_cpPresets?1:0)+'|'+(_cpTtCreator?1:0);
+  if(sig === _cpSettingsSig) return;
+  _cpSettingsSig = sig;
+  if(!plats.length){ wrap.style.display='none'; box.innerHTML=''; return; }
+  if(!_cpPresets){ _cpSettingsSig=''; cpLoadPresets().then(function(){ _cpSettingsSig=''; cpRenderSettings(); }); return; }   /* defaults first */
+  var html = '';
+  plats.forEach(function(p){
+    var o = cpOptsFor(p), body = '';
+    if(p==='youtube'){
+      var cats = Object.keys(_cpYtCats).length ? _cpYtCats : {'22':'People & Blogs'};
+      var first = ((($('cpCaption')||{}).value||'').split('\n')[0]||'').slice(0,100);
+      body = '<div class="cps-f"><span>Video title</span>'+cpTxt(p,'title',o.title, first || 'Your video title', 100)+'</div>'
+        +'<div class="cps-row"><div class="cps-f"><span>Privacy</span>'+cpSel(p,'privacy',o.privacy,[['public','Public'],['unlisted','Unlisted'],['private','Private']])+'</div>'
+        +'<div class="cps-f"><span>Category</span>'+cpSel(p,'category',o.category,Object.keys(cats).map(function(k){ return [k,cats[k]]; }))+'</div></div>'
+        +'<div class="cps-f"><span>Audience: is this video made for kids?</span>'+cpSel(p,'made_for_kids',o.made_for_kids?'yes':'no',[['no','No, it\'s not made for kids'],['yes','Yes, it\'s made for kids']])+'</div>'
+        +'<div class="cps-f"><span>Tags</span>'+cpTxt(p,'tags',(o.tags||[]).join(', '),'tag one, tag two')+'</div>'
+        +cpChk(p,'ai_content',o.ai_content,'Contains AI-generated or realistic altered content','','YouTube adds an "Altered or synthetic content" label')
+        +cpChk(p,'notify',o.notify,'Notify subscribers');
+      if(!vid) body += '<div class="cps-note">YouTube needs a video.</div>';
+    }
+    if(p==='tiktok'){
+      var cr = _cpTtCreator;
+      if(!cr) cpLoadTtCreator();
+      var popts = (cr && cr.privacy_options && cr.privacy_options.length) ? cr.privacy_options : Object.keys(CP_TT_PRIV);
+      body = '<div class="cps-note">'+(cr && cr.nickname ? 'Posting to <b>'+_esc(cr.nickname)+'</b>'+(cr.username?' (@'+_esc(cr.username)+')':'') : (cr && cr.error ? '⚠ '+_esc(cr.error) : 'Checking your TikTok account…'))+'</div>'
+        +'<div class="cps-f"><span>Who can view this video <b style="color:#fca5a5">*</b></span>'
+        +cpSel(p,'privacy',o.privacy,[['','Choose who can view…',false]].concat(popts.map(function(k){ return [k, CP_TT_PRIV[k]||k]; })))+'</div>'
+        +(cr && cr.privacy_options && cr.privacy_options.length===1 && cr.privacy_options[0]==='SELF_ONLY' ? '<div class="cps-note">Until TikTok approves the app, only "Only me" is available.</div>' : '')
+        +'<div class="cps-f"><span>Allow users to</span><div class="cps-inline">'
+        +cpChk(p,'allow_comment',o.allow_comment && !(cr&&cr.comment_disabled),'Comment',cr&&cr.comment_disabled)
+        +cpChk(p,'allow_duet',o.allow_duet && !(cr&&cr.duet_disabled),'Duet',cr&&cr.duet_disabled)
+        +cpChk(p,'allow_stitch',o.allow_stitch && !(cr&&cr.stitch_disabled),'Stitch',cr&&cr.stitch_disabled)+'</div></div>'
+        +cpChk(p,'disclose',o.disclose,'Disclose post content','','Turn on if this promotes yourself, a brand, product or service')
+        +(o.disclose ? '<div class="cps-sub">'+cpChk(p,'your_brand',o.your_brand,'Your brand','','You\'re promoting yourself or your own business. Labeled "Promotional content".')
+            +cpChk(p,'branded_content',o.branded_content && o.privacy!=='SELF_ONLY','Branded content',o.privacy==='SELF_ONLY','You\'re promoting another brand or a third party. Labeled "Paid partnership". Can\'t be private.')+'</div>' : '')
+        +cpChk(p,'ai_generated',o.ai_generated,'AI-generated content','','Adds TikTok\'s "AI-generated" label')
+        +'<div class="cps-legal">By posting, you agree to TikTok\'s <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/en" target="_blank" rel="noopener">Music Usage Confirmation</a>'
+        +(o.disclose && o.branded_content ? ' and <a href="https://www.tiktok.com/legal/page/global/bc-policy/en" target="_blank" rel="noopener">Branded Content Policy</a>' : '')+'.</div>';
+      if(!vid) body += '<div class="cps-note">TikTok needs a video.</div>';
+    }
+    if(p==='instagram'){
+      var types = vid ? [['reel','Reel'],['story','Story']] : [['feed','Feed post'],['story','Story']];
+      var t = o.type && types.some(function(x){ return x[0]===o.type; }) ? o.type : types[0][0];
+      o.type = t;
+      body = '<div class="cps-f"><span>Post as</span>'+cpSel(p,'type',t,types)+'</div>'
+        +(vid && t==='reel' ? cpChk(p,'share_to_feed',o.share_to_feed,'Also show this Reel in your feed') : '')
+        +(!vid && url && t==='feed' ? '<div class="cps-f"><span>Alt text (describes the photo for people who can\'t see it)</span>'+cpTxt(p,'alt_text',o.alt_text,'e.g. A red barn at sunset',1000)+'</div>' : '')
+        +(t==='story' ? '<div class="cps-note">Stories don\'t show a caption.</div>' : '')
+        +(!url ? '<div class="cps-note">Instagram needs a photo or video.</div>' : '');
+    }
+    if(p==='facebook'){
+      body = vid ? '<div class="cps-f"><span>Video title (optional)</span>'+cpTxt(p,'video_title',o.video_title,'Shown above your video',255)+'</div>'
+                 : '<div class="cps-note">No extra settings for this post. Facebook takes text, photos and videos.</div>';
+    }
+    if(p==='linkedin'){
+      body = '<div class="cps-f"><span>Who can see this</span>'+cpSel(p,'visibility',o.visibility,[['PUBLIC','Anyone'],['CONNECTIONS','Connections only']])+'</div>';
+    }
+    html += cpCard(p, body);
+  });
+  box.innerHTML = html;
+  wrap.style.display = '';
+}
+/* Every settings field writes straight into _cpOpts */
+document.addEventListener('change', function(e){
+  var el = e.target && e.target.closest && e.target.closest('#cpSettings [data-o]'); if(!el) return;
+  var parts = el.getAttribute('data-o').split('.'), p = parts[0], k = parts[1], o = cpOptsFor(p), v;
+  if(el.type==='checkbox') v = el.checked;
+  else if(k==='made_for_kids') v = el.value==='yes';
+  else if(k==='tags') v = el.value.split(',').map(function(s){ return s.trim().replace(/^#/,''); }).filter(Boolean);
+  else v = el.value;
+  o[k] = v;
+  if(p==='tiktok' && (k==='disclose' || k==='privacy')){ if(!o.disclose){ o.your_brand=false; o.branded_content=false; } if(o.privacy==='SELF_ONLY') o.branded_content=false; }
+  if((p==='tiktok' && (k==='disclose'||k==='privacy')) || (p==='instagram' && k==='type')){ _cpSettingsSig=''; cpRenderSettings(); }
+});
+document.addEventListener('input', function(e){
+  var el = e.target && e.target.closest && e.target.closest('#cpSettings input[data-o]:not([type=checkbox])'); if(!el) return;
+  var parts = el.getAttribute('data-o').split('.'), o = cpOptsFor(parts[0]);
+  o[parts[1]] = parts[1]==='tags' ? el.value.split(',').map(function(s){ return s.trim().replace(/^#/,''); }).filter(Boolean) : el.value;
+});
+window.cpSavePreset = function(p, btn){
+  fetch('/api/social/presets', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({platform:p, options:cpOptsFor(p)})})
+    .then(function(r){ return r.json(); }).then(function(d){
+      if(d.ok){ _cpPresets = d.presets; if(btn){ btn.textContent='✓ Saved as default'; setTimeout(function(){ btn.textContent='Save as my default'; }, 2200); } }
+      else if(btn){ btn.textContent = d.error || 'Could not save'; }
+    }).catch(function(){ if(btn) btn.textContent='Could not save'; });
+};
+/* TikTok's rule: who-can-view must be picked on every post */
+function cpSettingsProblem(){
+  var plats = cpTargets().platforms;
+  if(plats.indexOf('tiktok')>=0 && !cpOptsFor('tiktok').privacy) return 'Choose who can view your TikTok (TikTok settings below).';
+  var tt = _cpOpts.tiktok;
+  if(tt && tt.disclose && !tt.your_brand && !tt.branded_content) return 'TikTok: pick "Your brand" or "Branded content", or turn off "Disclose post content".';
+  return '';
+}
+
+/* Emoji picker: inserts at the cursor in the caption */
+var CP_EMOJI = {
+  'Smileys':'😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😎 🤩 🥳 😏 🤔 🤗 🤭 😴 😮 😱 😢 😭 😤 😡 🤯 🥹 🙏 👍 👎 👏 🙌 💪 🤝 ✌️ 🤞 👌 👋 🫶 👀',
+  'Hearts':'❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💖 💗 💓 💞 💕 💘 💯 ✨ ⭐ 🌟 💫 🔥 ⚡ 🎉 🎊 🎁 🏆 🥇',
+  'Business':'📈 📊 💼 💰 💵 💸 🏦 🧾 📅 🗓️ ⏰ 📌 📍 📣 📢 💡 🚀 🎯 ✅ ☑️ ❌ ⚠️ 🔔 📝 📞 📧 💻 📱 🛒 🏷️ 🔑 🏠 🏡 🔨 🛠️',
+  'Nature':'☀️ 🌤️ 🌈 🌧️ ❄️ 🌊 🌸 🌺 🌻 🌹 🌷 🌱 🌿 🍀 🍁 🌳 🌲 🌴 🌵 🐶 🐱 🐴 🐄 🐔 🐝 🦋',
+  'Food':'☕ 🍵 🥤 🍺 🍷 🍕 🍔 🌮 🍟 🥗 🍎 🍓 🍉 🍋 🥑 🍞 🧁 🍰 🎂 🍪 🍫 🍿',
+  'Arrows':'👉 👈 👆 👇 ➡️ ⬅️ ⬆️ ⬇️ ↗️ 🔗 🔝 🆕 🆓 🔴 🟢 🔵 🟣 ▶️ ⏩ 🔁'
+};
+window.cpToggleEmoji = function(){
+  var box = $('cpEmojiBox'); if(!box) return;
+  if(box.style.display === 'block'){ box.style.display = 'none'; return; }
+  if(!box.innerHTML){
+    box.innerHTML = Object.keys(CP_EMOJI).map(function(cat){
+      return '<div class="cpe-cat">'+cat+'</div><div class="cpe-grid">'+CP_EMOJI[cat].split(' ').map(function(em){
+        return '<button type="button" class="cpe-e" data-em="'+em+'">'+em+'</button>'; }).join('')+'</div>';
+    }).join('');
+    box.addEventListener('mousedown', function(e){ e.preventDefault(); });   /* keep the caption's cursor */
+    box.addEventListener('click', function(e){ var b = e.target.closest('.cpe-e'); if(b) cpInsertEmoji(b.getAttribute('data-em')); });
+  }
+  box.style.display = 'block';
+};
+function cpInsertEmoji(em){
+  var t = $('cpCaption'); if(!t) return;
+  var s = t.selectionStart != null ? t.selectionStart : t.value.length, e = t.selectionEnd != null ? t.selectionEnd : s;
+  t.value = t.value.slice(0, s) + em + t.value.slice(e);
+  var pos = s + em.length; t.focus(); try{ t.setSelectionRange(pos, pos); }catch(_){}
+  cpUpdateCharCount(); cpPreview();
+}
+document.addEventListener('click', function(e){
+  var box = $('cpEmojiBox'); if(!box || box.style.display !== 'block') return;
+  if(!e.target.closest('#cpEmojiBox') && !e.target.closest('#cpEmojiBtn')) box.style.display = 'none';
+});
+
 /* V17.3: which selected platforms can't take this post's media (same rules as the server) */
 var CP_NEEDS={youtube:'video', tiktok:'video', instagram:'media'};
 function cpMediaProblems(){
@@ -35996,6 +36216,8 @@ window.cpDropIncompatible=function(){
 /* Stops Schedule / Publish when a selected platform can't take the media */
 function cpBlockIfIncompatible(){
   var probs=cpMediaCheck();
+  var sp=cpSettingsProblem();
+  if(sp){ cpSetStatus(sp); var w=$('cpSettingsWrap'); if(w && w.scrollIntoView) w.scrollIntoView({block:'nearest', behavior:'smooth'}); return true; }
   if(!Object.keys(probs).length) return false;
   cpSetStatus('Fix the warning under "Post to" first.');
   var b=$('cpMediaWarn'); if(b && b.scrollIntoView) b.scrollIntoView({block:'nearest', behavior:'smooth'});
@@ -36004,6 +36226,8 @@ function cpBlockIfIncompatible(){
 
 window.cpPreview=function(){
   cpMediaCheck();
+  cpRenderSettings();
+  cpUpdateCharCount();
   var t=$('cpPvText'); if(!t) return;
   t.textContent=($('cpCaption')||{}).value||'';
   var first=document.querySelector('#cpPlatformChecks input[data-fbpage]:checked');
@@ -36373,7 +36597,7 @@ window.cpMovePost=async function(pid, dateKey){
   var local=dateKey+'T'+time;
   if(cpPostDate(p)===dateKey) return;
   if(p.status==='scheduled' && new Date(local).getTime() < Date.now()-60000){ showToast('That day and time has already passed — pick a later day','error'); return; }
-  var body={id:p.id, caption:p.caption||'', platforms:p.platforms||[], lc_accounts:p.lc_accounts||[], fb_page_ids:p.fb_page_ids||[], ig_account_ids:p.ig_account_ids||[],
+  var body={id:p.id, caption:p.caption||'', platforms:p.platforms||[], lc_accounts:p.lc_accounts||[], fb_page_ids:p.fb_page_ids||[], ig_account_ids:p.ig_account_ids||[], options:p.options||{},
             media_url:p.media_url||'', scheduled_at:local+':00', scheduled_utc:cpUtc(local), status:p.status||'draft'};
   try{
     var d=await (await fetch('/api/social/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
@@ -36669,6 +36893,12 @@ window.cpOpenComposer = function(postId, prefillDate){
   var idEl = $('cpEditingPostId');
   if(idEl) idEl.value = _cpEditingId || '';
 
+  // V17.4: this post's platform settings (a new post starts from the saved defaults)
+  try{ _cpOpts = post && post.options ? JSON.parse(JSON.stringify(post.options)) : {}; }catch(_){ _cpOpts = {}; }
+  _cpSettingsSig=''; _cpTtCreator=null;
+  var eb=$('cpEmojiBox'); if(eb) eb.style.display='none';
+  cpLoadPresets().then(function(){ _cpSettingsSig=''; cpRenderSettings(); });
+
   // Targets: Pages + platforms, then the live preview
   cpRenderComposerTargets(post);
   var mh=$('cpMediaHint'); if(mh) mh.textContent = 'Use 🎞 My Clips to pick a video you made. Instagram always needs a photo or video.';
@@ -36700,7 +36930,15 @@ window.cpPlatformToggle = function(cb){ /* visual feedback handled by CSS */ };
 
 window.cpUpdateCharCount = function(){
   var el = $('cpCaption'), cnt = $('cpCaptionCount');
-  if(el && cnt) cnt.textContent = (el.value||'').length + ' chars';
+  if(!el || !cnt) return;
+  /* V17.4: show the tightest limit among the ticked platforms, red when over */
+  var n = Array.from(el.value||'').length, plats = (typeof cpTargets==='function') ? cpTargets().platforms : [];
+  var lim = null, who = '';
+  plats.forEach(function(p){ var l = CP_LIMITS[p]; if(l && (lim===null || l<lim)){ lim = l; who = (PLAT_COLORS[p]||{label:p}).label; } });
+  var over = plats.filter(function(p){ return CP_LIMITS[p] && n > CP_LIMITS[p]; }).map(function(p){ return (PLAT_COLORS[p]||{label:p}).label; });
+  cnt.textContent = lim ? (n.toLocaleString()+' / '+lim.toLocaleString()+' ('+who+')') : (n + ' chars');
+  if(over.length) cnt.textContent += ' · too long for '+over.join(', ');
+  cnt.classList.toggle('over', over.length>0);
 };
 
 window.cpSavePost = async function(status){
@@ -36727,6 +36965,7 @@ window.cpSavePost = async function(status){
       lc_accounts: tg.lc_accounts,
       fb_page_ids: tg.fb_page_ids,
       ig_account_ids: tg.ig_account_ids,
+      options: cpCollectOptions(),
       media_url: mediaUrl,
       scheduled_at: scheduledAt ? (scheduledAt.length===16 ? scheduledAt+':00' : scheduledAt) : '',
       scheduled_utc: cpUtc(scheduledAt),
@@ -36761,7 +37000,7 @@ window.cpPublishNow = async function(){
       // Saved as a draft first (was 'scheduled' with no time), then published
       var res = await fetch('/api/social/posts', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, fb_page_ids:tg2.fb_page_ids, ig_account_ids:tg2.ig_account_ids, media_url:mediaUrl, status:'draft'}),
+        body: JSON.stringify({caption:caption, platforms:platforms, lc_accounts:tg2.lc_accounts, fb_page_ids:tg2.fb_page_ids, ig_account_ids:tg2.ig_account_ids, options:cpCollectOptions(), media_url:mediaUrl, status:'draft'}),
       });
       var d = await res.json();
       if(!d.ok){ cpSetStatus(d.error||'Save failed'); return; }

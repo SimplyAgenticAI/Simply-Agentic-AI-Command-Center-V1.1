@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.3")
+APP_VERSION = os.getenv("APP_VERSION", "17.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -33969,6 +33969,9 @@ def _sp_publish_facebook(post: dict, conns: dict) -> Tuple[bool, str]:
         # Videos (incl. Video Editor clips) go to /videos — /photos rejects them (V15.3 fix)
         endpoint = f"https://graph.facebook.com/v19.0/{page_id}/videos"
         data = {"description": text, "file_url": media_url, "access_token": page_token}
+        vt = _sp_opt(post, "facebook").get("video_title")
+        if vt:
+            data["title"] = vt
     elif media_url:
         endpoint = f"https://graph.facebook.com/v19.0/{page_id}/photos"
         data["url"] = media_url
@@ -33996,17 +33999,25 @@ def _ig_accounts(conns: dict) -> List[Dict[str, Any]]:
     return accts
 
 
-def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: int = 5, max_wait_s: int = 300) -> Tuple[bool, str]:
+def _ig_publish_one(acct: Dict[str, Any], media_url: str, caption: str, poll_s: int = 5, max_wait_s: int = 300,
+                    opts: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
     """Create the media container, wait for Instagram to finish processing a
     video (Reels fail if published early), publish, then fetch the permalink."""
     ig_id, tok = acct["id"], acct["access_token"]
     base = _IG_GRAPH if acct.get("via") == "instagram" else "https://graph.facebook.com/v19.0"   # V16.0
     data: Dict[str, Any] = {"caption": caption, "access_token": tok}
     video = _sp_is_video(media_url)
-    if video:
-        data.update({"video_url": media_url, "media_type": "REELS"})
+    opts = opts or {}
+    if opts.get("type") == "story":                                  # V17.4: Stories (no caption shown)
+        data.update({"media_type": "STORIES"})
+        data["video_url" if video else "image_url"] = media_url
+    elif video:
+        data.update({"video_url": media_url, "media_type": "REELS",
+                     "share_to_feed": "true" if opts.get("share_to_feed", True) else "false"})
     else:
         data["image_url"] = media_url
+        if opts.get("alt_text"):
+            data["alt_text"] = opts["alt_text"]
     r1 = requests.post(f"{base}/{ig_id}/media", data=data, timeout=60)
     res1 = r1.json()
     if r1.status_code != 200 or not res1.get("id"):
@@ -34054,7 +34065,7 @@ def _sp_publish_instagram(post: dict, conns: dict) -> Tuple[bool, str]:
     done, errs = [], []
     for a in targets:
         try:
-            ok, info = _ig_publish_one(a, media_url, caption)
+            ok, info = _ig_publish_one(a, media_url, caption, opts=_sp_opt(post, "instagram"))
         except Exception as e:
             ok, info = False, str(e)[:200]
         if ok:
@@ -34134,6 +34145,7 @@ def api_sp_posts_create():
         "fb_page_ids": [str(a) for a in (body.get("fb_page_ids") or []) if re.match(r"^\d{3,40}$", str(a))][:20],
         "ig_account_ids": [str(a) for a in (body.get("ig_account_ids") or []) if re.match(r"^\d{3,40}$", str(a))][:20],
         "media_url": (body.get("media_url") or "").strip(),
+        "options": _sp_clean_options(body.get("options")),          # V17.4 per-platform settings
         "scheduled_at": (body.get("scheduled_at") or "").strip(),
         "scheduled_utc": (body.get("scheduled_utc") or "").strip(),   # browser-computed UTC instant
         "status": body.get("status") or "draft",
@@ -35484,12 +35496,20 @@ def _sp_publish_youtube(uname: str, post: Dict[str, Any], conns: Dict[str, Any])
     try:
         caption = (post.get("caption") or "").strip()
         first = re.sub(r"[<>]", "", (caption.splitlines() or ["New video"])[0]).strip() or "New video"
-        title = first[:100]
-        body = {"snippet": {"title": title, "description": caption[:4900], "categoryId": "22"},
-                "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}}
+        yo = _sp_opt(post, "youtube")
+        title = (yo.get("title") or first)[:100]
+        snippet = {"title": title, "description": caption[:4900], "categoryId": yo.get("category") or "22"}
+        if yo.get("tags"):
+            snippet["tags"] = yo["tags"]
+        body = {"snippet": snippet,
+                "status": {"privacyStatus": yo.get("privacy") or "public",
+                           "selfDeclaredMadeForKids": bool(yo.get("made_for_kids")),
+                           "containsSyntheticMedia": bool(yo.get("ai_content"))}}
         size = path.stat().st_size
+        notify = "true" if yo.get("notify", True) else "false"
         init = requests.post(
-            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+            "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status"
+            f"&notifySubscribers={notify}",
             headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=UTF-8",
                      "X-Upload-Content-Type": "video/*", "X-Upload-Content-Length": str(size)},
             data=json.dumps(body), timeout=30)
@@ -35577,13 +35597,21 @@ def _sp_publish_tiktok(uname: str, post: Dict[str, Any], conns: Dict[str, Any],
             return False, f"TikTok: {_tt_err(ci)}"
         opts = (ci.get("data") or {}).get("privacy_level_options") or ["SELF_ONLY"]
         # Until TikTok approves the app, it only allows private (SELF_ONLY) posts.
-        privacy = next((o for o in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY")
-                        if o in opts), opts[0])
+        to = _sp_opt(post, "tiktok")
+        chosen = to.get("privacy") or ""
+        if not chosen:
+            return False, "Choose who can view this TikTok (TikTok settings in the post)."
+        # Until TikTok approves the app it only allows private posts: use that and say so.
+        privacy = chosen if chosen in opts else ("SELF_ONLY" if "SELF_ONLY" in opts else opts[0])
         size = path.stat().st_size
         chunk, count = _tt_chunks(size)
         init = requests.post(f"{_TT_API}/post/publish/video/init/", headers=hdr, timeout=30, json={
             "post_info": {"title": (post.get("caption") or "").strip()[:2200], "privacy_level": privacy,
-                          "disable_comment": False, "disable_duet": False, "disable_stitch": False},
+                          "disable_comment": not to.get("allow_comment"), "disable_duet": not to.get("allow_duet"),
+                          "disable_stitch": not to.get("allow_stitch"),
+                          "brand_organic_toggle": bool(to.get("disclose") and to.get("your_brand")),
+                          "brand_content_toggle": bool(to.get("disclose") and to.get("branded_content")),
+                          "is_aigc": bool(to.get("ai_generated"))},
             "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk,
                             "total_chunk_count": count}}).json()
         data = init.get("data") or {}
@@ -35625,6 +35653,140 @@ def _sp_publish_tiktok(uname: str, post: Dict[str, Any], conns: Dict[str, Any],
                 pass
 
 
+# V17.4: per-platform post settings (Metricool-style presets). Stored on the post
+# as post["options"][platform]; defaults per user in DATA/sp_presets/<user>.json.
+_YT_CATEGORIES = {"1": "Film & Animation", "2": "Autos & Vehicles", "10": "Music", "15": "Pets & Animals",
+                  "17": "Sports", "19": "Travel & Events", "20": "Gaming", "22": "People & Blogs",
+                  "23": "Comedy", "24": "Entertainment", "25": "News & Politics", "26": "Howto & Style",
+                  "27": "Education", "28": "Science & Technology", "29": "Nonprofits & Activism"}
+_TT_PRIVACY = ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY")
+
+
+def _sp_bool(v: Any, default: bool = False) -> bool:
+    if isinstance(v, bool):
+        return v
+    if v in (None, ""):
+        return default
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _sp_clean_options(raw: Any) -> Dict[str, Dict[str, Any]]:
+    """Keep only known settings, with safe types and lengths."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: Dict[str, Dict[str, Any]] = {}
+    yt = raw.get("youtube") if isinstance(raw.get("youtube"), dict) else None
+    if yt is not None:
+        tags = yt.get("tags") or []
+        if isinstance(tags, str):
+            tags = tags.split(",")
+        tags = [re.sub(r"[<>]", "", str(t)).strip().lstrip("#")[:60] for t in tags if str(t).strip()][:30]
+        out["youtube"] = {
+            "title": re.sub(r"[<>]", "", str(yt.get("title") or "")).strip()[:100],
+            "privacy": yt.get("privacy") if yt.get("privacy") in ("public", "unlisted", "private") else "public",
+            "made_for_kids": _sp_bool(yt.get("made_for_kids")),
+            "category": str(yt.get("category")) if str(yt.get("category")) in _YT_CATEGORIES else "22",
+            "tags": tags,
+            "ai_content": _sp_bool(yt.get("ai_content")),
+            "notify": _sp_bool(yt.get("notify"), True),
+        }
+    tt = raw.get("tiktok") if isinstance(raw.get("tiktok"), dict) else None
+    if tt is not None:
+        out["tiktok"] = {
+            "privacy": tt.get("privacy") if tt.get("privacy") in _TT_PRIVACY else "",
+            "allow_comment": _sp_bool(tt.get("allow_comment")),
+            "allow_duet": _sp_bool(tt.get("allow_duet")),
+            "allow_stitch": _sp_bool(tt.get("allow_stitch")),
+            "disclose": _sp_bool(tt.get("disclose")),
+            "your_brand": _sp_bool(tt.get("your_brand")),
+            "branded_content": _sp_bool(tt.get("branded_content")),
+            "ai_generated": _sp_bool(tt.get("ai_generated")),
+        }
+    ig = raw.get("instagram") if isinstance(raw.get("instagram"), dict) else None
+    if ig is not None:
+        out["instagram"] = {
+            "type": ig.get("type") if ig.get("type") in ("feed", "reel", "story") else "",
+            "share_to_feed": _sp_bool(ig.get("share_to_feed"), True),
+            "alt_text": str(ig.get("alt_text") or "").strip()[:1000],
+        }
+    fb = raw.get("facebook") if isinstance(raw.get("facebook"), dict) else None
+    if fb is not None:
+        out["facebook"] = {"video_title": re.sub(r"[<>]", "", str(fb.get("video_title") or "")).strip()[:255]}
+    li = raw.get("linkedin") if isinstance(raw.get("linkedin"), dict) else None
+    if li is not None:
+        out["linkedin"] = {"visibility": "CONNECTIONS" if li.get("visibility") == "CONNECTIONS" else "PUBLIC"}
+    return out
+
+
+def _sp_opt(post: Dict[str, Any], platform: str) -> Dict[str, Any]:
+    o = (post.get("options") or {}).get(platform)
+    return o if isinstance(o, dict) else {}
+
+
+def _sp_presets_path(uname: str) -> Path:
+    d = DATA / "sp_presets"
+    d.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^\w.\-]", "_", uname or "anon")
+    return d / f"{safe}.json"
+
+
+@app.get("/api/social/presets")
+def api_sp_presets_get():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    return jsonify({"ok": True, "presets": load_json(_sp_presets_path(uname), {}) or {},
+                    "youtube_categories": _YT_CATEGORIES})
+
+
+@app.post("/api/social/presets")
+def api_sp_presets_set():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    body = request.get_json(silent=True) or {}
+    platform = body.get("platform")
+    clean = _sp_clean_options({platform: body.get("options") or {}}).get(platform)
+    if not clean:
+        return jsonify({"ok": False, "error": "Unknown platform"}), 400
+    if platform == "tiktok":
+        clean.pop("privacy", None)        # TikTok's rules: who-can-view is chosen on every post
+    presets = load_json(_sp_presets_path(uname), {}) or {}
+    presets[platform] = clean
+    save_json(_sp_presets_path(uname), presets)
+    return jsonify({"ok": True, "presets": presets})
+
+
+@app.get("/api/social/tiktok/creator")
+def api_sp_tiktok_creator():
+    """TikTok's required pre-post info: account name, allowed privacy options and
+    whether the creator turned comments/duets/stitches off."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    conns = _load_sp_conns(uname)
+    tok, err = _tt_token(uname, conns)
+    if not tok:
+        return jsonify({"ok": False, "error": err})
+    try:
+        ci = requests.post(f"{_TT_API}/post/publish/creator_info/query/", timeout=20, json={},
+                           headers={"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=UTF-8"}).json()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"TikTok didn't answer: {str(e)[:120]}"})
+    if _tt_err(ci):
+        return jsonify({"ok": False, "error": _tt_err(ci)})
+    d = ci.get("data") or {}
+    return jsonify({"ok": True, "creator": {
+        "nickname": d.get("creator_nickname") or (conns.get("tiktok") or {}).get("name") or "",
+        "username": d.get("creator_username") or "", "avatar": d.get("creator_avatar_url") or "",
+        "privacy_options": [o for o in (d.get("privacy_level_options") or []) if o in _TT_PRIVACY],
+        "comment_disabled": bool(d.get("comment_disabled")), "duet_disabled": bool(d.get("duet_disabled")),
+        "stitch_disabled": bool(d.get("stitch_disabled")),
+        "max_video_seconds": int(d.get("max_video_post_duration_sec") or 0)}})
+
+
 def _sp_publish_linkedin(uname: str, post: Dict[str, Any], conns: Dict[str, Any]) -> Tuple[bool, str]:
     li = conns.get("linkedin") or {}
     if not li.get("access_token") or not li.get("person_urn"):
@@ -35638,7 +35800,7 @@ def _sp_publish_linkedin(uname: str, post: Dict[str, Any], conns: Dict[str, Any]
     body = {"author": li["person_urn"], "lifecycleState": "PUBLISHED",
             "specificContent": {"com.linkedin.ugc.ShareContent": {
                 "shareCommentary": {"text": text[:2900]}, "shareMediaCategory": "NONE"}},
-            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}}
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": _sp_opt(post, "linkedin").get("visibility") or "PUBLIC"}}
     try:
         r = requests.post("https://api.linkedin.com/v2/ugcPosts", json=body, timeout=30,
                           headers={"Authorization": f"Bearer {li['access_token']}", "X-Restli-Protocol-Version": "2.0.0"})
