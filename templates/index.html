@@ -35822,6 +35822,8 @@ function saUseGlyph(){
       @keyframes cpChipNew{0%,100%{box-shadow:none;}50%{box-shadow:0 0 0 3px #34d399,0 0 18px rgba(52,211,153,.6);}}
       #cpFlash{display:none;position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:10;padding:12px 26px;border-radius:12px;font-weight:800;font-size:calc(16px * var(--fs,1.1));color:#fff;background:rgba(17,24,39,.97);border:1px solid rgba(124,58,237,.6);box-shadow:0 12px 40px rgba(0,0,0,.5);}
       #cpFlash.ok{background:rgba(4,47,28,.97);border-color:#059669;color:#d1fae5;}
+      .cp-pill-x{margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:5px;color:#8a96aa;padding:1px 6px;cursor:pointer;font-weight:700;line-height:1.6;transition:all .15s;}
+      .cp-pill-x:hover,.cp-pill-x:focus-visible{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.4);color:#fca5a5;}
       .cp-drop{outline:2px dashed #a78bfa !important;outline-offset:-2px;background:rgba(124,58,237,.12) !important;}
       @media(max-width:900px){ .cp-week{grid-template-columns:1fr;} .cp-wday{min-height:0;} }
     </style>
@@ -36065,17 +36067,19 @@ function cpRenderPlatformPills(){
     var issue = (p === 'instagram' && !connected && c.issue) ? c.issue : '';
     var displayName = connected ? (name || PLAT_COLORS[p].label) : PLAT_COLORS[p].label;
     var col = PLAT_COLORS[p];
+    /* V17.2: every connected button looks the same and calm (no brand reds that read as errors);
+       a green dot says "connected", the small logo keeps its brand color for recognition */
     var connStyle = connected
-      ? 'background:'+col.bg+';border:1px solid '+col.border+';color:#f1f5f9;box-shadow:0 0 14px '+col.dot+'33,inset 0 1px 0 rgba(255,255,255,.12);'
+      ? 'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);color:#f1f5f9;box-shadow:inset 0 1px 0 rgba(255,255,255,.08);'
       : 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.18);color:#8a96aa;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);';
     var dot = connected
-      ? '<span style="width:7px;height:7px;border-radius:50%;background:'+col.dot+';display:inline-block;box-shadow:0 0 6px '+col.dot+'88;flex-shrink:0;"></span>'
+      ? '<span title="Connected" style="width:8px;height:8px;border-radius:50%;background:#34d399;display:inline-block;box-shadow:0 0 6px rgba(52,211,153,.55);flex-shrink:0;"></span>'
       : '<span style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);display:inline-block;flex-shrink:0;"></span>';
     var actionBtn = connected
-      ? '<button onclick="cpDisconnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.32);border-radius:5px;color:#fca5a5;padding:1px 6px;cursor:pointer;font-weight:700;line-height:1.6;">✕</button>'
+      ? '<button class="cp-pill-x" onclick="cpDisconnect(\''+p+'\')" title="Disconnect '+_esc(col.label)+'" aria-label="Disconnect '+_esc(col.label)+'">✕</button>'
       : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);border-radius:5px;color:#c4b5fd;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;">Connect</button>';
     return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;'+connStyle+'backdrop-filter:blur(10px);">'
-      +dot+'<span>'+icons[p]+' '+_esc(displayName)+'</span>'
+      +dot+'<span><span style="color:'+(connected?col.dot:'inherit')+';font-weight:900;">'+icons[p]+'</span> '+_esc(displayName)+'</span>'
       +(issue ? '<button onclick="alert(this.getAttribute(\'data-why\'))" data-why="'+_esc('Instagram not connected: '+issue)+'" title="'+_esc(issue)+'" style="margin-left:4px;font-size:calc(14px * var(--fs,1.1));background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.45);border-radius:5px;color:#fcd34d;padding:1px 7px;cursor:pointer;font-weight:800;line-height:1.6;">⚠ Why?</button>' : '')
       +actionBtn+'</div>';
   }).join('');
