@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.6")
+APP_VERSION = os.getenv("APP_VERSION", "16.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -34239,7 +34239,7 @@ def api_sp_publish(post_id):
         return jsonify({"ok": False, "error": "Pick at least one platform."}), 400
     if post.get("status") == "publishing":
         return jsonify({"ok": True, "status": "publishing"})
-    if "youtube" in platforms or (_sp_is_video(post.get("media_url") or "") and ({"instagram", "facebook"} & set(platforms))):
+    if {"youtube", "tiktok"} & set(platforms) or (_sp_is_video(post.get("media_url") or "") and ({"instagram", "facebook"} & set(platforms))):
         # Video uploads can take minutes (YouTube, Instagram Reels, Facebook
         # video) — publish in the background; the Queue shows "Publishing…"
         # and updates when it's done.
@@ -34967,10 +34967,9 @@ def sp_callback_tiktok():
         display_name = "TikTok User"
         open_id = ""
         try:
-            ur = requests.post("https://open.tiktokapis.com/v2/user/info/",
-                               json={"fields": ["display_name", "open_id"]},
-                               headers={"Authorization": f"Bearer {access_token}",
-                                        "Content-Type": "application/json"}, timeout=15)
+            ur = requests.get("https://open.tiktokapis.com/v2/user/info/",       # V16.7: GET, fields in the query
+                              params={"fields": "open_id,display_name,avatar_url"},
+                              headers={"Authorization": f"Bearer {access_token}"}, timeout=15)
             ud = ur.json()
             display_name = ud.get("data", {}).get("user", {}).get("display_name", "TikTok User")
             open_id = ud.get("data", {}).get("user", {}).get("open_id", "")
@@ -34980,7 +34979,8 @@ def sp_callback_tiktok():
         conns["tiktok"] = {
             "access_token": access_token,
             "refresh_token": data.get("refresh_token", ""),
-            "open_id": open_id, "name": display_name, "connected_at": now_iso(),
+            "expires_at": _now_epoch() + int(data.get("expires_in") or 86400) - 120,   # 24h tokens, refreshed before posting
+            "open_id": open_id or data.get("open_id", ""), "name": display_name, "connected_at": now_iso(),
         }
         _save_sp_conns(uname, conns)
         return make_response(
@@ -35322,6 +35322,113 @@ def _sp_publish_youtube(uname: str, post: Dict[str, Any], conns: Dict[str, Any])
             except Exception: pass
 
 
+_TT_API = "https://open.tiktokapis.com/v2"
+
+
+def _tt_token(uname: str, conns: Dict[str, Any]) -> Tuple[Optional[str], str]:
+    """V16.7: TikTok access tokens last 24h, so refresh with the 1-year refresh token."""
+    tt = conns.get("tiktok") or {}
+    if not tt.get("access_token"):
+        return None, "TikTok isn't connected."
+    if int(tt.get("expires_at") or 0) > _now_epoch():
+        return tt["access_token"], ""
+    if not tt.get("refresh_token"):
+        return None, "TikTok access expired. Reconnect TikTok."
+    try:
+        d = requests.post(f"{_TT_API}/oauth/token/", timeout=20,
+                          headers={"Content-Type": "application/x-www-form-urlencoded"},
+                          data={"client_key": TIKTOK_CLIENT_KEY, "client_secret": TIKTOK_CLIENT_SECRET,
+                                "grant_type": "refresh_token", "refresh_token": tt["refresh_token"]}).json()
+    except Exception as e:
+        return None, f"TikTok token refresh error: {str(e)[:120]}"
+    if not d.get("access_token"):
+        return None, "TikTok access expired. Reconnect TikTok."
+    tt.update({"access_token": d["access_token"], "refresh_token": d.get("refresh_token") or tt["refresh_token"],
+               "expires_at": _now_epoch() + int(d.get("expires_in") or 86400) - 120})
+    all_c = _load_sp_conns(uname)
+    all_c["tiktok"] = tt
+    _save_sp_conns(uname, all_c)
+    return tt["access_token"], ""
+
+
+def _tt_chunks(size: int) -> Tuple[int, int]:
+    """TikTok chunk rules: one chunk up to 64 MB; otherwise 10 MB chunks with the
+    remainder folded into the last one (each chunk 5-64 MB, the last up to 128 MB)."""
+    if size <= 64 * 1024 * 1024:
+        return size, 1
+    chunk = 10 * 1024 * 1024
+    return chunk, size // chunk
+
+
+def _tt_err(resp: Dict[str, Any]) -> str:
+    e = resp.get("error") or {}
+    return "" if e.get("code") in (None, "", "ok") else str(e.get("message") or e.get("code"))
+
+
+def _sp_publish_tiktok(uname: str, post: Dict[str, Any], conns: Dict[str, Any],
+                       poll_s: int = 5, max_wait_s: int = 600) -> Tuple[bool, str]:
+    """V16.7: post a video to TikTok (Content Posting API, direct post, file upload)."""
+    tok, err = _tt_token(uname, conns)
+    if not tok:
+        return False, err
+    hdr = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json; charset=UTF-8"}
+    path, is_tmp, err = _sp_media_file(uname, post.get("media_url") or "")
+    if not path:
+        return False, err or "TikTok needs a video."
+    try:
+        ci = requests.post(f"{_TT_API}/post/publish/creator_info/query/", headers=hdr, json={}, timeout=20).json()
+        if _tt_err(ci):
+            return False, f"TikTok: {_tt_err(ci)}"
+        opts = (ci.get("data") or {}).get("privacy_level_options") or ["SELF_ONLY"]
+        # Until TikTok approves the app, it only allows private (SELF_ONLY) posts.
+        privacy = next((o for o in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY")
+                        if o in opts), opts[0])
+        size = path.stat().st_size
+        chunk, count = _tt_chunks(size)
+        init = requests.post(f"{_TT_API}/post/publish/video/init/", headers=hdr, timeout=30, json={
+            "post_info": {"title": (post.get("caption") or "").strip()[:2200], "privacy_level": privacy,
+                          "disable_comment": False, "disable_duet": False, "disable_stitch": False},
+            "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk,
+                            "total_chunk_count": count}}).json()
+        data = init.get("data") or {}
+        if _tt_err(init) or not data.get("upload_url"):
+            return False, f"TikTok refused the upload: {_tt_err(init) or 'no upload address came back'}"
+        with open(path, "rb") as f:
+            for i in range(count):
+                start = i * chunk
+                end = size - 1 if i == count - 1 else start + chunk - 1
+                f.seek(start)
+                body = f.read(end - start + 1)
+                up = requests.put(data["upload_url"], data=body, timeout=600, headers={
+                    "Content-Type": "video/mp4", "Content-Length": str(len(body)),
+                    "Content-Range": f"bytes {start}-{end}/{size}"})
+                if up.status_code >= 400:
+                    return False, f"TikTok upload failed (part {i + 1} of {count}, HTTP {up.status_code})"
+        waited = 0
+        while True:
+            st = requests.post(f"{_TT_API}/post/publish/status/fetch/", headers=hdr, timeout=20,
+                               json={"publish_id": data["publish_id"]}).json().get("data") or {}
+            status = st.get("status")
+            if status == "PUBLISH_COMPLETE":
+                ids = st.get("publicaly_available_post_id") or []
+                note = "" if privacy != "SELF_ONLY" else " (private until TikTok approves the app)"
+                return True, (f"tiktok:{ids[0]}" if ids else "posted") + note
+            if status == "FAILED":
+                return False, f"TikTok couldn't publish it: {st.get('fail_reason') or 'unknown reason'}"
+            if waited >= max_wait_s:
+                return True, "uploaded, TikTok is still processing it"
+            time.sleep(poll_s)
+            waited += poll_s
+    except Exception as e:
+        return False, f"TikTok error: {str(e)[:200]}"
+    finally:
+        if is_tmp:
+            try:
+                path.unlink()
+            except Exception:
+                pass
+
+
 def _sp_publish_linkedin(uname: str, post: Dict[str, Any], conns: Dict[str, Any]) -> Tuple[bool, str]:
     li = conns.get("linkedin") or {}
     if not li.get("access_token") or not li.get("person_urn"):
@@ -35368,7 +35475,7 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
         elif platform == "linkedin":
             ok, info = _sp_publish_linkedin(uname, post, conns)
         elif platform == "tiktok":
-            ok, info = False, "TikTok posting is coming in the next update — download the clip and post it in the TikTok app for now."
+            ok, info = _sp_publish_tiktok(uname, post, conns)
         else:
             ok, info = False, f"Unknown platform: {platform}"
         results[platform] = {"ok": ok, "info": info}
