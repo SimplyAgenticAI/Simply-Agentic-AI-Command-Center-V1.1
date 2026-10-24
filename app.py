@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "16.8")
+APP_VERSION = os.getenv("APP_VERSION", "16.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -35103,7 +35103,10 @@ def sp_connect_instagram():
     try: _store_oauth_state("sp_ig_" + state, uname)
     except Exception: pass
     from urllib.parse import urlencode
-    params = {"client_id": INSTAGRAM_APP_ID, "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/instagram",
+    # V16.9: force_reauth makes Instagram ask which account to use, instead of
+    # silently using whichever Instagram account the browser is signed into.
+    params = {"force_reauth": "true", "client_id": INSTAGRAM_APP_ID,
+              "redirect_uri": f"{PUBLIC_BASE_URL}/social/callback/instagram",
               "response_type": "code", "scope": _IG_SCOPES, "state": state}
     return redirect(f"https://www.instagram.com/oauth/authorize?{urlencode(params)}")
 
