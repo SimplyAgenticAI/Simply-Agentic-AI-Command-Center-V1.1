@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.8")
+APP_VERSION = os.getenv("APP_VERSION", "18.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -543,27 +543,25 @@ PLANS: Dict[str, Any] = {
         "price":            27,
         "price_id":         STRIPE_PRICE_ID_FOUNDER,
         "badge":            "🔥 Founder",
-        "tagline":          "Locked in forever at our lowest price — for the first believers.",
-        "custom_teammates": 7,
-        "crm_contacts":     2500,
-        "broadcast_recipients": 1000,
-        "team_seats":       2,
+        "tagline":          "Solo's toolkit at our lowest price — locked in forever for the first believers.",
+        "custom_teammates": 2,
+        "crm_contacts":     500,
+        "broadcast_recipients": 250,
+        "team_seats":       1,
         "founder":          True,
         "features": [
+            "Solo's full toolkit — for $20 less",
             "All 7 built-in AI teammates — AI included, or plug in your own GPT/Claude key for top models",
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
-            "7 custom AI teammates — build your own bench",
-            "Full CRM + pipeline (up to 2,500 contacts)",
-            "Email broadcasts (up to 1,000 recipients)",
-            "Ask any teammate to find leads, score websites, build offers & write posts",
+            "Founder bonus: 2 custom AI teammates",
+            "Full CRM + pipeline (up to 500 contacts)",
+            "Email broadcasts (up to 250 recipients)",
             "Clip Studio, screen recording & Content Planner",
-            "AI Notepad — write, improve, expand & summarize",
             "Calendar, tasks & Gmail sync",
-            "2 team seats — bring a partner",
             "150 AI messages per month included — unlimited with your own key",
-            "5 lead searches per day",
+            "3 lead searches per day",
             "Price locked forever — never increases",
         ],
     },
@@ -619,6 +617,30 @@ PLANS: Dict[str, Any] = {
     },
 }
 
+# V18.9: Founder became "Solo for less". Founders whose seat was made before
+# FOUNDER_CLASSIC_BEFORE keep the limits they signed up for under this hidden plan
+# (same price, never shown on /pricing). _get_user_plan does the switch.
+FOUNDER_CLASSIC_BEFORE = os.getenv("FOUNDER_CLASSIC_BEFORE", "2026-10-26T12:00:00")
+PLANS["founder_classic"] = {
+    **PLANS["founder"],
+    "tagline":          "Locked in forever at our lowest price — for the first believers.",
+    "custom_teammates": 7,
+    "crm_contacts":     2500,
+    "broadcast_recipients": 1000,
+    "team_seats":       2,
+    "hidden":           True,
+    "features": [
+        "All 7 built-in AI teammates — AI included, or plug in your own GPT/Claude key for top models",
+        "7 custom AI teammates — build your own bench",
+        "Full CRM + pipeline (up to 2,500 contacts)",
+        "Email broadcasts (up to 1,000 recipients)",
+        "2 team seats — bring a partner",
+        "150 AI messages per month included — unlimited with your own key",
+        "5 lead searches per day",
+        "Price locked forever — never increases",
+    ],
+}
+
 _PLAN_KEY_ALIASES = {"starter": "solo", "growth": "teams", "pro": "teams"}
 
 def _normalize_plan_key(key: str) -> str:
@@ -632,9 +654,9 @@ def _normalize_plan_key(key: str) -> str:
 # Stripe fee. Enabling model routing (TOOL_LOOP_MODEL=gpt-4o-mini) roughly halves
 # cost/message, letting these caps be raised well above these numbers at the same
 # 85%. Teams is an ACCOUNT-WIDE shared pool (see _team_usage_scope).
-MSG_LIMITS      = {"founder": 150, "solo": 350, "teams": 1000}
-IMAGE_LIMITS    = {"founder": 15,  "solo": 15,  "teams": 40}
-LEAD_LAB_LIMITS = {"founder": 5,    "solo": 3,    "teams": 10}   # daily runs
+MSG_LIMITS      = {"founder": 150, "founder_classic": 150, "solo": 350, "teams": 1000}
+IMAGE_LIMITS    = {"founder": 15,  "founder_classic": 15,  "solo": 15,  "teams": 40}
+LEAD_LAB_LIMITS = {"founder": 3,   "founder_classic": 5,   "solo": 3,   "teams": 10}   # daily runs
 
 _MSG_USAGE_LOCK      = threading.Lock()
 _LEAD_LAB_USAGE_LOCK = threading.Lock()
@@ -1052,6 +1074,8 @@ def _get_user_plan(username: str) -> str:
                     result = "solo"  # cancelled users drop back to free tier
                     break
                 result = _normalize_plan_key((seat.get("plan") or "solo").strip().lower())
+                if result == "founder" and str(seat.get("created_at") or "") < FOUNDER_CLASSIC_BEFORE:
+                    result = "founder_classic"   # grandfathered: keeps the limits they signed up for
                 break
     except Exception:
         pass
@@ -16248,7 +16272,7 @@ def stripe_create_checkout():
     payload  = request.get_json(silent=True) or {}
     # No plan sent → Founder while seats remain (V18.8: a trial once billed Solo by default).
     plan_key = _normalize_plan_key((payload.get("plan") or request.form.get("plan") or _default_signup_plan()).strip().lower())
-    if plan_key not in PLANS:
+    if plan_key not in PLANS or PLANS[plan_key].get("hidden"):
         plan_key = _default_signup_plan()
 
     price_id = _plan_price_id(plan_key)
@@ -17722,7 +17746,7 @@ def api_crm_clients_create():
         current_count = len(crm.get("clients") or {})
         if current_count >= max_contacts:
             plan_name = plan_info.get("name", "your plan")
-            upgrade_to = "Teams ($127/mo)" if _normalize_plan_key(plan_key) in ("solo", "founder") else "contact support"
+            upgrade_to = "Teams ($127/mo)" if _normalize_plan_key(plan_key) in ("solo", "founder", "founder_classic") else "contact support"
             return jsonify({"ok": False, "error": f"You've reached the {max_contacts} contact limit on {plan_name}. Upgrade to {upgrade_to} to add more contacts. <a href='/stripe/manage' style='color:#c4b5fd;'>Manage plan →</a>"}), 403
 
     cid = _crm_new_id("c")
@@ -29916,7 +29940,7 @@ _VC_LOCK = threading.Lock()
 # and two at once was enough to push a small plan past its memory limit.
 _VC_RENDER_SEM = threading.Semaphore(max(1, int(os.getenv("VCLIP_RENDER_CONCURRENCY", "1"))))
 _GB = 1024 * 1024 * 1024
-VCLIP_STORAGE_LIMITS = {"founder": 5 * _GB, "solo": 3 * _GB, "teams": 10 * _GB}
+VCLIP_STORAGE_LIMITS = {"founder": 3 * _GB, "founder_classic": 5 * _GB, "solo": 3 * _GB, "teams": 10 * _GB}
 _VC_ASPECTS = {"original": None, "9:16": (720, 1280), "1:1": (720, 720), "16:9": (1280, 720)}
 _VC_STYLES = ("bold", "clean", "pop")
 _VC_FILLERS = {"um", "uh", "uhm", "umm", "erm", "er", "ah", "hmm", "mm", "uh-huh"}
