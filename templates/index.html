@@ -56,6 +56,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+  <!-- V18.4: apply the saved text size before the first paint (it used to load from the
+       server after the page drew, so text jumped from default to your size on every load) -->
+  <script>try{var _fs=localStorage.getItem('sa_fs');if(_fs&&/^\d+(\.\d+)?$/.test(_fs)){document.write('<style id="sa-fs-boot">:root{--fs:'+_fs+';}</style>');}}catch(e){}</script>
   <meta name="description" content="Simply Agentic AI — a full team of specialised AI teammates, built-in CRM, broadcasts, calendar sync, lead finding, video clips, and more. One interface, zero juggling."/>
   <meta name="theme-color" content="#0f1629"/>
   <meta name="mobile-web-app-capable" content="yes"/>
@@ -27021,6 +27024,12 @@ if(typeof maybeAutoShowOnboarding === "function"){
       css += `:root { --fs: ${(1.1 * sz / 14).toFixed(3)}; }`;
     }
     el.textContent = css;
+    /* V18.4: remember the size so the next page load starts at it (see sa-fs-boot in <head>) */
+    try {
+      if (p.font_size) localStorage.setItem("sa_fs", (1.1 * (parseInt(p.font_size) || 14) / 14).toFixed(3));
+      else localStorage.removeItem("sa_fs");
+      const boot = document.getElementById("sa-fs-boot"); if (boot) boot.remove();
+    } catch(e) {}
   };
 
   // ── Apply full theme object ───────────────────────────────
@@ -27037,6 +27046,7 @@ if(typeof maybeAutoShowOnboarding === "function"){
     window._saThemePrefs = {};
     const el = _getStyleEl();
     el.textContent = "";
+    try { localStorage.removeItem("sa_fs"); const b = document.getElementById("sa-fs-boot"); if (b) b.remove(); } catch(e) {}
     // Reset UI controls
     try {
       try { document.getElementById("tableGlowSlider").value = "22"; } catch(e) {}
