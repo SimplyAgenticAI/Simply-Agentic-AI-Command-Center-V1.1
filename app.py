@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.9")
+APP_VERSION = os.getenv("APP_VERSION", "18.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -35756,18 +35756,31 @@ def _sp_publish_tiktok(uname: str, post: Dict[str, Any], conns: Dict[str, Any],
         privacy = chosen if chosen in opts else ("SELF_ONLY" if "SELF_ONLY" in opts else opts[0])
         size = path.stat().st_size
         chunk, count = _tt_chunks(size)
-        init = requests.post(f"{_TT_API}/post/publish/video/init/", headers=hdr, timeout=30, json={
-            "post_info": {"title": (post.get("caption") or "").strip()[:2200], "privacy_level": privacy,
-                          "disable_comment": not to.get("allow_comment"), "disable_duet": not to.get("allow_duet"),
-                          "disable_stitch": not to.get("allow_stitch"),
-                          "brand_organic_toggle": bool(to.get("disclose") and to.get("your_brand")),
-                          "brand_content_toggle": bool(to.get("disclose") and to.get("branded_content")),
-                          "is_aigc": bool(to.get("ai_generated"))},
-            "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk,
-                            "total_chunk_count": count}}).json()
+
+        def _init(priv):
+            return requests.post(f"{_TT_API}/post/publish/video/init/", headers=hdr, timeout=30, json={
+                "post_info": {"title": (post.get("caption") or "").strip()[:2200], "privacy_level": priv,
+                              "disable_comment": not to.get("allow_comment"), "disable_duet": not to.get("allow_duet"),
+                              "disable_stitch": not to.get("allow_stitch"),
+                              # branded content can't be private (TikTok rule)
+                              "brand_organic_toggle": bool(to.get("disclose") and to.get("your_brand")),
+                              "brand_content_toggle": bool(to.get("disclose") and to.get("branded_content")) and priv != "SELF_ONLY",
+                              "is_aigc": bool(to.get("ai_generated"))},
+                "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk,
+                                "total_chunk_count": count}}).json()
+        init = _init(privacy)
+        code = str((init.get("error") or {}).get("code") or "")
+        # V17.10: before TikTok approves the app, posts must be "Only me" even on a
+        # private account - picking Followers/Everyone gets this refusal. Retry once.
+        if code.startswith("unaudited_client") and privacy != "SELF_ONLY":
+            print(f"[SP-PUBLISH] tiktok {code} with {privacy}; retrying as SELF_ONLY", flush=True)
+            privacy = "SELF_ONLY"
+            init = _init(privacy)
+            code = str((init.get("error") or {}).get("code") or "")
         data = init.get("data") or {}
         if _tt_err(init) or not data.get("upload_url"):
-            return False, f"TikTok refused the upload: {_tt_err(init) or 'no upload address came back'}"
+            return False, (f"TikTok refused the upload: {_tt_err(init) or 'no upload address came back'}"
+                           f" [sent: {CP_TT_LABEL.get(privacy, privacy)}]")
         with open(path, "rb") as f:
             for i in range(count):
                 start = i * chunk
@@ -35811,6 +35824,8 @@ _YT_CATEGORIES = {"1": "Film & Animation", "2": "Autos & Vehicles", "10": "Music
                   "23": "Comedy", "24": "Entertainment", "25": "News & Politics", "26": "Howto & Style",
                   "27": "Education", "28": "Science & Technology", "29": "Nonprofits & Activism"}
 _TT_PRIVACY = ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY")
+CP_TT_LABEL = {"PUBLIC_TO_EVERYONE": "Everyone", "MUTUAL_FOLLOW_FRIENDS": "Friends",
+               "FOLLOWER_OF_CREATOR": "Followers", "SELF_ONLY": "Only me"}
 
 
 def _sp_bool(v: Any, default: bool = False) -> bool:

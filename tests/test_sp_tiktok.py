@@ -81,7 +81,7 @@ def test_tiktok_needs_a_privacy_choice_and_sends_toggles(monkeypatch, tmp_path):
     ok, _ = app_module._sp_publish_tiktok("u", post, conns)
     pi = calls["init"]["post_info"]
     assert ok and pi["privacy_level"] == "SELF_ONLY" and pi["disable_comment"] and not pi["disable_duet"]
-    assert pi["brand_content_toggle"] and not pi["brand_organic_toggle"] and pi["is_aigc"]
+    assert not pi["brand_content_toggle"] and not pi["brand_organic_toggle"] and pi["is_aigc"]   # branded content can't be private
 
 
 def test_expired_token_is_refreshed_and_saved(monkeypatch):
@@ -102,3 +102,27 @@ def test_tiktok_refusals_are_explained():
     assert "PRIVATE TikTok account" in msg
     assert app_module._tt_err({"error": {"code": "weird_new_code", "message": "Nope"}}) == "Nope (weird_new_code)"
     assert app_module._tt_err({"error": {"code": "ok"}}) == ""
+
+
+def test_unaudited_refusal_retries_as_only_me(monkeypatch, tmp_path):
+    vid = tmp_path / "clip.mp4"
+    vid.write_bytes(b"x" * 1000)
+    monkeypatch.setattr(app_module, "_sp_media_file", lambda u, url: (vid, False, ""))
+    monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
+    sent = []
+
+    def fake_post(url, headers=None, json=None, data=None, timeout=None):
+        if url.endswith("/creator_info/query/"):
+            return _R({"data": {"privacy_level_options": ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"]}, "error": {"code": "ok"}})
+        if url.endswith("/video/init/"):
+            sent.append(json["post_info"]["privacy_level"])
+            if json["post_info"]["privacy_level"] != "SELF_ONLY":
+                return _R({"error": {"code": "unaudited_client_can_only_post_to_private_accounts", "message": "Please review"}})
+            return _R({"data": {"publish_id": "P1", "upload_url": "https://up.example/1"}, "error": {"code": "ok"}})
+        return _R({"data": {"status": "PUBLISH_COMPLETE"}})
+    monkeypatch.setattr(app_module.requests, "post", fake_post)
+    monkeypatch.setattr(app_module.requests, "put", lambda url, data=None, timeout=None, headers=None: _R())
+    conns = {"tiktok": {"access_token": "T", "expires_at": app_module._now_epoch() + 3600}}
+    post = {"caption": "Hi", "media_url": "x.mp4", "options": {"tiktok": {"privacy": "FOLLOWER_OF_CREATOR"}}}
+    ok, info = app_module._sp_publish_tiktok("u", post, conns)
+    assert ok and sent == ["FOLLOWER_OF_CREATOR", "SELF_ONLY"] and "private until TikTok approves" in info
