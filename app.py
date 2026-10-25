@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.4")
+APP_VERSION = os.getenv("APP_VERSION", "18.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3313,7 +3313,7 @@ def health_check() -> Any:
                         # V16.8 diagnostic: public app IDs only (never secrets), to confirm which app OAuth uses
                         "instagram_app_id": INSTAGRAM_APP_ID, "instagram_secret_set": bool(INSTAGRAM_APP_SECRET),
                         "ig_last_connect": dict(_IG_LAST), "last_bg_publish": dict(_SP_BG_LAST),
-                        "diag": load_json(DATA / "diag_last.json", {}) or {}})
+                        "diag": load_json(DATA / "diag_last.json", {}) or {}, "disk": _disk_report()})
     except Exception:
         return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
@@ -3666,17 +3666,25 @@ BACKUP_DIR            = Path(os.getenv("BACKUP_DIR", "") or os.path.join(DATA_DI
 def _run_backup() -> None:
     """Create a timestamped .tar.gz of DATA (excluding uploads/backups), prune old copies."""
     import tarfile
-    # Dirs that are either too large or self-referential to include in backup
-    _BACKUP_EXCLUDE = {"uploads", "backups", "img_jobs"}
+    # Dirs that are either too large or self-referential to include in backup.
+    # V18.5: video folders too — every backup was copying every clip, recording and
+    # upload (x3 kept), which filled the disk ("No space left on device").
+    _BACKUP_EXCLUDE = {"uploads", "backups", "img_jobs", "video_clips", "media_videos", "sp_media", "ve_jobs"}
+    dest = None
     try:
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         stamp = _utcnow().strftime("%Y%m%d_%H%M%S")
         dest  = BACKUP_DIR / f"data_{stamp}.tar.gz"
-        with tarfile.open(dest, "w:gz") as tar:
-            for child in DATA.iterdir():
-                if child.name in _BACKUP_EXCLUDE:
-                    continue
-                tar.add(str(child), arcname=f"data/{child.name}")
+        try:
+            with tarfile.open(dest, "w:gz") as tar:
+                for child in DATA.iterdir():
+                    if child.name in _BACKUP_EXCLUDE:
+                        continue
+                    tar.add(str(child), arcname=f"data/{child.name}")
+        except Exception:
+            try: dest.unlink()          # never leave a half-written backup eating space
+            except Exception: pass
+            raise
         print(f"[BACKUP] Created {dest} ({dest.stat().st_size // 1024} KB)", flush=True)
 
         # Prune oldest backups beyond BACKUP_KEEP
@@ -3732,6 +3740,24 @@ try:
     _start_backup_thread()
 except Exception as _be:
     print(f"[BACKUP] Could not start backup thread: {_be}", flush=True)
+
+# V18.5: backups made before videos were excluded hold copies of every video —
+# delete any over BACKUP_MAX_MB on startup to free the disk at once.
+BACKUP_MAX_MB = int(os.getenv("BACKUP_MAX_MB", "300"))
+try:
+    _freed = 0
+    for _bb in list(BACKUP_DIR.glob("data_*.tar.gz")):
+        try:
+            _sz = _bb.stat().st_size
+            if _sz > BACKUP_MAX_MB * 1024 * 1024:
+                _bb.unlink()
+                _freed += _sz
+        except Exception:
+            pass
+    if _freed:
+        print(f"[BACKUP] Removed oversized (video-laden) backups, freed {_freed // (1024 * 1024)} MB", flush=True)
+except Exception:
+    pass
 
 # Prune stale backups immediately on startup so a BACKUP_KEEP change takes effect now
 try:
@@ -20568,6 +20594,35 @@ def _is_bad_input_error(e: Exception) -> bool:
         return isinstance(body, dict) and any(not isinstance(v, str) for v in body.values())
     except Exception:
         return False
+
+
+_DISK_CACHE: Dict[str, Any] = {}
+
+
+def _disk_report() -> Dict[str, Any]:
+    """V18.5: free space + size of the biggest data folders (names only), cached 10 min."""
+    now = time.time()
+    if _DISK_CACHE.get("t", 0) > now - 600:
+        return _DISK_CACHE["v"]
+    v: Dict[str, Any] = {}
+    try:
+        import shutil as _sh
+        du = _sh.disk_usage(str(DATA))
+        v = {"total_mb": du.total // 1048576, "free_mb": du.free // 1048576}
+        sizes = {}
+        for child in DATA.iterdir():
+            if child.is_dir():
+                tot = 0
+                for root, _dirs, files in os.walk(child):
+                    for fn in files:
+                        try: tot += os.path.getsize(os.path.join(root, fn))
+                        except OSError: pass
+                sizes[child.name] = tot // 1048576
+        v["top_mb"] = dict(sorted(sizes.items(), key=lambda kv: -kv[1])[:8])
+    except Exception as e:
+        v["error"] = type(e).__name__
+    _DISK_CACHE.update({"t": now, "v": v})
+    return v
 
 
 _DIAG_PATH_RE = re.compile(r"([A-Za-z]:)?[\\/][^\s:'\"]+")
