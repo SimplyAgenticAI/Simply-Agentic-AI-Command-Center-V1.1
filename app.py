@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.7")
+APP_VERSION = os.getenv("APP_VERSION", "17.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3341,6 +3341,20 @@ def _handle_413(e):
         pass
     raise e
 
+# V17.8: files platforms fetch to confirm we own the site (TikTok URL properties).
+_SITE_VERIFY_FILES = {
+    "/tiktokPNClxKcl6QrU4N1L4HvMRFiQTMTOtdco.txt": "tiktok-developers-site-verification=PNClxKcl6QrU4N1L4HvMRFiQTMTOtdco",
+}
+
+
+@app.get("/tiktok<token>.txt")
+def site_verify_file(token):
+    body = _SITE_VERIFY_FILES.get(f"/tiktok{token}.txt")
+    if body is None:
+        return "Not found", 404
+    return make_response(body, 200, {"Content-Type": "text/plain; charset=utf-8"})
+
+
 @app.before_request
 def _canonical_host_redirect() -> Optional[Any]:
     """V16.3: once PUBLIC_BASE_URL is the real domain, page visits to the old
@@ -3377,6 +3391,8 @@ def _auth_guard() -> Optional[Any]:
         # Public lead form (V14.9): visitors have no session. Rate limits + a
         # honeypot protect the submit, like the booking page.
         return None
+    if request.path in _SITE_VERIFY_FILES:
+        return None                     # V17.8: platform site-ownership files are public
     if request.path.startswith(("/vclip/", "/spm/")):
         # Signed public clip links (social media_url) — the token is the auth
         return None
