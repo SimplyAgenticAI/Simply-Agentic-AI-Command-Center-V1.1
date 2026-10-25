@@ -23066,14 +23066,28 @@ async function showImageLibraryModal(startTab){
       const vRes = await fetch("/api/visuals");
       const vData = await vRes.json();
       let visuals = vData.visuals || [];
+      /* V17.9: real video files (recordings, saved clips) listed first */
+      try{
+        const fRes = await fetch("/api/media/videos");
+        const fData = await fRes.json();
+        visuals = (fData.videos || []).map(x => Object.assign({kind:"file"}, x)).concat(visuals);
+      }catch(_){}
       _buildSidebar("visuals");
       async function _visDelete(picked){
         const ids = picked.map(v => String(v.id));
-        const r = await fetch("/api/visuals/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids})});
-        const d = await r.json(); if(!d.ok) throw new Error(d.error || "failed");
+        const fileIds = ids.filter(id => id.indexOf("mv_") === 0), htmlIds = ids.filter(id => id.indexOf("mv_") !== 0);
+        let n = 0;
+        if(htmlIds.length){
+          const r = await fetch("/api/visuals/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids: htmlIds})});
+          const d = await r.json(); if(!d.ok) throw new Error(d.error || "failed"); n += d.deleted || 0;
+        }
+        if(fileIds.length){
+          const r2 = await fetch("/api/media/videos/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ids: fileIds})});
+          const d2 = await r2.json(); if(!d2.ok) throw new Error(d2.error || "failed"); n += d2.deleted || 0;
+        }
         ids.forEach(id => _fldMoveItem("visuals", id, null));
         visuals = visuals.filter(v => ids.indexOf(String(v.id)) === -1);
-        showToast("🗑 Deleted " + d.deleted);
+        showToast("🗑 Deleted " + n);
         renderContent();
       }
 
@@ -23083,7 +23097,7 @@ async function showImageLibraryModal(startTab){
         const filtered = _mlActiveFolder===null ? visuals : visuals.filter(v=>( f[_mlActiveFolder]||[]).indexOf(String(v.id))>-1);
         if(!filtered.length){
           content.innerHTML='<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:200px;gap:12px;text-align:center;color:#94a3b8;font-size:calc(14px * var(--fs,1.1));">'
-            +(_mlActiveFolder?'<div>No videos in this folder yet.</div><div style="font-size:calc(14px * var(--fs,1.1));">Move videos here using the 📁 button on each card.</div>':'<div style="font-size:calc(48px * var(--fs,1.1));opacity:.3;">🎥</div><div style="font-size:calc(16px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">No saved videos yet</div><div>Ask a teammate to create an animation and click 💾 Save to add it here.</div>')
+            +(_mlActiveFolder?'<div>No videos in this folder yet.</div><div style="font-size:calc(14px * var(--fs,1.1));">Move videos here using the 📁 button on each card.</div>':'<div style="font-size:calc(48px * var(--fs,1.1));opacity:.3;">🎥</div><div style="font-size:calc(16px * var(--fs,1.1));font-weight:700;color:#e2e8f0;">No saved videos yet</div><div>Save a recording with 💾 Save to Media Library, or ask a teammate for an animation and click 💾 Save.</div>')
             +'</div>';
           return;
         }
@@ -23095,6 +23109,25 @@ async function showImageLibraryModal(startTab){
           const _on=_mlSel.has(String(v.id));
           card.style.cssText="position:relative;border:1px solid "+(_on?"rgba(167,139,250,.9)":"rgba(124,58,237,.25)")+";border-radius:12px;padding:10px;background:rgba(14,22,48,.6);";
           card.appendChild(_mlCheck(String(v.id)));
+          if(v.kind==="file"){
+            const fileUrl="/api/media/videos/"+encodeURIComponent(v.id)+"/file";
+            const vp=document.createElement("video");
+            vp.src=fileUrl+"#t=0.5"; vp.controls=true; vp.preload="metadata"; vp.playsInline=true;
+            vp.style.cssText="width:100%;height:130px;border-radius:8px;background:#000;margin-bottom:8px;object-fit:contain;";
+            card.appendChild(vp);
+            const fm=document.createElement("div");
+            fm.style.cssText="font-size:calc(14.5px * var(--fs,1.1));color:#b0bdd0;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+            fm.innerText="🎬 "+(v.title||"Video")+(v.saved_at?" · "+v.saved_at:"");
+            card.appendChild(fm);
+            const fa=document.createElement("div");fa.style.cssText="display:flex;gap:5px;flex-wrap:wrap;";
+            const dl=document.createElement("a"); dl.className="btn btnMini"; dl.innerText="⬇ Download"; dl.href=fileUrl+"?download=1"; dl.style.textDecoration="none";
+            fa.appendChild(dl);
+            const fdel=document.createElement("button"); fdel.className="btn btnMini"; fdel.innerText="🗑";
+            fdel.onclick=async function(){ if(!confirm("Delete this video?")) return; try{ await _visDelete([v]); }catch(e){ showToast("Delete failed","error"); } _buildSidebar("visuals"); };
+            fa.appendChild(fdel);
+            card.appendChild(fa); grid.appendChild(card);
+            return;
+          }
           const prev=document.createElement("div");
           prev.style.cssText="position:relative;height:130px;border-radius:8px;overflow:hidden;background:#060c1e;cursor:pointer;margin-bottom:8px;";
           const fr=document.createElement("iframe");
@@ -35096,10 +35129,37 @@ window.toggleNotifPanel = function(){
       var d=await (window._veApiFetch ? window._veApiFetch('/api/rec/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rec_id:rid,title:title})}) : jpost('/api/rec/finish',{rec_id:rid,title:title}));
       $('srBusy').style.display='none';
       if(!d.ok){ toast(d.error||'Could not process the recording','error'); if(d.clip_id) openClip(d.clip_id); return; }
-      toast('🎬 Recording ready in My Clips','success');
-      openClip(d.clip_id);
+      showReady(d.clip_id, title);      /* V17.9: download / save to Media Library / open in My Clips */
     }catch(e){ $('srBusy').style.display='none'; toast('Processing error: '+e,'error'); }
   };
+  function showReady(clipId, title){
+    var old=document.getElementById('srReady'); if(old) old.remove();
+    var w=document.createElement('div'); w.id='srReady';
+    w.style.cssText='position:fixed;inset:0;z-index:2147483000;background:rgba(3,6,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
+    w.innerHTML='<div style="width:min(440px,100%);background:linear-gradient(180deg,#0e1430,#0a0f24);border:1px solid rgba(124,58,237,.5);border-radius:18px;padding:22px;box-shadow:0 30px 90px rgba(0,0,0,.6);color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));">'
+      +'<div style="font-size:calc(19px * var(--fs,1.1));font-weight:800;margin-bottom:4px;">🎬 Your recording is ready</div>'
+      +'<div style="color:#a8b4c8;margin-bottom:16px;">It\'s in My Clips. You can also keep a copy or download it.</div>'
+      +'<video src="/api/vclips/'+encodeURIComponent(clipId)+'/file" controls playsinline style="width:100%;max-height:220px;border-radius:12px;background:#000;margin-bottom:14px;"></video>'
+      +'<div style="display:flex;flex-direction:column;gap:8px;">'
+      +'<a id="srRdDl" href="/api/vclips/'+encodeURIComponent(clipId)+'/file?download=1" style="text-decoration:none;text-align:center;padding:11px;border-radius:11px;background:rgba(124,58,237,.85);color:#fff;font-weight:800;">⬇ Download video</a>'
+      +'<button id="srRdSave" style="padding:11px;border-radius:11px;border:1px solid rgba(167,139,250,.5);background:rgba(124,58,237,.18);color:#e9d5ff;font-weight:800;cursor:pointer;font-size:inherit;">💾 Save to Media Library</button>'
+      +'<button id="srRdClips" style="padding:11px;border-radius:11px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.05);color:#e2e8f0;font-weight:700;cursor:pointer;font-size:inherit;">✂ Open in My Clips</button>'
+      +'<button id="srRdClose" style="padding:8px;border:none;background:none;color:#8a96aa;cursor:pointer;font-size:inherit;">Close</button>'
+      +'</div></div>';
+    document.body.appendChild(w);
+    w.querySelector('#srRdSave').onclick=async function(){
+      var b=this; b.disabled=true; b.textContent='Saving…';
+      try{
+        var r=await fetch('/api/media/videos/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clip_id:clipId,title:title})});
+        var d=await r.json();
+        if(d.ok){ b.textContent='✓ Saved to Media Library'; toast('💾 Saved to Media Library','success'); }
+        else { b.disabled=false; b.textContent='💾 Save to Media Library'; toast(d.error||'Could not save','error'); }
+      }catch(e){ b.disabled=false; b.textContent='💾 Save to Media Library'; toast('Could not save: '+e,'error'); }
+    };
+    w.querySelector('#srRdClips').onclick=function(){ w.remove(); openClip(clipId); };
+    w.querySelector('#srRdClose').onclick=function(){ w.remove(); };
+    w.addEventListener('click',function(e){ if(e.target===w) w.remove(); });
+  }
   function openClip(id){
     try{ if(window.closeTeleprompterModal) window.closeTeleprompterModal(); }catch(_){}
     if(window.showVideoEditorModal) window.showVideoEditorModal();

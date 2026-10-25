@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.8")
+APP_VERSION = os.getenv("APP_VERSION", "17.9")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -10769,6 +10769,96 @@ def api_visuals_bulk_delete():
     if data_path.exists():
         update_json(data_path, [], _m)
     return jsonify({"ok": True, "deleted": box["n"]})
+
+
+# ── V17.9: real video files in the Media Library (e.g. a screen recording) ──
+# Saving copies the clip's MP4, so it stays after old clips are cleaned up.
+def _mv_dir(uname: str) -> Path:
+    safe = re.sub(r"[^\w.\-]", "_", uname or "anon")
+    d = DATA / "media_videos" / safe
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _mv_index(uname: str) -> Path:
+    return _mv_dir(uname) / "index.json"
+
+
+def _mv_path(uname: str, vid: str) -> Optional[Path]:
+    if not re.match(r"^mv_[a-f0-9]{16}$", vid or ""):
+        return None
+    p = _mv_dir(uname) / f"{vid}.mp4"
+    return p if p.exists() else None
+
+
+@app.get("/api/media/videos")
+def api_media_videos_list():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    items = load_json(_mv_index(uname), [])
+    items = [v for v in (items if isinstance(items, list) else []) if isinstance(v, dict) and _mv_path(uname, v.get("id", ""))]
+    return jsonify({"ok": True, "videos": items})
+
+
+@app.post("/api/media/videos/save")
+def api_media_videos_save():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    b = request.get_json(silent=True) or {}
+    cid = str(b.get("clip_id") or "").strip()
+    c = _vc_get(uname, cid) if cid else None
+    src = _vc_file(uname, c) if c else None
+    if not src:
+        return jsonify({"ok": False, "error": "That video isn't ready yet. Try again in a moment."}), 404
+    vid = "mv_" + secrets.token_hex(8)
+    _shutil_ve.copyfile(str(src), str(_mv_dir(uname) / f"{vid}.mp4"))
+    entry = {"id": vid, "title": str(b.get("title") or c.get("title") or "Video")[:120],
+             "saved_at": _utcnow().strftime("%Y-%m-%d %H:%M"), "size": (_mv_dir(uname) / f"{vid}.mp4").stat().st_size,
+             "duration": round(float(c.get("end", 0) or 0) - float(c.get("start", 0) or 0), 1), "source": "clip"}
+    update_json(_mv_index(uname), [], lambda vs: [entry] + [v for v in (vs if isinstance(vs, list) else [])])
+    return jsonify({"ok": True, "video": entry})
+
+
+@app.get("/api/media/videos/<vid>/file")
+def api_media_videos_file(vid):
+    from flask import send_file as _sf
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    p = _mv_path(uname, vid)
+    if not p:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    if request.args.get("download"):
+        items = load_json(_mv_index(uname), []) or []
+        title = next((v.get("title") for v in items if isinstance(v, dict) and v.get("id") == vid), "") or "video"
+        name = re.sub(r"[^A-Za-z0-9 _\-]+", "", title).strip() or "video"
+        return _sf(str(p), mimetype="video/mp4", as_attachment=True, download_name=f"{name}.mp4")
+    return _sf(str(p), mimetype="video/mp4", conditional=True)
+
+
+@app.post("/api/media/videos/delete")
+def api_media_videos_delete():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or "anon"
+    ids = [str(i) for i in ((request.get_json(silent=True) or {}).get("ids") or [])][:500]
+    n = 0
+    for vid in ids:
+        p = _mv_path(uname, vid)
+        if p:
+            try:
+                p.unlink(missing_ok=True)
+                n += 1
+            except OSError:
+                pass                     # still being read (Windows lock) - the index entry goes anyway
+    update_json(_mv_index(uname), [], lambda vs: [v for v in (vs if isinstance(vs, list) else []) if not (isinstance(v, dict) and v.get("id") in ids)])
+    return jsonify({"ok": True, "deleted": n})
 
 
 @app.get("/api/images/job/<job_id>")
