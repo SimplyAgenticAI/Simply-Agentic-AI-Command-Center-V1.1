@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.6")
+APP_VERSION = os.getenv("APP_VERSION", "17.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -35604,9 +35604,26 @@ def _tt_chunks(size: int) -> Tuple[int, int]:
     return chunk, size // chunk
 
 
+# V17.7: TikTok answers some refusals only with "review our guidelines" — say what it means.
+_TT_ERR_PLAIN = {
+    "unaudited_client_can_only_post_to_private_accounts":
+        "Until TikTok approves this app, it can only post to a PRIVATE TikTok account. In the TikTok app go to "
+        "Settings and privacy, then Privacy, and turn on Private account, then publish again.",
+    "spam_risk_too_many_posts": "TikTok's daily posting limit for this account was reached. Try again tomorrow.",
+    "spam_risk_user_banned_from_posting": "TikTok has blocked this account from posting right now.",
+    "reached_active_user_cap": "TikTok's daily limit for this app was reached. Try again tomorrow.",
+    "privacy_level_option_mismatch": "That 'who can view' choice isn't allowed for this TikTok account. Pick another one.",
+    "access_token_invalid": "TikTok access expired. Reconnect TikTok.",
+    "scope_not_authorized": "TikTok posting permission is missing. Reconnect TikTok and allow posting.",
+}
+
+
 def _tt_err(resp: Dict[str, Any]) -> str:
     e = resp.get("error") or {}
-    return "" if e.get("code") in (None, "", "ok") else str(e.get("message") or e.get("code"))
+    code = e.get("code")
+    if code in (None, "", "ok"):
+        return ""
+    return _TT_ERR_PLAIN.get(str(code)) or f"{e.get('message') or code} ({code})"
 
 
 def _sp_publish_tiktok(uname: str, post: Dict[str, Any], conns: Dict[str, Any],

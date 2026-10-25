@@ -94,3 +94,11 @@ def test_expired_token_is_refreshed_and_saved(monkeypatch):
     tok, err = app_module._tt_token("u", conns)
     assert tok == "NEW" and saved["tiktok"]["refresh_token"] == "R2"
     assert app_module._tt_token("u", {"tiktok": {"access_token": "OLD", "expires_at": 1}})[0] is None   # no refresh token
+
+
+def test_tiktok_refusals_are_explained():
+    msg = app_module._tt_err({"error": {"code": "unaudited_client_can_only_post_to_private_accounts",
+                                        "message": "Please review our integration guidelines"}})
+    assert "PRIVATE TikTok account" in msg
+    assert app_module._tt_err({"error": {"code": "weird_new_code", "message": "Nope"}}) == "Nope (weird_new_code)"
+    assert app_module._tt_err({"error": {"code": "ok"}}) == ""
