@@ -36014,6 +36014,7 @@ function saUseGlyph(){
       @keyframes cpChipNew{0%,100%{box-shadow:none;}50%{box-shadow:0 0 0 3px #34d399,0 0 18px rgba(52,211,153,.6);}}
       #cpFlash{display:none;position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:10;padding:12px 26px;border-radius:12px;font-weight:800;font-size:calc(16px * var(--fs,1.1));color:#fff;background:rgba(17,24,39,.97);border:1px solid rgba(124,58,237,.6);box-shadow:0 12px 40px rgba(0,0,0,.5);}
       #cpFlash.ok{background:rgba(4,47,28,.97);border-color:#059669;color:#d1fae5;}
+      .cp-soon{margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);border-radius:5px;color:#fcd34d;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;}
       .cp-pill-x{margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:5px;color:#8a96aa;padding:1px 6px;cursor:pointer;font-weight:700;line-height:1.6;transition:all .15s;}
       .cp-pill-x:hover,.cp-pill-x:focus-visible{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.4);color:#fca5a5;}
       .cp-drop{outline:2px dashed #a78bfa !important;outline-offset:-2px;background:rgba(124,58,237,.12) !important;}
@@ -36127,8 +36128,9 @@ function cpRenderComposerTargets(post){
       html+='<label class="cpw-acct'+(on?' on':'')+'"><input type="checkbox" value="'+p+'"'+(on?' checked':'')+'>'
         +'<span class="ic" style="background:'+col.dot+'">'+_CP_ICON[p]+'</span><span>'+_esc(c.page_name||c.name||col.label)+'</span></label>';
     } else {
-      html+='<span class="cpw-acct off" title="Not connected yet"><span class="ic" style="background:'+col.dot+'">'+_CP_ICON[p]+'</span>'+col.label
-        +' <a href="#" onclick="event.preventDefault();cpConnect(\''+p+'\')" style="color:#a78bfa;">Connect</a></span>';
+      html+='<span class="cpw-acct off" title="'+(cpIsComingSoon(p)?'Coming soon':'Not connected yet')+'"><span class="ic" style="background:'+col.dot+'">'+_CP_ICON[p]+'</span>'+col.label
+        +(cpIsComingSoon(p) ? ' <span style="color:#fcd34d;font-weight:700;">· Coming soon</span></span>'
+                            : ' <a href="#" onclick="event.preventDefault();cpConnect(\''+p+'\')" style="color:#a78bfa;">Connect</a></span>');
     }
   });
   box.innerHTML=html;
@@ -36517,6 +36519,7 @@ function cpRenderPlatformPills(){
   }
   var platforms = ['facebook','instagram','youtube','tiktok','linkedin'];
   var icons = {facebook:'𝔣', instagram:'◎', youtube:'▶', tiktok:'♪', linkedin:'in'};
+  if(!_cpSetup){ cpGetSetup().then(function(){ cpRenderPlatformPills(); }); }   /* V18.7: needed for "Coming soon" */
   el.innerHTML = platforms.map(function(p){
     var c = _cpConns[p] || {};
     var connected = c.connected;
@@ -36536,7 +36539,9 @@ function cpRenderPlatformPills(){
       : '<span style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.15);display:inline-block;flex-shrink:0;"></span>';
     var actionBtn = connected
       ? '<button class="cp-pill-x" onclick="cpDisconnect(\''+p+'\')" title="Disconnect '+_esc(col.label)+'" aria-label="Disconnect '+_esc(col.label)+'">✕</button>'
-      : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);border-radius:5px;color:#c4b5fd;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;">Connect</button>';
+      : cpIsComingSoon(p)
+        ? '<button onclick="cpConnect(\''+p+'\')" class="cp-soon" title="Waiting on '+_esc(col.label)+'\'s approval">Coming soon</button>'
+        : '<button onclick="cpConnect(\''+p+'\')" style="margin-left:6px;font-size:calc(14px * var(--fs,1.1));background:rgba(124,58,237,.22);border:1px solid rgba(124,58,237,.4);border-radius:5px;color:#c4b5fd;padding:1px 7px;cursor:pointer;font-weight:700;line-height:1.6;">Connect</button>';
     return '<div style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:22px;font-size:calc(14px * var(--fs,1.1));font-weight:700;'+connStyle+'backdrop-filter:blur(10px);">'
       +dot+'<span><span style="color:'+(connected?col.dot:'inherit')+';font-weight:900;">'+icons[p]+'</span> '+_esc(displayName)+'</span>'
       +(issue ? '<button onclick="alert(this.getAttribute(\'data-why\'))" data-why="'+_esc('Instagram not connected: '+issue)+'" title="'+_esc(issue)+'" style="margin-left:4px;font-size:calc(14px * var(--fs,1.1));background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.45);border-radius:5px;color:#fcd34d;padding:1px 7px;cursor:pointer;font-weight:800;line-height:1.6;">⚠ Why?</button>' : '')
@@ -36550,8 +36555,18 @@ function cpRenderPlatformPills(){
 var _cpSetup = null;
 async function cpGetSetup(){ if(_cpSetup) return _cpSetup; try{ _cpSetup=await (await fetch('/api/social/setup')).json(); }catch(_){ _cpSetup={ready:{}}; } return _cpSetup; }
 window.addEventListener('message', function(e){ if(e && e.data && e.data.spConnected){ if(window.showToast) showToast('✅ Connected!'); cpLoadState(); } });
+/* V18.7: a platform still waiting on its own approval shows "Coming soon" (admins can still connect) */
+function cpIsComingSoon(p){
+  return !!(_cpSetup && !_cpSetup.admin && (_cpSetup.coming_soon||[]).indexOf(p) >= 0);
+}
 window.cpConnect = async function(platform){
   var s = await cpGetSetup();
+  if(cpIsComingSoon(platform)){
+    var lab = (PLAT_COLORS[platform]||{label:platform}).label;
+    if(typeof cpFlash === 'function') cpFlash('⏳ '+lab+' is coming soon. We\'re finishing '+lab+'\'s approval.', '');
+    else alert(lab+' is coming soon.');
+    return;
+  }
   if(s.ready && s.ready[platform]){
     var path = platform==='instagram' ? ((s.connect_path||{}).instagram || 'facebook') : platform;   /* V16.0: Instagram Login when set up */
     var w = window.open('/social/connect/'+path, 'spConnect', 'width=620,height=760');

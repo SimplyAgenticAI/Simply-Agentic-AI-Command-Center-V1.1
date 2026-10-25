@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.6")
+APP_VERSION = os.getenv("APP_VERSION", "18.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -34940,6 +34940,9 @@ def api_sp_draft_ai():
 def sp_connect_facebook():
     u = current_user()
     if not u: return redirect("/login")
+    if "facebook" in _sp_coming_soon() and not _is_admin_user(u):
+        return _sp_page("Facebook is coming soon",
+                        "We're finishing Meta's approval. You'll be able to connect Facebook here very soon.", ok=False)
     if not META_APP_ID or not META_APP_SECRET:
         return make_response(
             "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
@@ -35179,10 +35182,22 @@ def sp_callback_youtube():
 
 # ── OAuth: TikTok ──
 
+def _sp_coming_soon() -> set:
+    """V18.7: platforms still waiting on the platform's own approval. Non-admins see
+    "Coming soon" instead of a connect that would fail. Change with SP_COMING_SOON
+    (comma list; set it empty once TikTok approves the app)."""
+    raw = os.getenv("SP_COMING_SOON")
+    raw = "tiktok,facebook,instagram" if raw is None else raw   # Meta apps still in Development mode
+    return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
 @app.get("/social/connect/tiktok")
 def sp_connect_tiktok():
     u = current_user()
     if not u: return redirect("/login")
+    if "tiktok" in _sp_coming_soon() and not _is_admin_user(u):
+        return _sp_page("TikTok is coming soon",
+                        "We're finishing TikTok's approval. You'll be able to connect TikTok here very soon.", ok=False)
     if not TIKTOK_CLIENT_KEY or not TIKTOK_CLIENT_SECRET:
         return make_response(
             "<html><body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:40px;'>"
@@ -35303,6 +35318,7 @@ def api_sp_setup():
     }
     ig_direct = bool(INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET)
     out: Dict[str, Any] = {"ok": True, "ready": ready, "admin": _is_admin_user(u),
+                           "coming_soon": sorted(_sp_coming_soon()),
                            "connect_path": {"instagram": "instagram" if ig_direct else "facebook"}}
     if out["admin"]:
         out["redirects"] = {
@@ -35380,6 +35396,9 @@ def sp_connect_instagram():
     u = current_user()
     _ig_note("connect_clicked", "logged_in" if u else "no_session")
     if not u: return redirect("/login")
+    if "instagram" in _sp_coming_soon() and not _is_admin_user(u):
+        return _sp_page("Instagram is coming soon",
+                        "We're finishing Meta's approval. You'll be able to connect Instagram here very soon.", ok=False)
     if not (INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET):
         return redirect("/social/connect/facebook")          # not set up yet → the Page-linked route
     uname = (u.get("username") if isinstance(u, dict) else None) or "anon"

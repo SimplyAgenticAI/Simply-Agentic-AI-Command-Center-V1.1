@@ -126,3 +126,31 @@ def test_unaudited_refusal_retries_as_only_me(monkeypatch, tmp_path):
     post = {"caption": "Hi", "media_url": "x.mp4", "options": {"tiktok": {"privacy": "FOLLOWER_OF_CREATOR"}}}
     ok, info = app_module._sp_publish_tiktok("u", post, conns)
     assert ok and sent == ["FOLLOWER_OF_CREATOR", "SELF_ONLY"] and "private until TikTok approves" in info
+
+
+def test_tiktok_coming_soon_for_users_not_admins(flask_app, monkeypatch):
+    monkeypatch.setattr(app_module, "TIKTOK_CLIENT_KEY", "K")
+    monkeypatch.setattr(app_module, "TIKTOK_CLIENT_SECRET", "S")
+    monkeypatch.delenv("SP_COMING_SOON", raising=False)
+    uname = "ttsoonuser"
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+    app_module._invalidate_users_cache()
+    try:
+        c = flask_app.test_client()
+        with c.session_transaction() as s:
+            s["user"] = uname
+        assert "tiktok" in c.get("/api/social/setup").get_json()["coming_soon"]
+        r = c.get("/social/connect/tiktok")
+        assert r.status_code == 200 and "coming soon" in r.get_data(as_text=True)
+        monkeypatch.setattr(app_module, "_is_admin_user", lambda u: True)
+        r2 = c.get("/social/connect/tiktok")
+        assert r2.status_code == 302 and "tiktok.com" in r2.headers["Location"]      # admin can still connect
+        monkeypatch.setenv("SP_COMING_SOON", "")
+        assert app_module._sp_coming_soon() == set()                                 # cleared once approved
+    finally:
+        data = app_module.load_users()
+        (data.get("users") or {}).pop(uname, None)
+        app_module.save_users(data)
+        app_module._invalidate_users_cache()

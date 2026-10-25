@@ -79,6 +79,7 @@ def test_both_connect_routes_keep_each_others_accounts():
 
 
 def test_connect_callback_saves_direct_account(flask_app, monkeypatch):
+    monkeypatch.setenv("SP_COMING_SOON", "")        # Instagram live for this test (V18.7 coming-soon gate)
     monkeypatch.setattr(app_module, "INSTAGRAM_APP_ID", "IGAPP")
     monkeypatch.setattr(app_module, "INSTAGRAM_APP_SECRET", "IGSEC")
     monkeypatch.setattr(app_module.requests, "post", lambda url, data=None, timeout=None: _R(
@@ -150,6 +151,31 @@ def test_live_link_and_connections_hide_tokens(flask_app):
         r = c.post("/api/social/posts", headers=h, json={"caption": "Hi", "platforms": ["instagram"],
                                                           "ig_account_ids": ["17841", "bad id"], "status": "draft"}).get_json()
         assert r["post"]["ig_account_ids"] == ["17841"]
+    finally:
+        data = app_module.load_users()
+        (data.get("users") or {}).pop(uname, None)
+        app_module.save_users(data)
+        app_module._invalidate_users_cache()
+
+
+
+def test_instagram_and_facebook_coming_soon_for_users(flask_app, monkeypatch):
+    monkeypatch.delenv("SP_COMING_SOON", raising=False)
+    monkeypatch.setattr(app_module, "INSTAGRAM_APP_ID", "IGAPP")
+    monkeypatch.setattr(app_module, "INSTAGRAM_APP_SECRET", "IGSEC")
+    uname = "igsoonuser"
+    data = app_module.load_users()
+    data.setdefault("users", {})[uname] = {"username": uname, "password_hash": "", "is_admin": False}
+    app_module.save_users(data)
+    app_module._invalidate_users_cache()
+    try:
+        c = flask_app.test_client()
+        with c.session_transaction() as s:
+            s["user"] = uname
+        for path in ("/social/connect/instagram", "/social/connect/facebook"):
+            r = c.get(path)
+            assert r.status_code == 200 and "coming soon" in r.get_data(as_text=True)
+        assert {"facebook", "instagram", "tiktok"} <= set(c.get("/api/social/setup").get_json()["coming_soon"])
     finally:
         data = app_module.load_users()
         (data.get("users") or {}).pop(uname, None)
