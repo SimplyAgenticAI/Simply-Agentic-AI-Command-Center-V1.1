@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.5")
+APP_VERSION = os.getenv("APP_VERSION", "18.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3743,7 +3743,7 @@ except Exception as _be:
 
 # V18.5: backups made before videos were excluded hold copies of every video —
 # delete any over BACKUP_MAX_MB on startup to free the disk at once.
-BACKUP_MAX_MB = int(os.getenv("BACKUP_MAX_MB", "300"))
+BACKUP_MAX_MB = int(os.getenv("BACKUP_MAX_MB", "50"))   # data without videos is ~1 MB
 try:
     _freed = 0
     for _bb in list(BACKUP_DIR.glob("data_*.tar.gz")):
