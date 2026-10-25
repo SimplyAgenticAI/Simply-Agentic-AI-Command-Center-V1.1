@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.7")
+APP_VERSION = os.getenv("APP_VERSION", "18.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -14929,7 +14929,7 @@ function startStripeCheckout() {
   spinner.style.display = 'inline';
   cardIcon.style.display = 'none';
 
-  const plan = new URLSearchParams(window.location.search).get('plan') || 'solo';
+  const plan = new URLSearchParams(window.location.search).get('plan') || {{ selected_plan|tojson }};
 
   fetch('/stripe/create_checkout', {
     method: 'POST',
@@ -16239,16 +16239,17 @@ def stripe_create_checkout():
     """Redirect the visitor to a Stripe Checkout session for the selected plan."""
     if not _stripe_ready():
         # Try direct payment link as fallback
-        plan_key_fb = _normalize_plan_key((request.get_json(silent=True) or {}).get("plan", "solo"))
+        plan_key_fb = _normalize_plan_key((request.get_json(silent=True) or {}).get("plan") or _default_signup_plan())
         payment_link = _get_payment_link(plan_key_fb)
         if payment_link:
             return jsonify({"ok": True, "payment_link": payment_link})
         return jsonify({"ok": False, "error": "Stripe is not configured on this server."}), 400
 
     payload  = request.get_json(silent=True) or {}
-    plan_key = _normalize_plan_key((payload.get("plan") or request.form.get("plan") or "solo").strip().lower())
+    # No plan sent → Founder while seats remain (V18.8: a trial once billed Solo by default).
+    plan_key = _normalize_plan_key((payload.get("plan") or request.form.get("plan") or _default_signup_plan()).strip().lower())
     if plan_key not in PLANS:
-        plan_key = "solo"
+        plan_key = _default_signup_plan()
 
     price_id = _plan_price_id(plan_key)
     if not price_id:
