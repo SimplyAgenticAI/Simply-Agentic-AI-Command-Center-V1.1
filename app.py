@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.2")
+APP_VERSION = os.getenv("APP_VERSION", "18.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3312,7 +3312,8 @@ def health_check() -> Any:
                         "host": request.host, "base_url_host": urlparse(PUBLIC_BASE_URL).netloc if PUBLIC_BASE_URL else "",
                         # V16.8 diagnostic: public app IDs only (never secrets), to confirm which app OAuth uses
                         "instagram_app_id": INSTAGRAM_APP_ID, "instagram_secret_set": bool(INSTAGRAM_APP_SECRET),
-                        "ig_last_connect": dict(_IG_LAST), "last_bg_publish": dict(_SP_BG_LAST)})
+                        "ig_last_connect": dict(_IG_LAST), "last_bg_publish": dict(_SP_BG_LAST),
+                        "diag": load_json(DATA / "diag_last.json", {}) or {}})
     except Exception:
         return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
@@ -20569,6 +20570,21 @@ def _is_bad_input_error(e: Exception) -> bool:
         return False
 
 
+_DIAG_PATH_RE = re.compile(r"([A-Za-z]:)?[\\/][^\s:'\"]+")
+
+
+def _diag_note(kind: str, detail: Any) -> None:
+    """V18.3 diagnostic: the last server error of each kind, kept on disk so it
+    survives restarts, shown on /health. File paths are removed (they hold usernames)."""
+    try:
+        text = _DIAG_PATH_RE.sub("<path>", str(detail or ""))[-400:]
+        update_json(DATA / "diag_last.json", {}, lambda d: dict(d if isinstance(d, dict) else {},
+                    **{kind: {"ts": now_iso(), "detail": text}}))
+        print(f"[DIAG] {kind}: {text[:300]}", flush=True)
+    except Exception:
+        pass
+
+
 @app.errorhandler(Exception)
 def _handle_exception(e):
     if _is_bad_input_error(e):
@@ -20588,6 +20604,7 @@ def _handle_exception(e):
     try:
         if code not in (404, 401, 403):
             _capture_error(e, context="unhandled_exception")
+            _diag_note("api_error", f"{request.method} {request.path}: {type(e).__name__}: {e}")
     except Exception:
         pass
 
@@ -30737,6 +30754,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
             if proc.returncode != 0 or not out_tmp.exists():
                 tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-800:]
                 print(f"[VC] render failed {uname}/{cid}: {tail}", flush=True)
+                _diag_note("render_failed", f"ffmpeg exit {proc.returncode}, mem {_mem_mb()}: {tail}")
                 raise _VcError("Rendering failed — try a different format or re-upload the video.")
             # Versioned output names: a viewer may still be streaming the previous
             # render (Windows can't replace an open file; on Linux it's just tidier)
@@ -30768,6 +30786,7 @@ def _vc_render_inner(uname: str, user: Dict[str, Any], cid: str) -> Dict[str, An
                 msg = "Video processing isn't available on the server right now."
             if not isinstance(e, _VcError):
                 print(f"[VC] render exception {uname}/{cid}: {e}", flush=True)
+                _diag_note("render_exception", f"{type(e).__name__}: {e}")
             _vc_update(uname, cid, lambda x: x.update({"status": "error", "error": msg}))
             return {"ok": False, "error": msg}
 
