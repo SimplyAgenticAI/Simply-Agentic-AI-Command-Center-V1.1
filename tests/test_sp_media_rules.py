@@ -57,3 +57,17 @@ def test_publish_route_rejects_when_nothing_can_take_it(flask_app):
         (data.get("users") or {}).pop(uname, None)
         app_module.save_users(data)
         app_module._invalidate_users_cache()
+
+
+def test_progress_reported_per_platform(monkeypatch):
+    monkeypatch.setattr(app_module, "_load_sp_conns", lambda u: {})
+    monkeypatch.setattr(app_module, "_sp_publish_facebook", lambda post, conns: (True, "111_222"))
+    monkeypatch.setattr(app_module, "_sp_publish_youtube", lambda u, post, conns: (False, "quota exceeded"))
+    seen = []
+    app_module._sp_publish_one("u", {"caption": "Hi", "platforms": ["facebook", "youtube", "tiktok"], "media_url": "https://x/a.jpg"},
+                               progress=lambda pl, st, info: seen.append((pl, st)))
+    assert seen == [("facebook", "working"), ("facebook", "done"), ("youtube", "skipped"), ("tiktok", "skipped")]
+    seen.clear()
+    app_module._sp_publish_one("u", {"caption": "Hi", "platforms": ["youtube"], "media_url": "https://x/a.mp4"},
+                               progress=lambda pl, st, info: seen.append((pl, st, info)))
+    assert seen == [("youtube", "working", ""), ("youtube", "failed", "quota exceeded")]

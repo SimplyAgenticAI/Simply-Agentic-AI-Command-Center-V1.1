@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "17.5")
+APP_VERSION = os.getenv("APP_VERSION", "17.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3312,7 +3312,7 @@ def health_check() -> Any:
                         "host": request.host, "base_url_host": urlparse(PUBLIC_BASE_URL).netloc if PUBLIC_BASE_URL else "",
                         # V16.8 diagnostic: public app IDs only (never secrets), to confirm which app OAuth uses
                         "instagram_app_id": INSTAGRAM_APP_ID, "instagram_secret_set": bool(INSTAGRAM_APP_SECRET),
-                        "ig_last_connect": dict(_IG_LAST)})
+                        "ig_last_connect": dict(_IG_LAST), "last_bg_publish": dict(_SP_BG_LAST)})
     except Exception:
         return jsonify({"status": "error", "detail": "Storage unavailable"}), 503
 
@@ -34106,7 +34106,7 @@ def _sp_unstick(posts: List[Dict[str, Any]]) -> bool:
         if p.get("status") != "publishing":
             continue
         try:
-            started = datetime.fromisoformat(str(p.get("publishing_started") or "").replace("Z", "+00:00")).replace(tzinfo=None)
+            started = datetime.fromisoformat(str(p.get("publishing_heartbeat") or p.get("publishing_started") or "").replace("Z", "+00:00")).replace(tzinfo=None)
         except Exception:
             started = None
         if started is None or (now - started).total_seconds() > _SP_STALE_PUBLISHING_S:
@@ -34311,7 +34311,25 @@ def api_sp_publish(post_id):
         # and updates when it's done.
         post["status"] = "publishing"
         post["publishing_started"] = now_iso()
+        post["publish_progress"] = {}
         _save_sp_posts(uname, posts)
+
+        def _save_progress(pid, platform, state, info):
+            _SP_BG_LAST.update({"ts": now_iso(), "platform": platform, "state": state,
+                                "info": str(info or "")[:200] if state in ("failed", "skipped") else ""})
+            print(f"[SP-PUBLISH] {platform} {state} {str(info or '')[:160]}", flush=True)
+            try:
+                ps3 = _load_sp_posts(uname)
+                p3 = next((x for x in ps3 if x.get("id") == pid), None)
+                if p3 and p3.get("status") == "publishing":
+                    prog = p3.get("publish_progress") or {}
+                    prog[platform] = {"state": state, "info": str(info or "")[:300], "ts": now_iso()}
+                    p3["publish_progress"] = prog
+                    p3["publishing_started"] = p3.get("publishing_started") or now_iso()
+                    p3["publishing_heartbeat"] = now_iso()
+                    _save_sp_posts(uname, ps3)
+            except Exception:
+                pass
 
         def _bg(pid=post_id):
             try:
@@ -34319,7 +34337,7 @@ def api_sp_publish(post_id):
                 p = next((x for x in ps if x.get("id") == pid), None)
                 if not p:
                     return
-                _sp_apply_results(p, _sp_publish_one(uname, p))
+                _sp_apply_results(p, _sp_publish_one(uname, p, progress=lambda pl, st, inf: _save_progress(pid, pl, st, inf)))
                 # Re-read (the user may have edited other posts meanwhile) and save
                 # ONLY if our post is found — a failed/empty read must never be
                 # written back over the user's whole post list.
@@ -34332,7 +34350,17 @@ def api_sp_publish(post_id):
                         break
                     time.sleep(0.2)
             except Exception as e:
+                _SP_BG_LAST.update({"ts": now_iso(), "platform": "-", "state": "crashed", "info": repr(e)[:200]})
+                print(f"[SP-PUBLISH] crashed {e!r}", flush=True)
                 _log("WARNING", "Background publish failed", user=uname, error=str(e)[:200])
+                try:                       # never leave it stuck on "publishing"
+                    ps4 = _load_sp_posts(uname)
+                    p4 = next((x for x in ps4 if x.get("id") == pid), None)
+                    if p4 and p4.get("status") == "publishing":
+                        p4["status"], p4["error"] = "failed", f"Publishing stopped: {str(e)[:200]}"
+                        _save_sp_posts(uname, ps4)
+                except Exception:
+                    pass
         threading.Thread(target=_bg, daemon=True).start()
         return jsonify({"ok": True, "status": "publishing", "background": True})
     results = _sp_publish_one(uname, post)
@@ -35817,7 +35845,11 @@ def _sp_publish_linkedin(uname: str, post: Dict[str, Any], conns: Dict[str, Any]
         return False, f"LinkedIn error: {str(e)[:200]}"
 
 
-def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
+# V17.6 diagnostic: the last background publish, per platform (no names/tokens)
+_SP_BG_LAST: Dict[str, Any] = {}
+
+
+def _sp_publish_one(uname: str, post: Dict[str, Any], progress=None) -> Dict[str, Any]:
     """Publish one post to each of its platforms. Returns per-platform results."""
     conns = _load_sp_conns(uname)
     results: Dict[str, Any] = {}
@@ -35825,7 +35857,11 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
     for platform in post.get("platforms") or []:
         if platform in problems:
             results[platform] = {"ok": False, "info": f"Skipped: {problems[platform]}"}
+            if progress:
+                progress(platform, "skipped", results[platform]["info"])
             continue
+        if progress:
+            progress(platform, "working", "")
         if platform == "facebook":
             ok, info = _sp_publish_facebook(post, conns)
         elif platform == "instagram":
@@ -35841,6 +35877,8 @@ def _sp_publish_one(uname: str, post: Dict[str, Any]) -> Dict[str, Any]:
         else:
             ok, info = False, f"Unknown platform: {platform}"
         results[platform] = {"ok": ok, "info": info}
+        if progress:
+            progress(platform, "done" if ok else "failed", info)
     return results
 
 

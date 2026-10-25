@@ -35771,7 +35771,8 @@ function saUseGlyph(){
           <!-- Right: live preview -->
           <div class="cpw-right">
             <div class="cp-label">Preview</div>
-            <div class="cpw-pv">
+            <div id="cpPvTabs" class="cpw-pvtabs"></div>
+            <div class="cpw-pv" id="cpPvCard">
               <div class="cpw-pv-top">
                 <img id="cpPvAvatar" alt="" src="" onerror="this.style.visibility='hidden'">
                 <div><div id="cpPvName" class="cpw-pv-name">Your Page</div><div class="cpw-pv-meta">Just now · 🌍</div></div>
@@ -35780,7 +35781,7 @@ function saUseGlyph(){
               <div id="cpPvMedia" class="cpw-pv-media"></div>
               <div class="cpw-pv-bar"><span>👍 Like</span><span>💬 Comment</span><span>↗ Share</span></div>
             </div>
-            <div class="cpw-hint" style="margin-top:8px;">How it will look on Facebook. Other platforms show it a little differently.</div>
+            <div id="cpPvHint" class="cpw-hint" style="margin-top:8px;">Pick where to post to see a preview.</div>
           </div>
         </div>
 
@@ -35811,6 +35812,10 @@ function saUseGlyph(){
       #cpComposer .cpw-accts{display:flex;flex-wrap:wrap;gap:8px;}
       #cpComposer .cpw-acct{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);cursor:pointer;font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#cbd5e1;user-select:none;}
       #cpComposer .cpw-acct input{display:none;}
+      #cpComposer .cpw-pvtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+      #cpComposer .cpw-pvtab{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);color:#cbd5e1;border-radius:999px;padding:4px 11px;font-size:calc(14px * var(--fs,1.1));font-weight:700;cursor:pointer;}
+      #cpComposer .cpw-pvtab.on{background:rgba(124,58,237,.25);border-color:#a78bfa;color:#fff;}
+      #cpComposer .cpw-pv.empty{opacity:.45;}
       #cpComposer .cps-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px 14px;margin-top:10px;display:flex;flex-direction:column;gap:10px;}
       #cpComposer .cps-head{display:flex;align-items:center;gap:8px;font-size:calc(15px * var(--fs,1.1));color:#f1f5f9;}
       #cpComposer .cps-save{margin-left:auto;background:transparent;border:1px solid rgba(167,139,250,.4);color:#c4b5fd;border-radius:8px;padding:3px 10px;font-size:calc(14px * var(--fs,1.1));cursor:pointer;font-weight:700;}
@@ -35879,6 +35884,10 @@ function saUseGlyph(){
       .cp-chip img{width:20px;height:20px;border-radius:4px;object-fit:cover;flex-shrink:0;}
       .cp-chip .tm{font-weight:800;color:#f1f5f9;flex-shrink:0;}
       .cp-chip .lb{color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      .cp-prog{display:flex;flex-direction:column;gap:3px;margin-top:6px;font-size:calc(14px * var(--fs,1.1));}
+      .cp-prog-i{color:#cbd5e1;}
+      .cp-prog-i.done{color:#6ee7b7;} .cp-prog-i.failed{color:#fca5a5;} .cp-prog-i.working{color:#fde68a;} .cp-prog-i.skipped,.cp-prog-i.waiting{color:#8a96aa;}
+      .cp-prog-i span{display:block;padding-left:18px;color:#a8b4c8;font-size:calc(14px * var(--fs,1.1));}
       .cp-chip-new{animation:cpChipNew 1.4s ease 3;}
       @keyframes cpChipNew{0%,100%{box-shadow:none;}50%{box-shadow:0 0 0 3px #34d399,0 0 18px rgba(52,211,153,.6);}}
       #cpFlash{display:none;position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:10;padding:12px 26px;border-radius:12px;font-weight:800;font-size:calc(16px * var(--fs,1.1));color:#fff;background:rgba(17,24,39,.97);border:1px solid rgba(124,58,237,.6);box-shadow:0 12px 40px rgba(0,0,0,.5);}
@@ -36251,16 +36260,44 @@ function cpBlockIfIncompatible(){
   return true;
 }
 
+var _cpPvIdx = 0;
+/* Every account ticked under "Post to", with its own name and picture */
+function cpPreviewTargets(){
+  var out=[], fbPages=((_cpConns.facebook||{}).pages||[]), igAccts=((_cpConns.instagram||{}).accounts||[]);
+  document.querySelectorAll('#cpPlatformChecks input:checked').forEach(function(cb){
+    var p=cb.value, lab=(PLAT_COLORS[p]||{label:p}).label;
+    if(cb.getAttribute('data-fbpage')){
+      var pg=fbPages.filter(function(x){ return String(x.id)===cb.getAttribute('data-fbpage'); })[0];
+      if(pg) out.push({platform:p, platformLabel:lab, label:'Facebook · '+pg.name, name:pg.name, pic:pg.picture||''});
+    } else if(cb.getAttribute('data-igacct')){
+      var a=igAccts.filter(function(x){ return String(x.id)===cb.getAttribute('data-igacct'); })[0];
+      if(a) out.push({platform:p, platformLabel:lab, label:'@'+a.username, name:a.username, pic:a.picture||''});
+    } else if(p!=='facebook' && p!=='instagram'){
+      var c=_cpConns[p]||{}, nm=c.channel_name||c.page_name||c.name||lab;
+      out.push({platform:p, platformLabel:lab, label:lab, name:nm, pic:''});
+    }
+  });
+  return out;
+}
+window.cpPreviewPick=function(i){ _cpPvIdx=i; cpPreview(); };
+
 window.cpPreview=function(){
   cpMediaCheck();
   cpRenderSettings();
   cpUpdateCharCount();
   var t=$('cpPvText'); if(!t) return;
   t.textContent=($('cpCaption')||{}).value||'';
-  var first=document.querySelector('#cpPlatformChecks input[data-fbpage]:checked');
-  var pages=((_cpConns.facebook||{}).pages||[]), pg=first?pages.filter(function(x){return x.id===first.getAttribute('data-fbpage');})[0]:pages[0];
-  $('cpPvName').textContent=pg?pg.name:'Your Page';
-  var av=$('cpPvAvatar'); if(pg&&pg.picture){ av.style.visibility=''; if(av.getAttribute('src')!==pg.picture) av.src=pg.picture; } else av.style.visibility='hidden';
+  /* V17.6: preview only the accounts you ticked (it used to fall back to your first Facebook Page) */
+  var sel=cpPreviewTargets();
+  if(_cpPvIdx>=sel.length) _cpPvIdx=0;
+  var tabs=$('cpPvTabs');
+  if(tabs) tabs.innerHTML = sel.length>1 ? sel.map(function(s,i){
+    return '<button type="button" class="cpw-pvtab'+(i===_cpPvIdx?' on':'')+'" onclick="cpPreviewPick('+i+')">'+_esc(s.label)+'</button>'; }).join('') : '';
+  var cur=sel[_cpPvIdx], card=$('cpPvCard'), hint=$('cpPvHint');
+  if(card) card.classList.toggle('empty', !cur);
+  $('cpPvName').textContent = cur ? cur.name : 'Pick where to post';
+  if(hint) hint.textContent = cur ? ('How it will look on '+cur.platformLabel+'. Each platform shows it a little differently.') : 'Pick where to post to see a preview.';
+  var av=$('cpPvAvatar'); if(cur&&cur.pic){ av.style.visibility=''; if(av.getAttribute('src')!==cur.pic) av.src=cur.pic; } else av.style.visibility='hidden';
   var url=(($('cpMediaUrl')||{}).value||'').trim(), m=$('cpPvMedia');
   if(m.getAttribute('data-url')!==url){
     m.setAttribute('data-url',url); m.innerHTML='';
@@ -36585,7 +36622,23 @@ function cpCardHtml(p){
   return '<div class="cp-card" data-pid="'+_esc(p.id)+'"'+(cpMovable(p)?' draggable="true"':'')+' style="border-left-color:'+cpPostColor(p)+';" onclick="event.stopPropagation();cpOpenComposer(\''+_esc(p.id)+'\')" title="'+_esc((p.caption||'').slice(0,200))+'">'
     +'<div class="t"><span>'+(cpPostTime(p)||'—')+'</span><span class="pg">'+_esc(cpPostWhere(p))+'</span></div>'
     +media+'<div class="cap">'+_esc(p.caption||'')+'</div>'
-    +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><span style="color:'+st+';font-weight:700;">● '+label+'</span>'+cpLinksHtml(p)+'</div></div>';
+    +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><span style="color:'+st+';font-weight:700;">● '+label+'</span>'+cpLinksHtml(p)+'</div>'
+    +cpProgressHtml(p)+'</div>';
+}
+/* V17.6: where each platform is while publishing, and why one failed afterwards */
+function cpProgressHtml(p){
+  var src = p.status==='publishing' ? (p.publish_progress||{}) : (p.publish_results||{});
+  var keys = (p.platforms||[]).filter(function(k){ return src[k] || p.status==='publishing'; });
+  if(!keys.length || (p.status!=='publishing' && p.status!=='failed' && p.status!=='partial')) return '';
+  var icon = {working:'⏳', done:'✓', failed:'✗', skipped:'–'};
+  return '<div class="cp-prog">'+keys.map(function(k){
+    var r = src[k] || {}, lab = (PLAT_COLORS[k]||{label:k}).label, state, info;
+    if(p.status==='publishing'){ state = r.state || 'waiting'; info = r.info || ''; }
+    else { state = r.ok ? 'done' : 'failed'; info = r.ok ? '' : (r.info||''); }
+    var word = {working: k==='facebook'||k==='linkedin' ? 'posting…' : 'uploading…', done:'posted', failed:'failed', skipped:'skipped', waiting:'waiting'}[state] || state;
+    return '<div class="cp-prog-i '+state+'" title="'+_esc(info)+'">'+(icon[state]||'·')+' '+_esc(lab)+' '+word
+      +(info && state!=='done' ? '<span>'+_esc(info.slice(0,140))+'</span>' : '')+'</div>';
+  }).join('')+'</div>';
 }
 function cpChipHtml(p){
   var u=p.media_url||'';
@@ -37045,8 +37098,10 @@ window.cpPublishNowById = async function(postId){
     var d = await res.json();
     if(!d.ok){ cpSetStatus(d.error||'Publish failed'); return; }
     if(d.status==='publishing'){
-      cpSetStatus('⏳ Uploading your video — the Queue will update when it\'s live');
+      /* V17.6: close the window; the post's card shows each platform's progress live */
       await cpLoadState(); cpWatchPublishing();
+      cpCloseComposer();
+      cpFlash('⏳ Uploading your video. Each platform shows its progress on the post.', '');
       return;
     }
     var msgs = [], fails = [];
