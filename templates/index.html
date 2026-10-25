@@ -34921,8 +34921,11 @@ window.toggleNotifPanel = function(){
 .sr-prev video{background:#000;border-radius:10px;}
 .sr-big{background:linear-gradient(135deg,#ef4444,#db2777);border:none;border-radius:12px;color:#fff;font-weight:800;padding:13px 26px;cursor:pointer;font-size:calc(16px * var(--fs,1.1));}
 .sr-sec{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);border-radius:12px;color:#e2e8f0;padding:12px 18px;cursor:pointer;font-size:calc(15px * var(--fs,1.1));}
-#srBar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9999970;display:none;align-items:center;gap:10px;background:rgba(10,12,26,.96);border:1.5px solid rgba(239,68,68,.55);border-radius:999px;padding:7px 9px 7px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-family:system-ui,sans-serif;color:#fecaca;font-size:calc(15px * var(--fs,1.1));font-weight:700;}
+/* V18.1: default bottom-left (top-centre covered the planner's platform buttons), draggable */
+#srBar{position:fixed;left:16px;bottom:16px;z-index:9999970;display:none;align-items:center;gap:10px;touch-action:none;background:rgba(10,12,26,.96);border:1.5px solid rgba(239,68,68,.55);border-radius:999px;padding:7px 9px 7px 16px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-family:system-ui,sans-serif;color:#fecaca;font-size:calc(15px * var(--fs,1.1));font-weight:700;}
 #srBar button{border:none;border-radius:999px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:calc(14px * var(--fs,1.1));}
+#srBar .sr-grip{cursor:grab;color:#8a96aa;font-size:calc(18px * var(--fs,1.1));line-height:1;padding:0 2px;user-select:none;}
+#srBar.dragging,#srBar.dragging .sr-grip{cursor:grabbing;}
 .sr-dot{width:10px;height:10px;border-radius:50%;background:#ef4444;animation:tpBlink 1s ease-in-out infinite;}
 #srCount{position:fixed;inset:0;z-index:9999980;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font:900 calc(150px * var(--fs,1.1))/1 system-ui,sans-serif;color:#fff;text-shadow:0 0 80px rgba(124,58,237,.9);}
 @media(max-width:640px){.sr-modes{grid-template-columns:1fr;}}
@@ -34943,10 +34946,50 @@ window.toggleNotifPanel = function(){
   <div id="srBusySub" style="color:#a8b4c8;margin-top:6px;font-size:calc(15px * var(--fs,1.1));">Finishing the upload, then building your clip. You can keep working — it'll be in My Clips.</div>
   <button class="sr-sec" style="margin-top:16px;" onclick="document.getElementById('srBusy').style.display='none'">Keep working</button>
 </div></div>
-<div id="srBar"><span class="sr-dot"></span><span id="srBarTime">0:00</span><span id="srBarUp" style="color:#a8b4c8;font-weight:600;"></span>
+<div id="srBar"><span class="sr-grip" title="Drag to move">⠿</span><span class="sr-dot"></span><span id="srBarTime">0:00</span><span id="srBarUp" style="color:#a8b4c8;font-weight:600;"></span>
   <button id="srBarPause" style="background:rgba(251,191,36,.2);color:#fde68a;" onclick="srTogglePause()">❚❚ Pause</button>
-  <button style="background:#ef4444;color:#fff;" onclick="srStop()">■ Stop</button></div>
+  <button style="background:#ef4444;color:#fff;" onclick="srStop()">■ Stop</button>
+  <button id="srBarPop" style="background:rgba(255,255,255,.08);color:#cbd5e1;padding:8px 11px;" title="Pop out a floating control window (stays on top of other tabs)" onclick="srPopOut()">⧉</button></div>
 <div id="srCount"></div>
+<script>
+/* V18.1: drag the recording bar anywhere (grip or the bar itself, not its buttons); remembers the spot */
+(function(){
+  var bar = document.getElementById('srBar'); if(!bar) return;
+  var KEY = 'srBarPos';
+  function place(x, y){
+    var w = bar.offsetWidth || 260, h = bar.offsetHeight || 46;
+    x = Math.max(6, Math.min(window.innerWidth - w - 6, x));
+    y = Math.max(6, Math.min(window.innerHeight - h - 6, y));
+    bar.style.left = x + 'px'; bar.style.top = y + 'px'; bar.style.bottom = 'auto';
+  }
+  function restore(){
+    try{ var p = JSON.parse(localStorage.getItem(KEY) || 'null'); if(p) place(p.x * window.innerWidth, p.y * window.innerHeight); }catch(_){}
+  }
+  var shown = false;
+  new MutationObserver(function(){
+    var now = !!bar.style.display && bar.style.display !== 'none';
+    if(now && !shown) restore();                 /* only when it appears, never a loop */
+    shown = now;
+  }).observe(bar, {attributes:true, attributeFilter:['style']});
+  var sx, sy, ox, oy, dragging = false;
+  bar.addEventListener('pointerdown', function(e){
+    if(e.target.closest('button')) return;
+    var r = bar.getBoundingClientRect();
+    dragging = true; sx = e.clientX; sy = e.clientY; ox = r.left; oy = r.top;
+    bar.classList.add('dragging');
+    try{ bar.setPointerCapture(e.pointerId); }catch(_){}
+    e.preventDefault();
+  });
+  bar.addEventListener('pointermove', function(e){ if(dragging) place(ox + e.clientX - sx, oy + e.clientY - sy); });
+  function end(){
+    if(!dragging) return; dragging = false; bar.classList.remove('dragging');
+    var r = bar.getBoundingClientRect();
+    try{ localStorage.setItem(KEY, JSON.stringify({x: r.left / window.innerWidth, y: r.top / window.innerHeight})); }catch(_){}
+  }
+  bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', end);
+  window.addEventListener('resize', function(){ if(bar.style.top){ var r = bar.getBoundingClientRect(); place(r.left, r.top); } });
+})();
+</script>
 <script>
 (function(){
   'use strict';
@@ -35032,7 +35075,9 @@ window.toggleNotifPanel = function(){
   window.srBegin=async function(){
     if(!R) return;
     $('srReady').style.display='none';
-    await openPip();
+    /* V18.2: the floating window covered page buttons (e.g. Connect TikTok) and Chrome decides where it
+       goes. It now opens by itself only for a teleprompter script; otherwise use ⧉ on the bar. */
+    if((($('tpScript')&&$('tpScript').value)||'').trim()) await openPip();
     var st;
     try{ st=await jpost('/api/rec/start',{mode:R.mode}); }catch(e){ st={ok:false,error:String(e)}; }
     if(!st.ok){ toast(st.error||'Could not start recording','error'); teardown(); return; }
@@ -35133,8 +35178,9 @@ window.toggleNotifPanel = function(){
     }catch(e){ $('srBusy').style.display='none'; toast('Processing error: '+e,'error'); }
   };
   function showReady(clipId, title){
-    var old=document.getElementById('srReady'); if(old) old.remove();
-    var w=document.createElement('div'); w.id='srReady';
+    /* V18.2: own id (was 'srReady', which deleted the pre-record card and broke the next recording) */
+    var old=document.getElementById('srDoneBox'); if(old) old.remove();
+    var w=document.createElement('div'); w.id='srDoneBox';
     w.style.cssText='position:fixed;inset:0;z-index:2147483000;background:rgba(3,6,18,.72);display:flex;align-items:center;justify-content:center;padding:20px;';
     w.innerHTML='<div style="width:min(440px,100%);background:linear-gradient(180deg,#0e1430,#0a0f24);border:1px solid rgba(124,58,237,.5);border-radius:18px;padding:22px;box-shadow:0 30px 90px rgba(0,0,0,.6);color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));">'
       +'<div style="font-size:calc(19px * var(--fs,1.1));font-weight:800;margin-bottom:4px;">🎬 Your recording is ready</div>'
@@ -35187,9 +35233,15 @@ window.toggleNotifPanel = function(){
     });
   }
 
+  /* ⧉ on the bar: open the floating window on request (a click counts as the gesture Chrome needs) */
+  window.srPopOut=async function(){
+    if(!R || !R.startAt) return;
+    if(R.pip){ try{ R.pip.focus(); }catch(_){} return; }
+    await openPip();
+  };
   /* ── floating control window (Document Picture-in-Picture) ── */
   async function openPip(){
-    if(!window.documentPictureInPicture){ toast('Tip: Chrome/Edge show a floating control window here — using the bar at the top instead','info'); return; }
+    if(!window.documentPictureInPicture){ toast('The floating control window needs Chrome or Edge. The recording bar (bottom-left, drag to move) works the same.','info'); return; }
     var script=($('tpScript')&&$('tpScript').value||'').trim();
     try{ R.pip=await documentPictureInPicture.requestWindow({width:380, height:script?560:R.cam?300:150}); }catch(_){ R.pip=null; return; }
     var w=R.pip, d=w.document;
