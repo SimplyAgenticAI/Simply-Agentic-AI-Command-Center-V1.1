@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.3")
+APP_VERSION = os.getenv("APP_VERSION", "19.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -20695,13 +20695,17 @@ def _disk_report() -> Dict[str, Any]:
 _DIAG_PATH_RE = re.compile(r"([A-Za-z]:)?[\\/][^\s:'\"]+")
 
 
-def _diag_note(kind: str, detail: Any) -> None:
+def _diag_note(kind: str, detail: Any, where: str = "") -> None:
     """V18.3 diagnostic: the last server error of each kind, kept on disk so it
-    survives restarts, shown on /health. File paths are removed (they hold usernames)."""
+    survives restarts, shown on /health. File paths are removed (they hold usernames).
+    `where` is code-made (route pattern + line), never user data, so it is kept as is."""
     try:
         text = _DIAG_PATH_RE.sub("<path>", str(detail or ""))[-400:]
+        rec = {"ts": now_iso(), "detail": text}
+        if where:
+            rec["where"] = str(where)[:200]
         update_json(DATA / "diag_last.json", {}, lambda d: dict(d if isinstance(d, dict) else {},
-                    **{kind: {"ts": now_iso(), "detail": text}}))
+                    **{kind: rec}))
         print(f"[DIAG] {kind}: {text[:300]}", flush=True)
     except Exception:
         pass
@@ -20726,7 +20730,17 @@ def _handle_exception(e):
     try:
         if code not in (404, 401, 403):
             _capture_error(e, context="unhandled_exception")
-            _diag_note("api_error", f"{request.method} {request.path}: {type(e).__name__}: {e}")
+            # V19.4: route pattern (e.g. /api/x/<pid>, no usernames) and the failing app.py
+            # line survive the path scrub, so /health says where the error happened.
+            _rule = request.url_rule.rule if request.url_rule else "unmatched route"
+            _where = ""
+            try:
+                _frames = [f for f in _traceback.extract_tb(e.__traceback__) if f.filename.endswith("app.py")]
+                if _frames:
+                    _where = f" at line {_frames[-1].lineno} in {_frames[-1].name}"
+            except Exception:
+                pass
+            _diag_note("api_error", f"{type(e).__name__}: {e}", where=f"{request.method} {_rule}{_where}")
     except Exception:
         pass
 
