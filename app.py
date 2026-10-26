@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.5")
+APP_VERSION = os.getenv("APP_VERSION", "19.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -20667,6 +20667,32 @@ def _is_bad_input_error(e: Exception) -> bool:
 _DISK_CACHE: Dict[str, Any] = {}
 
 
+# V19.6: keep this much of the data disk free. Below it, new recordings and planner
+# uploads are refused with a plain message instead of failing with "disk full".
+DISK_RESERVE_MB = int(os.getenv("DISK_RESERVE_MB", "1024"))
+
+
+def _disk_free_mb() -> int:
+    try:
+        import shutil as _sh
+        return _sh.disk_usage(str(DATA)).free // 1048576
+    except Exception:
+        return 10 ** 9          # can't tell: don't block anyone
+
+
+def _disk_full_response(incoming_bytes: int = 0):
+    """A 507 response when saving `incoming_bytes` would eat into the reserve, else None."""
+    free = _disk_free_mb()
+    if free - (max(0, int(incoming_bytes or 0)) // 1048576) >= DISK_RESERVE_MB:
+        return None
+    try:
+        _diag_note("disk_low", f"refused an upload with {free} MB free")
+    except Exception:
+        pass
+    return jsonify({"ok": False, "error": "The server's storage is nearly full, so new uploads are paused for now. "
+                                         "Your existing files are safe. Please try again later."}), 507
+
+
 def _disk_report() -> Dict[str, Any]:
     """V18.5: free space + size of the biggest data folders (names only), cached 10 min."""
     now = time.time()
@@ -20677,6 +20703,8 @@ def _disk_report() -> Dict[str, Any]:
         import shutil as _sh
         du = _sh.disk_usage(str(DATA))
         v = {"total_mb": du.total // 1048576, "free_mb": du.free // 1048576}
+        if v["free_mb"] < max(2 * DISK_RESERVE_MB, v["total_mb"] // 10):
+            v["warning"] = "Low on space: grow the Render disk or delete old videos."
         sizes = {}
         for child in DATA.iterdir():
             if child.is_dir():
@@ -29997,7 +30025,9 @@ _VC_LOCK = threading.Lock()
 # and two at once was enough to push a small plan past its memory limit.
 _VC_RENDER_SEM = threading.Semaphore(max(1, int(os.getenv("VCLIP_RENDER_CONCURRENCY", "1"))))
 _GB = 1024 * 1024 * 1024
-VCLIP_STORAGE_LIMITS = {"founder": 3 * _GB, "founder_classic": 5 * _GB, "solo": 3 * _GB, "teams": 10 * _GB}
+# V19.6: sized to the real 20 GB disk shared by every account (was 3/5/3/10 GB
+# on a 1 GB disk, so one busy account could fill it for everyone).
+VCLIP_STORAGE_LIMITS = {"founder": 1 * _GB, "founder_classic": 2 * _GB, "solo": 2 * _GB, "teams": 5 * _GB}
 _VC_ASPECTS = {"original": None, "9:16": (720, 1280), "1:1": (720, 720), "16:9": (1280, 720)}
 _VC_STYLES = ("bold", "clean", "pop")
 _VC_FILLERS = {"um", "uh", "uhm", "umm", "erm", "er", "ah", "hmm", "mm", "uh-huh"}
@@ -31768,6 +31798,9 @@ def api_rec_chunk():
         if idx > nxt:
             return jsonify({"ok": False, "error": "Out of order", "next": nxt}), 409
         data = f.read()
+        _full = _disk_full_response(len(data))
+        if _full:
+            return _full
         if int(meta.get("bytes") or 0) + len(data) > _REC_MAX_BYTES:
             return jsonify({"ok": False, "error": "Recording is too large (3 GB max)."}), 413
         with open(d / f"{track}.webm", "ab") as out:
@@ -35638,6 +35671,67 @@ def _spm_path(uname: str, mid: str, ext: str) -> Optional[Path]:
     return p if p.exists() else None
 
 
+# ── Planner upload cleanup (V19.6) ───────────────────────────────────────
+# Uploads used to be kept forever and were the biggest folder on the disk. An
+# upload is deleted once it is SPM_KEEP_DAYS old AND no draft / scheduled /
+# publishing / failed post still points at it. Published posts are already live
+# on the platforms, so they don't need our copy.
+SPM_KEEP_DAYS = int(os.getenv("SPM_KEEP_DAYS", "30"))
+_SPM_SWEPT: Dict[str, float] = {}
+_SPM_LINK_RE = re.compile(r"/spm/([^/?#\"\s]+?)\.(?:jpg|mp4|mov|m4v|webm)")
+
+
+def _spm_sweep(uname: str, force: bool = False) -> int:
+    """Delete this user's old, unneeded planner uploads. Runs at most hourly per user."""
+    now_m = time.monotonic()
+    if not force and now_m - _SPM_SWEPT.get(uname, -1e9) < 3600:
+        return 0
+    _SPM_SWEPT[uname] = now_m
+    d = DATA / "sp_media" / re.sub(r"[^\w.\-]", "_", uname or "anon")
+    if not d.is_dir():
+        return 0
+    posts_p = _sp_posts_path(uname)
+    posts = _load_sp_posts(uname)
+    if not posts and posts_p.exists() and posts_p.stat().st_size > 10:
+        return 0                     # posts file unreadable right now: never guess, keep everything
+    keep = set()
+    for p in posts:
+        if (p.get("status") or "") == "published":
+            continue
+        for tok in _SPM_LINK_RE.findall(json.dumps(p)):
+            try:
+                keep.add(str(_spm_signer().loads(tok)[1]))
+            except Exception:
+                pass
+    cutoff = time.time() - SPM_KEEP_DAYS * 86400
+    removed = 0
+    for f in d.iterdir():
+        try:
+            if f.is_file() and f.stat().st_mtime < cutoff and f.name.split(".")[0] not in keep:
+                f.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _spm_sweep_all() -> None:
+    try:
+        for uname in list((load_users().get("users") or {}).keys()):
+            try:
+                _spm_sweep(uname, force=True)
+            except Exception as e:
+                _capture_error(e, context="spm_sweep")
+    except Exception:
+        pass
+
+
+if os.getenv("SPM_SWEEP_ON_START", "1") == "1":
+    _spm_t = threading.Timer(30, _spm_sweep_all)   # after startup finishes
+    _spm_t.daemon = True
+    _spm_t.start()
+
+
 def _spm_public_url(uname: str, mid: str, ext: str) -> str:
     return f"{PUBLIC_BASE_URL}/spm/{_spm_signer().dumps([uname, mid])}{ext}"
 
@@ -35678,6 +35772,13 @@ def api_sp_media_upload():
     kind = "image" if ext in _SPM_IMAGE_EXT else "video" if ext in _SPM_VIDEO_EXT else ""
     if not kind:
         return jsonify({"ok": False, "error": "Use a photo (JPG, PNG, WEBP, HEIC) or a video (MP4, MOV)."}), 400
+    _full = _disk_full_response(request.content_length or 0)
+    if _full:
+        return _full
+    try:
+        _spm_sweep(uname)
+    except Exception as e:
+        _capture_error(e, context="spm_sweep")
     mid = secrets.token_hex(12)
     d = _spm_dir(uname)
     raw = d / f"{mid}.upload{ext}"
