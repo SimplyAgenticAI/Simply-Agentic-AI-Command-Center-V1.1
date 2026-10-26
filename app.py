@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.4")
+APP_VERSION = os.getenv("APP_VERSION", "19.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -9863,7 +9863,8 @@ def api_get_user_settings():
             "has_claude_key":       bool(claude_key),
             "claude_key_hint":      claude_hint,
             "global_default_model": (settings.get("global_default_model") or "").strip(),
-            "gmail_oauth_connected": bool((settings.get("gmail_oauth") or {}).get("refresh_token") or (settings.get("gmail_oauth") or {}).get("access_token")),
+            # V19.5: the token is stored encrypted (a string) — decrypt before reading it.
+            "gmail_oauth_connected": bool(_user_gmail_oauth(u).get("refresh_token") or _user_gmail_oauth(u).get("access_token")),
             "smtp": safe_smtp,
             "tooltip_level": (settings.get("tooltip_level") or "medium"),  # off | low | medium | high
             "theme": (settings.get("theme") or {})  # ui customisation prefs
