@@ -55,6 +55,12 @@ def test_subscription_switch_updates_seat(flask_app, monkeypatch):
     assert store["seats"]["B"]["plan"] == "solo"
 
 
+def test_health_says_whether_webhook_secret_is_set(flask_app, monkeypatch):
+    monkeypatch.setattr(app_module, "STRIPE_WEBHOOK_SECRET", "whsec_test_value")
+    body = flask_app.test_client().get("/health").get_data(as_text=True)
+    assert '"stripe_webhook_secret_set":true' in body.replace(" ", "") and "whsec_test_value" not in body
+
+
 def test_teammate_screen_has_no_stale_unlimited_promise():
     html = open("templates/index.html", encoding="utf-8").read()
     assert "for unlimited custom teammates" not in html
