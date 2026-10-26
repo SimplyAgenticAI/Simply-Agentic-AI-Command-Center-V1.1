@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.0")
+APP_VERSION = os.getenv("APP_VERSION", "19.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -544,7 +544,7 @@ PLANS: Dict[str, Any] = {
         "price_id":         STRIPE_PRICE_ID_FOUNDER,
         "badge":            "🔥 Founder",
         "tagline":          "Solo's toolkit at our lowest price — locked in forever for the first believers.",
-        "custom_teammates": 2,
+        "custom_teammates": 7,
         "crm_contacts":     500,
         "broadcast_recipients": 250,
         "team_seats":       1,
@@ -555,7 +555,7 @@ PLANS: Dict[str, Any] = {
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
-            "2 custom AI teammates — build your own",
+            "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Clip Studio, screen recording & Content Planner",
@@ -571,7 +571,7 @@ PLANS: Dict[str, Any] = {
         "price_id":         STRIPE_PRICE_ID_STARTER,
         "badge":            "Most Popular",
         "tagline":          "The full AI command center — everything you need to run and grow solo.",
-        "custom_teammates": 3,
+        "custom_teammates": 7,
         "crm_contacts":     500,
         "broadcast_recipients": 250,
         "team_seats":       1,
@@ -581,7 +581,7 @@ PLANS: Dict[str, Any] = {
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
-            "3 custom AI teammates — build your own",
+            "7 custom AI teammates — build your own bench",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Ask any teammate to find leads, score websites, build offers & write posts",
@@ -10507,7 +10507,7 @@ def api_create_teammate():
             else:
                 return jsonify({
                     "ok": False,
-                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Upgrade to the Teams plan for unlimited custom teammates. <a href='/pricing' style='color:#c4b5fd;'>View plans →</a>"
+                    "error": f"You've reached the {max_custom} custom teammate limit on {plan_name}. Remove one to make room for a new one."
                 }), 403
 
     try:
