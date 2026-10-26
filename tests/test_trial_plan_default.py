@@ -48,6 +48,7 @@ def test_existing_founders_keep_original_limits(monkeypatch):
     assert P["founder_classic"]["crm_contacts"] == 2500 and app_module.MSG_LIMITS["founder_classic"] == 150
     assert P["founder"]["crm_contacts"] == P["solo"]["crm_contacts"]
     assert app_module.MSG_LIMITS["founder"] < app_module.MSG_LIMITS["solo"]   # 85% margin at $27
+    assert 0 < P["founder"]["custom_teammates"] < P["solo"]["custom_teammates"] < P["teams"]["custom_teammates"]
 
 
 def test_pricing_page_hides_original_founder_plan(flask_app):

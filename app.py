@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "18.9")
+APP_VERSION = os.getenv("APP_VERSION", "19.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -555,7 +555,7 @@ PLANS: Dict[str, Any] = {
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
-            "Founder bonus: 2 custom AI teammates",
+            "2 custom AI teammates — build your own",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Clip Studio, screen recording & Content Planner",
@@ -571,7 +571,7 @@ PLANS: Dict[str, Any] = {
         "price_id":         STRIPE_PRICE_ID_STARTER,
         "badge":            "Most Popular",
         "tagline":          "The full AI command center — everything you need to run and grow solo.",
-        "custom_teammates": 0,
+        "custom_teammates": 3,
         "crm_contacts":     500,
         "broadcast_recipients": 250,
         "team_seats":       1,
@@ -581,6 +581,7 @@ PLANS: Dict[str, Any] = {
             "Teammates that take action — add CRM contacts, draft & send emails, generate images & research the live web on command",
             "Team Goal — describe a goal and your AI team plans it, splits the work, and delivers the result",
             "AI memory — your teammates learn your business, offers & clients over time",
+            "3 custom AI teammates — build your own",
             "Full CRM + pipeline (up to 500 contacts)",
             "Email broadcasts (up to 250 recipients)",
             "Ask any teammate to find leads, score websites, build offers & write posts",
