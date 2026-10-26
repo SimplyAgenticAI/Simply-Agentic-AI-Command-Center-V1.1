@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.6")
+APP_VERSION = os.getenv("APP_VERSION", "19.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1077,21 +1077,52 @@ def _get_user_plan(username: str) -> str:
             if cache is not None:
                 cache[username] = result
             return result
-        for seat in seats.values():
-            if seat.get("claimed_by") == username:
-                if seat.get("status") in ("cancelled", "inactive"):
-                    result = "solo"  # cancelled users drop back to free tier
-                    break
-                result = _normalize_plan_key((seat.get("plan") or "solo").strip().lower())
-                if result == "founder" and str(seat.get("created_at") or "") < FOUNDER_CLASSIC_BEFORE:
-                    result = "founder_classic"   # grandfathered: keeps the limits they signed up for
-                break
+        # V19.7: prefer a live seat, so someone who resubscribes isn't stuck on their
+        # old cancelled seat. Lapsed accounts are blocked by _account_lapsed anyway.
+        mine = [s for s in seats.values() if s.get("claimed_by") == username]
+        live = [s for s in mine if s.get("status") not in _LAPSED_SEAT_STATUSES]
+        if live:
+            seat = max(live, key=lambda s: str(s.get("claimed_at") or s.get("created_at") or ""))
+            result = _normalize_plan_key((seat.get("plan") or "solo").strip().lower())
+            if result == "founder" and str(seat.get("created_at") or "") < FOUNDER_CLASSIC_BEFORE:
+                result = "founder_classic"   # grandfathered: keeps the limits they signed up for
     except Exception:
         pass
 
     if cache is not None:
         cache[username] = result
     return result
+
+
+# V19.7: a seat in one of these states no longer pays for access.
+_LAPSED_SEAT_STATUSES = ("cancelled", "inactive")
+# What a lapsed account can still reach: the resubscribe page, pricing/checkout,
+# sign-out and legal pages (Stripe routes are already public).
+_LAPSED_ALLOWED_PATHS = {"/subscription-ended", "/logout", "/api/logout", "/api/me", "/api/csrf_token",
+                         "/pricing", "/register", "/terms", "/privacy", "/login"}
+
+
+def _account_lapsed(username: str, _depth: int = 0) -> bool:
+    """True when this account's paid access has ended: it has claimed seats and
+    every one of them is cancelled/inactive (or it's a team member whose owner has
+    lapsed). Admins and accounts with no seat at all (made by hand) never lapse."""
+    if not username or _depth > 2:
+        return False
+    try:
+        users = load_users().get("users") or {}
+        urec = users.get(username) or {}
+        if urec.get("is_admin") is True or _legacy_first_username(users) == username:
+            return False
+        seats = (_load_seats().get("seats") or {}).values()
+        mine = [s for s in seats if s.get("claimed_by") == username]
+        if mine:
+            return all(s.get("status") in _LAPSED_SEAT_STATUSES for s in mine)
+        owner = (urec.get("team_owner") or "").strip()
+        if owner and owner != username:
+            return _account_lapsed(owner, _depth + 1)
+    except Exception:
+        pass
+    return False
 
 # =========================
 # MANUAL GOOGLE OAUTH (no extra deps)
@@ -3504,6 +3535,16 @@ def _auth_guard() -> Optional[Any]:
         if not has_any_user():
             return redirect(url_for("setup"))
         return redirect(url_for("login"))
+
+    # V19.7: a cancelled or unpaid account can only see the resubscribe page.
+    _lu = current_user()
+    if _lu and request.path not in _LAPSED_ALLOWED_PATHS:
+        _lname = (_lu.get("username") if isinstance(_lu, dict) else None) or ""
+        if _account_lapsed(_lname):
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "subscription_ended": True,
+                                "error": "Your subscription has ended. Resubscribe to keep using Simply Agentic AI."}), 402
+            return redirect("/subscription-ended")
 
     # attach per-user OpenAI client for this request (best-effort — skip if no key configured)
     u = current_user()
@@ -6656,10 +6697,14 @@ def send_email_smtp(to_addr: str, subject: str, body: str, from_name: str, from_
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASS)
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+    except Exception as exc:
+        _email_fail_note(subject, f"{type(exc).__name__}: {exc}")   # V19.7: visible on /health
+        raise
 
 
 def _send_platform_email(to_addr: str, subject: str, body: str) -> bool:
@@ -6667,7 +6712,10 @@ def _send_platform_email(to_addr: str, subject: str, body: str) -> bool:
     Uses server SMTP env vars (SimplyAgenticAI@gmail.com). Never raises — logs
     and returns False on failure so callers can continue regardless.
     """
-    if not to_addr or not SMTP_USER or not SMTP_PASS:
+    if not to_addr:
+        return False
+    if not SMTP_USER or not SMTP_PASS:
+        _email_fail_note(subject, "server email isn't set up (SMTP_USER / SMTP_PASS missing)")
         return False
     from_name = SMTP_FROM_NAME or "Simply Agentic AI"
     try:
@@ -6684,7 +6732,20 @@ def _send_platform_email(to_addr: str, subject: str, body: str) -> bool:
         return True
     except Exception as exc:
         print(f"[PLATFORM EMAIL] Failed to {to_addr!r}: {exc}", flush=True)
+        _email_fail_note(subject, f"{type(exc).__name__}: {exc}")
         return False
+
+
+_EMAIL_ADDR_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _email_fail_note(subject: str, reason: str) -> None:
+    """V19.7: system email failures (welcome, password reset, billing) show on /health
+    instead of only in the server log. Email addresses are removed."""
+    try:
+        _diag_note("email_failed", _EMAIL_ADDR_RE.sub("<email>", f"{(subject or '')[:60]} — {reason}"))
+    except Exception:
+        pass
 
 
 def extract_email_draft(text: str) -> Optional[Dict[str, str]]:
@@ -15753,6 +15814,19 @@ def _default_signup_plan() -> str:
 def register_get():
     _ref = (request.args.get("ref") or "").strip()
     if _ref: session["_ref_code"] = _ref
+    # V19.7: a returning customer who resubscribed while signed in gets the new seat
+    # on their existing account (works even when new sign-ups are switched off).
+    _rs = (request.args.get("stripe_session") or "").strip()
+    _cu = current_user()
+    _cu_name = ((_cu.get("username") if isinstance(_cu, dict) else None) or "") if _cu else ""
+    if _rs and _cu_name and _account_lapsed(_cu_name):
+        _code, _em = _stripe_session_code(_rs)
+        if _code and _claim_seat_code(_code, _cu_name):
+            try:
+                g._plan_cache = {}
+            except Exception:
+                pass
+            return redirect("/")
     allow = _signup_enabled()
     if not allow:
         return redirect(url_for("login"))
@@ -16124,6 +16198,38 @@ def verify_resend():
         pass
     return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
         email=rec.get("email",""), error=None)
+
+
+@app.get("/subscription-ended")
+def subscription_ended_page():
+    """V19.7: where a cancelled or unpaid account lands. Their data is kept."""
+    u = current_user()
+    if not u:
+        return redirect(url_for("login"))
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    if not _account_lapsed(uname):
+        return redirect("/")
+    html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Subscription ended · {_html_escape(APP_TITLE)}</title>
+<style>
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f1a;color:#e2e8f0;
+font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;box-sizing:border-box}}
+.card{{max-width:480px;width:100%;background:#121829;border:1px solid #26304a;border-radius:16px;padding:32px;box-shadow:0 10px 30px rgba(0,0,0,.35)}}
+h1{{font-size:calc(24px * var(--fs,1.1));margin:0 0 12px}}
+p{{font-size:calc(16px * var(--fs,1.1));line-height:1.55;color:#aab8cc;margin:0 0 14px}}
+a.btn{{display:block;text-align:center;background:#7c3aed;color:#fff;text-decoration:none;font-weight:700;padding:14px;border-radius:10px;
+font-size:calc(16px * var(--fs,1.1));margin-top:20px}}
+a.out{{display:block;text-align:center;color:#94a3b8;margin-top:14px;font-size:calc(14px * var(--fs,1.1))}}
+</style></head><body><div class="card">
+<h1>Your subscription has ended</h1>
+<p>Your access to {_html_escape(APP_TITLE)} is paused because your subscription was cancelled or a payment didn't go through.</p>
+<p>Your teammates, contacts and content are saved for 30 days. Pick a plan to pick up right where you left off.</p>
+<a class="btn" href="/pricing">Choose a plan</a>
+<a class="out" href="/logout">Sign out</a>
+</div></body></html>"""
+    resp = make_response(html)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/logout")
@@ -16567,6 +16673,20 @@ Need help? Just reply to this email.
                         seats[code]["plan"]      = new_plan
                         seats[code]["plan_name"] = PLANS[new_plan].get("name", "")
                         changed = True
+                    # V19.7: Stripe gave up on payment → access ends; paid again → it returns.
+                    # "past_due" (Stripe still retrying the card) keeps access as a grace period.
+                    if event.get("type") == "customer.subscription.updated":
+                        sub_status = str(obj2.get("status") or "")
+                        if sub_status in ("unpaid", "canceled", "incomplete_expired") and seat.get("status") != "cancelled":
+                            if seat.get("status") != "inactive":
+                                seats[code]["status"] = "inactive"
+                                seats[code]["inactive_reason"] = f"stripe_{sub_status}"
+                                changed = True
+                        elif sub_status in ("active", "trialing") and seat.get("status") == "inactive" \
+                                and str(seat.get("inactive_reason") or "").startswith("stripe_"):
+                            seats[code]["status"] = "used" if seat.get("claimed_by") else "active"
+                            seats[code].pop("inactive_reason", None)
+                            changed = True
                     if seat.get("trial_active"):
                         seats[code]["trial_active"] = False
                         changed = True
@@ -16741,6 +16861,8 @@ def reset_post():
                 append_log("reset_token_email_failed", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
         else:
             # No email on file or SMTP not configured — store hashed token for admin retrieval, never expose
+            if user_email:
+                _email_fail_note("Password reset", "server email isn't set up (SMTP_USER / SMTP_PASS missing)")
             _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
             append_log("reset_token_no_email", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
 
@@ -33449,7 +33571,7 @@ def _ext_authenticate(request_obj) -> Optional[str]:
     for uname, urec in (load_users().get("users") or {}).items():
         stored = (urec.get("settings") or {}).get("extension_api_key", "")
         if stored and hmac.compare_digest(stored, key):
-            return uname
+            return None if _account_lapsed(uname) else uname   # V19.7: lapsed keys stop working
     return None
 
 
