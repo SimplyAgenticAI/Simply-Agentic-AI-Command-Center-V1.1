@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.1")
+APP_VERSION = os.getenv("APP_VERSION", "19.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -1069,6 +1069,14 @@ def _get_user_plan(username: str) -> str:
                 cache[username] = result
             return result
         seats = (_load_seats().get("seats") or {})
+        own_seat = any(s.get("claimed_by") == username for s in seats.values())
+        _owner = (urec.get("team_owner") or "").strip()
+        if not own_seat and _owner and _owner != username and (users.get(_owner) or {}).get("team_owner") != username:
+            # V19.2: invited team members get their owner's plan (they used to fall to Solo).
+            result = _get_user_plan(_owner)
+            if cache is not None:
+                cache[username] = result
+            return result
         for seat in seats.values():
             if seat.get("claimed_by") == username:
                 if seat.get("status") in ("cancelled", "inactive"):
@@ -2164,16 +2172,35 @@ def _generate_seat_for_stripe(email: str, customer_id: str, session_id: str, nam
     return code
 
 
-def _plan_from_stripe_session(session_id: str) -> str:
-    """Which plan a checkout bought, from its price (falls back to solo)."""
+def _plan_for_price(price_id: str) -> str:
+    """The public plan key whose Stripe price is `price_id`, or "" if none."""
+    for pk, pv in PLANS.items():
+        if price_id and not pv.get("hidden") and pv.get("price_id") == price_id:
+            return pk
+    return ""
+
+
+def _plan_from_stripe_session(session_id: str, session_obj: Optional[Dict[str, Any]] = None) -> str:
+    """Which plan a checkout bought: its price first, then the plan we stamped on the
+    session at checkout (V19.2). Solo only when both are unknown, and that is logged."""
+    _sd: Dict[str, Any] = {}
     try:
         _st, _sd = _stripe_api("GET", f"/checkout/sessions/{session_id}", {"expand[]": "line_items"})
         price = ((_sd.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
     except Exception:
         price = ""
-    for pk, pv in PLANS.items():
-        if price and pv.get("price_id") == price:
-            return pk
+    plan = _plan_for_price(price)
+    if plan:
+        return plan
+    for src in (_sd or {}, session_obj or {}):
+        raw = str(((src.get("metadata") or {}).get("plan")) or "").strip()
+        meta = _normalize_plan_key(raw) if raw else ""
+        if meta in PLANS and not PLANS[meta].get("hidden"):
+            return meta
+    try:
+        _diag_note("stripe_plan_unknown", f"session {session_id[:14]}… price {price or 'none'}: defaulted to solo")
+    except Exception:
+        pass
     return "solo"
 
 def _stripe_session_code(stripe_session_id: str) -> Tuple[str, str]:
@@ -2202,7 +2229,7 @@ def _stripe_session_code(stripe_session_id: str) -> Tuple[str, str]:
     # before the webhook lands got a "solo" seat whatever they paid for.
     code = _generate_seat_for_stripe(email, customer_id, stripe_session_id,
                                      name=((data.get("customer_details") or {}).get("name") or ""),
-                                     plan=_plan_from_stripe_session(stripe_session_id))
+                                     plan=_plan_from_stripe_session(stripe_session_id, data))
     return code, email
 
 def _load_or_create_secret() -> str:
@@ -16298,6 +16325,7 @@ def stripe_create_checkout():
         "allow_promotion_codes":   "true",
         "success_url":             success_url,
         "cancel_url":              cancel_url,
+        "metadata[plan]":          plan_key,   # backup if the price lookup fails later (V19.2)
     }
     # Attach free trial to subscription mode checkouts
     if FREE_TRIAL_DAYS > 0 and STRIPE_MODE == "subscription":
@@ -16383,14 +16411,12 @@ def stripe_webhook():
         email       = (details.get("email") or obj.get("customer_email") or "")
         name        = (details.get("name") or "").strip()
         # Detect plan from the price ID — must expand line_items via API (not in webhook payload)
-        plan = _plan_from_stripe_session(session_id) if (session_id and STRIPE_SECRET_KEY) else "solo"
-        if plan == "solo":
-            # Fallback: line items on the raw object, if Stripe included them
-            try:
-                paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
-                plan = next((pk for pk, pv in PLANS.items() if paid_price and pv.get("price_id") == paid_price), "solo")
-            except Exception:
-                pass
+        try:
+            paid_price = ((obj.get("line_items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
+        except Exception:
+            paid_price = ""
+        plan = _plan_for_price(paid_price) or (
+            _plan_from_stripe_session(session_id, obj) if session_id else "solo")
         if session_id:
             _generate_seat_for_stripe(email, customer_id, session_id, name=name, plan=plan)
 
@@ -16524,8 +16550,22 @@ Need help? Just reply to this email.
                 data  = _load_seats()
                 seats = data.get("seats") or {}
                 changed = False
+                # V19.2: a plan switch in Stripe's billing page now changes the plan here too.
+                new_plan = ""
+                if event.get("type") == "customer.subscription.updated":
+                    try:
+                        _items = ((obj2.get("items") or {}).get("data") or [{}])
+                        new_plan = _plan_for_price(((_items[0] or {}).get("price") or {}).get("id", ""))
+                    except Exception:
+                        new_plan = ""
                 for code, seat in seats.items():
-                    if seat.get("stripe_customer_id") == customer_id and seat.get("trial_active"):
+                    if seat.get("stripe_customer_id") != customer_id:
+                        continue
+                    if new_plan and _normalize_plan_key(seat.get("plan") or "") != new_plan:
+                        seats[code]["plan"]      = new_plan
+                        seats[code]["plan_name"] = PLANS[new_plan].get("name", "")
+                        changed = True
+                    if seat.get("trial_active"):
                         seats[code]["trial_active"] = False
                         changed = True
                 if changed:

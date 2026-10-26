@@ -15980,14 +15980,7 @@ $("draftWithSelected").onclick = async () => {
     $("cancelCreate").onclick = () => hideModal();
 
     $("saveCreate").onclick = async () => {
-      // Enforce 7-custom-teammate cap on the frontend before hitting the server
-      const _BUILTINS_SET = new Set(["Alex","Willow","Ava","Luna","Orion","Sunshine","Atlis"]);
-      const _inst = (state && state.installed) ? state.installed : {};
-      const _customCount = Object.keys(_inst).filter(n => !_BUILTINS_SET.has(n)).length;
-      if (_customCount >= 7) {
-        $("createStatus").innerHTML = "You've reached the 7 custom teammate limit on your plan. <a href='/pricing' style='color:#c4b5fd;'>Upgrade to Teams</a> for unlimited custom teammates.";
-        return;
-      }
+      // The server enforces the custom teammate limit and explains it (V19.2).
 
       $("createStatus").innerText = "Creating...";
 
@@ -16641,7 +16634,8 @@ $("draftWithSelected").onclick = async () => {
             const planKey = meData.user.plan || "solo";
             const planNames = {
               "founder": {label:"🔥 Founder Access", price:"$27/mo"},
-              "solo":    {label:"Solo Operator",     price:"$47/mo"},
+              "founder_classic": {label:"🔥 Founder Access", price:"$27/mo"},
+              "solo":   {label:"Solo Operator",     price:"$47/mo"},
               "teams":   {label:"Teams",             price:"$127/mo"},
               // legacy aliases
               "starter": {label:"Solo Operator",     price:"$47/mo"},
