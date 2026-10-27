@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.7")
+APP_VERSION = os.getenv("APP_VERSION", "19.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -19291,26 +19291,31 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
         'Return JSON only, no explanation.'
     )
 
-    # Try with web search tool first (gpt-4o supports this)
-    try:
-        resp = client.chat.completions.create(
-            model='gpt-4o',
-            messages=[{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
-            tools=[{"type": "web_search_preview"}],
-            temperature=0.1,
-            timeout=45,
-        )
-    except Exception:
-        # Fall back to gpt-4o-mini without web search tool
+    # V19.8: web search runs through the Responses API. The old call passed the
+    # web-search tool to Chat Completions, which rejects it, then silently fell back
+    # to a model with NO web access that invented businesses and emails from memory
+    # ("Doe Real Estate, jane@doerealestate.com"). There is no no-web fallback now:
+    # if real search fails we return nothing and the Bing/DuckDuckGo search runs.
+    resp = None
+    _last_err = None
+    for _tool in ("web_search", "web_search_preview"):
         try:
-            resp = client.chat.completions.create(
-                model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o-mini'),
-                messages=[{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
-                temperature=0.1,
-                timeout=45,
+            resp = client.responses.create(
+                model=os.getenv('LEAD_LAB_WEB_MODEL', 'gpt-4o'),
+                instructions=system,
+                input=user,
+                tools=[{"type": _tool}],
+                timeout=60,
             )
+            break
+        except Exception as e:
+            _last_err = e
+    if resp is None:
+        try:
+            _diag_note("lead_web_search", f"{type(_last_err).__name__}: {_last_err}")
         except Exception:
-            return []
+            pass
+        return []
 
     txt = _crm_response_text(resp)
     raw = _crm_extract_json_block(txt)
@@ -19351,9 +19356,51 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
             'company_hint': (row.get('company') or '').strip(),
             'phone_hint': phone,
             'email_hint': email,
+            'from_ai': True,
         })
         if len(out) >= max_results:
             break
+    return _crm_verify_ai_rows(out)
+
+
+def _crm_verify_ai_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """V19.8: never trust contact details an AI wrote. Open each business's real
+    website: drop the row if the site doesn't load, and keep an email or phone only
+    if it actually appears on the site (any email found there is used instead)."""
+    def check(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        pages = _crm_fetch_contact_pages(row.get("domain") or "", timeout=6)
+        if not pages:
+            return None                               # site doesn't exist / won't load
+        text = " ".join(html for html, _u in pages)
+        found = list(_crm_extract_emails_from_text(text))
+        for html, u in pages:
+            try:
+                found += _crm_find_contact_links(html, u)[1]
+            except Exception:
+                pass
+        found = [e.lower() for e in found]
+        ai_email = (row.get("email_hint") or "").lower()
+        if ai_email and ai_email in found:
+            row["email_hint"] = ai_email
+        else:
+            dom = row.get("domain") or ""
+            own = [e for e in found if e.endswith("@" + dom) or e.endswith("." + dom)]
+            row["email_hint"] = (own or found or [""])[0]
+        digits = re.sub(r"\D", "", text)
+        ph = re.sub(r"\D", "", row.get("phone_hint") or "")
+        if ph and ph[-10:] not in digits:
+            phones = _crm_extract_phones_from_text(text)
+            row["phone_hint"] = _crm_clean_phone(phones[0]) if phones else ""
+        row["verified_on_site"] = True
+        return row
+    out: List[Dict[str, Any]] = []
+    try:
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            for res in ex.map(check, rows[:12], timeout=40):
+                if res:
+                    out.append(res)
+    except Exception as e:
+        _capture_error(e, context="verify_ai_rows")
     return out
 
 
@@ -19618,10 +19665,7 @@ def _crm_merge_email_candidates(public_emails: List[str], name: str, domain: str
         if e not in seen:
             seen.add(e)
             out.append({"email": e, "confidence": 0.97, "status": "public"})
-    for row in _crm_email_candidates(name, domain):
-        if row.get("email") not in seen:
-            seen.add(row.get("email"))
-            out.append(row)
+    # V19.8: guessed addresses (first@, info@, hello@…) are no longer added — they bounce.
     return out[:5]
 
 
@@ -20127,7 +20171,7 @@ def _crm_fallback_candidate_from_result(result: Dict[str, str], niche: str, loca
         "website": result.get("url") or (f"https://{domain}"),
         "phone": "",
         "email": "",
-        "email_candidates": _crm_email_candidates(name or company or domain, domain),
+        "email_candidates": [],        # V19.8: no guessed addresses
         "niche_hit": True,
         "location_hit": bool(location),
         "notes": notes,
@@ -20204,7 +20248,7 @@ def _crm_discover_public_leads(niche: str, location: str, lead_count: int, searc
             return False
         has_phone = bool((item.get('phone') or '').strip())
         public_email = bool((item.get('email') or '').strip())
-        any_email = public_email or bool(item.get('email_candidates') or [])
+        any_email = public_email       # V19.8: only an email actually found counts
         if require_contact == 'phone' and not has_phone:
             return False
         if require_contact == 'email' and not any_email:
@@ -27070,7 +27114,7 @@ _TEAMMATE_TOOL_DEFS: List[Dict[str, Any]] = [
          "query": {"type": "string", "description": "Name, email, or company to search for."}},
          "required": ["query"]}},
     {"name": "crm_add_client", "risk": "auto", "executor": _tool_crm_add_client,
-     "description": "Add a new contact/lead to the operator's CRM.",
+     "description": "Add a new contact/lead to the operator's CRM. Only fill in an email or phone the operator gave you or that a tool result returned word for word — never guess, construct or 'fill in' an address (e.g. first@company.com); leave it blank instead.",
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string"}, "email": {"type": "string"}, "company": {"type": "string"},
          "phone": {"type": "string"}, "notes": {"type": "string"},
