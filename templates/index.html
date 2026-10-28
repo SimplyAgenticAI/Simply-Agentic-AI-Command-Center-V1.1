@@ -34043,19 +34043,44 @@ function _saEsc(s){
     document.getElementById('stInboxH').textContent = '📥 Inbox' + (items.length ? ' (' + items.length + ' to handle)' : '');
     var sb = document.getElementById('stInboxScan');
     sb.disabled = !!d.scanning; sb.textContent = d.scanning ? 'Checking…' : '↻ Check inbox now';
-    if(_ibWasScanning && !d.scanning){ var lc = d.last_counts || {}; toast('📥 Inbox checked: ' + (lc.new || 0) + ' new to handle' + (c.hot ? ' · ' + c.hot + ' hot' : ''), 'success'); loadAgent(); }
+    if(_ibWasScanning && !d.scanning){ var lc0 = d.last_counts || {}; toast('📥 Inbox checked: ' + (lc0.sorted || 0) + ' sorted onto your list' + (c.hot ? ' · ' + c.hot + ' hot' : ''), 'success'); loadAgent(); }
     _ibWasScanning = !!d.scanning;
     if(d.scanning && !_ibFast) _ibFast = setInterval(loadInbox, 2500);
     if(!d.scanning && _ibFast){ clearInterval(_ibFast); _ibFast = null; }
     var tb = document.getElementById('stTeamBadge');
     if(tb && !tb.textContent && c.hot) tb.textContent = '📥 ' + c.hot + ' hot';
+    var left = d.left_out || [];
     var chips = [['new', 'All (' + items.length + ')'], ['hot', IB_LABEL.hot + ' (' + (c.hot || 0) + ')'],
-                 ['warm', IB_LABEL.warm + ' (' + (c.warm || 0) + ')'], ['low', IB_LABEL.low + ' (' + (c.low || 0) + ')'], ['handled', '✓ Handled']];
-    document.getElementById('stInboxFilters').innerHTML = items.length || (d.done || []).length ? '<div class="st-tpls" style="margin:0 0 8px;">' + chips.map(function(x){
-      return '<button class="ib-chip' + (_ibFilter === x[0] ? ' on' : '') + '" onclick="saInboxFilter(\'' + x[0] + '\')">' + esc(x[1]) + '</button>'; }).join('') + '</div>' : '';
-    var list = _ibFilter === 'handled' ? (d.done || []) : items.filter(function(x){ return _ibFilter === 'new' || x.priority === _ibFilter; });
+                 ['warm', IB_LABEL.warm + ' (' + (c.warm || 0) + ')'], ['low', IB_LABEL.low + ' (' + (c.low || 0) + ')'],
+                 ['handled', '✓ Handled'], ['left', '🙈 Left out (' + left.length + ')']];
+    // V20.7: the last check's result stays on screen (it used to flash by in a pop-up)
+    var lc = d.last_counts || {}, resultLine = '';
+    if(d.last_scan && lc.read !== undefined){
+      resultLine = '<div class="st-ms-res" style="margin:0 0 8px;">📊 Last check (' + esc(_ago(d.last_scan)) + '): read ' + (lc.read || 0) + ' emails' +
+        (lc.new_emails !== undefined ? ', ' + lc.new_emails + ' new since the check before' : '') + '. Sorted <b>' + (lc.sorted || 0) + '</b> onto your list' +
+        ((lc.answered || lc.automated || lc.not_relevant) ? '; left out ' + (lc.answered || 0) + ' you already replied to, ' + (lc.automated || 0) +
+          ' automated, ' + (lc.not_relevant || 0) + ' not worth acting on' : '') + '.</div>';
+    }
+    document.getElementById('stInboxFilters').innerHTML = resultLine + (items.length || (d.done || []).length || left.length ? '<div class="st-tpls" style="margin:0 0 8px;">' + chips.map(function(x){
+      return '<button class="ib-chip' + (_ibFilter === x[0] ? ' on' : '') + '" onclick="saInboxFilter(\'' + x[0] + '\')">' + esc(x[1]) + '</button>'; }).join('') + '</div>' : '');
     var html = '';
     if(d.scanning) html += '<div class="st-ms-live" style="margin-bottom:8px;"><b class="st-ms-dots">Willow is reading your inbox</b></div>';
+    if(_ibFilter === 'left'){
+      html += left.length ? '<div class="st-sub" style="margin-bottom:6px;">These weren\'t put on your list. If one matters, press ⭐ This matters and it moves onto your list.</div>' +
+        left.map(function(x){
+          return '<div class="st-ms ib-low" data-ib="' + esc(x.id) + '"><div class="st-ms-top"><span class="ib-from">' + esc(x.from_name || x.from_email) + '</span>' +
+            '<span class="st-sub">' + esc(x.from_name ? x.from_email : '') + ' · ' + esc(x.date || '') + '</span></div>' +
+            '<div class="ib-subj">' + esc(x.subject || '(no subject)') + '</div>' +
+            '<div class="st-ms-meta">Left out because: ' + esc(x.reason || '') + '</div>' +
+            '<div class="ib-body" style="display:' + (_ibOpen[x.id] ? '' : 'none') + ';">' + esc(x.text || '') + '</div>' +
+            '<div class="ib-acts"><button class="st-btn pri" onclick="saInboxAct(\'' + esc(x.id) + '\',\'rescue\',this)">⭐ This matters</button>' +
+            '<button class="st-btn" onclick="saInboxToggle(\'' + esc(x.id) + '\')">✉ ' + (_ibOpen[x.id] ? 'Hide' : 'Read') + ' email</button>' +
+            (x.link ? '<a class="st-btn" href="' + esc(x.link) + '" target="_blank" rel="noopener">Open in Gmail ↗</a>' : '') + '</div></div>';
+        }).join('') : '<div class="st-empty">Nothing left out.</div>';
+      document.getElementById('stInbox').innerHTML = html;
+      return;
+    }
+    var list = _ibFilter === 'handled' ? (d.done || []) : items.filter(function(x){ return _ibFilter === 'new' || x.priority === _ibFilter; });
     if(!list.length){
       html += '<div class="st-empty">' + (!d.connected ? 'Connect your inbox in Settings → 📥 Inbox (read-only).' :
         _ibFilter === 'handled' ? 'Nothing handled yet.' : (d.last_scan ? 'Nothing waiting here. 🎉' : 'Press “Check inbox now” and Willow will sort your unanswered emails.')) + '</div>';
@@ -34099,7 +34124,7 @@ function _saEsc(s){
       var d = await agentPost('/api/inbox/opportunities/' + encodeURIComponent(id) + '/' + action, {});
       if(!d.ok) throw new Error(d.error || d.summary || 'Could not do that');
       toast({contact:'👤 ' + (d.summary || 'Added to contacts'), remind:'⏰ Reminder added for tomorrow', done:'✓ Marked done',
-             dismiss:'Dismissed', reopen:'↩ Back on your list'}[action] || '✓ Done');
+             dismiss:'Dismissed', reopen:'↩ Back on your list', rescue:'⭐ Moved onto your list'}[action] || '✓ Done');
       if(action === 'contact' || action === 'remind'){ btn.textContent = action === 'contact' ? '✓ In contacts' : '✓ Reminder set'; return; }
       loadInbox();
     }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; }

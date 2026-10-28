@@ -92,7 +92,9 @@ def test_triage_builds_sorted_worklist_and_drafts_hot(flask_app, monkeypatch):
     try:
         res = app_module._inbox_triage(name, 100)
         assert res["ok"] and res["new"] == 2 and res["hot"] == 1 and res["drafted"] == 1
-        assert fake_llm.classified == 2              # newsletter, no-reply, answered and own mail never reach the AI
+        # V20.7: a mailing-service email is judged by Willow (not dropped blind); no-reply,
+        # already-answered and own mail never reach the AI
+        assert fake_llm.classified == 3
         c, h = _client(flask_app, name)
         d = c.get("/api/inbox/opportunities").get_json()
         assert [x["from_email"] for x in d["items"]] == ["pat@leeco.com", "ann@shop.com"]   # hot first
@@ -101,9 +103,60 @@ def test_triage_builds_sorted_worklist_and_drafts_hot(flask_app, monkeypatch):
         assert pat["link"].startswith("https://mail.google.com/mail/u/0/#search/rfc822msgid%3Apat-1%40leeco.com")
         appr = next(a for a in app_module._agent_load(name)["approvals"] if a.get("inbox_id") == pat["id"])
         assert appr["kind"] == "inbox_reply" and appr["to"] == "pat@leeco.com" and appr["status"] == "pending"
+        # nothing vanishes: everything not on the list is under Left out, with a reason
+        left = {x["from_email"]: x["reason"] for x in d["left_out"]}
+        assert left["news@deals.com"].startswith("Willow:")
+        assert left["no-reply@bank.com"].startswith("Automated")
+        assert left["old@client.com"] == "You already replied"
+        assert d["last_counts"]["sorted"] == 2 and d["last_counts"]["answered"] == 1
+        # "This matters" moves one onto the list
+        nid = next(x["id"] for x in d["left_out"] if x["from_email"] == "news@deals.com")
+        assert c.post(f"/api/inbox/opportunities/{nid}/rescue", headers=h).get_json()["ok"]
+        assert "news@deals.com" in [x["from_email"] for x in c.get("/api/inbox/opportunities").get_json()["items"]]
         # a second scan doesn't re-sort or re-add anything already seen
         again = app_module._inbox_triage(name, 100)
-        assert again["new"] == 0 and fake_llm.classified == 2
+        assert again["new"] == 0 and fake_llm.classified == 3
+    finally:
+        _drop(name)
+
+
+class FakeIMAPWithSent(FakeIMAP):
+    """Ann's thread was answered from the Sent folder (no \\Answered flag on her email),
+    and Pat was emailed after his message arrived."""
+    box = "INBOX"
+    SENT = {b"91": b"To: ann@shop.com\r\nIn-Reply-To: <ann-1@shop.com>\r\nDate: Tue, 27 Oct 2026 09:00:00 +0000\r\n\r\n",
+            b"92": b"To: Pat <pat@leeco.com>\r\nDate: Mon, 26 Oct 2026 12:00:00 +0000\r\n\r\n"}
+
+    def list(self):
+        return "OK", [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\Sent) "/" "[Gmail]/Sent Mail"']
+
+    def select(self, box, readonly=False):
+        assert readonly is True
+        FakeIMAPWithSent.box = box
+        return "OK", [b"1"]
+
+    def uid(self, cmd, *args):
+        if FakeIMAPWithSent.box == '"[Gmail]/Sent Mail"':
+            if cmd == "search":
+                return "OK", [b"91 92"]
+            assert "BODY.PEEK[HEADER.FIELDS" in args[1]
+            return "OK", [(k + b" (BODY[HEADER.FIELDS] {1}", v) for k, v in self.SENT.items()] + [b")"]
+        return FakeIMAP.uid(self, cmd, *args)
+
+
+def test_sent_folder_counts_as_replied(monkeypatch):
+    name = "ibsent"
+    _setup(monkeypatch, name)
+    import imaplib
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeIMAPWithSent)
+    try:
+        ok, emails = app_module._inbox_fetch(name, 100)
+        by = {e["from_email"]: e for e in emails}
+        assert ok and by["ann@shop.com"]["answered"] is True        # replied in the thread
+        assert by["pat@leeco.com"]["answered"] is True              # emailed him after his message
+        assert by["news@deals.com"]["answered"] is False
+        ok, unanswered = app_module._inbox_fetch(name, 100, unanswered_only=True)
+        assert "ann@shop.com" not in [e["from_email"] for e in unanswered]
     finally:
         _drop(name)
 

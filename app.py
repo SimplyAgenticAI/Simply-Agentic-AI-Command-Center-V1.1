@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "20.6")
+APP_VERSION = os.getenv("APP_VERSION", "20.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -6850,8 +6850,6 @@ def _inbox_fetch(uname: str, count: int = 50, unanswered_only: bool = False) -> 
                 continue
             flags = (msgdata[0][0] or b"").decode("utf-8", "replace")
             answered = "\\Answered" in flags
-            if unanswered_only and answered:
-                continue
             raw = msgdata[0][1] or b""
             if len(raw) > 2_000_000:
                 raw = raw[:2_000_000]
@@ -6863,18 +6861,27 @@ def _inbox_fetch(uname: str, count: int = 50, unanswered_only: bool = False) -> 
                     return str(msg.get(k) or "")[:300]
             name, addr = parseaddr(hdr("From"))
             try:
-                when = parsedate_to_datetime(msg.get("Date")).strftime("%Y-%m-%d %H:%M")
+                dt = parsedate_to_datetime(msg.get("Date"))
+                when = dt.strftime("%Y-%m-%d %H:%M")
             except Exception:
-                when = ""
-            # Automated mail, spotted without AI: newsletters, receipts, alerts, no-reply senders
+                dt, when = None, ""
+            # V20.7: only OBVIOUS machine mail is dropped without AI (no-reply senders, auto-replies,
+            # junk). An unsubscribe link alone is just a hint: real people email through platforms
+            # (marketplaces, booking tools) that add one, so those go to Willow to judge.
             prec = str(msg.get("Precedence") or "").lower()
-            auto = bool(msg.get("List-Unsubscribe") or msg.get("List-Id") or prec in ("bulk", "list", "junk")
-                        or str(msg.get("Auto-Submitted") or "no").lower() not in ("", "no")
-                        or _INBOX_AUTO_FROM.search(addr or ""))
+            auto_reason = ("sent from a no-reply / notification address" if _INBOX_AUTO_FROM.search(addr or "")
+                           else "an automatic message" if str(msg.get("Auto-Submitted") or "no").lower() not in ("", "no")
+                           else "marked as junk" if prec == "junk" else "")
+            bulk = bool(msg.get("List-Unsubscribe") or msg.get("List-Id") or prec in ("bulk", "list"))
             out.append({"from_name": name[:120], "from_email": (addr or "").lower()[:200], "subject": hdr("Subject"),
-                        "date": when, "answered": answered, "seen": "\\Seen" in flags, "text": _inbox_text(msg),
-                        "message_id": str(msg.get("Message-ID") or "").strip()[:300], "auto": auto,
-                        "provider": creds.get("provider", "")})
+                        "date": when, "_dt": dt, "answered": answered, "seen": "\\Seen" in flags, "text": _inbox_text(msg),
+                        "message_id": str(msg.get("Message-ID") or "").strip()[:300], "auto": bool(auto_reason),
+                        "auto_reason": auto_reason, "bulk": bulk, "provider": creds.get("provider", "")})
+        _inbox_mark_replied(conn, out)                     # V20.7: check the Sent folder too
+        for e in out:
+            e.pop("_dt", None)
+        if unanswered_only:
+            out = [e for e in out if not e["answered"]]
     except Exception as e:
         _capture_error(e, context="inbox_fetch")
         return False, f"Reading your inbox failed: {str(e)[:120]}"
@@ -6884,6 +6891,84 @@ def _inbox_fetch(uname: str, count: int = 50, unanswered_only: bool = False) -> 
         except Exception:
             pass
     return True, out
+
+
+INBOX_SENT_SCAN = 300
+
+
+def _inbox_sent_box(conn) -> str:
+    """Name of the Sent folder (RFC 6154 \\Sent flag, else common names), quoted for SELECT."""
+    try:
+        typ, rows = conn.list()
+        names = []
+        for r in (rows or []):
+            line = r.decode("utf-8", "replace") if isinstance(r, bytes) else str(r)
+            m = re.search(r'"([^"]+)"\s*$', line) or re.search(r"(\S+)\s*$", line)
+            if not m:
+                continue
+            if "\\Sent" in line:
+                return '"' + m.group(1) + '"'
+            names.append(m.group(1))
+        for cand in ("[Gmail]/Sent Mail", "Sent Items", "Sent Messages", "Sent", "INBOX.Sent"):
+            if cand in names:
+                return '"' + cand + '"'
+    except Exception:
+        pass
+    return ""
+
+
+def _inbox_mark_replied(conn, emails: List[Dict[str, Any]]) -> None:
+    """V20.7: Gmail often doesn't flag an email as answered (replies from a phone or
+    another thread). Read the HEADERS of recent sent mail (read-only) and count an email
+    as answered if a sent message replies in its thread, or the owner emailed that
+    person after it arrived."""
+    import email as _email
+    from email.utils import getaddresses, parsedate_to_datetime
+    box = _inbox_sent_box(conn)
+    if not box or not emails:
+        return
+    try:
+        typ, _ = conn.select(box, readonly=True)
+        if typ != "OK":
+            return
+        typ, data = conn.uid("search", None, "ALL")
+        uids = (data[0] or b"").split()[-INBOX_SENT_SCAN:] if typ == "OK" else []
+        if not uids:
+            return
+        typ, rows = conn.uid("fetch", b",".join(uids), "(BODY.PEEK[HEADER.FIELDS (TO CC IN-REPLY-TO REFERENCES DATE)])")
+        replied_ids, last_to = set(), {}
+        for r in (rows or []):
+            if not isinstance(r, tuple):
+                continue
+            h = _email.message_from_bytes(r[1] or b"")
+            for tok in re.findall(r"<[^>]+>", str(h.get("In-Reply-To") or "") + " " + str(h.get("References") or "")):
+                replied_ids.add(tok.strip().lower())
+            try:
+                sdt = parsedate_to_datetime(h.get("Date"))
+            except Exception:
+                sdt = None
+            for _n, a in getaddresses([str(h.get("To") or ""), str(h.get("Cc") or "")]):
+                a = (a or "").lower()
+                if a and sdt and (a not in last_to or sdt > last_to[a]):
+                    last_to[a] = sdt
+        for e in emails:
+            if e["answered"]:
+                continue
+            if str(e.get("message_id") or "").strip().lower() in replied_ids:
+                e["answered"] = True
+                continue
+            sent_at, got_at = last_to.get(e.get("from_email") or ""), e.get("_dt")
+            try:
+                if sent_at and got_at and sent_at >= got_at:
+                    e["answered"] = True
+            except TypeError:                     # naive vs aware dates: compare as UTC
+                try:
+                    if sent_at.replace(tzinfo=None) >= got_at.replace(tzinfo=None):
+                        e["answered"] = True
+                except Exception:
+                    pass
+    except Exception as e:
+        _capture_error(e, context="inbox_sent_scan")
 
 
 def _tool_read_inbox(uname: str, teammate: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -7018,14 +7103,18 @@ def _inbox_classify(uname: str, emails: List[Dict[str, Any]]) -> Dict[int, Dict[
     for start in range(0, len(emails), 40):
         batch = emails[start:start + 40]
         rows = [{"i": start + j, "from": f"{e.get('from_name')} <{e.get('from_email')}>", "subject": e.get("subject"),
-                 "text": str(e.get("text") or "")[:400]} for j, e in enumerate(batch)]
+                 "via_mailing_service": bool(e.get("bulk")), "text": str(e.get("text") or "")[:400]}
+                for j, e in enumerate(batch)]
         prompt = (f"The owner's business: {op.get('business') or 'small business'}. Offers: {op.get('offers') or 'n/a'}. "
                   f"Sells to: {op.get('audience') or 'n/a'}.\n\nEmails:\n{json.dumps(rows, ensure_ascii=False)}\n\n"
                   "For EACH email return {\"i\", \"priority\", \"why\", \"next\"}. priority: \"hot\" = someone wants to buy, "
                   "book, get a quote, partner, invest or acquire, or a client/lead is waiting on the owner; \"warm\" = a real "
                   "person whose email deserves a reply (questions, warm leads gone quiet, useful contacts); \"low\" = real but "
                   "minor; \"skip\" = spam, cold sales pitches to the owner, personal chatter, or anything automated. "
-                  "why = one short sentence on why it matters; next = one short suggested next step. "
+                  "via_mailing_service=true means it came through a platform with an unsubscribe link: usually a "
+                  "newsletter or promo (low or skip), BUT a real person can write through a platform (a marketplace "
+                  "buyer, an acquisition inquiry, a booking or quote request) — judge the content, not the sender. "
+                  "why = one short sentence on why it matters (for skip: why it's left out); next = one short suggested next step. "
                   "Return {\"items\": [...]}.")
         try:
             raw = call_llm(system, [{"role": "user", "content": prompt}], temperature=0, model="gpt-4o-mini") or ""
@@ -7114,36 +7203,54 @@ def _inbox_triage(uname: str, count: int = 100, autodraft: bool = True) -> Dict[
         _inbox_store(d)["scan_started"] = now_iso()
         _agent_save(uname, d)
     try:
-        ok, res = _inbox_fetch(uname, count, unanswered_only=True)
+        ok, res = _inbox_fetch(uname, count, unanswered_only=False)
         if not ok:
             return {"ok": False, "summary": str(res)}
         mine = ((_inbox_creds(uname) or {}).get("email") or "").lower()
         with _AGENT_LOCK:
-            known = set(_inbox_store(_agent_load(uname))["items"].keys())
-        real = [e for e in res if not e.get("auto") and e.get("from_email") and e.get("from_email") != mine]
-        fresh = [e for e in real if _inbox_key(e) not in known]
-        ranks = _inbox_classify(uname, fresh) if fresh else {}
+            # Old-format "skipped" entries (V20.6 filtered too hard) get a fresh look.
+            known = {k for k, v in _inbox_store(_agent_load(uname))["items"].items() if v.get("status") != "skipped"}
+        theirs = [e for e in res if e.get("from_email") and e.get("from_email") != mine]
+        fresh = [e for e in theirs if _inbox_key(e) not in known]
+        answered = [e for e in fresh if e.get("answered")]
+        auto = [e for e in fresh if not e.get("answered") and e.get("auto")]
+        to_sort = [e for e in fresh if not e.get("answered") and not e.get("auto")]
+        ranks = _inbox_classify(uname, to_sort) if to_sort else {}
+
+        def card(e, **kw):
+            base = {"id": _inbox_key(e), "from_name": e.get("from_name"), "from_email": e.get("from_email"),
+                    "subject": e.get("subject"), "date": e.get("date"), "text": e.get("text"),
+                    "link": _inbox_link(e), "found_at": now_iso()}
+            base.update(kw)
+            return base
         added: List[Dict[str, Any]] = []
-        for i, e in enumerate(fresh):
+        left: List[Dict[str, Any]] = []
+        for e in answered:
+            left.append(card(e, status="left_out", reason="You already replied"))
+        for e in auto:
+            left.append(card(e, status="left_out", reason=f"Automated: {e.get('auto_reason')}"))
+        for i, e in enumerate(to_sort):
             r = ranks.get(i)
-            if not r or r["priority"] == "skip":
-                continue
-            added.append({"id": _inbox_key(e), "from_name": e.get("from_name"), "from_email": e.get("from_email"),
-                          "subject": e.get("subject"), "date": e.get("date"), "text": e.get("text"),
-                          "link": _inbox_link(e), "priority": r["priority"], "why": r["why"], "next": r["next"],
-                          "status": "new", "found_at": now_iso()})
+            if not r:
+                left.append(card(e, status="left_out", reason="Couldn't be sorted this time"))
+            elif r["priority"] == "skip":
+                left.append(card(e, status="left_out", reason="Willow: " + (r["why"] or "not something to act on")))
+            else:
+                added.append(card(e, priority=r["priority"], why=r["why"], next=r["next"], status="new"))
         with _AGENT_LOCK:
             d = _agent_load(uname)
             ib = _inbox_store(d)
-            for e in fresh:                          # remember skipped ones too, so they're not re-sorted
-                ib["items"].setdefault(_inbox_key(e), {"id": _inbox_key(e), "status": "skipped", "found_at": now_iso()})
-            for it in added:
+            for k in [k for k, v in ib["items"].items() if v.get("status") == "skipped"]:
+                ib["items"].pop(k, None)
+            for it in left + added:
                 ib["items"][it["id"]] = it
             if len(ib["items"]) > INBOX_KEEP:        # keep the newest
                 keep = sorted(ib["items"].values(), key=lambda x: str(x.get("found_at") or ""))[-INBOX_KEEP:]
                 ib["items"] = {x["id"]: x for x in keep}
             ib["last_scan"] = now_iso()
-            ib["last_counts"] = {"read": len(res), "real": len(real), "new": len(added)}
+            ib["last_counts"] = {"read": len(res), "new_emails": len(fresh), "sorted": len(added),
+                                 "answered": len(answered), "automated": len(auto),
+                                 "not_relevant": len(left) - len(answered) - len(auto)}
             _agent_save(uname, d)
         drafted = 0
         if autodraft:
@@ -7153,8 +7260,9 @@ def _inbox_triage(uname: str, count: int = 100, autodraft: bool = True) -> Dict[
         hot = sum(1 for x in added if x["priority"] == "hot")
         warm = sum(1 for x in added if x["priority"] == "warm")
         return {"ok": True, "read": len(res), "new": len(added), "hot": hot, "warm": warm, "drafted": drafted,
-                "summary": (f"Read {len(res)} unanswered emails, skipped {len(res) - len(real)} automated ones, and added "
-                            f"{len(added)} to your Inbox list: {hot} hot, {warm} worth a reply. "
+                "summary": (f"Checked {len(res)} emails ({len(fresh)} new since last time). Added {len(added)} to your Inbox "
+                            f"list: {hot} hot, {warm} worth a reply. Left out {len(left)} ({len(answered)} you already "
+                            f"replied to, {len(auto)} automated, the rest not worth acting on), all viewable under Left out. "
                             f"Drafted {drafted} replies for the hot ones (waiting in Ready for you).")}
     finally:
         with _AGENT_LOCK:
@@ -7185,7 +7293,9 @@ def api_inbox_opportunities():
     # newest first within each priority
     new.sort(key=lambda x: (order.get(x.get("priority"), 3), -int(re.sub(r"\D", "", str(x.get("date") or "0"))[:12] or 0)))
     done = [x for x in items if x.get("status") != "new"][:30]
-    return jsonify({"ok": True, "items": new, "done": done,
+    left = sorted([x for x in ib["items"].values() if x.get("status") == "left_out"],
+                  key=lambda x: (str(x.get("found_at") or ""), str(x.get("date") or "")), reverse=True)[:150]
+    return jsonify({"ok": True, "items": new, "done": done, "left_out": left,
                     "counts": {p: sum(1 for x in new if x.get("priority") == p) for p in INBOX_PRIORITIES},
                     "last_scan": ib.get("last_scan") or "", "last_counts": ib.get("last_counts") or {},
                     "scanning": bool(ib.get("scanning")),
@@ -7226,6 +7336,16 @@ def api_inbox_opportunity_action(oid: str, action: str):
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = u.get("username", "")
     it = dict(_inbox_store(_agent_load(uname))["items"].get(oid) or {})
+    if action == "rescue" and it.get("status") == "left_out":
+        # V20.7: "This matters" — the operator overrides the filter
+        with _AGENT_LOCK:
+            d = _agent_load(uname)
+            x = _inbox_store(d)["items"].get(oid)
+            if x:
+                x.update(status="new", priority="warm", why="You marked this as important.",
+                         next=x.get("next") or "Reply when you can.", rescued=True)
+                _agent_save(uname, d)
+        return jsonify({"ok": True})
     if not it or it.get("priority") not in INBOX_PRIORITIES:
         return jsonify({"ok": False, "error": "That email isn't on your list anymore."}), 404
     if action == "reply":
@@ -23761,7 +23881,9 @@ def api_agent_run_now(key: str):
 #               reading a web page) is stored server-side and runs on approval.
 # Each run is capped in rounds and counts against the plan's AI messages; a
 # mission pauses itself after MISSION_FAIL_PAUSE failed runs in a row.
-MISSION_LIMITS = {"founder": 3, "founder_classic": 3, "solo": 5, "teams": 15}
+# V20.7: generous — each run already counts against the plan's monthly AI messages,
+# which is the real cost control. These only stop a runaway account.
+MISSION_LIMITS = {"founder": 15, "founder_classic": 15, "solo": 25, "teams": 50}
 MISSION_MAX_ROUNDS = 6
 MISSION_MAX_HELD = 10                  # approvals one run may create
 MISSION_FAIL_PAUSE = 3
@@ -23799,7 +23921,7 @@ _MISSION_RULES = (
 
 
 def _mission_limit(uname: str) -> int:
-    return MISSION_LIMITS.get(_normalize_plan_key(_get_user_plan(uname)), 3)
+    return MISSION_LIMITS.get(_normalize_plan_key(_get_user_plan(uname)), 15)
 
 
 def _mission_teammates(uname: str) -> List[str]:

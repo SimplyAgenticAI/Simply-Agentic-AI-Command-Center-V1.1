@@ -70,6 +70,7 @@ def test_create_validate_and_plan_limit(flask_app, monkeypatch):
     name = "missionlimits"
     _user(name)
     monkeypatch.setattr(app_module, "_get_user_plan", lambda u: "founder")
+    monkeypatch.setitem(app_module.MISSION_LIMITS, "founder", 3)      # small limit keeps the test quick
     try:
         c, h = _client(flask_app, name)
         bad = c.post("/api/missions", headers=h, json=dict(MISSION, teammate="Nobody"))
