@@ -33746,6 +33746,7 @@ function _saEsc(s){
     </div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
+    <div class="st-sec" id="stWeekSec" style="display:none;"><div class="st-h"><span>📈 Your team this week</span></div><div id="stWeek"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
@@ -33906,7 +33907,35 @@ function _saEsc(s){
       if(d && d.ok) render(d);
     }catch(e){ toast('Could not load Today: '+e, 'error'); }
     loadAgent();
+    loadWeekly();
   }
+
+  // ── Your team this week (V20.2): counted from real records ──
+  async function loadWeekly(){
+    try{ var r = await fetch('/api/agent/weekly'); var w = await r.json(); if(w && w.ok) renderWeekly(w); }catch(_){}
+  }
+  function renderWeekly(w){
+    var sec = document.getElementById('stWeekSec'), box = document.getElementById('stWeek');
+    if(!sec) return;
+    sec.style.display = '';
+    var lines = w.lines || [], ms = w.missions || [];
+    var html = '';
+    if(!lines.length && !ms.length){
+      html = '<div class="st-empty">Nothing yet in the last 7 days. Set up a Mission and your team\'s work will add up here.</div>';
+    } else {
+      if(w.hours_saved) html += '<div style="font-size:calc(22px * var(--fs,1.1));font-weight:800;color:#6ee7b7;margin:2px 0 6px;">≈ ' + esc(w.hours_saved) + ' hours of work <span class="st-sub" style="font-weight:600;">(rough estimate)</span></div>';
+      html += lines.map(function(x){ return '<div class="st-ms-step" style="color:#e2e8f0;">' + esc(x) + '</div>'; }).join('');
+      if(ms.length) html += '<div class="st-sub" style="margin-top:8px;font-weight:700;color:#c4b5fd;">🎯 Missions</div>' + ms.map(function(x){ return '<div class="st-ms-step" style="color:#e2e8f0;">' + esc(x) + '</div>'; }).join('');
+      if(w.waiting) html += '<div class="st-sub" style="margin-top:8px;">' + w.waiting + ' waiting for your OK above.</div>';
+    }
+    html += '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;">' +
+      '<input type="checkbox" ' + (w.weekly_email ? 'checked' : '') + ' onchange="saWeeklyEmail(this.checked)" style="width:18px;height:18px;accent-color:#8b5cf6;"> Email me this every Monday morning</label>';
+    box.innerHTML = html;
+  }
+  window.saWeeklyEmail = async function(on){
+    var d = await agentPost('/api/agent/settings', {weekly_email: !!on});
+    if(d.ok) toast(on ? '📈 You\'ll get your team\'s week every Monday' : 'Weekly email off');
+  };
 
   // ── Proactive teammates (V11.4): Ready for you · trust dial · jobs ──
   var _agent = null, _apprSeen = null, _agentRev = null;
@@ -34046,7 +34075,8 @@ function _saEsc(s){
       var run = m.running, lr = m.last_run;
       if(run) anyRun = true;
       if(_msWasRunning[m.id] && !run && lr){
-        toast('🎯 ' + m.title + ' finished' + (lr.held ? ' — ' + lr.held + ' waiting for your OK' : ''), lr.ok ? 'success' : 'error');
+        toast('🎯 ' + m.title + ' finished' + (lr.held ? ' — ' + lr.held + ' waiting for your OK' : '') + (lr.sent ? ' · ' + lr.sent + ' sent' : ''), lr.ok ? 'success' : 'error');
+        loadWeekly();
       }
       _msWasRunning[m.id] = !!run;
       var seen = _msSteps[m.id] || 0, steps = (run && run.steps) || [];
@@ -34058,6 +34088,13 @@ function _saEsc(s){
         '<button class="st-btn" title="Delete mission" onclick="saMsDelete(\'' + esc(m.id) + '\')">🗑</button></div>' +
         '<div class="st-ms-meta">' + esc(m.teammate) + ' · ' + esc(msSched(m.schedule)) + (m.runs ? ' · ran ' + m.runs + '×' : '') + '</div>';
       if(m.paused_reason) html += '<div class="st-ms-warn">⚠ ' + esc(m.paused_reason) + '</div>';
+      var tr = m.trust || {};
+      if(tr.auto){
+        html += '<label class="st-ms-meta" style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#6ee7b7;">' +
+          '<input type="checkbox" checked onchange="saAgentTrust(\'mission:' + esc(m.id) + '\',this.checked)" style="accent-color:#10b981;"> 🤝 Sends its emails on its own (uncheck to approve each one again)</label>';
+      } else if(tr.streak){
+        html += '<div class="st-ms-meta">🤝 ' + tr.streak + '/' + (tr.offer_at || 10) + ' emails approved without changes. At ' + (tr.offer_at || 10) + ' you can let this mission send on its own.</div>';
+      }
       if(run){
         html += '<div class="st-ms-live"><b class="st-ms-dots">' + esc(m.teammate) + ' is working</b>' +
           steps.map(function(s, i){ return '<div class="st-ms-step' + (i >= seen ? ' st-new' : '') + '">' + esc(s) + '</div>'; }).join('') + '</div>';
@@ -34066,7 +34103,8 @@ function _saEsc(s){
         _msSteps[m.id] = 0;
         if(lr){
           html += '<div class="st-ms-res">' + (lr.ok ? '✅ ' : '⚠ ') + '<b>Last run ' + esc(_ago(lr.at)) + ':</b> ' + esc(lr.summary || '') +
-            (lr.held ? ' <span class="st-tag ok">' + lr.held + ' sent to Ready for you</span>' : '') + '</div>' +
+            (lr.held ? ' <span class="st-tag ok">' + lr.held + ' sent to Ready for you</span>' : '') +
+            (lr.sent ? ' <span class="st-tag ok">📨 ' + lr.sent + ' sent on its own</span>' : '') + '</div>' +
             ((lr.steps || []).length ? '<details style="margin-top:4px;"><summary class="st-sub" style="cursor:pointer;">What ' + esc(m.teammate) + ' did (' + lr.steps.length + ' steps)</summary>' +
               lr.steps.map(function(s){ return '<div class="st-ms-step">' + esc(s) + '</div>'; }).join('') + '</details>' : '');
         } else if(m.enabled){

@@ -268,6 +268,86 @@ def test_chat_can_create_a_mission_only_with_confirmation(flask_app, monkeypatch
         _drop(name)
 
 
+def test_each_mission_earns_its_own_auto_send(flask_app, monkeypatch):
+    name = "missiontrust"
+    _user(name)
+    crm = app_module._crm_load(name)
+    crm.setdefault("clients", {})["ct1"] = {"id": "ct1", "name": "Ann", "email": "ann@ortizhvac.com"}
+    app_module._crm_save(name, crm)
+    sent = []
+    monkeypatch.setattr(app_module, "_agent_send", lambda u, a, s, b: sent.append(a["to"]) or (True, ""))
+    try:
+        c, h = _client(flask_app, name)
+        mid = c.post("/api/missions", headers=h, json=dict(MISSION, teammate="Sunshine")).get_json()["mission"]["id"]
+        other = c.post("/api/missions", headers=h, json=dict(MISSION, title="Other")).get_json()["mission"]["id"]
+        for i in range(10):          # 10 approvals sent unchanged
+            with app_module._AGENT_LOCK:
+                d = app_module._agent_load(name)
+                d["approvals"].append({"id": f"a{i}", "kind": "mission_email", "mission_id": mid, "client_id": "ct1",
+                                       "to": "ann@ortizhvac.com", "subject": "Hi", "body": "Hello", "status": "pending"})
+                app_module._agent_save(name, d)
+            r = c.post(f"/api/agent/approvals/a{i}/approve", headers=h, json={}).get_json()
+        assert r["offer"]["kind"] == f"mission:{mid}"
+        assert "intro" not in app_module._agent_load(name)["trust"]          # didn't touch the morning-job dial
+        v = c.post("/api/agent/settings", headers=h, json={"trust": f"mission:{mid}", "auto": True}).get_json()
+        mv = {m["id"]: m for m in v["missions"]}
+        assert mv[mid]["trust"]["auto"] is True and mv[other]["trust"]["auto"] is False
+        turns = [_turn(calls=[_call(1, "send_email", {"to": "ann@ortizhvac.com", "subject": "Hi", "body": "Hello again"})]), _turn("Sent.")]
+        monkeypatch.setattr(app_module, "get_openai_client", lambda: _FakeOAI(turns))
+        sent.clear()
+        res = app_module._mission_run(name, mid)
+        assert res["sent"] == 1 and res["held"] == 0 and sent == ["ann@ortizhvac.com"]
+        # changing what the mission does takes its trust away
+        c.post(f"/api/missions/{mid}", headers=h, json={"instruction": "Now do something quite different from before."})
+        assert f"mission:{mid}" not in app_module._agent_load(name)["trust"]
+    finally:
+        _drop(name)
+
+
+def test_weekly_summary_counts_real_records_and_emails_once(flask_app, monkeypatch):
+    name = "missionweekly"
+    _user(name)
+    now = datetime(2026, 11, 2, 9, 0)            # Monday 9 am
+    recent, old = "2026-10-30T10:00:00Z", "2026-10-01T10:00:00Z"
+    try:
+        with app_module._AGENT_LOCK:
+            d = app_module._agent_load(name)
+            d["approvals"] += [{"id": "w1", "status": "sent", "decided_at": recent},
+                               {"id": "w2", "status": "auto_sent", "decided_at": recent},
+                               {"id": "w3", "status": "sent", "decided_at": old},
+                               {"id": "w4", "status": "pending"}]
+            d["missions"]["m1"] = {"id": "m1", "title": "Weekly posts", "teammate": "Willow",
+                                   "history": [{"at": recent, "ok": True}, {"at": old, "ok": True}]}
+            app_module._agent_save(name, d)
+        app_module._actions_update(name, lambda a: a["items"].extend([
+            {"at": recent, "tool": "crm_add_client", "ok": True}, {"at": recent, "tool": "draft_social_post", "ok": True},
+            {"at": recent, "tool": "draft_social_post", "ok": True, "undone_at": recent},
+            {"at": recent, "tool": "find_leads", "ok": False}, {"at": old, "tool": "crm_add_client", "ok": True}]))
+        w = app_module._agent_weekly(name, now=now)
+        assert w["counts"]["emails"] == 2 and w["counts"]["contacts"] == 1 and w["counts"]["posts"] == 1
+        assert w["counts"]["lead_searches"] == 0 and w["mission_runs"] == 1 and w["waiting"] == 1
+        assert any("1 of those emails went out on their own" in x for x in w["lines"])
+        assert w["hours_saved"] == round((2 * 6 + 3 + 15) / 60, 1)
+        mails = []
+        monkeypatch.setattr(app_module, "_send_platform_email", lambda to, s, b: mails.append((to, s, b)) or True)
+        data = app_module.load_users()
+        data["users"][name]["email"] = "owner@example.com"
+        app_module.save_users(data)
+        app_module._invalidate_users_cache()
+        app_module._agent_weekly_email_tick(name, now)
+        assert mails == []                                          # off unless turned on
+        c, h = _client(flask_app, name)
+        c.post("/api/agent/settings", headers=h, json={"weekly_email": True})
+        app_module._agent_weekly_email_tick(name, now)
+        app_module._agent_weekly_email_tick(name, now)              # same week: once only
+        assert len(mails) == 1 and mails[0][0] == "owner@example.com" and "2 emails sent" in mails[0][2]
+    finally:
+        _drop(name)
+        p = app_module._actions_path(name)
+        if p.exists():
+            p.unlink()
+
+
 def test_schedule_rules():
     mon9 = datetime(2026, 11, 2, 9, 30)        # a Monday
     sat9 = datetime(2026, 11, 7, 9, 30)

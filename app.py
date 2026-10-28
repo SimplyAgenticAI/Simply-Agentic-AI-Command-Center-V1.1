@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "20.1")
+APP_VERSION = os.getenv("APP_VERSION", "20.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23007,6 +23007,10 @@ def _agent_tick() -> None:
                 _mission_tick_user(uname, now_local)      # V19.9: missions run on their own schedule
             except Exception as e:
                 _capture_error(e, context="mission_tick")
+            try:
+                _agent_weekly_email_tick(uname, now_local)   # V20.2: opt-in Monday summary
+            except Exception as e:
+                _capture_error(e, context="weekly_email")
             with _AGENT_LOCK:
                 d = _agent_load(uname)
                 due = [k for k, j in d["jobs"].items() if k in AGENT_JOBS and j.get("enabled")
@@ -23031,7 +23035,10 @@ def _agent_view(uname: str) -> Dict[str, Any]:
     pending = [a for a in d["approvals"] if a.get("status") == "pending"
                and (not a.get("client_id") or a.get("client_id") in live_ids)]
     offers = []
-    for kind, label in AGENT_KIND_LABELS.items():
+    labels = dict(AGENT_KIND_LABELS)
+    for mid, m in d["missions"].items():
+        labels[_mission_trust_key(mid)] = f"emails from the “{m.get('title')}” mission"
+    for kind, label in labels.items():
         t = (d.get("trust") or {}).get(kind) or {}
         if not t.get("auto") and int(t.get("streak") or 0) >= AGENT_TRUST_OFFER_AT and not t.get("declined"):
             offers.append({"kind": kind, "label": label, "streak": t.get("streak")})
@@ -23049,7 +23056,8 @@ def _agent_view(uname: str) -> Dict[str, Any]:
             "rev": _agent_rev_total(uname, d),
             "actions": _actions_view(uname),
             "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT,
-            "missions": [_mission_view(m) for m in d["missions"].values()],
+            "missions": [_mission_view(m, d.get("trust")) for m in d["missions"].values()],
+            "weekly_email": bool(d.get("weekly_email")),
             "missions_paused": bool(d.get("missions_paused")), "mission_limit": _mission_limit(uname),
             "mission_teammates": _mission_teammates(uname)}
 
@@ -23109,13 +23117,15 @@ def api_agent_decide(aid: str, action: str):
         x = next((y for y in d["approvals"] if y.get("id") == aid), None)
         if x:
             x.update(status="sent" if ok else "pending", error="" if ok else err, subject=subject, body=body)
-        t = d["trust"].setdefault(a.get("kind") or "intro", {"streak": 0, "auto": False})
+        tkey = _mission_trust_key(a["mission_id"]) if (a.get("kind") == "mission_email" and a.get("mission_id")) \
+            else (a.get("kind") or "intro")
+        t = d["trust"].setdefault(tkey, {"streak": 0, "auto": False})
         if ok:
             t["streak"] = 0 if edited else int(t.get("streak") or 0) + 1
         _agent_save(uname, d)
     if not ok:
         return jsonify({"ok": False, "error": err}), 400
-    return jsonify({"ok": True, "offer": next((o for o in _agent_view(uname)["offers"] if o["kind"] == a.get("kind")), None)})
+    return jsonify({"ok": True, "offer": next((o for o in _agent_view(uname)["offers"] if o["kind"] == tkey), None)})
 
 
 AGENT_BULK_MAX = 25
@@ -23190,7 +23200,9 @@ def api_agent_settings():
         if rule in AGENT_RULES and "enabled" in b:
             d["rules"].setdefault(rule, {})["enabled"] = bool(b.get("enabled"))
         kind = str(b.get("trust") or "")
-        if kind in AGENT_KIND_LABELS:
+        if "weekly_email" in b:
+            d["weekly_email"] = bool(b.get("weekly_email"))
+        if kind in AGENT_KIND_LABELS or (kind.startswith("mission:") and kind.split(":", 1)[1] in d["missions"]):
             t = d["trust"].setdefault(kind, {"streak": 0, "auto": False})
             t["auto"] = bool(b.get("auto"))
             if not t["auto"] and b.get("decline_offer"):
@@ -23335,6 +23347,11 @@ def _mission_due(m: Dict[str, Any], now_local: datetime) -> bool:
     return True
 
 
+def _mission_trust_key(mid: str) -> str:
+    """Each mission earns auto-send on its own; trusting one never trusts another."""
+    return f"mission:{mid}"
+
+
 def _mission_skip_today(uname: str, m: Dict[str, Any]) -> str:
     """A mission set up after today's run time waits for its NEXT scheduled time
     (otherwise 'weekdays at 8' created at 3 pm would run straight away)."""
@@ -23407,6 +23424,7 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
     _mission_update(uname, mid, lambda x, d: x.update(running={"started": started, "steps": []}))
     steps: List[str] = []
     held = 0
+    sent = 0
     try:
         defn = ((load_registry(uname) or {}).get("installed") or {}).get(teammate) or {"name": teammate}
         system = teammate_system_prompt(defn, tools_enabled=True) + _MISSION_RULES
@@ -23453,10 +23471,11 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
                     args = {}
                 res = _mission_do_tool(uname, m, mid, teammate, name, args, external_used, held)
                 if res.get("held"):
-                    held += 1
+                    held += 1                       # counts toward the per-run cap (sent or waiting)
+                    sent += 1 if res.get("sent") else 0
                 elif name in _EXTERNAL_CONTENT_TOOLS and res.get("ok"):
                     external_used = True
-                line = ("⏸ " if res.get("held") else ("✓ " if res.get("ok") else "✗ ")) + (res.get("summary") or name)
+                line = ("📨 " if res.get("sent") else "⏸ " if res.get("held") else ("✓ " if res.get("ok") else "✗ ")) + (res.get("summary") or name)
                 steps.append(line[:160])
                 _step(line)
                 msgs.append({"role": "tool", "tool_call_id": tc.id, "name": name,
@@ -23466,16 +23485,18 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
                                                temperature=0.3, timeout=60)
             _increment_msg_usage(uname)
             final = (resp.choices[0].message.content or "").strip()
-        run = {"at": started, "ok": True, "summary": final[:600] or "Done.", "steps": steps[-20:], "held": held, "source": source}
+        run = {"at": started, "ok": True, "summary": final[:600] or "Done.", "steps": steps[-20:],
+               "held": held - sent, "sent": sent, "source": source}
 
         def _done(x, d):
             x.pop("running", None)
             x["last_run"] = run
             x["fails"] = 0
             x["runs"] = int(x.get("runs") or 0) + 1
+            x["history"] = ((x.get("history") or []) + [{"at": started, "ok": True, "held": held - sent, "sent": sent}])[-30:]
             d["log"].append({"at": now_iso(), "text": f"🎯 {x.get('title')}: {run['summary'][:140]}"})
         _mission_update(uname, mid, _done)
-        return {"ok": True, "summary": run["summary"], "held": held}
+        return {"ok": True, "summary": run["summary"], "held": held - sent, "sent": sent}
     except Exception as e:
         _capture_error(e, context="mission_run")
         err = f"{type(e).__name__}: {str(e)[:160]}"
@@ -23484,7 +23505,8 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
             x.pop("running", None)
             x["fails"] = int(x.get("fails") or 0) + 1
             x["last_run"] = {"at": started, "ok": False, "summary": f"The run failed ({err}).", "steps": steps[-20:],
-                             "held": held, "source": source}
+                             "held": held - sent, "sent": sent, "source": source}
+            x["history"] = ((x.get("history") or []) + [{"at": started, "ok": False, "held": held - sent, "sent": sent}])[-30:]
             if x["fails"] >= MISSION_FAIL_PAUSE:
                 x["enabled"] = False
                 x["paused_reason"] = f"Paused after {x['fails']} failed runs in a row. Last error: {err}"
@@ -23505,13 +23527,26 @@ def _mission_do_tool(uname: str, m: Dict[str, Any], mid: str, teammate: str, nam
             return {"ok": False, "summary": "Missions can only email existing contacts with a valid email. Add them as a contact first."}
         if held_so_far >= MISSION_MAX_HELD:
             return {"ok": False, "summary": "Approval limit for one run reached; stopping drafts here."}
-        _mission_hold(uname, {
+        appr = {
             "id": uuid.uuid4().hex[:12], "kind": "mission_email", "teammate": teammate, "mission_id": mid,
             "client_id": client.get("id"), "client_name": client.get("name") or "",
             "to": client.get("email") or "",                       # from the contact record, never the model
             "title": f"{m.get('title')}: email to {client.get('name') or client.get('email')}",
             "subject": str(args.get("subject") or "").strip()[:200], "body": str(args.get("body") or "").strip(),
-            "created_at": now_iso(), "status": "pending", "trigger": f"Mission: {m.get('title')}"})
+            "created_at": now_iso(), "status": "pending", "trigger": f"Mission: {m.get('title')}"}
+        # V20.2: a mission the operator trusts (10 unedited approvals, then they said yes) sends on its own
+        if ((_agent_load(uname).get("trust") or {}).get(_mission_trust_key(mid)) or {}).get("auto") and appr["body"]:
+            ok, err = _agent_send(uname, appr, appr["subject"], appr["body"])
+            if ok:
+                appr.update(status="auto_sent", decided_at=now_iso())
+                _mission_hold(uname, appr)
+                _action_record(uname, teammate, "send_email",
+                               {"ok": True, "summary": f"Sent “{appr['subject'][:80]}” to {appr['client_name'] or appr['to']} on its own (trusted mission)."},
+                               "mission")
+                return {"ok": True, "sent": True, "held": True,
+                        "summary": f"Sent the email to {client.get('name') or to} (you let this mission send on its own)."}
+            appr["error"] = err
+        _mission_hold(uname, appr)
         return {"ok": True, "held": True, "summary": f"Drafted an email to {client.get('name') or to} for approval."}
     if _effective_tool_risk(name, external_used) != "auto":
         if held_so_far >= MISSION_MAX_HELD:
@@ -23545,10 +23580,12 @@ def _mission_run_held_action(uname: str, a: Dict[str, Any], save: bool = True) -
     return ok, err
 
 
-def _mission_view(m: Dict[str, Any]) -> Dict[str, Any]:
+def _mission_view(m: Dict[str, Any], trust: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     out = {k: m.get(k) for k in ("id", "title", "instruction", "teammate", "schedule", "enabled", "created_at",
                                  "last_run", "paused_reason", "runs")}
     out["running"] = m.get("running")
+    t = (trust or {}).get(_mission_trust_key(m.get("id") or "")) or {}
+    out["trust"] = {"auto": bool(t.get("auto")), "streak": int(t.get("streak") or 0), "offer_at": AGENT_TRUST_OFFER_AT}
     return out
 
 
@@ -23655,7 +23692,7 @@ def api_missions_list():
         return jsonify({"ok": False, "error": "Not authenticated"}), 401
     uname = u.get("username", "")
     d = _agent_load(uname)
-    return jsonify({"ok": True, "missions": [_mission_view(m) for m in d["missions"].values()],
+    return jsonify({"ok": True, "missions": [_mission_view(m, d.get("trust")) for m in d["missions"].values()],
                     "limit": _mission_limit(uname), "paused_all": bool(d.get("missions_paused")),
                     "teammates": _mission_teammates(uname)})
 
@@ -23784,6 +23821,8 @@ def api_missions_update(mid: str):
             return jsonify({"ok": False, "error": err}), 400
         if "schedule" in b and m.get("schedule") != cur.get("schedule"):
             m["last_day"] = _mission_skip_today(uname, m) or cur.get("last_day", "")
+        if m.get("instruction") != cur.get("instruction") or m.get("teammate") != cur.get("teammate"):
+            d["trust"].pop(_mission_trust_key(mid), None)      # a different job has to earn trust again
         d["missions"][mid] = m
         _agent_save(uname, d)
     return jsonify({"ok": True, "mission": _mission_view(m)})
@@ -23799,6 +23838,7 @@ def api_missions_delete(mid: str):
         d = _agent_load(uname)
         if not d["missions"].pop(mid, None):
             return jsonify({"ok": False, "error": "Mission not found"}), 404
+        d["trust"].pop(_mission_trust_key(mid), None)
         _agent_save(uname, d)
     return jsonify({"ok": True})
 
@@ -23818,6 +23858,97 @@ def api_missions_run_now(mid: str):
             return jsonify({"ok": False, "error": "It's already running."}), 409
     _mission_start_bg(uname, mid, "manual")
     return jsonify({"ok": True, "started": True})
+
+
+# ── Weekly "what your team did" (V20.2) ───────────────────────────────────────
+# Counted from the real records (approvals + the action log + mission runs), never
+# guessed. The time-saved figure is a labelled rough estimate per task type.
+_WEEKLY_MINUTES = {"emails": 6, "contacts": 3, "posts": 15, "tasks": 2, "notes": 10, "research": 20,
+                   "lead_searches": 30, "images": 10, "actions": 3}
+_WEEKLY_TOOLS = {"crm_add_client": "contacts", "draft_social_post": "posts", "create_social_content": "posts",
+                 "create_calendar_task": "tasks", "add_to_notepad": "notes", "save_to_vault": "notes",
+                 "build_growth_playbook": "notes", "research": "research", "research_prospect": "research",
+                 "scan_market": "research", "analyze_website": "research", "find_intent_signals": "research",
+                 "find_leads": "lead_searches", "generate_image": "images"}
+
+
+def _agent_weekly(uname: str, now: Optional[datetime] = None) -> Dict[str, Any]:
+    now = now or _utcnow()
+    since = (now - timedelta(days=7)).isoformat()
+    d = _agent_load(uname)
+    c = {k: 0 for k in _WEEKLY_MINUTES}
+    auto_sent = 0
+    for a in d["approvals"]:
+        if str(a.get("decided_at") or "") < since:
+            continue
+        if a.get("status") in ("sent", "auto_sent"):
+            c["emails"] += 1
+            auto_sent += a.get("status") == "auto_sent"
+        elif a.get("status") == "done" and a.get("kind") == "action":
+            c["actions"] += 1
+    for it in _actions_load(uname)["items"]:
+        if it.get("ok") and str(it.get("at") or "") >= since and not it.get("undone_at"):
+            k = _WEEKLY_TOOLS.get(it.get("tool") or "")
+            if k:
+                c[k] += 1
+    runs, mission_lines = 0, []
+    for m in d["missions"].values():
+        n = sum(1 for h in (m.get("history") or []) if str(h.get("at") or "") >= since and h.get("ok"))
+        if n:
+            runs += n
+            mission_lines.append(f"{m.get('teammate')} ran “{m.get('title')}” {n}×")
+    minutes = sum(c[k] * _WEEKLY_MINUTES[k] for k in c)
+    lines = []
+    for k, icon, one, many in (("emails", "📨", "email sent", "emails sent"), ("contacts", "👥", "contact added", "contacts added"),
+                               ("posts", "📣", "social post drafted", "social posts drafted"),
+                               ("lead_searches", "🧲", "lead search", "lead searches"),
+                               ("research", "🔭", "research task", "research tasks"),
+                               ("notes", "📝", "note or report saved", "notes and reports saved"),
+                               ("tasks", "📅", "task scheduled", "tasks scheduled"), ("images", "🎨", "image created", "images created"),
+                               ("actions", "✅", "approved action done", "approved actions done")):
+        if c[k]:
+            lines.append(f"{icon} {c[k]} {one if c[k] == 1 else many}")
+    if auto_sent:
+        lines.append(f"🤝 {auto_sent} of those emails went out on their own (you trusted them)")
+    return {"ok": True, "counts": c, "mission_runs": runs, "missions": mission_lines[:6], "lines": lines,
+            "waiting": sum(1 for a in d["approvals"] if a.get("status") == "pending"),
+            "hours_saved": round(minutes / 60, 1), "weekly_email": bool(d.get("weekly_email"))}
+
+
+@app.get("/api/agent/weekly")
+def api_agent_weekly():
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    return jsonify(_agent_weekly(u.get("username", "")))
+
+
+def _agent_weekly_email_tick(uname: str, now_local: datetime) -> None:
+    """Monday from 8 am local: email the owner their week, if they turned it on."""
+    if now_local.weekday() != 0 or now_local.hour < 8:
+        return
+    wk = now_local.strftime("%G-W%V")
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        if not d.get("weekly_email") or d.get("weekly_sent") == wk:
+            return
+        d["weekly_sent"] = wk                      # saved first: never sent twice in a week
+        _agent_save(uname, d)
+    to = str(((load_users().get("users") or {}).get(uname) or {}).get("email") or "").strip()
+    if not EMAIL_RE.match(to):
+        return
+    w = _agent_weekly(uname)
+    if not w["lines"] and not w["mission_runs"]:
+        return                                     # nothing happened: don't send an empty report
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    body = ("Here's what your Simply Agentic AI team did for you in the last 7 days:\n\n"
+            + "\n".join(f"  {x}" for x in w["lines"])
+            + ("\n\nMissions:\n" + "\n".join(f"  🎯 {x}" for x in w["missions"]) if w["missions"] else "")
+            + (f"\n\nThat's roughly {w['hours_saved']} hours of work (a rough estimate)." if w["hours_saved"] else "")
+            + (f"\n\n{w['waiting']} thing{'s are' if w['waiting'] != 1 else ' is'} waiting for your OK in Today." if w["waiting"] else "")
+            + (f"\n\nOpen your team: {base}/" if base else "")
+            + "\n\nTurn this email off any time under Today → Your team this week.")
+    _send_platform_email(to, "Your team this week", body)
 
 
 @app.post("/api/today/send_intro")
