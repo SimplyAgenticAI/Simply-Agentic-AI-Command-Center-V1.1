@@ -5062,6 +5062,31 @@ label {
                       <div class="tiny" style="margin-top:6px;opacity:.7;">Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable.</div>
                     </div>
 
+                    <!-- INBOX (read-only, V20.5) -->
+                    <div id="inboxCard" style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;">
+                      <div class="tiny" style="margin-bottom:6px;font-weight:700;color:#c4b5fd;">📥 Inbox (read-only) — let your team read your email</div>
+                      <div class="tiny" id="inboxStatus" style="margin-bottom:8px;">Checking…</div>
+                      <div id="inboxForm" style="display:none;">
+                        <div class="tiny" style="opacity:.85;margin-bottom:8px;line-height:1.5;">
+                          Your teammates can read your recent emails to find missed opportunities and draft replies for your OK.
+                          They can't delete, move or send anything on their own.<br>
+                          <b>1.</b> Turn on 2-step verification for your email account. <b>2.</b> Create an <b>app password</b>
+                          (<a id="inboxHelpLink" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color:#a5b4fc;">create one here</a>).
+                          <b>3.</b> Paste it below. Your normal password won't work, and that's on purpose.
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                          <input id="inboxEmail" type="email" placeholder="you@gmail.com" style="flex:1;min-width:180px;">
+                          <select id="inboxProvider" style="min-width:110px;">
+                            <option value="gmail">Gmail</option><option value="outlook">Outlook</option>
+                            <option value="yahoo">Yahoo</option><option value="icloud">iCloud</option>
+                          </select>
+                        </div>
+                        <input id="inboxPassword" type="password" autocomplete="new-password" placeholder="App password (16 letters)" style="width:100%;margin-bottom:8px;">
+                        <button class="btn btnMini btnPrimary" id="inboxConnectBtn">Connect inbox</button>
+                      </div>
+                      <button class="btn btnMini" id="inboxDisconnectBtn" style="display:none;">Disconnect inbox</button>
+                    </div>
+
                     <!-- TOOLTIP HELP LEVEL -->
                     <div style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;margin-top:4px;">
                       <label style="margin:0 0 6px;display:block;">Tooltip help level</label>
@@ -16627,6 +16652,7 @@ $("draftWithSelected").onclick = async () => {
         // SMTP fields hidden from UI — values preserved in backend
         $("settingsStatus").innerText = "Ready";
         try{ await refreshGoogleStatuses(); }catch(e){}
+        try{ if(window.inboxRefresh) window.inboxRefresh(); }catch(e){}
         // Populate billing plan badge
         try{
           const meRes = await fetch("/api/me");
@@ -23741,6 +23767,48 @@ $("settingsBtn").onclick = () => showSettingsModal();
     // Google connect buttons (open OAuth flow)
     if($('gmailConnectBtn')) $('gmailConnectBtn').onclick = () => { window.location = '/gmail/connect'; };
     if($('calendarConnectBtn')) $('calendarConnectBtn').onclick = () => { window.location = '/calendar/connect'; };
+
+    // ── Inbox (read-only) via app password (V20.5) ──
+    window.inboxRefresh = async function(){
+      const st = $('inboxStatus'); if(!st) return;
+      try{
+        const d = await (await fetch('/api/inbox/status')).json();
+        if(!d.ok) return;
+        const on = !!d.connected;
+        st.innerHTML = on ? '✅ Connected: <b>' + escapeHtml(d.email) + '</b>. Your team can read it (read-only).'
+                          : 'Not connected. Your teammates can\'t read your email yet.';
+        $('inboxForm').style.display = on ? 'none' : '';
+        $('inboxDisconnectBtn').style.display = on ? '' : 'none';
+        window._inboxProviders = d.providers || {};
+      }catch(e){ st.textContent = 'Could not check your inbox connection.'; }
+    };
+    if($('inboxProvider')) $('inboxProvider').onchange = () => {
+      const p = (window._inboxProviders || {})[$('inboxProvider').value];
+      if(p && $('inboxHelpLink')) $('inboxHelpLink').href = p.help;
+    };
+    if($('inboxEmail')) $('inboxEmail').onchange = () => {
+      const dom = ($('inboxEmail').value.split('@')[1] || '').toLowerCase();
+      const guess = /outlook|hotmail|live\.com|msn/.test(dom) ? 'outlook' : /yahoo|ymail/.test(dom) ? 'yahoo' : /icloud|me\.com|mac\.com/.test(dom) ? 'icloud' : 'gmail';
+      $('inboxProvider').value = guess; $('inboxProvider').onchange();
+    };
+    if($('inboxConnectBtn')) $('inboxConnectBtn').onclick = async () => {
+      const b = $('inboxConnectBtn'); b.disabled = true; b.textContent = 'Checking…';
+      try{
+        const r = await fetch('/api/inbox/connect', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({email: $('inboxEmail').value, provider: $('inboxProvider').value, app_password: $('inboxPassword').value})});
+        const d = await r.json();
+        if(!d.ok) throw new Error(d.error || 'Could not connect');
+        $('inboxPassword').value = '';
+        showToast('📥 Inbox connected: your team can read it now (read-only)');
+        await window.inboxRefresh();
+      }catch(e){ showToast(String(e.message || e)); }
+      b.disabled = false; b.textContent = 'Connect inbox';
+    };
+    if($('inboxDisconnectBtn')) $('inboxDisconnectBtn').onclick = async () => {
+      if(!confirm('Disconnect your inbox? Your team will no longer be able to read your email.')) return;
+      await fetch('/api/inbox/disconnect', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+      showToast('Inbox disconnected'); window.inboxRefresh();
+    };
 
     // ── Save & Exit handlers ────────────────────────────────────────
     // saveEdit already calls hideModal(); wire Save & Exit to do the same
@@ -34058,6 +34126,8 @@ function _saEsc(s){
      instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Save a short summary with 3 ideas I can act on to my notepad.'},
     {icon:'⏰', title:'Follow-ups that came due', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
      instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'},
+    {icon:'📥', title:'Missed opportunities in my inbox', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
+     instruction:'Read my last 100 emails. Find missed opportunities: people who asked about my services, asked for a quote or a call, or went quiet after showing interest, and that I never replied to. Draft a short, friendly reply to each one for my approval, and list them for me in your summary. Ignore newsletters, receipts and automated emails.'},
     {icon:'📞', title:'Prep for booked calls', teammate:'Orion', schedule:{kind:'event', event:'booking.created', hour:0, days:[]},
      instruction:'Someone just booked a call. Research them and their business, then save a short prep brief to my notepad: who they are, what they probably need, and 3 good questions to ask.'},
     {icon:'🏆', title:'Thank new customers', teammate:'Luna', schedule:{kind:'event', event:'deal.stage_changed', hour:0, days:[]},
