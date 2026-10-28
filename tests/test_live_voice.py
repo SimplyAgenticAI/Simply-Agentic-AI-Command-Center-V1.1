@@ -143,7 +143,7 @@ def test_abilities_on_calls_follow_approval_rules(flask_app, monkeypatch):
         # after reading outside content, data changes are held
         tool("research", {"query": "hvac"})
         out = tool("crm_add_client", {"name": "Injected Co", "email": "x@inj.com"})
-        assert "needs the owner's OK" in out["summary"]
+        assert out["ok"] is False and out["waiting_for_approval"] and "NOT done yet" in out["summary"]
         names = [cl.get("name") for cl in (app_module._crm_load(name).get("clients") or {}).values()]
         assert "Ann Lee" in names and "Injected Co" not in names
         # abilities not allowed on calls are refused
@@ -155,8 +155,53 @@ def test_abilities_on_calls_follow_approval_rules(flask_app, monkeypatch):
         _drop(name)
 
 
+def test_found_leads_are_added_in_one_step_verified(flask_app, monkeypatch):
+    """10/28: Willow found 5 leads on a call, said 'added' one by one, and none were added —
+    the web-search guard held every add. Found leads now go in directly, all at once."""
+    monkeypatch.setattr(app_module, "LIVE_VOICE_ACCESS", "all")
+    monkeypatch.setattr(app_module, "OPENAI_API_KEY", "sk-server")
+    monkeypatch.setattr(app_module.requests, "post", lambda *a, **k: _R({"value": "ek"}))
+    leads = [{"name": "Shore HVAC", "company": "Shore HVAC", "website": "https://shorehvac.com", "email": "info@shorehvac.com",
+              "phone": "4105550100", "warm_reason": "Local"},
+             {"name": "Delmarva Roofing", "company": "Delmarva Roofing", "website": "https://delmarvaroof.com", "email": "",
+              "phone": "4105550111", "warm_reason": "Busy"},
+             {"name": "Bay Plumbing", "company": "Bay Plumbing", "website": "https://bayplumb.com", "email": "hi@bayplumb.com",
+              "phone": "", "warm_reason": "New"}]
+    monkeypatch.setitem(app_module._TOOL_BY_NAME["find_leads"], "executor",
+                        lambda u, t, a: {"ok": True, "leads": leads, "summary": "Found 3 leads in Salisbury, MD"})
+    name = "liveleads"
+    _user(name)
+    try:
+        c, h = _client(flask_app, name)
+        cid = c.post("/api/voice/live/session", headers=h, json={"teammate": "Willow"}).get_json()["call_id"]
+
+        def tool(n, args):
+            return json.loads(c.post("/api/voice/live/tool", headers=h,
+                                     json={"call_id": cid, "name": n, "arguments": json.dumps(args)}).get_json()["output"])
+        found = tool("find_leads", {"niche": "contractors", "location": "Salisbury, MD"})
+        assert [x["number"] for x in found["leads"]] == [1, 2, 3] and "add_found_leads ONCE" in found["summary"]
+        # a single found lead via crm_add_client goes in directly (verified), even after the web search
+        one = tool("crm_add_client", {"name": "Bay Plumbing", "email": "typo@bayplumb.com"})
+        assert one["ok"] is True
+        # then "add them all": the one already added is skipped, the rest go in, in one step
+        allr = tool("add_found_leads", {})
+        assert allr["ok"] and allr["added"] == 2 and allr["skipped"] == 1
+        clients = {x.get("company"): x for x in (app_module._crm_load(name).get("clients") or {}).values()}
+        assert set(clients) >= {"Shore HVAC", "Delmarva Roofing", "Bay Plumbing"}
+        assert clients["Bay Plumbing"]["email"] == "hi@bayplumb.com"          # verified, not the typed typo
+        assert clients["Delmarva Roofing"]["email"] == ""
+        held = [a for a in app_module._agent_load(name)["approvals"] if a.get("trigger") == "Live call"]
+        assert held == []                                                     # nothing stuck in approvals
+        names = {t["name"] for t in app_module._live_tools_schema()}
+        assert "add_found_leads" in names
+        assert "ONE short summary" in app_module._LIVE_RULES
+    finally:
+        _drop(name)
+
+
 def test_call_screen_is_wired():
     html = open("templates/index.html", encoding="utf-8").read()
     assert "https://api.openai.com/v1/realtime/calls" in html and "createDataChannel('oai-events')" in html
     assert "echoCancellation:true" in html and "window.saVoiceStopAll" in html
     assert html.count("saLiveItem") >= 3
+    assert 'id="saLivePill"' in html and "window.saLiveMin" in html and "window.saCrmRefresh" in html

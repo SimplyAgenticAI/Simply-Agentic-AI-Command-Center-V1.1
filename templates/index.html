@@ -17798,6 +17798,13 @@ $("draftWithSelected").onclick = async () => {
       return crmCache.clients;
     }
 
+    // V21.2: a teammate on a Live call just changed contacts — redraw whatever's open
+    window.saCrmRefresh = async function(){
+      try{ await crmFetchClients(); }catch(_){ return; }
+      try{ crmRenderClients(); }catch(_){}
+      try{ if(typeof renderPipelineBoard === 'function') renderPipelineBoard(); }catch(_){}
+    };
+
     // Silent background sync — only updates the cache, never re-renders mid-session
     // Fires every 90s; only actually fetches if the CRM is currently open
     (function startCrmAutoRefresh(){
@@ -40160,6 +40167,17 @@ else { setTimeout(load, 1500); }
 #saLive .lv-end{background:#ef4444;color:#fff;}
 #saLive .lv-meter{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;}
 @media(prefers-reduced-motion:reduce){ #saLive .lv-ring{transition:none} }
+#saLivePill{position:fixed;right:16px;bottom:16px;z-index:1000300;display:none;align-items:center;gap:6px;max-width:calc(100vw - 32px);
+  padding:7px 8px 7px 12px;border-radius:999px;background:#1e1b4b;border:1px solid rgba(139,92,246,.7);box-shadow:0 10px 30px rgba(0,0,0,.55);}
+#saLivePill.open{display:flex;}
+#saLivePill .lp-dot{width:12px;height:12px;border-radius:50%;background:#22c55e;flex-shrink:0;transition:box-shadow .12s;}
+#saLivePill .lp-main{background:none;border:none;color:#ede9fe;cursor:pointer;font-family:inherit;font-size:calc(15px * var(--fs,1.1));
+  text-align:left;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#saLivePill .lp-state{color:#a5b4fc;margin-left:6px;}
+#saLivePill .lp-btn{border:none;border-radius:999px;width:36px;height:36px;cursor:pointer;background:rgba(255,255,255,.1);color:#f1f5f9;
+  font-size:calc(15px * var(--fs,1.1));flex-shrink:0;}
+#saLivePill .lp-btn.on{background:#f59e0b;color:#111827;}
+#saLivePill .lp-end{background:#ef4444;color:#fff;}
 </style>
 <div id="saLive" role="dialog" aria-modal="true" aria-label="Live call">
   <div class="lv-card">
@@ -40170,9 +40188,20 @@ else { setTimeout(load, 1500); }
     <div class="lv-meter" id="lvMeter"></div>
     <div class="lv-btns">
       <button class="lv-btn lv-mute" id="lvMute" onclick="saLiveMute()">🎤 Mute</button>
+      <button class="lv-btn lv-mute" onclick="saLiveMin()" title="Keep talking while you use the app (Esc)">⤡ Minimize</button>
       <button class="lv-btn lv-end" onclick="saLiveEnd()">📞 End call</button>
     </div>
   </div>
+</div>
+<!-- Minimized call: keeps talking while you use the rest of the app -->
+<div id="saLivePill" role="status" aria-live="polite">
+  <span class="lp-dot" id="lpDot"></span>
+  <button class="lp-main" onclick="saLiveMax()" title="Open the call">
+    <b id="lpName">Call</b> <span id="lpTime">0:00</span><span class="lp-state" id="lpState"></span>
+  </button>
+  <button class="lp-btn" id="lpMute" onclick="saLiveMute()" title="Mute / unmute">🎤</button>
+  <button class="lp-btn" onclick="saLiveMax()" title="Open the call">⤢</button>
+  <button class="lp-btn lp-end" onclick="saLiveEnd()" title="End call">✕</button>
 </div>
 <script>
 (function(){
@@ -40189,13 +40218,26 @@ else { setTimeout(load, 1500); }
     var div = document.createElement('div'); div.className = 'lv-line ' + cls; div.textContent = text;
     box.appendChild(div); box.scrollTop = box.scrollHeight; return div;
   }
-  function setState(t){ var s = $('lvState'); if(s) s.textContent = t; }
+  function setState(t){
+    var s = $('lvState'); if(s) s.textContent = t;
+    var p = $('lpState'); if(p) p.textContent = t ? '· ' + t : '';
+  }
+  window.saLiveMin = function(){
+    if(!L) return;
+    $('saLive').classList.remove('open'); $('saLivePill').classList.add('open');
+    $('lpName').textContent = '📞 ' + L.teammate;
+  };
+  window.saLiveMax = function(){
+    if(!L) return;
+    $('saLivePill').classList.remove('open'); $('saLive').classList.add('open');
+  };
   function meter(){
     if(!L) return;
     var el = $('lvMeter'), secs = Math.floor((Date.now() - L.started) / 1000);
     var mm = Math.floor(secs / 60), ss = ('0' + (secs % 60)).slice(-2);
     var left = (L.leftSec === null || L.leftSec === undefined) ? '' : ' · ' + Math.max(0, Math.floor((L.leftSec - secs) / 60)) + ' min left this month';
     if(el) el.textContent = mm + ':' + ss + ' of 10:00' + left;
+    var pt = $('lpTime'); if(pt) pt.textContent = mm + ':' + ss;
     if(secs >= L.maxSec){ caption('sys', 'Calls end after 10 minutes. You can start another anytime.'); window.saLiveEnd(); }
   }
   // Ring pulses with the teammate's real voice level
@@ -40212,6 +40254,7 @@ else { setTimeout(load, 1500); }
         var sum = 0; for(var i = 0; i < data.length; i++) sum += data[i];
         var lvl = Math.min(1, sum / data.length / 60);
         var r = $('lvRing'); if(r) r.style.boxShadow = '0 0 0 ' + Math.round(lvl * 26) + 'px rgba(139,92,246,' + (0.15 + lvl * 0.45).toFixed(2) + ')';
+        var dot = $('lpDot'); if(dot) dot.style.boxShadow = '0 0 0 ' + Math.round(lvl * 8) + 'px rgba(34,197,94,.45)';
         requestAnimationFrame(tick);
       })();
     }catch(_){}
@@ -40228,8 +40271,13 @@ else { setTimeout(load, 1500); }
     L.dc.send(JSON.stringify({type:'conversation.item.create', item:{type:'function_call_output', call_id: call.call_id, output: out}}));
     L.pendingTools--;
     if(L.pendingTools <= 0) L.dc.send(JSON.stringify({type:'response.create'}));
-    try{ var s = JSON.parse(out).summary; if(s) caption('sys', '⚙ ' + s); }catch(_){}
-    if(/Ready for you/.test(out)) toast('⏸ Waiting for your OK in Today → Ready for you');
+    var parsed = {};
+    try{ parsed = JSON.parse(out) || {}; }catch(_){}
+    if(parsed.summary) caption('sys', (parsed.ok ? '✓ ' : parsed.waiting_for_approval ? '⏸ ' : '⚙ ') + String(parsed.summary).replace(/ Say this once, briefly\.$/, ''));
+    if(parsed.waiting_for_approval || /Ready for you/.test(out)) toast('⏸ Waiting for your OK in Today → Ready for you');
+    // the pipeline redraws itself when the teammate adds contacts (no reload needed)
+    if(parsed.ok && /^(add_found_leads|crm_add_client|crm_log_activity)$/.test(name) && window.saCrmRefresh) window.saCrmRefresh();
+    if(parsed.ok && name === 'add_found_leads' && parsed.added) toast('➕ ' + parsed.added + ' lead' + (parsed.added === 1 ? '' : 's') + ' added to your pipeline', 'success');
   }
   function onEvent(ev){
     if(!L) return;
@@ -40264,7 +40312,7 @@ else { setTimeout(load, 1500); }
     }
   }
   window.saLiveCall = async function(teammate){
-    if(L){ $('saLive').classList.add('open'); return; }
+    if(L){ window.saLiveMax(); return; }
     teammate = teammate || window.selectedSeat || '';
     if(!teammate){ toast('Pick a teammate first, then start a live call.', 'error'); return; }
     if(!navigator.mediaDevices || !window.RTCPeerConnection){ toast('Live calls need a modern browser (Chrome, Edge or Safari).', 'error'); return; }
@@ -40300,8 +40348,10 @@ else { setTimeout(load, 1500); }
       if(!r.ok) throw new Error('The voice service refused the call (' + r.status + ')');
       await pc.setRemoteDescription({type:'answer', sdp: await r.text()});
       pc.onconnectionstatechange = function(){
-        if(L && L.pc === pc && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')){
-          caption('sys', '⚠ The call dropped.'); window.saLiveEnd();
+        if(L && L.pc === pc && pc.connectionState === 'failed'){
+          var who = L.teammate;
+          window.saLiveEnd();
+          toast('📞 The call with ' + who + ' dropped. Press 📞 Live to call back.', 'error');
         }
       };
       L.meterTimer = setInterval(meter, 1000);
@@ -40322,11 +40372,14 @@ else { setTimeout(load, 1500); }
     var tr = L.mic.getTracks()[0]; tr.enabled = !tr.enabled;
     $('lvMute').classList.toggle('on', !tr.enabled);
     $('lvMute').textContent = tr.enabled ? '🎤 Mute' : '🔇 Muted';
+    $('lpMute').classList.toggle('on', !tr.enabled);
+    $('lpMute').textContent = tr.enabled ? '🎤' : '🔇';
     setState(tr.enabled ? '👂 Listening…' : '🔇 You\'re muted');
   };
   window.saLiveEnd = function(){
     var c = L; L = null;
     $('saLive').classList.remove('open');
+    $('saLivePill').classList.remove('open');
     if(!c) return;
     try{ clearInterval(c.meterTimer); clearInterval(c.pingTimer); }catch(_){}
     try{ c.dc && c.dc.close(); }catch(_){}
@@ -40338,7 +40391,13 @@ else { setTimeout(load, 1500); }
     try{ if(typeof window.refreshThread === 'function') window.refreshThread(); }catch(_){}
     if(c.resumeHandsFree && window.saToggleHandsFree && !window._saHandsFreeOn){ try{ window.saToggleHandsFree(); }catch(_){} }
   };
-  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && L) window.saLiveEnd(); });
+  // Esc minimizes (it used to hang up, which was too easy to hit by accident)
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && L && $('saLive').classList.contains('open')) window.saLiveMin(); });
+  // Closing or reloading the tab ends the call properly, so minutes stop counting
+  window.addEventListener('pagehide', function(){
+    if(L && L.callId){ try{ fetch('/api/voice/live/end', {method:'POST', keepalive:true, headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({call_id: L.callId})}); }catch(_){} }
+  });
   // Show the "Live call" menu items only where Live is available
   fetch('/api/voice/live/status').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
     if(d && d.available) document.querySelectorAll('.saLiveItem').forEach(function(b){ b.style.display = ''; });
