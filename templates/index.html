@@ -7043,6 +7043,7 @@ input[type="range"]::-moz-range-progress {
                     <button id="talkGroupBtn"       class="saMoreItem" style="color:#93c5fd;">🔊 Speak</button>
                     <button id="alwaysListenGroupBtn" class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
                     <button id="handsFreeToggleBtn" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice until you turn it off or reload — just say a teammate's name to talk." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
+                    <button class="saMoreItem saLiveItem" style="display:none;color:#c4b5fd;" title="A live, real-time voice call with the selected teammate. Talk naturally and interrupt anytime." onclick="if(window.saLiveCall)window.saLiveCall()">📞 Live call (beta)</button>
                     <button id="lightingModeBtn"    class="saMoreItem" style="color:#e2e8f0;">💡 Direct mode</button>
                     <button id="screenGroupBtn"     class="saMoreItem" style="display:none;color:#e2e8f0;">🖥 Share screen</button>
                     <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
@@ -7229,6 +7230,7 @@ input[type="range"]::-moz-range-progress {
                 <button id="talkDmBtn"          style="display:none;position:absolute;left:-9999px;"></button>
                 <button id="alwaysListenDmBtn"  class="saMoreItem" style="color:#a78bfa;">🎙 Whisper</button>
                 <button id="handsFreeToggleBtn2" class="saMoreItem" style="color:#67e8f9;" title="Always-on voice until you turn it off or reload — just say a teammate's name to talk." onclick="if(window.saToggleHandsFree)window.saToggleHandsFree()">🎙 Hands-free voice</button>
+                <button class="saMoreItem saLiveItem" style="display:none;color:#c4b5fd;" title="A live, real-time voice call with the selected teammate. Talk naturally and interrupt anytime." onclick="if(window.saLiveCall)window.saLiveCall()">📞 Live call (beta)</button>
                 <div style="height:1px;background:rgba(255,255,255,.07);margin:3px 0;"></div>
                 <button id="passSeatPrompts"    class="saMoreItem" style="color:#c4b5fd;" onclick="saToggleDmAttach();var b=document.getElementById('promptLibraryBtn');if(b)b.click();">📚 Prompt Library</button>
                 <button id="passSeatWeb"        class="saMoreItem" style="display:none;color:#7dd3fc;" onclick="saToggleDmAttach();_saWebSearchSend();">🔍 Web Search</button>
@@ -13513,6 +13515,18 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       return next;
     };
     try{ window._saPaintHandsFree(); }catch(_){}
+    // V21.0: a Live call owns the mic — switch Whisper/hands-free and any teammate
+    // speech off first, so the old voice path can't hear the call and reply twice.
+    window.saVoiceStopAll = function(){
+      const wasHandsFree = !!window._saHandsFreeOn;
+      try{ if(alwaysOn) stopAlwaysListening(); }catch(_){}
+      window._saHandsFreeOn = false;
+      try{ window._saPaintHandsFree(); }catch(_){}
+      try{ if(window._saTtsAudio) window._saTtsAudio.pause(); }catch(_){}
+      window._saTtsPlaying = false;
+      try{ speechSynthesis.cancel(); }catch(_){}
+      return wasHandsFree;
+    };
 
     async function startAlwaysListening(mode, opts){
       if(!speechSupported()){showToast("🎤 "+micHelpText());return;}
@@ -40119,6 +40133,215 @@ else { setTimeout(load, 1500); }
     }).catch(function(){ toast('Could not open the lead form','error'); });
   };
   document.addEventListener('keydown',function(e){ if(e.key==='Escape' && document.getElementById('lfOverlay')) close(); });
+})();
+</script>
+
+<!-- ═══ LIVE VOICE CALL (V21.0): realtime speech-to-speech over WebRTC ═══ -->
+<style>
+#saLive{position:fixed;inset:0;z-index:1000200;background:rgba(5,8,18,.92);display:none;align-items:center;justify-content:center;padding:16px;}
+#saLive.open{display:flex;}
+#saLive .lv-card{width:min(560px,100%);max-height:92vh;display:flex;flex-direction:column;align-items:center;gap:14px;background:#0f172a;
+  border:1px solid rgba(124,58,237,.45);border-radius:22px;padding:24px 20px;box-shadow:0 30px 80px rgba(0,0,0,.7);}
+#saLive .lv-ring{width:132px;height:132px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 40% 35%,#8b5cf6,#4c1d95);font-size:calc(46px * var(--fs,1.1));font-weight:900;color:#fff;
+  box-shadow:0 0 0 0 rgba(139,92,246,.55);transition:box-shadow .12s;}
+#saLive .lv-name{font-size:calc(22px * var(--fs,1.1));font-weight:800;color:#f1f5f9;}
+#saLive .lv-state{font-size:calc(15px * var(--fs,1.1));color:#a5b4fc;min-height:1.4em;text-align:center;}
+#saLive .lv-caps{width:100%;flex:1;min-height:120px;max-height:38vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;
+  padding:10px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);}
+#saLive .lv-line{font-size:calc(15px * var(--fs,1.1));line-height:1.45;color:#e2e8f0;}
+#saLive .lv-line.me{color:#93c5fd;text-align:right;}
+#saLive .lv-line.sys{color:#94a3b8;font-size:calc(14px * var(--fs,1.1));text-align:center;}
+#saLive .lv-btns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;}
+#saLive .lv-btn{border:none;border-radius:999px;padding:12px 22px;font-weight:800;cursor:pointer;font-family:inherit;font-size:calc(16px * var(--fs,1.1));}
+#saLive .lv-mute{background:rgba(255,255,255,.1);color:#f1f5f9;}
+#saLive .lv-mute.on{background:#f59e0b;color:#111827;}
+#saLive .lv-end{background:#ef4444;color:#fff;}
+#saLive .lv-meter{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;}
+@media(prefers-reduced-motion:reduce){ #saLive .lv-ring{transition:none} }
+</style>
+<div id="saLive" role="dialog" aria-modal="true" aria-label="Live call">
+  <div class="lv-card">
+    <div class="lv-ring" id="lvRing">?</div>
+    <div class="lv-name" id="lvName">Teammate</div>
+    <div class="lv-state" id="lvState">Connecting…</div>
+    <div class="lv-caps" id="lvCaps" aria-live="polite"></div>
+    <div class="lv-meter" id="lvMeter"></div>
+    <div class="lv-btns">
+      <button class="lv-btn lv-mute" id="lvMute" onclick="saLiveMute()">🎤 Mute</button>
+      <button class="lv-btn lv-end" onclick="saLiveEnd()">📞 End call</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  'use strict';
+  var L = null;              // the active call
+  function $(id){ return document.getElementById(id); }
+  function toast(m, t){ try{ if(window.showToast) window.showToast(m, t); }catch(_){} }
+  function post(url, body){
+    return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {})})
+      .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); });
+  }
+  function caption(cls, text){
+    var box = $('lvCaps'); if(!box || !text) return null;
+    var div = document.createElement('div'); div.className = 'lv-line ' + cls; div.textContent = text;
+    box.appendChild(div); box.scrollTop = box.scrollHeight; return div;
+  }
+  function setState(t){ var s = $('lvState'); if(s) s.textContent = t; }
+  function meter(){
+    if(!L) return;
+    var el = $('lvMeter'), secs = Math.floor((Date.now() - L.started) / 1000);
+    var mm = Math.floor(secs / 60), ss = ('0' + (secs % 60)).slice(-2);
+    var left = (L.leftSec === null || L.leftSec === undefined) ? '' : ' · ' + Math.max(0, Math.floor((L.leftSec - secs) / 60)) + ' min left this month';
+    if(el) el.textContent = mm + ':' + ss + ' of 10:00' + left;
+    if(secs >= L.maxSec){ caption('sys', 'Calls end after 10 minutes. You can start another anytime.'); window.saLiveEnd(); }
+  }
+  // Ring pulses with the teammate's real voice level
+  function watchVoice(stream){
+    try{
+      var Ctx = window.AudioContext || window.webkitAudioContext; if(!Ctx) return;
+      var ctx = new Ctx(), an = ctx.createAnalyser(); an.fftSize = 256;
+      ctx.createMediaStreamSource(stream).connect(an);
+      var data = new Uint8Array(an.frequencyBinCount);
+      L.audioCtx = ctx;
+      (function tick(){
+        if(!L || L.audioCtx !== ctx) return;
+        an.getByteFrequencyData(data);
+        var sum = 0; for(var i = 0; i < data.length; i++) sum += data[i];
+        var lvl = Math.min(1, sum / data.length / 60);
+        var r = $('lvRing'); if(r) r.style.boxShadow = '0 0 0 ' + Math.round(lvl * 26) + 'px rgba(139,92,246,' + (0.15 + lvl * 0.45).toFixed(2) + ')';
+        requestAnimationFrame(tick);
+      })();
+    }catch(_){}
+  }
+  async function runTool(call){
+    var name = call.name, args = call.arguments || '{}';
+    setState('⚙ ' + name.replace(/_/g, ' ') + '…');
+    var out;
+    try{
+      var d = await post('/api/voice/live/tool', {call_id: L.callId, name: name, arguments: args});
+      out = d.output || JSON.stringify({ok:false, summary:'That didn\'t work.'});
+    }catch(e){ out = JSON.stringify({ok:false, summary:'That didn\'t work: ' + e}); }
+    if(!L || !L.dc || L.dc.readyState !== 'open') return;
+    L.dc.send(JSON.stringify({type:'conversation.item.create', item:{type:'function_call_output', call_id: call.call_id, output: out}}));
+    L.pendingTools--;
+    if(L.pendingTools <= 0) L.dc.send(JSON.stringify({type:'response.create'}));
+    try{ var s = JSON.parse(out).summary; if(s) caption('sys', '⚙ ' + s); }catch(_){}
+    if(/Ready for you/.test(out)) toast('⏸ Waiting for your OK in Today → Ready for you');
+  }
+  function onEvent(ev){
+    if(!L) return;
+    var t = ev.type || '';
+    if(t === 'input_audio_buffer.speech_started'){ setState('👂 Listening…'); }
+    else if(t === 'input_audio_buffer.speech_stopped'){ setState('💭 Thinking…'); }
+    else if(/input_audio_transcription\.completed$/.test(t)){
+      var said = (ev.transcript || '').trim();
+      if(said){ caption('me', said); post('/api/voice/live/turn', {call_id: L.callId, role:'user', text: said}); }
+    }
+    else if(t === 'response.output_audio_transcript.delta' || t === 'response.audio_transcript.delta'){
+      if(!L.liveLine) L.liveLine = caption('', '');
+      L.liveText = (L.liveText || '') + (ev.delta || '');
+      if(L.liveLine) L.liveLine.textContent = L.liveText;
+      setState('🗣 ' + L.teammate + ' is talking — just speak to interrupt');
+      var box = $('lvCaps'); if(box) box.scrollTop = box.scrollHeight;
+    }
+    else if(t === 'response.output_audio_transcript.done' || t === 'response.audio_transcript.done'){
+      var full = (ev.transcript || L.liveText || '').trim();
+      if(L.liveLine) L.liveLine.textContent = full;
+      if(full) post('/api/voice/live/turn', {call_id: L.callId, role:'assistant', text: full});
+      L.liveLine = null; L.liveText = '';
+    }
+    else if(t === 'response.done'){
+      var calls = ((ev.response || {}).output || []).filter(function(o){ return o.type === 'function_call'; });
+      if(calls.length){ L.pendingTools = calls.length; calls.forEach(runTool); }
+      else setState('👂 Your turn');
+    }
+    else if(t === 'error'){
+      var msg = ((ev.error || {}).message || 'Something went wrong');
+      caption('sys', '⚠ ' + msg);
+    }
+  }
+  window.saLiveCall = async function(teammate){
+    if(L){ $('saLive').classList.add('open'); return; }
+    teammate = teammate || window.selectedSeat || '';
+    if(!teammate){ toast('Pick a teammate first, then start a live call.', 'error'); return; }
+    if(!navigator.mediaDevices || !window.RTCPeerConnection){ toast('Live calls need a modern browser (Chrome, Edge or Safari).', 'error'); return; }
+    var resumeHandsFree = false;
+    try{ if(window.saVoiceStopAll) resumeHandsFree = window.saVoiceStopAll(); }catch(_){}
+    L = {teammate: teammate, started: Date.now(), maxSec: 600, pendingTools: 0, resumeHandsFree: resumeHandsFree};
+    $('lvName').textContent = teammate; $('lvRing').textContent = (teammate[0] || '?').toUpperCase();
+    $('lvCaps').innerHTML = ''; $('lvMeter').textContent = '';
+    $('lvMute').classList.remove('on'); $('lvMute').textContent = '🎤 Mute';
+    $('saLive').classList.add('open'); setState('Connecting…');
+    try{
+      var s = await post('/api/voice/live/session', {teammate: teammate});
+      if(!s.ok) throw new Error(s.error || 'Could not start the call');
+      if(!L) return;                                   // ended while connecting
+      L.callId = s.call_id; L.maxSec = s.max_call_sec || 600; L.leftSec = s.left_sec;
+      var pc = new RTCPeerConnection(); L.pc = pc;
+      var audio = document.createElement('audio'); audio.autoplay = true; L.audio = audio;
+      pc.ontrack = function(e){ audio.srcObject = e.streams[0]; watchVoice(e.streams[0]); };
+      // Echo cancellation + noise suppression on: the teammate's voice can't come back in as yours
+      var mic = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+      if(!L){ mic.getTracks().forEach(function(t){ t.stop(); }); return; }
+      L.mic = mic; pc.addTrack(mic.getTracks()[0]);
+      var dc = pc.createDataChannel('oai-events'); L.dc = dc;
+      dc.onmessage = function(m){ try{ onEvent(JSON.parse(m.data)); }catch(_){} };
+      dc.onopen = function(){
+        setState('👋 ' + teammate + ' is saying hi…');
+        // Have the teammate open the call, so you know it's working
+        dc.send(JSON.stringify({type:'response.create', response:{instructions:'Greet the owner by first name if you know it, in one short, warm sentence, and ask what they need.'}}));
+      };
+      var offer = await pc.createOffer(); await pc.setLocalDescription(offer);
+      var r = await fetch('https://api.openai.com/v1/realtime/calls', {method:'POST', body: offer.sdp,
+        headers:{Authorization:'Bearer ' + s.client_secret, 'Content-Type':'application/sdp'}});
+      if(!r.ok) throw new Error('The voice service refused the call (' + r.status + ')');
+      await pc.setRemoteDescription({type:'answer', sdp: await r.text()});
+      pc.onconnectionstatechange = function(){
+        if(L && L.pc === pc && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')){
+          caption('sys', '⚠ The call dropped.'); window.saLiveEnd();
+        }
+      };
+      L.meterTimer = setInterval(meter, 1000);
+      L.pingTimer = setInterval(async function(){
+        if(!L) return;
+        var p = await post('/api/voice/live/ping', {call_id: L.callId});
+        if(L && p && p.continue === false){ caption('sys', 'You\'ve reached your live voice minutes.'); window.saLiveEnd(); }
+      }, 15000);
+    }catch(e){
+      caption('sys', '⚠ ' + (e.message || e));
+      setState('Couldn\'t connect');
+      toast(String(e.message || e), 'error');
+      setTimeout(function(){ if(L && !L.pc) window.saLiveEnd(); }, 2500);
+    }
+  };
+  window.saLiveMute = function(){
+    if(!L || !L.mic) return;
+    var tr = L.mic.getTracks()[0]; tr.enabled = !tr.enabled;
+    $('lvMute').classList.toggle('on', !tr.enabled);
+    $('lvMute').textContent = tr.enabled ? '🎤 Mute' : '🔇 Muted';
+    setState(tr.enabled ? '👂 Listening…' : '🔇 You\'re muted');
+  };
+  window.saLiveEnd = function(){
+    var c = L; L = null;
+    $('saLive').classList.remove('open');
+    if(!c) return;
+    try{ clearInterval(c.meterTimer); clearInterval(c.pingTimer); }catch(_){}
+    try{ c.dc && c.dc.close(); }catch(_){}
+    try{ c.pc && c.pc.close(); }catch(_){}
+    try{ c.mic && c.mic.getTracks().forEach(function(t){ t.stop(); }); }catch(_){}
+    try{ c.audio && (c.audio.srcObject = null); }catch(_){}
+    try{ c.audioCtx && c.audioCtx.close(); }catch(_){}
+    if(c.callId) post('/api/voice/live/end', {call_id: c.callId});
+    try{ if(typeof window.refreshThread === 'function') window.refreshThread(); }catch(_){}
+    if(c.resumeHandsFree && window.saToggleHandsFree && !window._saHandsFreeOn){ try{ window.saToggleHandsFree(); }catch(_){} }
+  };
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape' && L) window.saLiveEnd(); });
+  // Show the "Live call" menu items only where Live is available
+  fetch('/api/voice/live/status').then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if(d && d.available) document.querySelectorAll('.saLiveItem').forEach(function(b){ b.style.display = ''; });
+  }).catch(function(){});
 })();
 </script>
 
