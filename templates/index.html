@@ -33776,6 +33776,21 @@ function _saEsc(s){
 .st-ms-days{display:flex;gap:6px;flex-wrap:wrap;}
 .st-ms-days label{display:flex;align-items:center;gap:4px;font-weight:600;color:#e2e8f0;cursor:pointer;}
 @media(prefers-reduced-motion:reduce){.st-ms.run,.st-ms-step.st-new{animation:none}.st-ms-dots::after{animation:none;content:'…'}}
+/* Inbox opportunities (V20.6) */
+.ib-hot{border-color:rgba(248,113,113,.55);background:rgba(248,113,113,.06);}
+.ib-warm{border-color:rgba(250,204,21,.45);background:rgba(250,204,21,.05);}
+.ib-low{border-color:rgba(148,163,184,.3);background:rgba(148,163,184,.04);}
+.ib-badge{font-size:calc(14px * var(--fs,1.1));font-weight:800;padding:1px 9px;border-radius:999px;white-space:nowrap;}
+.ib-hot .ib-badge{background:rgba(248,113,113,.18);color:#fca5a5;}
+.ib-warm .ib-badge{background:rgba(250,204,21,.16);color:#fde68a;}
+.ib-low .ib-badge{background:rgba(148,163,184,.16);color:#cbd5e1;}
+.ib-from{font-weight:800;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));}
+.ib-subj{font-weight:700;color:#e2e8f0;font-size:calc(15px * var(--fs,1.1));margin-top:4px;}
+.ib-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.ib-body{margin-top:8px;padding:10px;border-radius:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+  font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;}
+.ib-chip{cursor:pointer;font-size:calc(14px * var(--fs,1.1));padding:5px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:none;color:#cbd5e1;font-family:inherit;}
+.ib-chip.on{background:rgba(124,58,237,.2);border-color:rgba(124,58,237,.55);color:#f1f5f9;}
 .st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;}
 .st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
 .st-streak{font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#fde68a;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:5px 11px;white-space:nowrap;}
@@ -33827,6 +33842,7 @@ function _saEsc(s){
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div id="stTeamPane">
     <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
+    <div class="st-sec" id="stInboxSec" style="display:none;"><div class="st-h"><span id="stInboxH">📥 Inbox</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stInboxScan" onclick="saInboxScan(this)">↻ Check inbox now</button></span></div><div id="stInboxFilters"></div><div id="stInbox"></div></div>
     <div class="st-sec" id="stWeekSec" style="display:none;"><div class="st-h"><span>📈 Your team this week</span></div><div id="stWeek"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
     <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
@@ -34014,6 +34030,106 @@ function _saEsc(s){
       '<input type="checkbox" ' + (w.weekly_email ? 'checked' : '') + ' onchange="saWeeklyEmail(this.checked)" style="width:18px;height:18px;accent-color:#8b5cf6;"> Email me this every Monday morning</label>';
     box.innerHTML = html;
   }
+  // ── Inbox opportunities (V20.6): a worklist you act on, one email at a time ──
+  var _ib = null, _ibFilter = 'new', _ibFast = null, _ibWasScanning = false, _ibOpen = {};
+  var IB_LABEL = {hot:'🔥 Hot', warm:'🟡 Worth a reply', low:'⚪ Low'};
+  async function loadInbox(){
+    try{ var r = await fetch('/api/inbox/opportunities'); var d = await r.json(); if(d && d.ok){ _ib = d; renderInbox(); } }catch(_){}
+  }
+  function renderInbox(){
+    var d = _ib, sec = document.getElementById('stInboxSec'); if(!d || !sec) return;
+    sec.style.display = (d.connected || (d.items || []).length) ? '' : 'none';
+    var c = d.counts || {}, items = d.items || [];
+    document.getElementById('stInboxH').textContent = '📥 Inbox' + (items.length ? ' (' + items.length + ' to handle)' : '');
+    var sb = document.getElementById('stInboxScan');
+    sb.disabled = !!d.scanning; sb.textContent = d.scanning ? 'Checking…' : '↻ Check inbox now';
+    if(_ibWasScanning && !d.scanning){ var lc = d.last_counts || {}; toast('📥 Inbox checked: ' + (lc.new || 0) + ' new to handle' + (c.hot ? ' · ' + c.hot + ' hot' : ''), 'success'); loadAgent(); }
+    _ibWasScanning = !!d.scanning;
+    if(d.scanning && !_ibFast) _ibFast = setInterval(loadInbox, 2500);
+    if(!d.scanning && _ibFast){ clearInterval(_ibFast); _ibFast = null; }
+    var tb = document.getElementById('stTeamBadge');
+    if(tb && !tb.textContent && c.hot) tb.textContent = '📥 ' + c.hot + ' hot';
+    var chips = [['new', 'All (' + items.length + ')'], ['hot', IB_LABEL.hot + ' (' + (c.hot || 0) + ')'],
+                 ['warm', IB_LABEL.warm + ' (' + (c.warm || 0) + ')'], ['low', IB_LABEL.low + ' (' + (c.low || 0) + ')'], ['handled', '✓ Handled']];
+    document.getElementById('stInboxFilters').innerHTML = items.length || (d.done || []).length ? '<div class="st-tpls" style="margin:0 0 8px;">' + chips.map(function(x){
+      return '<button class="ib-chip' + (_ibFilter === x[0] ? ' on' : '') + '" onclick="saInboxFilter(\'' + x[0] + '\')">' + esc(x[1]) + '</button>'; }).join('') + '</div>' : '';
+    var list = _ibFilter === 'handled' ? (d.done || []) : items.filter(function(x){ return _ibFilter === 'new' || x.priority === _ibFilter; });
+    var html = '';
+    if(d.scanning) html += '<div class="st-ms-live" style="margin-bottom:8px;"><b class="st-ms-dots">Willow is reading your inbox</b></div>';
+    if(!list.length){
+      html += '<div class="st-empty">' + (!d.connected ? 'Connect your inbox in Settings → 📥 Inbox (read-only).' :
+        _ibFilter === 'handled' ? 'Nothing handled yet.' : (d.last_scan ? 'Nothing waiting here. 🎉' : 'Press “Check inbox now” and Willow will sort your unanswered emails.')) + '</div>';
+    }
+    html += list.map(function(x){
+      var handled = x.status !== 'new';
+      return '<div class="st-ms ib-' + esc(x.priority) + '" data-ib="' + esc(x.id) + '"' + (handled ? ' style="opacity:.6;"' : '') + '>' +
+        '<div class="st-ms-top"><span class="ib-badge">' + esc(IB_LABEL[x.priority] || x.priority) + '</span>' +
+        '<span class="ib-from">' + esc(x.from_name || x.from_email) + '</span><span class="st-sub">' + esc(x.from_name ? x.from_email : '') + ' · ' + esc(x.date || '') + '</span>' +
+        (handled ? '<span class="st-tag ok">' + esc(x.status) + '</span>' : '') + '</div>' +
+        '<div class="ib-subj">' + esc(x.subject || '(no subject)') + '</div>' +
+        (x.why ? '<div class="st-ms-res">💡 ' + esc(x.why) + '</div>' : '') +
+        (x.next ? '<div class="st-ms-meta">Next step: ' + esc(x.next) + '</div>' : '') +
+        '<div class="ib-body" style="display:' + (_ibOpen[x.id] ? '' : 'none') + ';">' + esc(x.text || '') + '</div>' +
+        '<div class="ib-acts">' + (handled
+          ? '<button class="st-btn" onclick="saInboxAct(\'' + esc(x.id) + '\',\'reopen\',this)">↩ Put back</button>'
+          : '<button class="st-btn pri" onclick="saInboxReply(\'' + esc(x.id) + '\',this)">' + (x.has_draft ? '✍ Review reply' : '✍ Reply') + '</button>' +
+            '<button class="st-btn" onclick="saInboxToggle(\'' + esc(x.id) + '\')">✉ ' + (_ibOpen[x.id] ? 'Hide' : 'Read') + ' email</button>' +
+            (x.link ? '<a class="st-btn" href="' + esc(x.link) + '" target="_blank" rel="noopener">Open in Gmail ↗</a>' : '') +
+            '<button class="st-btn" onclick="saInboxAct(\'' + esc(x.id) + '\',\'contact\',this)">👤 Add contact</button>' +
+            '<button class="st-btn" onclick="saInboxAct(\'' + esc(x.id) + '\',\'remind\',this)">⏰ Remind me</button>' +
+            '<button class="st-btn" onclick="saInboxAct(\'' + esc(x.id) + '\',\'done\',this)">✓ Done</button>' +
+            '<button class="st-btn" title="Not relevant: hide it" onclick="saInboxAct(\'' + esc(x.id) + '\',\'dismiss\',this)">Dismiss</button>') +
+        '</div><div class="st-intro"></div></div>';
+    }).join('');
+    if(d.last_scan) html += '<div class="st-sub" style="margin-top:4px;">Last checked ' + esc(_ago(d.last_scan)) + '. Newsletters, receipts and automated emails are left out.</div>';
+    document.getElementById('stInbox').innerHTML = html;
+  }
+  function ibById(id){ return ((_ib && _ib.items) || []).concat((_ib && _ib.done) || []).filter(function(x){ return x.id === id; })[0]; }
+  window.saInboxFilter = function(f){ _ibFilter = f; renderInbox(); };
+  window.saInboxToggle = function(id){ _ibOpen[id] = !_ibOpen[id]; renderInbox(); };
+  window.saInboxScan = async function(btn){
+    btn.disabled = true; btn.textContent = 'Starting…';
+    var d = await agentPost('/api/inbox/scan', {count: 100});
+    if(!d.ok){ toast(d.error || 'Could not check your inbox', 'error'); btn.disabled = false; btn.textContent = '↻ Check inbox now'; return; }
+    _ibWasScanning = true; loadInbox();
+  };
+  window.saInboxAct = async function(id, action, btn){
+    btn.disabled = true;
+    try{
+      var d = await agentPost('/api/inbox/opportunities/' + encodeURIComponent(id) + '/' + action, {});
+      if(!d.ok) throw new Error(d.error || d.summary || 'Could not do that');
+      toast({contact:'👤 ' + (d.summary || 'Added to contacts'), remind:'⏰ Reminder added for tomorrow', done:'✓ Marked done',
+             dismiss:'Dismissed', reopen:'↩ Back on your list'}[action] || '✓ Done');
+      if(action === 'contact' || action === 'remind'){ btn.textContent = action === 'contact' ? '✓ In contacts' : '✓ Reminder set'; return; }
+      loadInbox();
+    }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; }
+  };
+  window.saInboxReply = async function(id, btn){
+    var card = document.querySelector('[data-ib="' + id + '"]'); if(!card) return;
+    var box = card.querySelector('.st-intro');
+    if(box.innerHTML){ box.innerHTML = ''; return; }
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Willow is writing…';
+    try{
+      var d = await agentPost('/api/inbox/opportunities/' + encodeURIComponent(id) + '/reply', {});
+      if(!d.ok || !d.approval) throw new Error(d.error || 'Could not write a reply');
+      var a = d.approval, x = ibById(id) || {};
+      box.innerHTML = '<div class="st-draft"><div class="st-sub">To ' + esc(a.to) + '</div><input class="st-dsub" maxlength="300" /><textarea class="st-dbody"></textarea>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri">📨 Send to ' + esc(x.from_name || a.to) + '</button>' +
+        '<span class="st-sub">Edit anything first. Text in [brackets] needs your input.</span></div></div>';
+      box.querySelector('.st-dsub').value = a.subject || '';
+      box.querySelector('.st-dbody').value = a.body || '';
+      var send = box.querySelector('button');
+      send.onclick = async function(){
+        send.disabled = true; send.textContent = 'Sending…';
+        var r = await agentPost('/api/agent/approvals/' + encodeURIComponent(a.id) + '/approve',
+                                {subject: box.querySelector('.st-dsub').value, body: box.querySelector('.st-dbody').value});
+        if(r.ok){ toast('📨 Reply sent to ' + (x.from_name || a.to), 'success'); loadInbox(); loadAgent(); }
+        else { toast(r.error || 'Could not send', 'error'); send.disabled = false; send.textContent = '📨 Send'; }
+      };
+    }catch(e){ toast(String(e.message || e), 'error'); }
+    btn.disabled = false; btn.textContent = orig;
+  };
+
   window.saTodayTab = function(tab){
     var team = tab === 'team';
     var card = document.querySelector('#saToday .st-card'); if(!card) return;
@@ -34108,6 +34224,7 @@ function _saEsc(s){
     }).join('');
     renderMissions(d);
     renderDid(d.actions || []);
+    loadInbox();
   }
 
   // ── Missions (V20.0): standing jobs your team runs on its own ──
@@ -34126,8 +34243,8 @@ function _saEsc(s){
      instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Save a short summary with 3 ideas I can act on to my notepad.'},
     {icon:'⏰', title:'Follow-ups that came due', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
      instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'},
-    {icon:'📥', title:'Missed opportunities in my inbox', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
-     instruction:'Read my last 100 emails. Find missed opportunities: people who asked about my services, asked for a quote or a call, or went quiet after showing interest, and that I never replied to. Draft a short, friendly reply to each one for my approval, and list them for me in your summary. Ignore newsletters, receipts and automated emails.'},
+    {icon:'📥', title:'Missed opportunities in my inbox', teammate:'Willow', schedule:{kind:'weekdays', hour:8, days:[]},
+     instruction:'Use review_inbox to go through my last 100 unanswered emails and sort them into my Inbox list, with replies drafted for the hot ones. Then tell me how many are hot and name the top 3.'},
     {icon:'📞', title:'Prep for booked calls', teammate:'Orion', schedule:{kind:'event', event:'booking.created', hour:0, days:[]},
      instruction:'Someone just booked a call. Research them and their business, then save a short prep brief to my notepad: who they are, what they probably need, and 3 good questions to ask.'},
     {icon:'🏆', title:'Thank new customers', teammate:'Luna', schedule:{kind:'event', event:'deal.stage_changed', hour:0, days:[]},
