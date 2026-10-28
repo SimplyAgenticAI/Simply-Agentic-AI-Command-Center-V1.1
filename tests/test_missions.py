@@ -124,21 +124,20 @@ def test_held_action_runs_exactly_as_stored(flask_app, monkeypatch):
     monkeypatch.setitem(app_module._TOOL_BY_NAME["research"], "executor",
                         lambda u, t, a: {"ok": True, "summary": "Read a web page."})
     turns = [_turn(calls=[_call(1, "research", {"query": "hvac austin"})]),
-             _turn(calls=[_call(2, "crm_add_client", {"name": "Real Lead", "email": "office@reallead.com"})]),
-             _turn("Found one lead; adding it is waiting for approval.")]
+             _turn(calls=[_call(2, "draft_social_post", {"caption": "Spring tune-up special!", "platforms": ["linkedin"]})]),
+             _turn("Drafted a post; saving it is waiting for approval.")]
     monkeypatch.setattr(app_module, "get_openai_client", lambda: _FakeOAI(turns))
     try:
         c, h = _client(flask_app, name)
         mid = c.post("/api/missions", headers=h, json=MISSION).get_json()["mission"]["id"]
         assert app_module._mission_run(name, mid)["held"] == 1
         a = next(x for x in app_module._agent_load(name)["approvals"] if x.get("kind") == "action")
-        assert a["tool"] == "crm_add_client"
-        assert not any((cl.get("name") == "Real Lead") for cl in (app_module._crm_load(name).get("clients") or {}).values())
+        assert a["tool"] == "draft_social_post"
+        assert not any("Spring tune-up" in str(p.get("caption")) for p in app_module._load_sp_posts(name))
         r = c.post(f"/api/agent/approvals/{a['id']}/approve", headers=h,
                    json={"tool": "send_email", "args": {"to": "evil@x.com"}})      # client args are ignored
         assert r.status_code == 200
-        names = [cl.get("name") for cl in (app_module._crm_load(name).get("clients") or {}).values()]
-        assert "Real Lead" in names
+        assert any("Spring tune-up" in str(p.get("caption")) for p in app_module._load_sp_posts(name))
         assert next(x for x in app_module._agent_load(name)["approvals"] if x["id"] == a["id"])["status"] == "done"
     finally:
         _drop(name)
@@ -214,7 +213,7 @@ def test_untrusted_event_run_holds_data_changes(flask_app, monkeypatch):
     try:
         c, h = _client(flask_app, name)
         mid = c.post("/api/missions", headers=h, json=EVENT_MISSION).get_json()["mission"]["id"]
-        res = app_module._mission_run(name, mid, "event", context="Pat booked a call", untrusted=True)
+        res = app_module._mission_run(name, mid, "event", context="Pat Lee (pat@leeco.com) booked a call", untrusted=True)
         assert res["held"] == 1
         assert not (app_module._crm_load(name).get("clients") or {})
     finally:
@@ -346,6 +345,57 @@ def test_weekly_summary_counts_real_records_and_emails_once(flask_app, monkeypat
         p = app_module._actions_path(name)
         if p.exists():
             p.unlink()
+
+
+def test_mission_only_adds_leads_its_search_found(flask_app, monkeypatch):
+    """10/28 bug: the mission saw only 'Found 5 leads', then invented 'ProService Network,
+    contact@proservicenetwork.com'. Now it sees the real leads and can add only those,
+    with every field taken from the verified lead."""
+    name = "missionrealleads"
+    _user(name)
+    real = [{"name": "Ortiz HVAC", "company": "Ortiz HVAC", "website": "https://ortizhvac.com",
+             "email": "office@ortizhvac.com", "phone": "5125550100", "warm_reason": "Local, family-run"},
+            {"name": "Lee Roofing", "company": "Lee Roofing", "website": "https://leeroofing.com",
+             "email": "", "phone": "5125550199", "warm_reason": "Busy season"}]
+    monkeypatch.setitem(app_module._TOOL_BY_NAME["find_leads"], "executor",
+                        lambda u, t, a: {"ok": True, "leads": real, "summary": "Found 2 roofing leads"})
+    seen_by_model = []
+    turns = [_turn(calls=[_call(1, "find_leads", {"niche": "hvac", "location": "Austin"})]),
+             _turn(calls=[_call(2, "crm_add_client", {"name": "ProService Network", "email": "contact@proservicenetwork.com"}),
+                          _call(3, "crm_add_client", {"name": "Ortiz HVAC", "email": "made.up@ortizhvac.com",
+                                                      "website": "https://ortizhvac.com"}),
+                          _call(4, "crm_add_client", {"name": "Lee Roofing", "email": "info@leeroofing.com"}),
+                          _call(5, "draft_emails_to_contacts", {"purpose": "intro"})]),
+             _turn("Added 2 real leads.")]
+    fake = _FakeOAI(turns)
+    orig_create = fake.chat.completions.create
+
+    def spy(**kw):
+        seen_by_model.append(json.dumps(kw.get("messages"), default=str))
+        return orig_create(**kw)
+    fake.chat.completions.create = spy
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: fake)
+    try:
+        c, h = _client(flask_app, name)
+        mid = c.post("/api/missions", headers=h, json=dict(MISSION, teammate="Sunshine")).get_json()["mission"]["id"]
+        res = app_module._mission_run(name, mid)
+        assert res["ok"]
+        assert "office@ortizhvac.com" in seen_by_model[1]                    # the model saw the real leads
+        clients = {c2.get("name"): c2 for c2 in (app_module._crm_load(name).get("clients") or {}).values()}
+        assert "ProService Network" not in clients                           # invented: refused
+        assert clients["Ortiz HVAC"]["email"] == "office@ortizhvac.com"      # model's made-up address ignored
+        assert clients["Lee Roofing"]["email"] == ""                         # no email found → none saved
+        steps = " ".join(app_module._agent_load(name)["missions"][mid]["last_run"]["steps"])
+        assert "can only add leads that find_leads returned" in steps
+        assert "isn't available in missions" in steps                        # bulk drafting tool blocked
+    finally:
+        _drop(name)
+
+
+def test_draft_result_window_has_no_self_calling_wrapper():
+    html = open("templates/index.html", encoding="utf-8").read()
+    assert "return crmShowDraftResult.apply(this, arguments)" not in html
+    assert "function crmShowDraftResult(draft, client, clientId)" in html
 
 
 def test_schedule_rules():

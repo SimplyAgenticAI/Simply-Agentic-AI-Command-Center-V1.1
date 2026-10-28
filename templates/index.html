@@ -19993,7 +19993,8 @@ window.crmPipelineOpenClient = function(clientId){
     }; // end draftGo.onclick
     }; // end crmPipelineDraft
 
-    window.crmShowDraftResult = function(){ return crmShowDraftResult.apply(this, arguments); }; // used by the Today screen
+    // V20.4: this top-level declaration is already window.crmShowDraftResult (Today uses it).
+    // A wrapper assigned to window here replaced it and called itself forever (RangeError).
     function crmShowDraftResult(draft, client, clientId){
       const name = (client&&client.name)||'Contact';
       const subj = draft.subject||'';
@@ -33675,6 +33676,13 @@ function _saEsc(s){
 .st-draft input,.st-draft textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px 10px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .st-draft textarea{min-height:130px;resize:vertical;line-height:1.5;}
 .st-draft .st-btn{white-space:normal;overflow-wrap:anywhere;}
+/* Today tabs (V20.4): "Today" = what needs you; "Your team" = missions & reports */
+.st-tabs{display:flex;gap:6px;margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:8px;}
+.st-tabs button{background:none;border:1px solid transparent;border-radius:999px;padding:7px 14px;color:#94a3b8;font-weight:700;cursor:pointer;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
+.st-tabs button.on{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.5);color:#f1f5f9;}
+#stTeamBadge{font-size:calc(14px * var(--fs,1.1));color:#6ee7b7;}
+.st-card:not(.team) > #stTeamPane{display:none;}
+.st-card.team > *:not(.st-top):not(.st-tabs):not(#stTeamPane){display:none !important;}
 /* Missions (V20.0) */
 .st-ms{border:1px solid rgba(124,58,237,.32);border-radius:12px;padding:10px 12px;margin:0 0 8px;background:rgba(124,58,237,.06);}
 .st-ms.off{opacity:.6;}
@@ -33727,6 +33735,10 @@ function _saEsc(s){
         <button class="st-x" onclick="saCloseToday()" title="Close">&times;</button>
       </div>
     </div>
+    <div class="st-tabs" role="tablist">
+      <button id="stTabToday" class="on" role="tab" onclick="saTodayTab('today')">📋 Today</button>
+      <button id="stTabTeam" role="tab" onclick="saTodayTab('team')">🎯 Your team <span id="stTeamBadge"></span></button>
+    </div>
     <div id="stRecap" class="st-recap" style="display:none;"></div>
     <div id="stCelebrate" class="st-celebrate" style="display:none;">
       <div style="font-size:calc(34px * var(--fs,1.1));line-height:1;">🎉</div>
@@ -33745,9 +33757,15 @@ function _saEsc(s){
       </div>
     </div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
+    <div id="stTeamPane">
     <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
     <div class="st-sec" id="stWeekSec" style="display:none;"><div class="st-h"><span>📈 Your team this week</span></div><div id="stWeek"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
+    <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
+      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">⚡ Triggers &amp; auto-send — what your team does when things happen</summary>
+      <div id="stJobs" style="margin-top:8px;"></div>
+    </details>
+    </div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
     <div class="st-sec" id="stLeadsSec" style="display:none;"><div class="st-h"><span>New leads to welcome</span><button id="stLeadsAll" onclick="saTodayDraftAllIntros()">✍ Draft all</button></div><div id="stLeads"></div></div>
@@ -33764,10 +33782,6 @@ function _saEsc(s){
       <select id="stBriefHour" onchange="saTodaySaveBrief()"></select>
       <span id="stBriefNote" style="color:#94a3b8;font-size:calc(14px * var(--fs,1.1));"></span>
     </div>
-    <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
-      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">⚡ Triggers &amp; auto-send — what your team does when things happen</summary>
-      <div id="stJobs" style="margin-top:8px;"></div>
-    </details>
   </div>
 </div>
 <script>
@@ -33932,6 +33946,15 @@ function _saEsc(s){
       '<input type="checkbox" ' + (w.weekly_email ? 'checked' : '') + ' onchange="saWeeklyEmail(this.checked)" style="width:18px;height:18px;accent-color:#8b5cf6;"> Email me this every Monday morning</label>';
     box.innerHTML = html;
   }
+  window.saTodayTab = function(tab){
+    var team = tab === 'team';
+    var card = document.querySelector('#saToday .st-card'); if(!card) return;
+    card.classList.toggle('team', team);
+    document.getElementById('stTabToday').classList.toggle('on', !team);
+    document.getElementById('stTabTeam').classList.toggle('on', team);
+    try{ localStorage.setItem('saTodayTab', team ? 'team' : 'today'); }catch(_){}
+  };
+  try{ if(localStorage.getItem('saTodayTab') === 'team') setTimeout(function(){ window.saTodayTab('team'); }, 0); }catch(_){}
   window.saWeeklyEmail = async function(on){
     var d = await agentPost('/api/agent/settings', {weekly_email: !!on});
     if(d.ok) toast(on ? '📈 You\'ll get your team\'s week every Monday' : 'Weekly email off');
@@ -33976,6 +33999,7 @@ function _saEsc(s){
     var ap = d.approvals || [], sent = d.sent_for_you || [];
     sec.style.display = (ap.length || sent.length || (d.offers||[]).length) ? '' : 'none';
     document.getElementById('stReadyH').textContent = '✨ Ready for you' + (ap.length ? ' (' + ap.length + ')' : '');
+    var tt = document.getElementById('stTabToday'); if(tt) tt.textContent = '📋 Today' + (ap.length ? ' (' + ap.length + ' to review)' : '');
     if(ap.length) _hadWork = true;
     var firstPaint = _apprSeen === null; _apprSeen = _apprSeen || {};
     box.innerHTML = ap.map(function(a, i){
@@ -34124,10 +34148,12 @@ function _saEsc(s){
         '<button class="st-btn" onclick="saAgentRun(\'' + j.key + '\',this)">Run now</button></div>' +
         '<div class="st-ms-meta">' + esc(j.teammate) + ' · Every day · ' + esc(j.hint) + '</div></div>';
     });
-    if(ms.length && ms.length < (d.mission_limit || 0) && !document.getElementById('stMsNew').innerHTML){
-      html += '<div class="st-sub" style="margin-top:2px;">Ideas:</div>' + msTplChips();
-    }
     box.innerHTML = html;
+    var badge = document.getElementById('stTeamBadge');
+    if(badge){
+      var runner = ms.filter(function(m){ return m.running; })[0];
+      badge.textContent = runner ? '● ' + runner.teammate + ' working' : '';
+    }
     // Watch closely while someone is working so each step slides in as it happens
     if(anyRun && !_msFast) _msFast = setInterval(pollAgentRev, 2000);
     if(!anyRun && _msFast){ clearInterval(_msFast); _msFast = null; }

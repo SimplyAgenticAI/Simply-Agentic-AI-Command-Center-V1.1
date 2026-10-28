@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "20.3")
+APP_VERSION = os.getenv("APP_VERSION", "20.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23252,7 +23252,8 @@ MISSION_EVENTS: Dict[str, Dict[str, Any]] = {
     "deal.stage_changed": {"label": "A deal changes stage",            "untrusted": False},
 }
 MISSION_EVENT_DAILY_MAX = 10           # runs per event mission per day, so a burst can't burn the budget
-_MISSION_BLOCKED_TOOLS = {"book_meeting", "set_session_objective", "create_mission"}   # outside people / chat-only
+# draft_emails_to_contacts is chat-only: missions draft per contact (send_email → Ready for you)
+_MISSION_BLOCKED_TOOLS = {"book_meeting", "set_session_objective", "create_mission", "draft_emails_to_contacts"}
 _MISSION_SEM = threading.Semaphore(max(1, int(os.getenv("MISSION_CONCURRENCY", "2"))))
 _MISSION_RUNNING: set = set()
 _MISSION_RUNNING_LOCK = threading.Lock()
@@ -23425,6 +23426,8 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
     steps: List[str] = []
     held = 0
     sent = 0
+    found_leads: List[Dict[str, Any]] = []      # verified leads from find_leads in THIS run
+    event_emails = set(_crm_extract_emails_from_text(context or ""))   # people named in the event itself
     try:
         defn = ((load_registry(uname) or {}).get("installed") or {}).get(teammate) or {"name": teammate}
         system = teammate_system_prompt(defn, tools_enabled=True) + _MISSION_RULES
@@ -23469,7 +23472,8 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
                     args = json.loads(tc.function.arguments or "{}")
                 except Exception:
                     args = {}
-                res = _mission_do_tool(uname, m, mid, teammate, name, args, external_used, held)
+                res = _mission_do_tool(uname, m, mid, teammate, name, args, external_used, held, found_leads,
+                                       event_emails)
                 if res.get("held"):
                     held += 1                       # counts toward the per-run cap (sent or waiting)
                     sent += 1 if res.get("sent") else 0
@@ -23514,11 +23518,60 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
         return {"ok": False, "note": err}
 
 
+def _mission_match_lead(found: List[Dict[str, Any]], args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The lead from this run's search that a crm_add_client call refers to, or None."""
+    em = str(args.get("email") or "").strip().lower()
+    web = _crm_extract_domain(str(args.get("website") or ""))
+    nm = str(args.get("company") or args.get("name") or "").strip().lower()
+    for ld in found:
+        lem = str(ld.get("email") or "").strip().lower()
+        if em and lem and em == lem:
+            return ld
+        if web and web == _crm_extract_domain(str(ld.get("website") or "")):
+            return ld
+        if nm and nm in (str(ld.get("company") or "").strip().lower(), str(ld.get("name") or "").strip().lower()):
+            return ld
+    return None
+
+
 def _mission_do_tool(uname: str, m: Dict[str, Any], mid: str, teammate: str, name: str, args: Dict[str, Any],
-                     external_used: bool, held_so_far: int) -> Dict[str, Any]:
+                     external_used: bool, held_so_far: int, found: Optional[List[Dict[str, Any]]] = None,
+                     event_emails: Optional[set] = None) -> Dict[str, Any]:
     """One tool call inside a mission: run it, or hold it for approval."""
+    ld = None
     if name in _MISSION_BLOCKED_TOOLS or name not in _TOOL_BY_NAME:
         return {"ok": False, "summary": f"'{name}' isn't available in missions."}
+    if name == "find_leads":
+        # V20.4: the teammate gets the real lead details back (it used to see only "Found 5 leads"
+        # and then invented contacts). Leads are verified on their own websites before this point.
+        res = _execute_teammate_tool(name, args, uname, teammate, source="mission")
+        leads = [dict(x) for x in (res.get("leads") or [])][:15]
+        if found is not None:
+            found.extend(leads)
+        n_mail = sum(1 for x in leads if x.get("email"))
+        summary = str(res.get("summary") or name)[:200]
+        if leads:
+            summary += f" ({n_mail} with an email found on their website, {len(leads) - n_mail} without)"
+        return {"ok": bool(res.get("ok")), "summary": summary,
+                "leads": [{k: x.get(k) or "" for k in ("name", "company", "website", "email", "phone")} for x in leads]}
+    if name == "crm_add_client":
+        # V20.4 real-or-nothing: missions may only add a lead their own search found this run,
+        # and every field comes from that verified lead — never from what the model typed.
+        ld = _mission_match_lead(found or [], args)
+        em = str(args.get("email") or "").strip().lower()
+        if not ld and em and em in (event_emails or set()):
+            ld = None                       # the person in the event (e.g. who booked): allowed, held below
+        elif not ld:
+            return {"ok": False, "summary": "Not added: missions can only add leads that find_leads returned in this run "
+                                            "(or the person in the event). Never make up a business or an email."}
+    if name == "crm_add_client" and ld:
+        clean = {"name": ld.get("name") or ld.get("company") or "", "company": ld.get("company") or "",
+                 "email": ld.get("email") or "", "phone": ld.get("phone") or "",
+                 "notes": (f"Website: {ld.get('website')}\n" if ld.get("website") else "") + str(ld.get("warm_reason") or "")[:300],
+                 "tags": ["found-by-mission"], "pipeline_stage": "Lead"}
+        res = _execute_teammate_tool(name, clean, uname, teammate, source="mission")
+        return {"ok": bool(res.get("ok")), "summary": str(res.get("summary") or name)[:300]
+                + ("" if clean["email"] else " (no email on their website, so it was saved without one)")}
     if name == "send_email":
         to = str(args.get("to") or "").strip().lower()
         client = next((c for c in (_crm_load(uname).get("clients") or {}).values()
