@@ -33928,7 +33928,7 @@ function _saEsc(s){
       if(ms.length) html += '<div class="st-sub" style="margin-top:8px;font-weight:700;color:#c4b5fd;">🎯 Missions</div>' + ms.map(function(x){ return '<div class="st-ms-step" style="color:#e2e8f0;">' + esc(x) + '</div>'; }).join('');
       if(w.waiting) html += '<div class="st-sub" style="margin-top:8px;">' + w.waiting + ' waiting for your OK above.</div>';
     }
-    html += '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;">' +
+    html += '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;text-transform:none;letter-spacing:normal;font-weight:600;">' +
       '<input type="checkbox" ' + (w.weekly_email ? 'checked' : '') + ' onchange="saWeeklyEmail(this.checked)" style="width:18px;height:18px;accent-color:#8b5cf6;"> Email me this every Monday morning</label>';
     box.innerHTML = html;
   }
