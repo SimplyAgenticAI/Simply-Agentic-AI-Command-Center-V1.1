@@ -114,7 +114,9 @@ def test_run_drafts_email_only_to_existing_contact(flask_app, monkeypatch):
         m = d["missions"][mid]
         assert m["last_run"]["ok"] and "running" not in m
         assert any("only email existing contacts" in s for s in m["last_run"]["steps"])
-        assert app_module._get_msg_usage(name)["count"] - before == 2       # each model round counts
+        # each model round counts (2 rounds + 1 wrap-up request, since this fake ends in prose, not JSON)
+        assert app_module._get_msg_usage(name)["count"] - before == 3
+        assert m["last_run"]["incomplete"] is True                          # prose wrap-up flagged, not faked
     finally:
         _drop(name)
 
@@ -389,6 +391,60 @@ def test_mission_only_adds_leads_its_search_found(flask_app, monkeypatch):
         steps = " ".join(app_module._agent_load(name)["missions"][mid]["last_run"]["steps"])
         assert "can only add leads that find_leads returned" in steps
         assert "isn't available in missions" in steps                        # bulk drafting tool blocked
+    finally:
+        _drop(name)
+
+
+def test_runs_end_in_result_cards_you_can_act_on(flask_app, monkeypatch):
+    name = "missioncards"
+    _user(name)
+    real = [{"name": "Ortiz HVAC", "company": "Ortiz HVAC", "website": "https://ortizhvac.com",
+             "email": "office@ortizhvac.com", "phone": "", "warm_reason": "Family-run, 3 locations"},
+            {"name": "Lee Roofing", "company": "Lee Roofing", "website": "https://leeroofing.com",
+             "email": "", "phone": "5125550199", "warm_reason": "Busy season"}]
+    monkeypatch.setitem(app_module._TOOL_BY_NAME["find_leads"], "executor",
+                        lambda u, t, a: {"ok": True, "leads": real, "summary": "Found 2 leads"})
+    wrap = json.dumps({"headline": "Found 2 HVAC leads; 1 added, a post is drafted.",
+                       "findings": [{"title": "Spring is busy season", "detail": "Roofers book up fast.",
+                                     "actions": ["Call Lee Roofing this week", "Offer a spring tune-up"]}]})
+    turns = [_turn(calls=[_call(1, "find_leads", {"niche": "hvac", "location": "Austin"})]),
+             _turn(calls=[_call(2, "crm_add_client", {"name": "Ortiz HVAC", "website": "https://ortizhvac.com"}),
+                          _call(3, "draft_social_post", {"caption": "Spring tune-up special!", "platforms": ["linkedin"]})]),
+             _turn(wrap)]
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: _FakeOAI(turns))
+    monkeypatch.setattr(app_module, "call_llm", lambda *a, **k: json.dumps({"subject": "Hello Ortiz", "body": "Hi there!"}))
+    try:
+        c, h = _client(flask_app, name)
+        mid = c.post("/api/missions", headers=h, json=dict(MISSION, teammate="Sunshine")).get_json()["mission"]["id"]
+        res = app_module._mission_run(name, mid)
+        assert res["ok"] and res["results"] == 4
+        runs = c.get(f"/api/missions/{mid}/runs").get_json()["runs"]
+        run = runs[0]
+        assert run["summary"].startswith("Found 2 HVAC leads") and not run["incomplete"]
+        cards = {(x["type"], x["title"]): x for x in run["cards"]}
+        ortiz, lee = cards[("lead", "Ortiz HVAC")], cards[("lead", "Lee Roofing")]
+        assert ortiz["status"] == "added" and ortiz["refs"]["client_id"]
+        assert lee["status"] == "new" and lee["needs_you"] and lee["data"]["phone"] == "5125550199"
+        post = next(x for x in run["cards"] if x["type"] == "post")
+        # drafted after reading web pages, so it's held for approval, but still shown as a post
+        assert post["refs"]["approval_id"] and "Spring tune-up" in post["detail"] and post["needs_you"]
+        rep = next(x for x in run["cards"] if x["type"] == "report")
+        assert rep["data"]["findings"][0]["actions"] == ["Call Lee Roofing this week", "Offer a spring tune-up"]
+        base = f"/api/missions/{mid}/runs/{run['id']}/cards"
+        # Lee: add to pipeline; intro refused (no email on their site)
+        assert c.post(f"{base}/{lee['id']}/add", headers=h).get_json()["ok"]
+        r = c.post(f"{base}/{lee['id']}/intro", headers=h)
+        assert r.status_code == 400 and "No email" in r.get_json()["error"]
+        # Ortiz: intro drafted into Ready for you
+        r = c.post(f"{base}/{ortiz['id']}/intro", headers=h).get_json()
+        assert r["ok"] and r["approval"]["to"] == "office@ortizhvac.com"
+        # report: an action item becomes a task; save to notepad; dismiss the post
+        assert c.post(f"{base}/{rep['id']}/task", headers=h, json={"finding": 0, "action": 0}).get_json()["ok"]
+        assert c.post(f"{base}/{rep['id']}/note", headers=h).get_json()["ok"]
+        assert c.post(f"{base}/{post['id']}/dismiss", headers=h).get_json()["ok"]
+        after = {x["id"]: x for x in c.get(f"/api/missions/{mid}/runs").get_json()["runs"][0]["cards"]}
+        assert after[lee["id"]]["status"] == "added" and after[ortiz["id"]]["status"] == "drafted"
+        assert after[rep["id"]]["data"]["tasked"] == ["0:0"] and after[post["id"]]["status"] == "dismissed"
     finally:
         _drop(name)
 

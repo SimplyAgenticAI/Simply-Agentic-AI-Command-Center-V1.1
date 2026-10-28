@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "20.7")
+APP_VERSION = os.getenv("APP_VERSION", "20.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23701,7 +23701,8 @@ def _agent_view(uname: str) -> Dict[str, Any]:
             "rev": _agent_rev_total(uname, d),
             "actions": _actions_view(uname),
             "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT,
-            "missions": [_mission_view(m, d.get("trust")) for m in d["missions"].values()],
+            "missions": [_mission_view(m, d.get("trust"), {a.get("id") for a in d["approvals"] if a.get("status") == "pending"})
+                         for m in d["missions"].values()],
             "weekly_email": bool(d.get("weekly_email")),
             "missions_paused": bool(d.get("missions_paused")), "mission_limit": _mission_limit(uname),
             "mission_teammates": _mission_teammates(uname)}
@@ -23906,8 +23907,11 @@ _MISSION_RUNNING: set = set()
 _MISSION_RUNNING_LOCK = threading.Lock()
 _MISSION_RULES = (
     "\n\n## You are running a Mission\n"
-    "The owner set this up as a standing job and is NOT watching right now. Do the work with your tools, "
-    "then finish with a 1-3 sentence plain summary of what you did and what's waiting for their approval.\n"
+    "The owner set this up as a standing job and is NOT watching right now. Do the work with your tools. "
+    "When you're done, reply with ONLY this JSON (no other text): "
+    '{"headline": "one sentence on what you did and what needs the owner", "findings": [{"title": "...", '
+    '"detail": "1-3 sentences", "actions": ["concrete next step", "..."]}]}. Findings are insights and '
+    "recommendations, not a list of the leads/drafts/posts you made (those are shown to the owner separately).\n"
     "Rules:\n"
     "- Never invent contacts, email addresses, phone numbers, companies or facts. If you can't find "
     "something real, leave it out and say so.\n"
@@ -24076,6 +24080,8 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
     held = 0
     sent = 0
     found_leads: List[Dict[str, Any]] = []      # verified leads from find_leads in THIS run
+    cards: List[Dict[str, Any]] = []            # V20.8: result cards from this run
+    lead_clients: Dict[str, str] = {}           # lead key → contact id, for leads added this run
     event_emails = set(_crm_extract_emails_from_text(context or ""))   # people named in the event itself
     try:
         defn = ((load_registry(uname) or {}).get("installed") or {}).get(teammate) or {"name": teammate}
@@ -24131,15 +24137,33 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
                 line = ("📨 " if res.get("sent") else "⏸ " if res.get("held") else ("✓ " if res.get("ok") else "✗ ")) + (res.get("summary") or name)
                 steps.append(line[:160])
                 _step(line)
+                if res.get("card"):
+                    cards.append(res["card"])
+                if res.get("lead_added"):
+                    lead_clients[res["lead_added"]["key"]] = res["lead_added"]["client_id"]
                 msgs.append({"role": "tool", "tool_call_id": tc.id, "name": name,
-                             "content": _tool_result_text(name, {k: v for k, v in res.items() if k not in ("held", "sent")})})
-        if not final:
-            resp = oai.chat.completions.create(model=MODEL, messages=msgs + [{"role": "user", "content": "Summarize what you did in 1-3 sentences."}],
-                                               temperature=0.3, timeout=60)
-            _increment_msg_usage(uname)
-            final = (resp.choices[0].message.content or "").strip()
-        run = {"at": started, "ok": True, "summary": final[:600] or "Done.", "steps": steps[-20:],
-               "held": held - sent, "sent": sent, "source": source}
+                             "content": _tool_result_text(name, {k: v for k, v in res.items()
+                                                                 if k not in ("held", "sent", "card", "lead_added")})})
+        wrap = _mission_wrapup(uname, oai, msgs, final)
+        # V20.8: every lead the search found is a card (linked to the contact if it was added)
+        seen_leads = set()
+        for ld in found_leads:
+            key = _mission_lead_key(ld)
+            if not key or key in seen_leads:
+                continue
+            seen_leads.add(key)
+            cid = lead_clients.get(key)
+            cards.insert(0, _mission_card(
+                "lead", ld.get("company") or ld.get("name") or key,
+                str(ld.get("warm_reason") or ""), {"client_id": cid},
+                {k: ld.get(k) or "" for k in ("name", "company", "website", "email", "phone")},
+                status="added" if cid else "new"))
+        if wrap.get("findings"):
+            cards.append(_mission_card("report", wrap["headline"], "", {}, {"findings": wrap["findings"]}))
+        run_id = uuid.uuid4().hex[:10]
+        run = {"id": run_id, "at": started, "ok": True, "summary": wrap["headline"][:600] or "Done.",
+               "steps": steps[-20:], "held": held - sent, "sent": sent, "source": source,
+               "incomplete": bool(wrap.get("incomplete")), "results": len(cards)}
 
         def _done(x, d):
             x.pop("running", None)
@@ -24147,9 +24171,11 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
             x["fails"] = 0
             x["runs"] = int(x.get("runs") or 0) + 1
             x["history"] = ((x.get("history") or []) + [{"at": started, "ok": True, "held": held - sent, "sent": sent}])[-30:]
+            x["runs_log"] = ((x.get("runs_log") or []) + [dict(run, cards=cards)])[-MISSION_RUNS_KEEP:]
             d["log"].append({"at": now_iso(), "text": f"🎯 {x.get('title')}: {run['summary'][:140]}"})
         _mission_update(uname, mid, _done)
-        return {"ok": True, "summary": run["summary"], "held": held - sent, "sent": sent}
+        return {"ok": True, "summary": run["summary"], "held": held - sent, "sent": sent, "run_id": run_id,
+                "results": len(cards)}
     except Exception as e:
         _capture_error(e, context="mission_run")
         err = f"{type(e).__name__}: {str(e)[:160]}"
@@ -24165,6 +24191,49 @@ def _mission_run_inner(uname: str, mid: str, source: str, context: str = "",
                 x["paused_reason"] = f"Paused after {x['fails']} failed runs in a row. Last error: {err}"
         _mission_update(uname, mid, _fail)
         return {"ok": False, "note": err}
+
+
+MISSION_RUNS_KEEP = 20
+_WRAPUP_ASK = ('Now finish. Respond with ONLY JSON: {"headline": "one sentence on what you did and what needs the owner", '
+               '"findings": [{"title": "short", "detail": "1-3 sentences", "actions": ["a concrete next step the owner '
+               'could take", "..."]}]}. Findings are things you LEARNED or RECOMMEND (insights, who to prioritise, risks). '
+               'Do NOT list the leads, drafts, posts or tasks you created; those are shown separately. Use [] if there '
+               'are none. No prose outside the JSON.')
+
+
+def _mission_parse_wrapup(text: str) -> Optional[Dict[str, Any]]:
+    try:
+        raw = (text or "").strip()
+        d = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+    except Exception:
+        return None
+    if not isinstance(d, dict) or not str(d.get("headline") or "").strip():
+        return None
+    findings = []
+    for f in (d.get("findings") or [])[:8]:
+        if isinstance(f, dict) and str(f.get("title") or "").strip():
+            findings.append({"title": str(f.get("title"))[:160], "detail": str(f.get("detail") or "")[:800],
+                             "actions": [str(a)[:200] for a in (f.get("actions") or []) if str(a).strip()][:5]})
+    return {"headline": str(d["headline"]).strip()[:600], "findings": findings}
+
+
+def _mission_wrapup(uname: str, oai, msgs: List[Dict[str, Any]], final: str) -> Dict[str, Any]:
+    """V20.8: a run ends in a structured headline + findings (never a paragraph)."""
+    parsed = _mission_parse_wrapup(final)
+    if parsed:
+        return parsed
+    try:
+        resp = oai.chat.completions.create(model=MODEL, temperature=0.2, timeout=60,
+                                           messages=msgs + ([{"role": "assistant", "content": final}] if final else [])
+                                           + [{"role": "user", "content": _WRAPUP_ASK}])
+        _increment_msg_usage(uname)
+        parsed = _mission_parse_wrapup(resp.choices[0].message.content or "")
+        if parsed:
+            return parsed
+    except Exception as e:
+        _capture_error(e, context="mission_wrapup")
+    return {"headline": (final or "Finished, but the teammate didn't give a proper wrap-up.")[:600], "findings": [],
+            "incomplete": True}
 
 
 def _mission_match_lead(found: List[Dict[str, Any]], args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -24227,7 +24296,8 @@ def _mission_do_tool(uname: str, m: Dict[str, Any], mid: str, teammate: str, nam
                  "tags": ["found-by-mission"], "pipeline_stage": "Lead"}
         res = _execute_teammate_tool(name, clean, uname, teammate, source="mission")
         return {"ok": bool(res.get("ok")), "summary": str(res.get("summary") or name)[:300]
-                + ("" if clean["email"] else " (no email on their website, so it was saved without one)")}
+                + ("" if clean["email"] else " (no email on their website, so it was saved without one)"),
+                "lead_added": {"key": _mission_lead_key(ld), "client_id": res.get("client_id")} if res.get("ok") else None}
     if name == "send_email":
         to = str(args.get("to") or "").strip().lower()
         client = next((c for c in (_crm_load(uname).get("clients") or {}).values()
@@ -24237,13 +24307,16 @@ def _mission_do_tool(uname: str, m: Dict[str, Any], mid: str, teammate: str, nam
             # triggering event. Never auto-sent: always waits in Ready for you.
             if held_so_far >= MISSION_MAX_HELD:
                 return {"ok": False, "summary": "Approval limit for one run reached; stopping drafts here."}
+            rid = uuid.uuid4().hex[:12]
+            subj = str(args.get("subject") or "").strip()[:200]
             _mission_hold(uname, {
-                "id": uuid.uuid4().hex[:12], "kind": "inbox_reply", "teammate": teammate, "mission_id": mid,
+                "id": rid, "kind": "inbox_reply", "teammate": teammate, "mission_id": mid,
                 "client_id": "", "client_name": to, "to": to,
                 "title": f"{m.get('title')}: reply to {to}",
-                "subject": str(args.get("subject") or "").strip()[:200], "body": str(args.get("body") or "").strip(),
+                "subject": subj, "body": str(args.get("body") or "").strip(),
                 "created_at": now_iso(), "status": "pending", "trigger": f"Mission: {m.get('title')}"})
-            return {"ok": True, "held": True, "summary": f"Drafted a reply to {to} for approval."}
+            return {"ok": True, "held": True, "summary": f"Drafted a reply to {to} for approval.",
+                    "card": _mission_card("email", f"Reply to {to}", subj, {"approval_id": rid})}
         if not client or not EMAIL_RE.match((client.get("email") or "").strip()) or client.get("email_unsubscribed"):
             return {"ok": False, "summary": "Missions can only email existing contacts with a valid email. Add them as a contact first."}
         if held_so_far >= MISSION_MAX_HELD:
@@ -24265,22 +24338,59 @@ def _mission_do_tool(uname: str, m: Dict[str, Any], mid: str, teammate: str, nam
                                {"ok": True, "summary": f"Sent “{appr['subject'][:80]}” to {appr['client_name'] or appr['to']} on its own (trusted mission)."},
                                "mission")
                 return {"ok": True, "sent": True, "held": True,
-                        "summary": f"Sent the email to {client.get('name') or to} (you let this mission send on its own)."}
+                        "summary": f"Sent the email to {client.get('name') or to} (you let this mission send on its own).",
+                        "card": _mission_card("email", f"Email to {client.get('name') or to}", appr["subject"],
+                                              {"approval_id": appr["id"], "client_id": client.get("id")}, status="sent")}
             appr["error"] = err
         _mission_hold(uname, appr)
-        return {"ok": True, "held": True, "summary": f"Drafted an email to {client.get('name') or to} for approval."}
+        return {"ok": True, "held": True, "summary": f"Drafted an email to {client.get('name') or to} for approval.",
+                "card": _mission_card("email", f"Email to {client.get('name') or to}", appr["subject"],
+                                      {"approval_id": appr["id"], "client_id": client.get("id")})}
     if _effective_tool_risk(name, external_used) != "auto":
         if held_so_far >= MISSION_MAX_HELD:
             return {"ok": False, "summary": "Approval limit for one run reached."}
         label = name.replace("_", " ")
+        aid = uuid.uuid4().hex[:12]
+        summ = f"{teammate} wants to {label}: " + json.dumps(args, ensure_ascii=False)[:300]
         _mission_hold(uname, {
-            "id": uuid.uuid4().hex[:12], "kind": "action", "teammate": teammate, "mission_id": mid,
+            "id": aid, "kind": "action", "teammate": teammate, "mission_id": mid,
             "tool": name, "args": args, "title": f"{m.get('title')}: {label}",
-            "summary": f"{teammate} wants to {label}: " + json.dumps(args, ensure_ascii=False)[:300],
-            "created_at": now_iso(), "status": "pending", "trigger": f"Mission: {m.get('title')}"})
-        return {"ok": True, "held": True, "summary": f"Held '{label}' for the owner's approval."}
+            "summary": summ, "created_at": now_iso(), "status": "pending", "trigger": f"Mission: {m.get('title')}"})
+        card = (_mission_card("post", "Social post draft (approve to save)", str(args.get("caption") or "")[:600],
+                              {"approval_id": aid}, {"platforms": args.get("platforms") or []})
+                if name == "draft_social_post" else
+                _mission_card("approval", label.capitalize(), summ, {"approval_id": aid}))
+        return {"ok": True, "held": True, "summary": f"Held '{label}' for the owner's approval.", "card": card}
     res = _execute_teammate_tool(name, args, uname, teammate, source="mission")
-    return {"ok": bool(res.get("ok")), "summary": str(res.get("summary") or name)[:300]}
+    out = {"ok": bool(res.get("ok")), "summary": str(res.get("summary") or name)[:300]}
+    if res.get("ok"):
+        # V20.8: what the teammate made becomes a result card linked to the real item
+        if name == "draft_social_post" and res.get("post_id"):
+            out["card"] = _mission_card("post", "Social post draft", str(args.get("caption") or "")[:600],
+                                        {"post_id": res.get("post_id")}, {"platforms": args.get("platforms") or []})
+        elif name == "create_calendar_task" and res.get("task_id"):
+            out["card"] = _mission_card("task", str(args.get("title") or "Task")[:120], str(res.get("summary") or ""),
+                                        {"task_id": res.get("task_id")}, status="done")
+        elif name in ("add_to_notepad", "save_to_vault"):
+            out["card"] = _mission_card("note", str(args.get("title") or "Saved note")[:120],
+                                        str(args.get("content") or args.get("text") or "")[:1500],
+                                        {"note_id": res.get("note_id") or res.get("id")}, status="done")
+        elif name == "review_inbox":
+            out["card"] = _mission_card("inbox", f"Inbox: {res.get('hot', 0)} hot, {res.get('warm', 0)} worth a reply",
+                                        str(res.get("summary") or ""), {}, {"hot": res.get("hot", 0), "warm": res.get("warm", 0)})
+    return out
+
+
+def _mission_card(kind: str, title: str, detail: str = "", refs: Optional[Dict[str, Any]] = None,
+                  data: Optional[Dict[str, Any]] = None, status: str = "new") -> Dict[str, Any]:
+    """One result card from a mission run (V20.8)."""
+    return {"id": uuid.uuid4().hex[:10], "type": kind, "title": str(title or "")[:200], "detail": str(detail or "")[:2000],
+            "refs": {k: v for k, v in (refs or {}).items() if v}, "data": data or {}, "status": status}
+
+
+def _mission_lead_key(ld: Dict[str, Any]) -> str:
+    return (_crm_extract_domain(str(ld.get("website") or "")) or str(ld.get("email") or "").lower()
+            or str(ld.get("company") or ld.get("name") or "").lower())
 
 
 def _mission_run_held_action(uname: str, a: Dict[str, Any], save: bool = True) -> Tuple[bool, str]:
@@ -24301,10 +24411,42 @@ def _mission_run_held_action(uname: str, a: Dict[str, Any], save: bool = True) -
     return ok, err
 
 
-def _mission_view(m: Dict[str, Any], trust: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _mission_card_live(card: Dict[str, Any], pending: set, clients: Dict[str, Any]) -> Dict[str, Any]:
+    """A result card with its live state (is the draft still waiting? does the contact still exist?)."""
+    c = dict(card)
+    aid = (c.get("refs") or {}).get("approval_id")
+    if aid and c.get("status") == "new" and aid not in pending:
+        c["status"] = "handled"               # sent or skipped from Ready for you
+    cid = (c.get("refs") or {}).get("client_id")
+    if c.get("type") == "lead" and cid and cid not in clients:
+        c["refs"] = dict(c["refs"], client_id="")
+        c["status"] = "removed"
+    c["needs_you"] = c.get("status") == "new" and c.get("type") in ("lead", "email", "approval", "post", "report")
+    return c
+
+
+def _mission_runs_view(m: Dict[str, Any], d: Dict[str, Any], uname: str) -> List[Dict[str, Any]]:
+    pending = {a.get("id") for a in d["approvals"] if a.get("status") == "pending"}
+    clients = (_crm_load(uname).get("clients") or {})
+    out = []
+    for r in reversed(m.get("runs_log") or []):
+        rr = {k: v for k, v in r.items() if k != "cards"}
+        rr["cards"] = [_mission_card_live(c, pending, clients) for c in (r.get("cards") or [])]
+        rr["needs_you"] = sum(1 for c in rr["cards"] if c["needs_you"])
+        out.append(rr)
+    return out
+
+
+def _mission_view(m: Dict[str, Any], trust: Optional[Dict[str, Any]] = None,
+                  pending: Optional[set] = None) -> Dict[str, Any]:
     out = {k: m.get(k) for k in ("id", "title", "instruction", "teammate", "schedule", "enabled", "created_at",
                                  "last_run", "paused_reason", "runs")}
     out["running"] = m.get("running")
+    last = (m.get("runs_log") or [None])[-1]
+    if last and pending is not None:
+        out["needs_you"] = sum(1 for c in (last.get("cards") or [])
+                               if _mission_card_live(c, pending, {}).get("needs_you")
+                               and not (c.get("type") == "lead" and (c.get("refs") or {}).get("client_id")))
     t = (trust or {}).get(_mission_trust_key(m.get("id") or "")) or {}
     out["trust"] = {"auto": bool(t.get("auto")), "streak": int(t.get("streak") or 0), "offer_at": AGENT_TRUST_OFFER_AT}
     return out
@@ -24562,6 +24704,117 @@ def api_missions_delete(mid: str):
         d["trust"].pop(_mission_trust_key(mid), None)
         _agent_save(uname, d)
     return jsonify({"ok": True})
+
+
+@app.get("/api/missions/<mid>/runs")
+def api_missions_runs(mid: str):
+    """Run history (last 20) with each run's result cards and their live state."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    d = _agent_load(uname)
+    m = d["missions"].get(mid)
+    if not m:
+        return jsonify({"ok": False, "error": "Mission not found"}), 404
+    return jsonify({"ok": True, "runs": _mission_runs_view(m, d, uname)})
+
+
+def _mission_card_update(uname: str, mid: str, rid: str, cid: str, fn) -> Optional[Dict[str, Any]]:
+    with _AGENT_LOCK:
+        d = _agent_load(uname)
+        m = d["missions"].get(mid) or {}
+        for r in (m.get("runs_log") or []):
+            if r.get("id") != rid:
+                continue
+            for c in (r.get("cards") or []):
+                if c.get("id") == cid:
+                    fn(c)
+                    _agent_save(uname, d)
+                    return dict(c)
+    return None
+
+
+def _mission_find_card(uname: str, mid: str, rid: str, cid: str) -> Optional[Dict[str, Any]]:
+    m = _agent_load(uname)["missions"].get(mid) or {}
+    for r in (m.get("runs_log") or []):
+        if r.get("id") == rid:
+            return next((dict(c) for c in (r.get("cards") or []) if c.get("id") == cid), None)
+    return None
+
+
+@app.post("/api/missions/<mid>/runs/<rid>/cards/<cid>/<action>")
+def api_mission_card_action(mid: str, rid: str, cid: str, action: str):
+    """Act on one result card: add | intro (leads) · task | note (reports) · done | dismiss | reopen."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    card = _mission_find_card(uname, mid, rid, cid)
+    if not card:
+        return jsonify({"ok": False, "error": "That result isn't there anymore."}), 404
+    m = _agent_load(uname)["missions"].get(mid) or {}
+    teammate = m.get("teammate") or "Sunshine"
+    b = request.get_json(silent=True) or {}
+    data, refs = card.get("data") or {}, card.get("refs") or {}
+    if action == "add" and card["type"] == "lead":
+        if refs.get("client_id") and refs["client_id"] in (_crm_load(uname).get("clients") or {}):
+            return jsonify({"ok": True, "client_id": refs["client_id"], "summary": "Already in your pipeline."})
+        r = _execute_teammate_tool("crm_add_client", {
+            "name": data.get("name") or data.get("company") or card.get("title"), "company": data.get("company") or "",
+            "email": data.get("email") or "", "phone": data.get("phone") or "",
+            "notes": (f"Website: {data.get('website')}\n" if data.get("website") else "") + (card.get("detail") or ""),
+            "tags": ["found-by-mission"], "pipeline_stage": "Lead"}, uname, teammate, source="mission")
+        if not r.get("ok"):
+            return jsonify({"ok": False, "error": r.get("summary") or "Couldn't add it."}), 400
+        _mission_card_update(uname, mid, rid, cid, lambda c: (c["refs"].update(client_id=r.get("client_id")), c.update(status="added")))
+        return jsonify({"ok": True, "client_id": r.get("client_id"), "summary": r.get("summary")})
+    if action == "intro" and card["type"] == "lead":
+        client = (_crm_load(uname).get("clients") or {}).get(refs.get("client_id") or "")
+        if not client:
+            return jsonify({"ok": False, "error": "Add them to your pipeline first."}), 400
+        if not EMAIL_RE.match(str(client.get("email") or "").strip()):
+            return jsonify({"ok": False, "error": "No email was found on their website, so there's no one to email. Try calling instead."}), 400
+        if not _check_msg_limit(uname, _get_user_plan(uname))[0]:
+            return jsonify({"ok": False, "error": "You've used this month's AI messages."}), 429
+        with _AGENT_LOCK:
+            d = _agent_load(uname)
+            before = {a.get("id") for a in d["approvals"]}
+            res = _agent_queue(uname, d, "intro", teammate, client,
+                               "First hello to a new prospect who has never heard from us. Say briefly why we reached out to them specifically.",
+                               f"Intro to {client.get('company') or client.get('name')}", trigger=f"Mission: {m.get('title')}")
+            _agent_save(uname, d)
+            new = next((a for a in d["approvals"] if a.get("id") not in before), None)
+        if res == "skipped" or not new:
+            return jsonify({"ok": False, "error": "There's already a draft waiting for them, or the draft couldn't be written."}), 400
+        _mission_card_update(uname, mid, rid, cid, lambda c: c.update(status="drafted"))
+        return jsonify({"ok": True, "approval": new})
+    if action == "task" and card["type"] == "report":
+        try:
+            fi, ai = int(b.get("finding")), int(b.get("action"))
+            text = data["findings"][fi]["actions"][ai]
+        except Exception:
+            return jsonify({"ok": False, "error": "Pick an action item."}), 400
+        day = (_user_now_local(uname) + timedelta(days=1)).strftime("%Y-%m-%d")
+        r = _execute_teammate_tool("create_calendar_task", {"title": text[:120], "date": day}, uname, teammate, source="mission")
+        if r.get("ok"):
+            _mission_card_update(uname, mid, rid, cid,
+                                 lambda c: c["data"].setdefault("tasked", []).append(f"{fi}:{ai}"))
+        return jsonify({"ok": bool(r.get("ok")), "summary": r.get("summary")})
+    if action == "note" and card["type"] == "report":
+        body = card.get("title", "") + "\n\n" + "\n\n".join(
+            f"• {f['title']}\n{f.get('detail') or ''}" + "".join(f"\n  → {a}" for a in f.get("actions") or [])
+            for f in data.get("findings") or [])
+        r = _execute_teammate_tool("add_to_notepad", {"title": f"{m.get('title')} report", "content": body},
+                                   uname, teammate, source="mission")
+        if r.get("ok"):
+            _mission_card_update(uname, mid, rid, cid, lambda c: c.update(status="saved"))
+        return jsonify({"ok": bool(r.get("ok")), "summary": r.get("summary")})
+    if action in ("done", "dismiss", "reopen"):
+        _mission_card_update(uname, mid, rid, cid, lambda c: c.update(status={"done": "done", "dismiss": "dismissed",
+                                                                               "reopen": "new"}[action]))
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "That action doesn't apply to this result."}), 400
 
 
 @app.post("/api/missions/<mid>/run")
