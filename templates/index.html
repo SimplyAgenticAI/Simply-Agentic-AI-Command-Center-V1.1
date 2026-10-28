@@ -11353,7 +11353,8 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       card.style.cssText = "margin-top:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.08);";
       const title = document.createElement("div");
       title.style.cssText = "font-size:calc(14px * var(--fs,1.1));font-weight:700;color:#fcd34d;margin-bottom:8px;";
-      title.textContent = "⚠ Review & confirm before sending";
+      const isMission = !!(ca && ca.action === "create_mission");
+      title.textContent = isMission ? "🎯 New mission: confirm to start it" : "⚠ Review & confirm before sending";
       card.appendChild(title);
       const a = (ca && ca.args) || {};
       const isEmail = !!(ca && ca.action === "send_email");
@@ -11384,7 +11385,7 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;";
       const confirmBtn = document.createElement("button");
       confirmBtn.className = "btn btnMini";
-      confirmBtn.textContent = "✓ Confirm & Send";
+      confirmBtn.textContent = isMission ? "🎯 Start mission" : "✓ Confirm & Send";
       confirmBtn.style.cssText = "background:rgba(16,185,129,.18);border:1px solid rgba(16,185,129,.4);color:#6ee7b7;";
       const cancelBtn = document.createElement("button");
       cancelBtn.className = "btn btnMini";
@@ -34003,12 +34004,20 @@ function _saEsc(s){
     {icon:'🔭', title:'Weekly market check', teammate:'Orion', schedule:{kind:'weekly', hour:9, days:[4]},
      instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Save a short summary with 3 ideas I can act on to my notepad.'},
     {icon:'⏰', title:'Follow-ups that came due', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
-     instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'}
+     instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'},
+    {icon:'📞', title:'Prep for booked calls', teammate:'Orion', schedule:{kind:'event', event:'booking.created', hour:0, days:[]},
+     instruction:'Someone just booked a call. Research them and their business, then save a short prep brief to my notepad: who they are, what they probably need, and 3 good questions to ask.'},
+    {icon:'🏆', title:'Thank new customers', teammate:'Luna', schedule:{kind:'event', event:'deal.stage_changed', hour:0, days:[]},
+     instruction:'If a deal just moved to a won / closed / customer stage, draft a warm thank-you email to that contact for my approval and add a task to ask them for a review in 2 weeks. If it moved to any other stage, do nothing.'}
   ];
+  var MS_EVENTS = {'contact.created':'A new contact is added', 'booking.created':'Someone books a call',
+    'form.submitted':'Someone fills in your lead form', 'post.published':'A social post goes live', 'deal.stage_changed':'A deal changes stage'};
   var _msSteps = {}, _msFast = null, _msWasRunning = {};
   function msHour(h){ h = +h || 0; return ((h % 12) || 12) + ':00 ' + (h < 12 ? 'am' : 'pm'); }
   function msSched(s){
-    s = s || {}; var t = msHour(s.hour);
+    s = s || {};
+    if(s.kind === 'event') return '⚡ When ' + (MS_EVENTS[s.event] || 'something happens').toLowerCase();
+    var t = msHour(s.hour);
     if(s.kind === 'weekdays') return 'Weekdays · ' + t;
     if(s.kind === 'weekly') return (s.days || []).map(function(x){ return MS_DAYS[x]; }).join(', ') + ' · ' + t;
     return 'Every day · ' + t;
@@ -34061,7 +34070,8 @@ function _saEsc(s){
             ((lr.steps || []).length ? '<details style="margin-top:4px;"><summary class="st-sub" style="cursor:pointer;">What ' + esc(m.teammate) + ' did (' + lr.steps.length + ' steps)</summary>' +
               lr.steps.map(function(s){ return '<div class="st-ms-step">' + esc(s) + '</div>'; }).join('') + '</details>' : '');
         } else if(m.enabled){
-          html += '<div class="st-ms-res st-sub">Hasn\'t run yet. Runs next on its schedule, or press Run now.</div>';
+          html += '<div class="st-ms-res st-sub">Hasn\'t run yet. ' + ((m.schedule || {}).kind === 'event'
+            ? 'It runs ' + esc(msSched(m.schedule).replace('⚡ ', '').toLowerCase()) + '.' : 'Runs next on its schedule, or press Run now.') + '</div>';
         }
       }
       html += '</div>';
@@ -34119,8 +34129,11 @@ function _saEsc(s){
       '<label>Name</label><input id="msTitle" maxlength="80">' +
       '<label>Who does it</label><select id="msTeammate">' + team.map(function(n){ return '<option value="' + esc(n) + '"' + (n === m.teammate ? ' selected' : '') + '>' + esc(n) + (MS_ROLE[n] ? ' · ' + MS_ROLE[n] : '') + '</option>'; }).join('') + '</select>' +
       '<label>When</label><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
-        '<select id="msKind" onchange="saMsKind()"><option value="daily"' + (s.kind === 'daily' ? ' selected' : '') + '>Every day</option><option value="weekdays"' + (s.kind === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (s.kind === 'weekly' ? ' selected' : '') + '>Specific days</option></select>' +
-        '<span class="st-sub">at</span><select id="msHour">' + hourOpts + '</select></div>' +
+        '<select id="msKind" onchange="saMsKind()"><option value="daily"' + (s.kind === 'daily' ? ' selected' : '') + '>Every day</option><option value="weekdays"' + (s.kind === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (s.kind === 'weekly' ? ' selected' : '') + '>Specific days</option>' +
+        '<option value="event"' + (s.kind === 'event' ? ' selected' : '') + '>⚡ When something happens</option></select>' +
+        '<span id="msAt" style="display:' + (s.kind === 'event' ? 'none' : 'contents') + ';"><span class="st-sub">at</span><select id="msHour">' + hourOpts + '</select></span>' +
+        '<select id="msEvent" style="display:' + (s.kind === 'event' ? '' : 'none') + ';">' + Object.keys(MS_EVENTS).map(function(k){
+          return '<option value="' + k + '"' + (k === s.event ? ' selected' : '') + '>' + esc(MS_EVENTS[k]) + '</option>'; }).join('') + '</select></div>' +
       '<div id="msDays" class="st-ms-days" style="' + (s.kind === 'weekly' ? '' : 'display:none;') + '">' + MS_DAYS.map(function(n, i){
         return '<label><input type="checkbox" value="' + i + '"' + ((s.days || []).indexOf(i) >= 0 ? ' checked' : '') + '> ' + n + '</label>'; }).join('') + '</div>' +
       '<label>What to do</label><textarea id="msInstr" maxlength="1500"></textarea>' +
@@ -34132,12 +34145,18 @@ function _saEsc(s){
     box.scrollIntoView({behavior:'smooth', block:'center'});
     if(_agent) renderMissions(_agent);
   }
-  window.saMsKind = function(){ document.getElementById('msDays').style.display = document.getElementById('msKind').value === 'weekly' ? '' : 'none'; };
+  window.saMsKind = function(){
+    var k = document.getElementById('msKind').value;
+    document.getElementById('msDays').style.display = k === 'weekly' ? '' : 'none';
+    document.getElementById('msAt').style.display = k === 'event' ? 'none' : 'contents';
+    document.getElementById('msEvent').style.display = k === 'event' ? '' : 'none';
+  };
   window.saMsSave = async function(btn, editId){
     var days = [].slice.call(document.querySelectorAll('#msDays input:checked')).map(function(c){ return +c.value; });
     var body = {title: document.getElementById('msTitle').value, teammate: document.getElementById('msTeammate').value,
       instruction: document.getElementById('msInstr').value,
-      schedule: {kind: document.getElementById('msKind').value, hour: +document.getElementById('msHour').value, days: days}};
+      schedule: {kind: document.getElementById('msKind').value, hour: +document.getElementById('msHour').value, days: days,
+                 event: document.getElementById('msEvent').value}};
     btn.disabled = true;
     try{
       var d = await agentPost(editId ? '/api/missions/' + encodeURIComponent(editId) : '/api/missions', body);

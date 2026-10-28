@@ -60,7 +60,8 @@ def test_submit_creates_contact_and_one_reply(lf, flask_app):
     assert len(clients) == 1 and clients[0]["email"] == "jo@example.com" and "site" in clients[0]["tags"]
     appr = [a for a in app_module._agent_load(U)["approvals"] if a.get("status") == "pending"]
     assert len(appr) == 1 and appr[0]["kind"] == "form_reply" and appr[0]["to"] == "jo@example.com"
-    assert emitted == []                                          # no extra generic "hello"
+    assert "contact.created" not in emitted                       # no extra generic "hello"
+    assert emitted == ["form.submitted"]                          # V20.1: form-triggered missions
     # Same person again → note on the existing contact, not a duplicate
     anon.post(f"/f/{_token(c)}", json={"name": "Jo R", "email": "JO@example.com", "message": "Following up"})
     assert len(app_module._crm_load(U)["clients"]) == 1
