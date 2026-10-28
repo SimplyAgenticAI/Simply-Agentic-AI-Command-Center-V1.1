@@ -33674,6 +33674,31 @@ function _saEsc(s){
 .st-draft input,.st-draft textarea{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:8px 10px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .st-draft textarea{min-height:130px;resize:vertical;line-height:1.5;}
 .st-draft .st-btn{white-space:normal;overflow-wrap:anywhere;}
+/* Missions (V20.0) */
+.st-ms{border:1px solid rgba(124,58,237,.32);border-radius:12px;padding:10px 12px;margin:0 0 8px;background:rgba(124,58,237,.06);}
+.st-ms.off{opacity:.6;}
+.st-ms.run{border-color:rgba(52,211,153,.65);animation:stMsPulse 1.6s ease-in-out infinite;}
+@keyframes stMsPulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.35)}50%{box-shadow:0 0 0 7px rgba(52,211,153,0)}}
+.st-ms-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.st-ms-title{font-weight:800;font-size:calc(16px * var(--fs,1.1));flex:1;min-width:160px;color:#f1f5f9;}
+.st-ms-meta{font-size:calc(14px * var(--fs,1.1));color:#94a3b8;margin-top:3px;}
+.st-ms-res{font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;margin-top:6px;line-height:1.45;}
+.st-ms-warn{font-size:calc(14px * var(--fs,1.1));color:#fca5a5;margin-top:6px;}
+.st-ms-live{margin-top:8px;padding:8px 10px;border-radius:9px;background:rgba(52,211,153,.07);border:1px solid rgba(52,211,153,.3);}
+.st-ms-live b{color:#6ee7b7;font-size:calc(14px * var(--fs,1.1));}
+.st-ms-step{font-size:calc(14px * var(--fs,1.1));color:#d1fae5;margin-top:3px;overflow-wrap:anywhere;}
+.st-ms-step.st-new{animation:stSlideIn .45s cubic-bezier(.2,1.2,.4,1);}
+.st-ms-dots::after{content:'';animation:stMsDots 1.4s steps(4,end) infinite;}
+@keyframes stMsDots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+.st-ms-built{font-size:calc(14px * var(--fs,1.1));font-weight:700;padding:1px 8px;border-radius:999px;background:rgba(148,163,184,.14);border:1px solid rgba(148,163,184,.35);color:#cbd5e1;}
+.st-tpls{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px;}
+.st-tpl{cursor:pointer;font-size:calc(14px * var(--fs,1.1));padding:6px 11px;border-radius:999px;background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.4);color:#ddd6fe;font-family:inherit;}
+.st-tpl:hover{background:rgba(124,58,237,.25);}
+.st-ms-form label{font-size:calc(14px * var(--fs,1.1));color:#c4b5fd;font-weight:700;}
+.st-ms-form select{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:7px 9px;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
+.st-ms-days{display:flex;gap:6px;flex-wrap:wrap;}
+.st-ms-days label{display:flex;align-items:center;gap:4px;font-weight:600;color:#e2e8f0;cursor:pointer;}
+@media(prefers-reduced-motion:reduce){.st-ms.run,.st-ms-step.st-new{animation:none}.st-ms-dots::after{animation:none;content:'…'}}
 .st-foot{margin-top:22px;padding-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;}
 .st-foot select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.18);color:#e2e8f0;border-radius:8px;padding:4px 6px;}
 .st-streak{font-size:calc(14px * var(--fs,1.1));font-weight:800;color:#fde68a;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.4);border-radius:999px;padding:5px 11px;white-space:nowrap;}
@@ -33719,6 +33744,7 @@ function _saEsc(s){
       </div>
     </div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
+    <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
     <div class="st-sec"><div class="st-h"><span>Calendar</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">Open calendar →</button></div><div id="stEvents"></div></div>
     <div class="st-sec"><div class="st-h"><span>To do</span><button onclick="saCloseToday();document.getElementById('calendarBtn').click()">+ Add task</button></div><div id="stTasks"></div></div>
@@ -33737,7 +33763,7 @@ function _saEsc(s){
       <span id="stBriefNote" style="color:#94a3b8;font-size:calc(14px * var(--fs,1.1));"></span>
     </div>
     <details class="st-sec" id="stJobsSec" style="margin-top:10px;">
-      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">🤖 Teammate jobs — what your team does each morning and when things happen</summary>
+      <summary style="cursor:pointer;font-weight:700;color:#c4b5fd;font-size:calc(15px * var(--fs,1.1));">⚡ Triggers &amp; auto-send — what your team does when things happen</summary>
       <div id="stJobs" style="margin-top:8px;"></div>
     </details>
   </div>
@@ -33901,7 +33927,8 @@ function _saEsc(s){
       _agent = a2; _agentRev = a2.rev; renderAgent(a2);
       var fresh = (a2.approvals || []).filter(function(a){ return !before[a.id] && a.trigger; });
       if(fresh.length && !document.getElementById('saToday').classList.contains('open')){
-        toast('⚡ ' + fresh[0].teammate + ' drafted ' + (fresh.length === 1 ? 'a hello to ' + fresh[0].client_name : fresh.length + ' hellos') + ' — open Today to review');
+        if(fresh[0].mission_id) toast('🎯 ' + fresh[0].teammate + ' has ' + fresh.length + ' thing' + (fresh.length === 1 ? '' : 's') + ' ready for your OK — open Today to review');
+        else toast('⚡ ' + fresh[0].teammate + ' drafted ' + (fresh.length === 1 ? 'a hello to ' + fresh[0].client_name : fresh.length + ' hellos') + ' — open Today to review');
       }
     }catch(_){}
   }
@@ -33923,13 +33950,18 @@ function _saEsc(s){
     var firstPaint = _apprSeen === null; _apprSeen = _apprSeen || {};
     box.innerHTML = ap.map(function(a, i){
       var isNew = !firstPaint && !_apprSeen[a.id]; _apprSeen[a.id] = 1;
+      var isAction = a.kind === 'action';
+      var err = a.error ? ' · <span style="color:#fca5a5">'+esc(a.error)+'</span>' : '';
       return '<div class="st-lead st-appr'+(isNew?' st-new':'')+'" data-i="'+i+'"><div class="st-row">'+
         (ap.length > 1 ? '<input type="checkbox" class="st-apsel" data-id="'+esc(a.id)+'" '+(_apSel[a.id]?'checked':'')+' onchange="saAgentSel(this)" title="Select" style="width:18px;height:18px;cursor:pointer;accent-color:#8b5cf6;flex-shrink:0;">' : '')+
         '<div class="st-t">'+
-        (a.trigger ? '<span class="st-trig">⚡ '+esc(a.trigger)+'</span>' : '')+esc(a.title)+
-        '<div class="st-sub">'+esc(a.teammate)+' drafted this · to '+esc(a.to)+(a.error?' · <span style="color:#fca5a5">'+esc(a.error)+'</span>':'')+'</div></div>'+
-        '<button class="st-btn" onclick="saAgentOpen('+i+')">Review</button>'+
-        '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Send</button>'+
+        (a.trigger ? '<span class="st-trig">'+(a.mission_id ? '🎯 ' : '⚡ ')+esc(a.trigger)+'</span>' : '')+esc(a.title)+
+        (isAction
+          ? '<div class="st-sub">'+esc(a.summary || (a.teammate + ' wants to do this'))+err+'</div></div>'+
+            '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Approve</button>'
+          : '<div class="st-sub">'+esc(a.teammate)+' drafted this · to '+esc(a.to)+err+'</div></div>'+
+            '<button class="st-btn" onclick="saAgentOpen('+i+')">Review</button>'+
+            '<button class="st-btn pri" onclick="saAgentApprove('+i+',this,false)">✓ Send</button>')+
         '<button class="st-btn" onclick="saAgentSkip('+i+',this)">Skip</button></div><div class="st-intro"></div></div>';
     }).join('');
     renderApBulk(ap);
@@ -33947,19 +33979,204 @@ function _saEsc(s){
         return '<div class="st-row"><label style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;cursor:pointer;">'+
           '<input type="checkbox" '+(x.enabled?'checked':'')+' onchange="saAgentRule(\''+esc(x.key)+'\',this.checked)"> <span><b>'+esc(x.teammate)+'</b>: '+esc(x.title)+
           '<div class="st-sub">'+esc(x.hint)+'</div></span></label></div>';
-      }).join('') + '<div class="st-sub" style="font-weight:700;color:#c4b5fd;margin:10px 0 2px;">🌅 Every morning</div>' : '') + (d.jobs||[]).map(function(j){
-      return '<div class="st-row" style="flex-wrap:wrap;"><label style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px;cursor:pointer;">'+
-        '<input type="checkbox" '+(j.enabled?'checked':'')+' onchange="saAgentJob(\''+j.key+'\',{enabled:this.checked})"> <span><b>'+esc(j.teammate)+'</b>: '+esc(j.title)+
-        '<div class="st-sub">'+esc(j.hint)+'</div></span></label>'+
-        '<select onchange="saAgentJob(\''+j.key+'\',{hour:+this.value})">'+hours.replace('value="'+j.hour+'"','value="'+j.hour+'" selected')+'</select>'+
-        '<button class="st-btn" onclick="saAgentRun(\''+j.key+'\',this)">Run now</button></div>';
-    }).join('') + (d.trust||[]).map(function(t){
+      }).join('') + '<div class="st-sub" style="font-weight:700;color:#c4b5fd;margin:10px 0 2px;">🤝 Send without asking</div>' : '') + (d.trust||[]).map(function(t){
       return '<div class="st-row"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;">'+
         '<input type="checkbox" '+(t.auto?'checked':'')+' onchange="saAgentTrust(\''+t.kind+'\',this.checked)"> Send '+esc(t.label)+' automatically (no approval)</label>'+
         '<span class="st-sub">'+(t.auto?'On':(t.streak+'/'+d.offer_at+' approved unchanged'))+'</span></div>';
     }).join('');
+    renderMissions(d);
     renderDid(d.actions || []);
   }
+
+  // ── Missions (V20.0): standing jobs your team runs on its own ──
+  var MS_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var MS_ROLE = {Alex:'strategy', Willow:'content & social', Ava:'operations', Orion:'research', Sunshine:'sales & outreach', Luna:'client care', Atlis:'data & systems'};
+  var MS_TEMPLATES = [
+    {icon:'🧲', title:'Daily new leads', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
+     instruction:'Find 5 new businesses that match the customers in my business profile. Only keep ones whose website actually lists a real email or phone. Add them as contacts and draft a short, personal intro email to each for my approval.'},
+    {icon:'📣', title:'Weekly social posts', teammate:'Willow', schedule:{kind:'weekly', hour:9, days:[0]},
+     instruction:'Draft 3 social media posts for this week about my business and what I offer. Make each one different (a tip, a story, an offer). Save them as drafts for me to review.'},
+    {icon:'📊', title:'Monday pipeline report', teammate:'Orion', schedule:{kind:'weekly', hour:8, days:[0]},
+     instruction:'Review my contacts and pipeline. Tell me who is hot, who has gone quiet for 2+ weeks, and the 3 best moves for this week. Save the report to my notepad.'},
+    {icon:'💬', title:'Re-engage quiet contacts', teammate:'Sunshine', schedule:{kind:'weekly', hour:10, days:[2]},
+     instruction:'Find up to 5 contacts I have not been in touch with for 30+ days and draft a friendly, personal check-in email to each for my approval.'},
+    {icon:'🔭', title:'Weekly market check', teammate:'Orion', schedule:{kind:'weekly', hour:9, days:[4]},
+     instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Save a short summary with 3 ideas I can act on to my notepad.'},
+    {icon:'⏰', title:'Follow-ups that came due', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
+     instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'}
+  ];
+  var _msSteps = {}, _msFast = null, _msWasRunning = {};
+  function msHour(h){ h = +h || 0; return ((h % 12) || 12) + ':00 ' + (h < 12 ? 'am' : 'pm'); }
+  function msSched(s){
+    s = s || {}; var t = msHour(s.hour);
+    if(s.kind === 'weekdays') return 'Weekdays · ' + t;
+    if(s.kind === 'weekly') return (s.days || []).map(function(x){ return MS_DAYS[x]; }).join(', ') + ' · ' + t;
+    return 'Every day · ' + t;
+  }
+  function msById(id){ return ((_agent && _agent.missions) || []).filter(function(m){ return m.id === id; })[0]; }
+  function msTplChips(){
+    return '<div class="st-tpls">' + MS_TEMPLATES.map(function(t, i){
+      return '<button class="st-tpl" onclick="saMsTemplate(' + i + ')" title="' + esc(t.instruction) + '">' + t.icon + ' ' + esc(t.title) + '</button>';
+    }).join('') + '</div>';
+  }
+  function renderMissions(d){
+    var ms = d.missions || [], jobs = d.jobs || [], box = document.getElementById('stMissions');
+    if(!box) return;
+    document.getElementById('stMissionsH').textContent = '🎯 Missions' + (ms.length ? ' (' + ms.length + '/' + (d.mission_limit || 0) + ')' : '');
+    var pb = document.getElementById('stMsPause');
+    pb.style.display = ms.length ? '' : 'none';
+    pb.textContent = d.missions_paused ? '▶ Resume all' : '⏸ Pause all';
+    var html = '';
+    if(d.missions_paused) html += '<div class="st-ms-warn" style="margin:0 0 8px;">⏸ All missions are paused. Nothing runs until you resume.</div>';
+    if(!ms.length && !document.getElementById('stMsNew').innerHTML){
+      html += '<div class="st-empty" style="text-align:left;">Give your team a standing job and they\'ll do it on their own, on schedule. ' +
+        'Anything that leaves the app (emails, posts) waits here for your OK. Start from one of these:</div>' + msTplChips();
+    }
+    var anyRun = false;
+    ms.forEach(function(m){
+      var run = m.running, lr = m.last_run;
+      if(run) anyRun = true;
+      if(_msWasRunning[m.id] && !run && lr){
+        toast('🎯 ' + m.title + ' finished' + (lr.held ? ' — ' + lr.held + ' waiting for your OK' : ''), lr.ok ? 'success' : 'error');
+      }
+      _msWasRunning[m.id] = !!run;
+      var seen = _msSteps[m.id] || 0, steps = (run && run.steps) || [];
+      html += '<div class="st-ms' + (m.enabled ? '' : ' off') + (run ? ' run' : '') + '" data-ms="' + esc(m.id) + '"><div class="st-ms-top">' +
+        '<input type="checkbox" ' + (m.enabled ? 'checked' : '') + ' title="On / off" onchange="saMsToggle(\'' + esc(m.id) + '\',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#8b5cf6;">' +
+        '<div class="st-ms-title">' + esc(m.title) + '</div>' +
+        '<button class="st-btn pri" ' + (run ? 'disabled' : '') + ' onclick="saMsRun(\'' + esc(m.id) + '\',this)">' + (run ? 'Working…' : '▶ Run now') + '</button>' +
+        '<button class="st-btn" onclick="saMsEdit(\'' + esc(m.id) + '\')">Edit</button>' +
+        '<button class="st-btn" title="Delete mission" onclick="saMsDelete(\'' + esc(m.id) + '\')">🗑</button></div>' +
+        '<div class="st-ms-meta">' + esc(m.teammate) + ' · ' + esc(msSched(m.schedule)) + (m.runs ? ' · ran ' + m.runs + '×' : '') + '</div>';
+      if(m.paused_reason) html += '<div class="st-ms-warn">⚠ ' + esc(m.paused_reason) + '</div>';
+      if(run){
+        html += '<div class="st-ms-live"><b class="st-ms-dots">' + esc(m.teammate) + ' is working</b>' +
+          steps.map(function(s, i){ return '<div class="st-ms-step' + (i >= seen ? ' st-new' : '') + '">' + esc(s) + '</div>'; }).join('') + '</div>';
+        _msSteps[m.id] = steps.length;
+      } else {
+        _msSteps[m.id] = 0;
+        if(lr){
+          html += '<div class="st-ms-res">' + (lr.ok ? '✅ ' : '⚠ ') + '<b>Last run ' + esc(_ago(lr.at)) + ':</b> ' + esc(lr.summary || '') +
+            (lr.held ? ' <span class="st-tag ok">' + lr.held + ' sent to Ready for you</span>' : '') + '</div>' +
+            ((lr.steps || []).length ? '<details style="margin-top:4px;"><summary class="st-sub" style="cursor:pointer;">What ' + esc(m.teammate) + ' did (' + lr.steps.length + ' steps)</summary>' +
+              lr.steps.map(function(s){ return '<div class="st-ms-step">' + esc(s) + '</div>'; }).join('') + '</details>' : '');
+        } else if(m.enabled){
+          html += '<div class="st-ms-res st-sub">Hasn\'t run yet. Runs next on its schedule, or press Run now.</div>';
+        }
+      }
+      html += '</div>';
+    });
+    // Built-in morning jobs: same switches as before, shown as missions (don't count toward the limit)
+    var hours = ''; for(var h = 5; h <= 11; h++) hours += '<option value="' + h + '">' + h + ':00 am</option>';
+    jobs.forEach(function(j){
+      html += '<div class="st-ms' + (j.enabled ? '' : ' off') + '"><div class="st-ms-top">' +
+        '<input type="checkbox" ' + (j.enabled ? 'checked' : '') + ' title="On / off" onchange="saAgentJob(\'' + j.key + '\',{enabled:this.checked})" style="width:18px;height:18px;cursor:pointer;accent-color:#8b5cf6;">' +
+        '<div class="st-ms-title">' + esc(j.title) + ' <span class="st-ms-built">Built in</span></div>' +
+        '<select onchange="saAgentJob(\'' + j.key + '\',{hour:+this.value})" title="Runs every morning at">' + hours.replace('value="' + j.hour + '"', 'value="' + j.hour + '" selected') + '</select>' +
+        '<button class="st-btn" onclick="saAgentRun(\'' + j.key + '\',this)">Run now</button></div>' +
+        '<div class="st-ms-meta">' + esc(j.teammate) + ' · Every day · ' + esc(j.hint) + '</div></div>';
+    });
+    if(ms.length && ms.length < (d.mission_limit || 0) && !document.getElementById('stMsNew').innerHTML){
+      html += '<div class="st-sub" style="margin-top:2px;">Ideas:</div>' + msTplChips();
+    }
+    box.innerHTML = html;
+    // Watch closely while someone is working so each step slides in as it happens
+    if(anyRun && !_msFast) _msFast = setInterval(pollAgentRev, 2000);
+    if(!anyRun && _msFast){ clearInterval(_msFast); _msFast = null; }
+  }
+
+  window.saMsNew = function(){
+    var box = document.getElementById('stMsNew');
+    if(box.style.display !== 'none' && !box.querySelector('.st-ms-form')){ box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = '';
+    box.innerHTML = '<div class="st-draft"><label for="stMsText">What should your team do on its own?</label>' +
+      '<textarea id="stMsText" style="min-height:80px;" maxlength="1500" placeholder="e.g. Every Monday at 9, have Willow draft 3 posts about our spring special for me to approve"></textarea>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri" onclick="saMsParse(this)">✨ Set it up</button><button class="st-btn" onclick="saMsCancel()">Cancel</button></div>' +
+      '<div class="st-sub">Or start from an idea:</div>' + msTplChips() + '</div>';
+    setTimeout(function(){ var t = document.getElementById('stMsText'); if(t) t.focus(); }, 50);
+    if(_agent) renderMissions(_agent);
+  };
+  window.saMsCancel = function(){ var b = document.getElementById('stMsNew'); b.style.display = 'none'; b.innerHTML = ''; if(_agent) renderMissions(_agent); };
+  window.saMsParse = async function(btn){
+    var text = (document.getElementById('stMsText').value || '').trim();
+    if(text.length < 8){ toast('Describe what you want your team to do.', 'error'); return; }
+    btn.disabled = true; btn.textContent = 'Reading that…';
+    try{
+      var d = await agentPost('/api/missions/parse', {text: text});
+      if(!d.ok) throw new Error(d.error || 'Could not understand that');
+      msForm(d.draft, null);
+    }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; btn.textContent = '✨ Set it up'; }
+  };
+  window.saMsTemplate = function(i){ var t = MS_TEMPLATES[i]; if(t) msForm(JSON.parse(JSON.stringify(t)), null); };
+  window.saMsEdit = function(id){ var m = msById(id); if(m) msForm(m, id); };
+  function msForm(m, editId){
+    var box = document.getElementById('stMsNew'); box.style.display = '';
+    var team = (_agent && _agent.mission_teammates) || Object.keys(MS_ROLE);
+    var s = m.schedule || {kind:'weekdays', hour:8, days:[]};
+    var hourOpts = ''; for(var h = 0; h < 24; h++) hourOpts += '<option value="' + h + '"' + (h === +s.hour ? ' selected' : '') + '>' + msHour(h) + '</option>';
+    box.innerHTML = '<div class="st-draft st-ms-form">' +
+      '<div style="font-weight:800;color:#f1f5f9;">' + (editId ? 'Edit mission' : 'Here\'s what I understood. Change anything, then start it.') + '</div>' +
+      '<label>Name</label><input id="msTitle" maxlength="80">' +
+      '<label>Who does it</label><select id="msTeammate">' + team.map(function(n){ return '<option value="' + esc(n) + '"' + (n === m.teammate ? ' selected' : '') + '>' + esc(n) + (MS_ROLE[n] ? ' · ' + MS_ROLE[n] : '') + '</option>'; }).join('') + '</select>' +
+      '<label>When</label><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+        '<select id="msKind" onchange="saMsKind()"><option value="daily"' + (s.kind === 'daily' ? ' selected' : '') + '>Every day</option><option value="weekdays"' + (s.kind === 'weekdays' ? ' selected' : '') + '>Weekdays</option><option value="weekly"' + (s.kind === 'weekly' ? ' selected' : '') + '>Specific days</option></select>' +
+        '<span class="st-sub">at</span><select id="msHour">' + hourOpts + '</select></div>' +
+      '<div id="msDays" class="st-ms-days" style="' + (s.kind === 'weekly' ? '' : 'display:none;') + '">' + MS_DAYS.map(function(n, i){
+        return '<label><input type="checkbox" value="' + i + '"' + ((s.days || []).indexOf(i) >= 0 ? ' checked' : '') + '> ' + n + '</label>'; }).join('') + '</div>' +
+      '<label>What to do</label><textarea id="msInstr" maxlength="1500"></textarea>' +
+      '<div class="st-sub">Emails and anything that leaves the app wait in Ready for you for your OK. Each run uses some of this month\'s AI messages.</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="st-btn pri" onclick="saMsSave(this,' + (editId ? '\'' + esc(editId) + '\'' : 'null') + ')">' + (editId ? 'Save changes' : '🎯 Start mission') + '</button>' +
+      '<button class="st-btn" onclick="saMsCancel()">Cancel</button></div></div>';
+    document.getElementById('msTitle').value = m.title || '';
+    document.getElementById('msInstr').value = m.instruction || '';
+    box.scrollIntoView({behavior:'smooth', block:'center'});
+    if(_agent) renderMissions(_agent);
+  }
+  window.saMsKind = function(){ document.getElementById('msDays').style.display = document.getElementById('msKind').value === 'weekly' ? '' : 'none'; };
+  window.saMsSave = async function(btn, editId){
+    var days = [].slice.call(document.querySelectorAll('#msDays input:checked')).map(function(c){ return +c.value; });
+    var body = {title: document.getElementById('msTitle').value, teammate: document.getElementById('msTeammate').value,
+      instruction: document.getElementById('msInstr').value,
+      schedule: {kind: document.getElementById('msKind').value, hour: +document.getElementById('msHour').value, days: days}};
+    btn.disabled = true;
+    try{
+      var d = await agentPost(editId ? '/api/missions/' + encodeURIComponent(editId) : '/api/missions', body);
+      if(!d.ok) throw new Error(d.error || 'Could not save');
+      saMsCancel();
+      toast(editId ? '✓ Saved' : '🎯 Mission set: ' + d.mission.teammate + ' will handle "' + d.mission.title + '" ' + msSched(d.mission.schedule).toLowerCase(), 'success');
+      await loadAgent();
+      var card = document.querySelector('.st-ms[data-ms="' + d.mission.id + '"]');
+      if(card){ card.classList.add('st-appr', 'st-new'); card.scrollIntoView({behavior:'smooth', block:'center'}); }
+    }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; }
+  };
+  window.saMsToggle = async function(id, on){
+    var d = await agentPost('/api/missions/' + encodeURIComponent(id), {enabled: !!on});
+    if(d.ok){ toast(on ? '▶ On' : '⏸ Off'); loadAgent(); } else toast(d.error || 'Could not change it', 'error');
+  };
+  window.saMsRun = async function(id, btn){
+    btn.disabled = true; btn.textContent = 'Starting…';
+    try{
+      var d = await agentPost('/api/missions/' + encodeURIComponent(id) + '/run', {});
+      if(!d.ok) throw new Error(d.error || 'Could not start');
+      _msWasRunning[id] = true;
+      if(!_msFast) _msFast = setInterval(pollAgentRev, 2000);
+      setTimeout(pollAgentRev, 600);
+    }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; btn.textContent = '▶ Run now'; }
+  };
+  window.saMsDelete = async function(id){
+    var m = msById(id); if(!m) return;
+    if(!confirm('Delete the mission "' + m.title + '"? Anything it already made stays where it is.')) return;
+    try{
+      var r = await fetch('/api/missions/' + encodeURIComponent(id), {method:'DELETE'});
+      var d = await r.json();
+      if(d.ok){ toast('🗑 Mission deleted'); loadAgent(); } else toast(d.error || 'Could not delete', 'error');
+    }catch(e){ toast(String(e), 'error'); }
+  };
+  window.saMsPauseAll = async function(){
+    var paused = !(_agent && _agent.missions_paused);
+    var d = await agentPost('/api/missions/pause_all', {paused: paused});
+    if(d.ok){ toast(paused ? '⏸ All missions paused' : '▶ Missions resumed'); loadAgent(); }
+  };
 
   // ── What your team did (V12.5): every teammate action, live, with Undo ──
   var _didAll = false, _didSeen = null;
@@ -34011,14 +34228,15 @@ function _saEsc(s){
     var a = _agent && _agent.approvals[i], row = apprRow(i); if(!a || !row) return;
     var sub = row.querySelector('.st-dsub'), bod = row.querySelector('.st-dbody');
     var payload = (fromEditor && sub && bod) ? {subject: sub.value, body: bod.value} : {};
-    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
+    var isAction = a.kind === 'action';
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = isAction ? 'Doing it…' : 'Sending…';
     try{
       var d = await agentPost('/api/agent/approvals/'+encodeURIComponent(a.id)+'/approve', payload);
-      if(!d.ok){ btn.disabled = false; btn.textContent = orig; toast(d.error || 'Could not send', 'error'); return; }
+      if(!d.ok){ btn.disabled = false; btn.textContent = orig; toast(d.error || (isAction ? 'Could not do that' : 'Could not send'), 'error'); return; }
       row.style.opacity = '.35'; row.classList.add('st-done');
       [].forEach.call(row.querySelectorAll('button'), function(b){ b.disabled = true; });
       row.querySelector('.st-intro').innerHTML = '';
-      toast('📨 Sent to ' + a.client_name); checkCleared();
+      toast(isAction ? '✓ Done: ' + (a.title || 'approved') : '📨 Sent to ' + a.client_name); checkCleared();
       if(d.offer) setTimeout(loadAgent, 600);
     }catch(e){ btn.disabled = false; btn.textContent = orig; toast(String(e), 'error'); }
   };
@@ -34048,7 +34266,7 @@ function _saEsc(s){
     var pick = (n ? pend.filter(function(a){ return _apSel[a.id]; }) : pend);
     if(!pick.length) return;
     if(action === 'approve' && !confirm('Send ' + pick.length + ' email' + (pick.length===1?'':'s') + ' exactly as drafted?\n\n' +
-        pick.slice(0, 8).map(function(a){ return '• ' + (a.client_name || a.to) + ' — ' + (a.subject || ''); }).join('\n') + (pick.length > 8 ? '\n…and ' + (pick.length-8) + ' more' : ''))) return;
+        pick.slice(0, 8).map(function(a){ return '• ' + (a.kind === 'action' ? (a.title || 'action') : (a.client_name || a.to) + ' — ' + (a.subject || '')); }).join('\n') + (pick.length > 8 ? '\n…and ' + (pick.length-8) + ' more' : ''))) return;
     btn.disabled = true; var orig = btn.textContent; btn.textContent = action === 'approve' ? 'Sending…' : 'Skipping…';
     try{
       var d = await agentPost('/api/agent/approvals/bulk', {action: action, ids: pick.map(function(a){ return a.id; })});

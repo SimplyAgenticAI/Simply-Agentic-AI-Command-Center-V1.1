@@ -161,6 +161,22 @@ def test_failures_auto_pause_after_three(flask_app, monkeypatch):
         _drop(name)
 
 
+def test_new_mission_after_todays_time_waits_for_next_run(flask_app, monkeypatch):
+    name = "missionnextrun"
+    _user(name)
+    monkeypatch.setattr(app_module, "_user_now_local", lambda u: datetime(2026, 11, 2, 15, 0))   # Monday 3 pm
+    try:
+        c, h = _client(flask_app, name)
+        late = c.post("/api/missions", headers=h, json=dict(MISSION, schedule={"kind": "weekdays", "hour": 8})).get_json()["mission"]["id"]
+        early = c.post("/api/missions", headers=h, json=dict(MISSION, title="Evening", schedule={"kind": "weekdays", "hour": 18})).get_json()["mission"]["id"]
+        ms = app_module._agent_load(name)["missions"]
+        assert ms[late]["last_day"] == "2026-11-02" and ms[early]["last_day"] == ""
+        view = c.get("/api/agent").get_json()
+        assert "Willow" in view["mission_teammates"] and view["mission_limit"] >= 3
+    finally:
+        _drop(name)
+
+
 def test_schedule_rules():
     mon9 = datetime(2026, 11, 2, 9, 30)        # a Monday
     sat9 = datetime(2026, 11, 7, 9, 30)

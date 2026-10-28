@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "19.9")
+APP_VERSION = os.getenv("APP_VERSION", "20.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -23031,7 +23031,8 @@ def _agent_view(uname: str) -> Dict[str, Any]:
             "actions": _actions_view(uname),
             "offers": offers, "offer_at": AGENT_TRUST_OFFER_AT,
             "missions": [_mission_view(m) for m in d["missions"].values()],
-            "missions_paused": bool(d.get("missions_paused")), "mission_limit": _mission_limit(uname)}
+            "missions_paused": bool(d.get("missions_paused")), "mission_limit": _mission_limit(uname),
+            "mission_teammates": _mission_teammates(uname)}
 
 
 def _agent_rev_total(uname: str, d: Optional[Dict[str, Any]] = None) -> int:
@@ -23296,6 +23297,18 @@ def _mission_due(m: Dict[str, Any], now_local: datetime) -> bool:
     return True
 
 
+def _mission_skip_today(uname: str, m: Dict[str, Any]) -> str:
+    """A mission set up after today's run time waits for its NEXT scheduled time
+    (otherwise 'weekdays at 8' created at 3 pm would run straight away)."""
+    try:
+        now_local = _user_now_local(uname)
+        if now_local.hour >= int((m.get("schedule") or {}).get("hour", AGENT_DEFAULT_HOUR)):
+            return now_local.strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    return ""
+
+
 def _mission_update(uname: str, mid: str, fn) -> Optional[Dict[str, Any]]:
     """Apply fn(mission, store) under the agent lock and save (bumps rev → live UI)."""
     with _AGENT_LOCK:
@@ -23546,7 +23559,8 @@ def api_missions_create():
         lim = _mission_limit(uname)
         if len(d["missions"]) >= lim:
             return jsonify({"ok": False, "error": f"Your plan includes {lim} missions. Pause or delete one, or upgrade for more."}), 403
-        m.update(id=uuid.uuid4().hex[:12], enabled=True, created_at=now_iso(), fails=0, runs=0, last_day="")
+        m.update(id=uuid.uuid4().hex[:12], enabled=True, created_at=now_iso(), fails=0, runs=0,
+                 last_day=_mission_skip_today(uname, m))
         d["missions"][m["id"]] = m
         _agent_save(uname, d)
     return jsonify({"ok": True, "mission": _mission_view(m)})
@@ -23615,6 +23629,8 @@ def api_missions_update(mid: str):
         m, err = _mission_clean(uname, b, cur)
         if err:
             return jsonify({"ok": False, "error": err}), 400
+        if "schedule" in b and m.get("schedule") != cur.get("schedule"):
+            m["last_day"] = _mission_skip_today(uname, m) or cur.get("last_day", "")
         d["missions"][mid] = m
         _agent_save(uname, d)
     return jsonify({"ok": True, "mission": _mission_view(m)})
