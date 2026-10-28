@@ -449,6 +449,42 @@ def test_runs_end_in_result_cards_you_can_act_on(flask_app, monkeypatch):
         _drop(name)
 
 
+def test_talk_back_to_a_result_starts_a_followup_run(flask_app, monkeypatch):
+    name = "missionask"
+    _user(name)
+    seen = []
+    wrap1 = json.dumps({"headline": "Drafted a post.", "findings": [{"title": "Tips do well", "detail": "x", "actions": ["Post the tip first"]}]})
+    wrap2 = json.dumps({"headline": "Rewrote it shorter.", "findings": []})
+    turns = [_turn(calls=[_call(1, "draft_social_post", {"caption": "A long spring tune-up post about everything", "platforms": ["linkedin"]})]),
+             _turn(wrap1),
+             _turn(calls=[_call(2, "draft_social_post", {"caption": "Spring tune-ups: book now!", "platforms": ["linkedin"]})]),
+             _turn(wrap2)]
+    fake = _FakeOAI(turns)
+    orig = fake.chat.completions.create
+    fake.chat.completions.create = lambda **kw: (seen.append(json.dumps(kw.get("messages"), default=str)), orig(**kw))[1]
+    monkeypatch.setattr(app_module, "get_openai_client", lambda: fake)
+    monkeypatch.setattr(app_module, "_AGENT_EVENTS_INLINE", True)
+    try:
+        c, h = _client(flask_app, name)
+        mid = c.post("/api/missions", headers=h, json=MISSION).get_json()["mission"]["id"]
+        app_module._mission_run(name, mid)
+        run = c.get(f"/api/missions/{mid}/runs").get_json()["runs"][0]
+        post = next(x for x in run["cards"] if x["type"] == "post")
+        assert c.get("/api/agent").get_json()["missions"][0]["needs_you"] >= 1      # report needs you
+        r = c.post(f"/api/missions/{mid}/runs/{run['id']}/cards/{post['id']}/ask", headers=h, json={"text": "rewrite it shorter"})
+        assert r.status_code == 200 and r.get_json()["started"]
+        runs = c.get(f"/api/missions/{mid}/runs").get_json()["runs"]
+        fol = runs[0]
+        assert fol["source"] == "followup" and fol["followup_of"] == {"run": run["id"], "card": post["id"], "ask": "rewrite it shorter"}
+        assert fol["summary"] == "Rewrote it shorter."
+        assert "rewrite it shorter" in seen[2] and "A long spring tune-up post" in seen[2]   # knew which card
+        assert any(x["type"] == "post" and "book now" in x["detail"] for x in fol["cards"])
+        w = app_module._agent_weekly(name)
+        assert any("mission result" in x for x in w["lines"])
+    finally:
+        _drop(name)
+
+
 def test_draft_result_window_has_no_self_calling_wrapper():
     html = open("templates/index.html", encoding="utf-8").read()
     assert "return crmShowDraftResult.apply(this, arguments)" not in html

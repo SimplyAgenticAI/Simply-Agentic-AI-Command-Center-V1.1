@@ -33776,6 +33776,17 @@ function _saEsc(s){
 .st-ms-days{display:flex;gap:6px;flex-wrap:wrap;}
 .st-ms-days label{display:flex;align-items:center;gap:4px;font-weight:600;color:#e2e8f0;cursor:pointer;}
 @media(prefers-reduced-motion:reduce){.st-ms.run,.st-ms-step.st-new{animation:none}.st-ms-dots::after{animation:none;content:'…'}}
+/* Mission result cards (V20.9) */
+.ms-res{margin-top:8px;display:flex;flex-direction:column;gap:6px;}
+.ms-card{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 11px;background:rgba(255,255,255,.03);}
+.ms-card.need{border-color:rgba(124,58,237,.55);background:rgba(124,58,237,.07);}
+.ms-card.quiet{opacity:.6;}
+.ms-card .t{font-weight:800;color:#f1f5f9;font-size:calc(15px * var(--fs,1.1));}
+.ms-card .d{font-size:calc(14px * var(--fs,1.1));color:#cbd5e1;margin-top:3px;white-space:pre-wrap;overflow-wrap:anywhere;}
+.ms-ask{display:flex;gap:6px;margin-top:7px;}
+.ms-ask input{flex:1;min-width:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:6px 9px;color:#f1f5f9;font-size:calc(14px * var(--fs,1.1));font-family:inherit;}
+.ms-needs{display:block;width:100%;text-align:left;margin:0 0 10px;padding:9px 12px;border-radius:10px;cursor:pointer;font-family:inherit;
+  background:rgba(124,58,237,.14);border:1px solid rgba(124,58,237,.5);color:#ede9fe;font-weight:700;font-size:calc(15px * var(--fs,1.1));}
 /* Inbox opportunities (V20.6) */
 .ib-hot{border-color:rgba(248,113,113,.55);background:rgba(248,113,113,.06);}
 .ib-warm{border-color:rgba(250,204,21,.45);background:rgba(250,204,21,.05);}
@@ -33839,6 +33850,7 @@ function _saEsc(s){
         <button class="st-btn pri" onclick="saTodaySaveFocus()">Set</button>
       </div>
     </div>
+    <div id="stMsNeeds"></div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div id="stTeamPane">
     <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
@@ -34257,27 +34269,28 @@ function _saEsc(s){
   var MS_ROLE = {Alex:'strategy', Willow:'content & social', Ava:'operations', Orion:'research', Sunshine:'sales & outreach', Luna:'client care', Atlis:'data & systems'};
   var MS_TEMPLATES = [
     {icon:'🧲', title:'Daily new leads', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
-     instruction:'Find 5 new businesses that match the customers in my business profile. Only keep ones whose website actually lists a real email or phone. Add them as contacts and draft a short, personal intro email to each for my approval.'},
+     instruction:'Use find_leads to find 5 businesses that match the customers in my business profile. Add the ones that have a real email with crm_add_client, then draft a short, personal intro to each of those with send_email (it waits for my approval). In your findings, tell me which 1-2 look most promising and why, with a concrete next step for each.'},
     {icon:'📣', title:'Weekly social posts', teammate:'Willow', schedule:{kind:'weekly', hour:9, days:[0]},
-     instruction:'Draft 3 social media posts for this week about my business and what I offer. Make each one different (a tip, a story, an offer). Save them as drafts for me to review.'},
+     instruction:'Use draft_social_post three times to draft 3 different posts for this week about my business and what I offer: one tip, one story, one offer. In your findings, say which one you would post first and why.'},
     {icon:'📊', title:'Monday pipeline report', teammate:'Orion', schedule:{kind:'weekly', hour:8, days:[0]},
-     instruction:'Review my contacts and pipeline. Tell me who is hot, who has gone quiet for 2+ weeks, and the 3 best moves for this week. Save the report to my notepad.'},
+     instruction:'Review my contacts and pipeline with crm_find_client. In your findings, cover who is hot right now, who has gone quiet for 2+ weeks, and any deal at risk. Give each finding concrete action items that name the person (e.g. "Call Ann about the proposal") so I can turn them into tasks.'},
     {icon:'💬', title:'Re-engage quiet contacts', teammate:'Sunshine', schedule:{kind:'weekly', hour:10, days:[2]},
-     instruction:'Find up to 5 contacts I have not been in touch with for 30+ days and draft a friendly, personal check-in email to each for my approval.'},
+     instruction:'Find up to 5 contacts I have not been in touch with for 30+ days (use crm_find_client) and draft a friendly, personal check-in to each with send_email (it waits for my approval). In your findings, flag anyone who is worth a phone call instead, and why.'},
     {icon:'🔭', title:'Weekly market check', teammate:'Orion', schedule:{kind:'weekly', hour:9, days:[4]},
-     instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Save a short summary with 3 ideas I can act on to my notepad.'},
+     instruction:'Research what changed this week in my industry and local market: competitors, trends and news. Give me 3-5 findings, each with a concrete action item I can take this week.'},
     {icon:'⏰', title:'Follow-ups that came due', teammate:'Sunshine', schedule:{kind:'weekdays', hour:8, days:[]},
-     instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up email to each for my approval.'},
+     instruction:'Find contacts whose follow-up date is today or earlier and draft a friendly follow-up to each with send_email (it waits for my approval). In your findings, note anyone who has been followed up 3+ times with no reply.'},
     {icon:'📥', title:'Missed opportunities in my inbox', teammate:'Willow', schedule:{kind:'weekdays', hour:8, days:[]},
      instruction:'Use review_inbox to go through my last 100 unanswered emails and sort them into my Inbox list, with replies drafted for the hot ones. Then tell me how many are hot and name the top 3.'},
     {icon:'📞', title:'Prep for booked calls', teammate:'Orion', schedule:{kind:'event', event:'booking.created', hour:0, days:[]},
-     instruction:'Someone just booked a call. Research them and their business, then save a short prep brief to my notepad: who they are, what they probably need, and 3 good questions to ask.'},
+     instruction:'Someone just booked a call. Research them and their business, then save a prep brief with add_to_notepad: who they are and what they probably need. Put 3 good questions to ask as action items in your findings.'},
     {icon:'🏆', title:'Thank new customers', teammate:'Luna', schedule:{kind:'event', event:'deal.stage_changed', hour:0, days:[]},
-     instruction:'If a deal just moved to a won / closed / customer stage, draft a warm thank-you email to that contact for my approval and add a task to ask them for a review in 2 weeks. If it moved to any other stage, do nothing.'}
+     instruction:'If a deal just moved to a won / closed / customer stage, draft a warm thank-you to that contact with send_email (it waits for my approval) and use create_calendar_task to add a task 14 days from today to ask them for a review. If it moved to any other stage, do nothing.'}
   ];
   var MS_EVENTS = {'contact.created':'A new contact is added', 'booking.created':'Someone books a call',
     'form.submitted':'Someone fills in your lead form', 'post.published':'A social post goes live', 'deal.stage_changed':'A deal changes stage'};
   var _msSteps = {}, _msFast = null, _msWasRunning = {};
+  var _msResOpen = {}, _msRuns = {}, _msRunSel = {};     // V20.9 result cards: open panels, run history, chosen run
   function msHour(h){ h = +h || 0; return ((h % 12) || 12) + ':00 ' + (h < 12 ? 'am' : 'pm'); }
   function msSched(s){
     s = s || {};
@@ -34311,8 +34324,10 @@ function _saEsc(s){
       var run = m.running, lr = m.last_run;
       if(run) anyRun = true;
       if(_msWasRunning[m.id] && !run && lr){
-        toast('🎯 ' + m.title + ' finished' + (lr.held ? ' — ' + lr.held + ' waiting for your OK' : '') + (lr.sent ? ' · ' + lr.sent + ' sent' : ''), lr.ok ? 'success' : 'error');
+        toast('🎯 ' + m.title + ' finished' + (lr.results ? ' — ' + lr.results + ' results' : '') + (lr.held ? ', ' + lr.held + ' waiting for your OK' : '') + (lr.sent ? ' · ' + lr.sent + ' sent' : ''), lr.ok ? 'success' : 'error');
         loadWeekly();
+        (function(id){ _msRunSel[id] = null; msLoadRuns(id).then(function(){ if(_msResOpen[id]) msDrawResults(id); }); })(m.id);
+        if(!_msResOpen[m.id] && lr.results){ _msResOpen[m.id] = true; }      // open the new results automatically
       }
       _msWasRunning[m.id] = !!run;
       var seen = _msSteps[m.id] || 0, steps = (run && run.steps) || [];
@@ -34343,6 +34358,13 @@ function _saEsc(s){
             (lr.sent ? ' <span class="st-tag ok">📨 ' + lr.sent + ' sent on its own</span>' : '') + '</div>' +
             ((lr.steps || []).length ? '<details style="margin-top:4px;"><summary class="st-sub" style="cursor:pointer;">What ' + esc(m.teammate) + ' did (' + lr.steps.length + ' steps)</summary>' +
               lr.steps.map(function(s){ return '<div class="st-ms-step">' + esc(s) + '</div>'; }).join('') + '</details>' : '');
+          if(lr.results || (lr.incomplete)){
+            html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+              '<button class="st-btn' + (m.needs_you ? ' pri' : '') + '" onclick="saMsResults(\'' + esc(m.id) + '\')">📋 ' + (_msResOpen[m.id] ? 'Hide' : 'Show') + ' results (' + (lr.results || 0) + ')' +
+              (m.needs_you ? ' · ' + m.needs_you + ' need you' : '') + '</button>' +
+              (lr.incomplete ? '<span class="st-tag">wrap-up incomplete</span>' : '') + '</div>';
+          }
+          html += '<div class="ms-res" id="msRes-' + esc(m.id) + '"></div>';
         } else if(m.enabled){
           html += '<div class="st-ms-res st-sub">Hasn\'t run yet. ' + ((m.schedule || {}).kind === 'event'
             ? 'It runs ' + esc(msSched(m.schedule).replace('⚡ ', '').toLowerCase()) + '.' : 'Runs next on its schedule, or press Run now.') + '</div>';
@@ -34362,14 +34384,134 @@ function _saEsc(s){
     });
     box.innerHTML = html;
     var badge = document.getElementById('stTeamBadge');
+    var needsTotal = ms.reduce(function(s, m){ return s + (m.needs_you || 0); }, 0);
     if(badge){
       var runner = ms.filter(function(m){ return m.running; })[0];
-      badge.textContent = runner ? '● ' + runner.teammate + ' working' : '';
+      badge.textContent = runner ? '● ' + runner.teammate + ' working' : (needsTotal ? '🎯 ' + needsTotal : '');
     }
+    var nb = document.getElementById('stMsNeeds');
+    if(nb) nb.innerHTML = needsTotal ? '<button class="ms-needs" onclick="saTodayTab(\'team\')">🎯 ' + needsTotal +
+      ' mission result' + (needsTotal === 1 ? ' needs' : 's need') + ' you → open Your team</button>' : '';
+    // re-draw any results panels that were open (the cards above were just rebuilt)
+    Object.keys(_msResOpen).forEach(function(id){ if(_msResOpen[id]) msDrawResults(id); });
     // Watch closely while someone is working so each step slides in as it happens
     if(anyRun && !_msFast) _msFast = setInterval(pollAgentRev, 2000);
     if(!anyRun && _msFast){ clearInterval(_msFast); _msFast = null; }
   }
+
+  // ── Mission results (V20.9): every run ends in cards you act on ──
+  window.saMsResults = async function(mid){
+    _msResOpen[mid] = !_msResOpen[mid];
+    if(!_msResOpen[mid]){ var p = document.getElementById('msRes-' + mid); if(p) p.innerHTML = ''; if(_agent) renderMissions(_agent); return; }
+    await msLoadRuns(mid);
+    if(_agent) renderMissions(_agent);
+  };
+  async function msLoadRuns(mid){
+    try{ var d = await (await fetch('/api/missions/' + encodeURIComponent(mid) + '/runs')).json(); if(d.ok) _msRuns[mid] = d.runs || []; }catch(_){}
+  }
+  function msRunLabel(r){
+    var src = {manual:'Run now', schedule:'Scheduled', event:'⚡ Triggered', followup:'💬 Follow-up'}[r.source] || r.source;
+    return _ago(r.at) + ' · ' + src + ' · ' + (r.cards || []).length + ' results' + (r.needs_you ? ' · ' + r.needs_you + ' need you' : '');
+  }
+  function msDrawResults(mid){
+    var box = document.getElementById('msRes-' + mid); if(!box) return;
+    var runs = _msRuns[mid] || [], m = msById(mid) || {};
+    if(!runs.length){ box.innerHTML = '<div class="st-empty">No results yet. Results appear after the next run.</div>'; return; }
+    var rid = _msRunSel[mid] && runs.some(function(r){ return r.id === _msRunSel[mid]; }) ? _msRunSel[mid] : runs[0].id;
+    var run = runs.filter(function(r){ return r.id === rid; })[0];
+    var html = runs.length > 1 ? '<select onchange="saMsPickRun(\'' + esc(mid) + '\',this.value)" style="max-width:100%;">' + runs.map(function(r){
+      return '<option value="' + esc(r.id) + '"' + (r.id === rid ? ' selected' : '') + '>' + esc(msRunLabel(r)) + '</option>'; }).join('') + '</select>' : '';
+    if(run.followup_of) html += '<div class="st-sub">💬 You asked: “' + esc(run.followup_of.ask) + '”</div>';
+    html += '<div class="st-ms-res"><b>' + esc(run.summary || '') + '</b></div>';
+    var cards = (run.cards || []).slice().sort(function(a, b){ return (b.needs_you ? 1 : 0) - (a.needs_you ? 1 : 0); });
+    html += cards.length ? cards.map(function(c){ return msCardHtml(mid, run, c, runs); }).join('') : '<div class="st-empty">This run didn\'t produce anything to act on.</div>';
+    box.innerHTML = html;
+  }
+  window.saMsPickRun = function(mid, rid){ _msRunSel[mid] = rid; msDrawResults(mid); };
+  function msCardHtml(mid, run, c, runs){
+    var k = esc(mid) + '\',\'' + esc(run.id) + '\',\'' + esc(c.id), d = c.data || {}, refs = c.refs || {};
+    var icon = {lead:'🧲', email:'✉', post:'📣', task:'✅', note:'📝', inbox:'📥', approval:'⏸', report:'📊'}[c.type] || '•';
+    var stTag = c.status && c.status !== 'new' ? '<span class="st-tag ok">' + esc(c.status) + '</span>' : '';
+    var body = '', acts = '';
+    var act = function(a, label, pri){ return '<button class="st-btn' + (pri ? ' pri' : '') + '" onclick="saMsCard(\'' + k + '\',\'' + a + '\',this)">' + label + '</button>'; };
+    if(c.type === 'lead'){
+      body = (d.website ? '<a href="' + esc(d.website) + '" target="_blank" rel="noopener" style="color:#a5b4fc;">' + esc(d.website) + '</a> · ' : '') +
+        (d.email ? esc(d.email) : '<span style="color:#fca5a5">no email on their website</span>') + (d.phone ? ' · ' + esc(d.phone) : '') +
+        (c.detail ? '<br>💡 ' + esc(c.detail) : '');
+      acts = refs.client_id ? (c.status === 'drafted' ? '' : (d.email ? act('intro', '✍ Draft intro', true) : '')) : act('add', '➕ Add to pipeline', true);
+    } else if(c.type === 'email'){
+      body = esc(c.detail || '');
+      if(c.needs_you) acts = '<button class="st-btn pri" onclick="saTodayTab(\'today\');var s=document.getElementById(\'stReadySec\');if(s)s.scrollIntoView({behavior:\'smooth\'})">Review in Ready for you</button>';
+    } else if(c.type === 'post' || c.type === 'approval'){
+      body = esc(c.detail || '') + (d.platforms && d.platforms.length ? '<br><span class="st-sub">' + esc(d.platforms.join(', ')) + '</span>' : '');
+      if(refs.approval_id && c.needs_you) acts = '<button class="st-btn pri" onclick="saMsApprove(\'' + esc(refs.approval_id) + '\',\'' + esc(mid) + '\',this)">✓ Approve</button>';
+      if(c.type === 'post') acts += '<button class="st-btn" onclick="saCloseToday();if(window.showContentPlannerModal)showContentPlannerModal()">Open planner</button>';
+    } else if(c.type === 'task'){
+      body = esc(c.detail || '');
+      acts = '<button class="st-btn" onclick="saCloseToday();var b=document.getElementById(\'calendarBtn\');if(b)b.click()">Open calendar</button>';
+    } else if(c.type === 'note'){
+      body = esc(String(c.detail || '').slice(0, 400));
+      acts = '<button class="st-btn" onclick="saCloseToday();if(window.showNotepadModal)showNotepadModal()">Open notepad</button>';
+    } else if(c.type === 'inbox'){
+      body = esc(c.detail || '');
+      acts = '<button class="st-btn pri" onclick="var s=document.getElementById(\'stInboxSec\');if(s)s.scrollIntoView({behavior:\'smooth\'})">Open Inbox list</button>';
+    } else if(c.type === 'report'){
+      var tasked = (d.tasked || []);
+      body = (d.findings || []).map(function(f, fi){
+        return '<div style="margin-top:6px;"><b>' + esc(f.title) + '</b>' + (f.detail ? '<div>' + esc(f.detail) + '</div>' : '') +
+          (f.actions || []).map(function(a, ai){
+            var done = tasked.indexOf(fi + ':' + ai) >= 0;
+            return '<div style="display:flex;gap:6px;align-items:center;margin-top:3px;flex-wrap:wrap;"><span>→ ' + esc(a) + '</span>' +
+              (done ? '<span class="st-tag ok">task added</span>' : '<button class="st-btn" onclick="saMsCard(\'' + k + '\',\'task\',this,{finding:' + fi + ',action:' + ai + '})">📅 Make task</button>') + '</div>';
+          }).join('') + '</div>';
+      }).join('');
+      acts = c.status === 'saved' ? '' : act('note', '📝 Save to notepad');
+    }
+    if(c.status === 'new' && c.type !== 'email') acts += act('done', '✓ Done') + act('dismiss', 'Dismiss');
+    else if(c.status === 'dismissed' || c.status === 'done') acts += act('reopen', '↩ Put back');
+    // follow-up runs that answered this card
+    var follow = (runs || []).filter(function(r){ return r.followup_of && r.followup_of.card === c.id; });
+    var followHtml = follow.map(function(r){
+      return '<div class="st-sub" style="margin-top:5px;">↳ 💬 “' + esc(r.followup_of.ask) + '”: ' + esc(r.summary || '') +
+        ' <a href="#" style="color:#a5b4fc;" onclick="saMsPickRun(\'' + esc(mid) + '\',\'' + esc(r.id) + '\');return false;">see ' + (r.cards || []).length + ' results</a></div>';
+    }).join('');
+    var tm = (msById(mid) || {}).teammate || 'your teammate';
+    return '<div class="ms-card' + (c.needs_you ? ' need' : (c.status !== 'new' ? ' quiet' : '')) + '">' +
+      '<div class="st-ms-top"><span class="t">' + icon + ' ' + esc(c.title) + '</span>' + stTag + '</div>' +
+      (body ? '<div class="d">' + body + '</div>' : '') +
+      (acts ? '<div class="ib-acts">' + acts + '</div>' : '') + followHtml +
+      '<div class="ms-ask"><input maxlength="800" placeholder="💬 Ask ' + esc(tm) + ' about this… e.g. “find 5 more like this”" onkeydown="if(event.key===\'Enter\')saMsAsk(\'' + k + '\',this)">' +
+      '<button class="st-btn" onclick="saMsAsk(\'' + k + '\',this.previousElementSibling)">Ask</button></div></div>';
+  }
+  window.saMsCard = async function(mid, rid, cid, action, btn, extra){
+    btn.disabled = true;
+    try{
+      var d = await agentPost('/api/missions/' + encodeURIComponent(mid) + '/runs/' + encodeURIComponent(rid) + '/cards/' + encodeURIComponent(cid) + '/' + action, extra || {});
+      if(!d.ok) throw new Error(d.error || d.summary || 'Could not do that');
+      toast({add:'➕ Added to your pipeline', intro:'✍ Intro drafted: it\'s in Ready for you', task:'📅 Task added for tomorrow',
+             note:'📝 Saved to your notepad', done:'✓ Done', dismiss:'Dismissed', reopen:'↩ Put back'}[action] || '✓ Done', 'success');
+      await msLoadRuns(mid); msDrawResults(mid); if(action === 'intro') loadAgent();
+    }catch(e){ toast(String(e.message || e), 'error'); btn.disabled = false; }
+  };
+  window.saMsApprove = async function(aid, mid, btn){
+    btn.disabled = true;
+    var d = await agentPost('/api/agent/approvals/' + encodeURIComponent(aid) + '/approve', {});
+    if(d.ok){ toast('✓ Approved', 'success'); await msLoadRuns(mid); msDrawResults(mid); loadAgent(); }
+    else { toast(d.error || 'Could not approve', 'error'); btn.disabled = false; }
+  };
+  window.saMsAsk = async function(mid, rid, cid, input){
+    var text = (input.value || '').trim(); if(text.length < 3) return;
+    input.disabled = true;
+    try{
+      var d = await agentPost('/api/missions/' + encodeURIComponent(mid) + '/runs/' + encodeURIComponent(rid) + '/cards/' + encodeURIComponent(cid) + '/ask', {text: text});
+      if(!d.ok) throw new Error(d.error || 'Could not start that');
+      toast('💬 ' + ((msById(mid) || {}).teammate || 'Your teammate') + ' is on it. The answer appears under this result.', 'success');
+      input.value = '';
+      _msWasRunning[mid] = true;
+      if(!_msFast) _msFast = setInterval(pollAgentRev, 2000);
+    }catch(e){ toast(String(e.message || e), 'error'); }
+    input.disabled = false;
+  };
 
   window.saMsNew = function(){
     var box = document.getElementById('stMsNew');
