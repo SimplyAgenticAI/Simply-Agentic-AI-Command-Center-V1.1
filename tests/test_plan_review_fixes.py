@@ -57,7 +57,16 @@ def test_subscription_switch_updates_seat(flask_app, monkeypatch):
 
 def test_health_says_whether_webhook_secret_is_set(flask_app, monkeypatch):
     monkeypatch.setattr(app_module, "STRIPE_WEBHOOK_SECRET", "whsec_test_value")
-    body = flask_app.test_client().get("/health").get_data(as_text=True)
+    # V21.9: anonymous callers (Render's health check) get only ok + version
+    anon = flask_app.test_client().get("/health")
+    assert anon.status_code == 200 and anon.get_json() == {"status": "ok", "version": app_module.APP_VERSION}
+    app_module.update_user("healthadm", lambda r: None) or app_module.save_users(
+        {"users": {"healthadm": {"username": "healthadm", "password_hash": "", "is_admin": True}}})
+    app_module._invalidate_users_cache()
+    c = flask_app.test_client()
+    with c.session_transaction() as s:
+        s["user"] = "healthadm"
+    body = c.get("/health").get_data(as_text=True)
     assert '"stripe_webhook_secret_set":true' in body.replace(" ", "") and "whsec_test_value" not in body
 
 
