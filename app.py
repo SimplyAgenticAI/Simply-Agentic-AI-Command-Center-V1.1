@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.2")
+APP_VERSION = os.getenv("APP_VERSION", "21.3")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3425,7 +3425,7 @@ def _handle_413(e):
             return jsonify({"ok": False, "error": "File too large. Maximum upload size is 500 MB."}), 413
     except Exception:
         pass
-    raise e
+    return e   # V21.3: re-raising here turned the 413 into a 500
 
 # V17.8: files platforms fetch to confirm we own the site (TikTok URL properties).
 _SITE_VERIFY_FILES = {
@@ -21547,6 +21547,15 @@ def _diag_note(kind: str, detail: Any, where: str = "") -> None:
 
 @app.errorhandler(Exception)
 def _handle_exception(e):
+    # V21.3: re-raising an HTTPException (abort(401), 403, 405...) from here turned it
+    # into a 500 on page routes. Let werkzeug render it with its real status.
+    from werkzeug.exceptions import HTTPException as _HTTPExc
+    try:
+        _p = request.path or ""
+    except Exception:
+        _p = ""
+    if isinstance(e, _HTTPExc) and not _p.startswith("/api/"):
+        return e
     if _is_bad_input_error(e):
         try:
             _capture_error(e, context="api_bad_input")   # still logged, so real bugs stay visible
