@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.3")
+APP_VERSION = os.getenv("APP_VERSION", "21.4")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3483,6 +3483,11 @@ def _auth_guard() -> Optional[Any]:
         # Signed public clip links (social media_url) — the token is the auth
         return None
     if request.path.startswith("/admin/"):
+        # V21.3: while impersonating, current_user() is the impersonated (often
+        # non-admin) user, so the admin check below locked the admin out of the
+        # way back. The exit route only restores session["_admin_user"].
+        if request.path == "/admin/exit_impersonation" and session.get("_admin_user"):
+            return None
         # Enforce auth globally for all admin routes — don't rely on per-route checks
         _au = current_user()
         if not _au or not _is_admin_user(_au):
@@ -16916,7 +16921,10 @@ def admin_users_page():
         elif is_imp:
             action = "<span style=\"color:#6ee7b7;font-size:12px;font-weight:700;\">● Active</span>"
         else:
-            action = f"<a href=\"/admin/impersonate/{uname}\" style=\"display:inline-block;padding:5px 14px;border-radius:7px;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;font-size:12px;font-weight:600;text-decoration:none;\">👁 View as {uname}</a>"
+            # V21.3: POST + CSRF token so a cross-site link can't start an impersonation
+            action = (f"<form method=\"post\" action=\"/admin/impersonate/{_html_escape(uname)}\" style=\"display:inline;margin:0;\">"
+                      f"<input type=\"hidden\" name=\"_csrf_token\" value=\"{_csrf_token_for_session()}\"/>"
+                      f"<button type=\"submit\" style=\"display:inline-block;padding:5px 14px;border-radius:7px;background:rgba(124,58,237,.25);border:1px solid rgba(124,58,237,.5);color:#c4b5fd;font-size:12px;font-weight:600;text-decoration:none;cursor:pointer;font-family:inherit;\">👁 View as {_html_escape(uname)}</button></form>")
 
         rows += (
             f"<tr style=\"border-bottom:1px solid rgba(255,255,255,.06);\">"
@@ -16972,7 +16980,7 @@ tr:last-child td{{border-bottom:none;}}
     return page
 
 
-@app.get("/admin/impersonate/<username>")
+@app.post("/admin/impersonate/<username>")
 def admin_impersonate(username: str):
     """Start impersonating a user. Admin-only, verified against real session."""
     real_uname = session.get("user")
