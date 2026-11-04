@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.9")
+APP_VERSION = os.getenv("APP_VERSION", "22.0")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3034,17 +3034,18 @@ Sitemap: {base}/sitemap.xml
 @app.get("/sitemap.xml")
 def sitemap_xml():
     """XML sitemap for marketing pages."""
-    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    base = (PUBLIC_BASE_URL or _PUBLIC_SITE_ORIGIN).rstrip("/")
     from datetime import date
     today = date.today().isoformat()
+    # Only pages that answer 200 to anonymous visitors. "/" 302s to /login
+    # (or /setup on a brand-new install), so it is not listed.
     urls = [
-        ("",          "1.0",  "daily"),
-        ("/pricing",  "0.9",  "weekly"),
-        ("/showcase", "0.8",  "weekly"),
-        ("/terms",    "0.5",  "monthly"),
-        ("/privacy",  "0.5",  "monthly"),
         ("/login",    "0.6",  "monthly"),
         ("/register", "0.7",  "monthly"),
+        ("/pricing",  "0.9",  "weekly"),
+        ("/terms",    "0.5",  "monthly"),
+        ("/privacy",  "0.5",  "monthly"),
+        ("/showcase", "0.8",  "weekly"),
     ]
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -3057,6 +3058,69 @@ def sitemap_xml():
   </url>\n"""
     xml += "</urlset>"
     return xml, 200, {"Content-Type": "application/xml; charset=utf-8"}
+
+
+# Canonical host for public-page SEO. The signed-in app is not indexed.
+_PUBLIC_SITE_ORIGIN = "https://www.simplyagenticai.com"
+
+
+def _public_page_meta(path: str, title: str, description: str) -> str:
+    """Description, canonical, Open Graph, and Twitter tags for a public page.
+
+    Only the unauthenticated pages call this. The signed-in shell already has
+    its own tags and must not pick these up.
+    """
+    url = _PUBLIC_SITE_ORIGIN + path
+    # _html_escape is rebound later in this module; both versions quote attributes.
+    t = _html_escape(title)
+    d = _html_escape(description)
+    u = _html_escape(url)
+    site = _html_escape(APP_NAME)
+    return (
+        f'<meta name="description" content="{d}"/>\n'
+        f'<link rel="canonical" href="{u}"/>\n'
+        f'<link rel="icon" href="/favicon.ico" type="image/x-icon"/>\n'
+        f'<meta property="og:title" content="{t}"/>\n'
+        f'<meta property="og:description" content="{d}"/>\n'
+        f'<meta property="og:url" content="{u}"/>\n'
+        f'<meta property="og:type" content="website"/>\n'
+        f'<meta property="og:site_name" content="{site}"/>\n'
+        f'<meta name="twitter:card" content="summary"/>\n'
+    )
+
+
+@app.get("/llms.txt")
+def llms_txt():
+    """Short public description for assistants. Facts only, from the site itself."""
+    origin = _PUBLIC_SITE_ORIGIN
+    content = f"""# Simply Agentic AI
+
+> Simply Agentic AI is an AI-powered business command center from MacRandle Acres. It is a team of specialized AI teammates plus a built-in CRM, lead finding, content and video tools, email broadcast, and calendar sync, in one interface.
+
+The public showcase describes seven built-in teammates — Alex (Chief Marketing Officer), Willow (Language Specialist), Ava (Research and Knowledge Curator), Orion (Systems and Automation), Sunshine (Sales Specialist), Luna (Creative Engineer), and Atlis (System Integrity) — and a round table where you work with them. Tools described on the site include CRM and pipeline, email broadcast, Clip Studio and screen recording, Content Planner, a Today screen, calendar and Gmail sync, saved prompts, and voice mode. AI is included with a plan, or you can connect your own OpenAI or Anthropic key.
+
+Plan names and current prices are on the pricing page. A free trial is offered when it is turned on. The pricing page says you can cancel anytime.
+
+The site root (/) sends visitors to sign in, or to first-time setup when no account exists yet. It is not a separate public page.
+
+## Public pages
+
+- [Showcase]({origin}/showcase): See how it works
+- [Pricing]({origin}/pricing): Plans
+- [Sign in]({origin}/login): Sign in to your command center
+- [Create account]({origin}/register): Create an account. An access code from a subscription is required once an account already exists
+- [Terms of Service]({origin}/terms)
+- [Privacy Policy]({origin}/privacy)
+
+## Also public
+
+- [Sitemap]({origin}/sitemap.xml)
+- [Robots]({origin}/robots.txt)
+
+Support: SimplyAgenticAI@gmail.com
+Simply Agentic AI is a product of MacRandle Acres, 1247 Johnson Rd, Salisbury, MD 21804.
+"""
+    return content, 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 # ── PWA icons ──────────────────────────────────────────────────────────────────
@@ -3130,10 +3194,26 @@ def _pwa_icon_png(size: int) -> bytes:
     idat = zlib.compress(bytes(rows_out), 6)
     return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
 
+def _png_to_ico(png: bytes, size: int) -> bytes:
+    """Pack one PNG into a single-image .ico (Vista-style PNG payload)."""
+    dim = size if size < 256 else 0
+    header = struct.pack("<HHH", 0, 1, 1)
+    entry = struct.pack("<BBBBHHII", dim, dim, 0, 0, 1, 32, len(png), 22)
+    return header + entry + png
+
 # Cache icons at module level so they're only generated once per process
 _PWA_ICON_180 = _pwa_icon_png(180)
 _PWA_ICON_192 = _pwa_icon_png(192)
 _PWA_ICON_512 = _pwa_icon_png(512)
+_FAVICON_ICO = _png_to_ico(_pwa_icon_png(32), 32)
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    """Tab icon for every page. Same SA mark the PWA icons already draw."""
+    resp = make_response(_FAVICON_ICO)
+    resp.headers["Content-Type"] = "image/x-icon"
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 @app.get("/pwa-icon-180.png")
 def pwa_icon_180():
@@ -3468,9 +3548,33 @@ def _canonical_host_redirect() -> Optional[Any]:
     return redirect(f"{PUBLIC_BASE_URL}{request.path}" + (f"?{qs}" if qs else ""), code=301)
 
 
+# Pages registered without a trailing slash. GET/HEAD of the slash form 301s
+# to the canonical path. POST is not redirected, so a form post keeps its
+# method and body. Routes that are meant to end in a slash (for example
+# /admin/) are not in this set.
+_PUBLIC_NOSLASH_PATHS = frozenset({
+    "/login", "/register", "/pricing", "/terms", "/privacy", "/showcase",
+    "/sitemap.xml", "/robots.txt", "/llms.txt", "/favicon.ico",
+})
+
+
+@app.before_request
+def _public_trailing_slash_redirect() -> Optional[Any]:
+    if request.method not in ("GET", "HEAD"):
+        return None
+    path = request.path or ""
+    if len(path) <= 1 or not path.endswith("/"):
+        return None
+    bare = path.rstrip("/")
+    if bare not in _PUBLIC_NOSLASH_PATHS:
+        return None
+    qs = request.query_string.decode("utf-8", "ignore")
+    return redirect(bare + (f"?{qs}" if qs else ""), code=301)
+
+
 @app.before_request
 def _auth_guard() -> Optional[Any]:
-    if request.path in ("/login", "/setup", "/reset", "/reset/confirm", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping"):
+    if request.path in ("/login", "/setup", "/reset", "/reset/confirm", "/reset_password", "/register", "/static", "/terms", "/privacy", "/pricing", "/showcase", "/verify", "/verify/resend", "/health", "/ping", "/favicon.ico", "/llms.txt", "/robots.txt", "/sitemap.xml"):
         return None
     if request.path.startswith("/static/") or request.path.startswith("/appjs/"):
         return None
@@ -13976,6 +14080,7 @@ SHOWCASE_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="icon" href="/favicon.ico" type="image/x-icon"/>
 <title>Simply Agentic AI &mdash; See How It Works</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -14649,6 +14754,11 @@ BOOKING_CANCEL_HTML = r"""
 LOGIN_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+""" + _public_page_meta(
+    "/login",
+    "Sign in — Simply Agentic AI",
+    "Sign in to Simply Agentic AI, your AI-powered business command center.",
+) + r"""
 <title>{{app_title}} | Login</title>
 """ + AUTH_BASE_CSS + r"""
 
@@ -15504,6 +15614,11 @@ resize();draw();
 REGISTER_HTML = r"""
 <!doctype html>
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+""" + _public_page_meta(
+    "/register",
+    "Create an account — Simply Agentic AI",
+    "Create a Simply Agentic AI account. An access code from your subscription is required once an account already exists.",
+) + r"""
 <title>{{app_title}} | Create Account</title>
 """ + AUTH_BASE_CSS + r"""
 <style>
@@ -15880,10 +15995,16 @@ def pricing_page():
           {trial_html}
         </div>"""
 
+    pricing_meta = _public_page_meta(
+        "/pricing",
+        "Pricing — Simply Agentic AI",
+        "Plans for Simply Agentic AI. Every plan includes all 7 AI teammates, CRM, broadcasts, calendar, lead finding, and video clips.",
+    )
     page = f"""<!doctype html>
 <html><head>
 <meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
+{pricing_meta}
 <title>Pricing — {APP_TITLE}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0;}}
@@ -16127,8 +16248,14 @@ a{color:#c4b5fd;text-decoration:underline;}
 def terms_page():
     app_name  = re.split(r' [Vv]\d', APP_TITLE)[0]
     from_email = SMTP_FROM_NAME or app_name
+    terms_meta = _public_page_meta(
+        "/terms",
+        "Terms of Service — Simply Agentic AI",
+        "Terms of Service for Simply Agentic AI: using the service, subscriptions and billing, API keys, acceptable use, and AI-generated content.",
+    )
     html = f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+{terms_meta}
 <title>Terms of Service — {app_name}</title>
 <style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
 <a class="back" href="/">← Back</a>
@@ -16174,8 +16301,14 @@ def terms_page():
 @app.get("/privacy")
 def privacy_page():
     app_name  = re.split(r' [Vv]\d', APP_TITLE)[0]
+    privacy_meta = _public_page_meta(
+        "/privacy",
+        "Privacy Policy — Simply Agentic AI",
+        "Privacy Policy for Simply Agentic AI: account, billing, API key, and usage data, how it is used, and how to ask for deletion.",
+    )
     html = f"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+{privacy_meta}
 <title>Privacy Policy — {app_name}</title>
 <style>{_LEGAL_PAGE_CSS}</style></head><body><div class="wrap">
 <a class="back" href="/">← Back</a>
