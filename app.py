@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.7")
+APP_VERSION = os.getenv("APP_VERSION", "21.8")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -17064,6 +17064,10 @@ def admin_exit_impersonation():
 @app.post("/stripe/create_checkout")
 def stripe_create_checkout():
     """Redirect the visitor to a Stripe Checkout session for the selected plan."""
+    # V21.8: public endpoint that creates Stripe sessions; cap at 10/min per IP.
+    _ok_rl, _rl_msg = _rate_limit_check(f"rl:stripe_checkout:ip:{_get_client_ip() or 'unknown'}", 10)
+    if not _ok_rl:
+        return jsonify({"ok": False, "error": _rl_msg}), 429
     if not _stripe_ready():
         # Try direct payment link as fallback
         plan_key_fb = _normalize_plan_key((request.get_json(silent=True) or {}).get("plan") or _default_signup_plan())
