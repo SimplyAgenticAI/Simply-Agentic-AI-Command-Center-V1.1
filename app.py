@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.4")
+APP_VERSION = os.getenv("APP_VERSION", "21.5")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -19909,16 +19909,43 @@ def _crm_response_text(resp: Any) -> str:
     return '\n'.join([p for p in parts if p]).strip()
 
 
+# V21.3: when the platform OpenAI key is out of credits, every lead search burned two
+# failing calls (one per web-search tool name). Skip OpenAI web search for 15 minutes
+# after an insufficient_quota error; the Bing/DuckDuckGo search still runs.
+_OPENAI_QUOTA_DEAD_UNTIL = 0.0
+
+
+def _is_openai_quota_error(e: Exception) -> bool:
+    try:
+        from openai import RateLimitError, AuthenticationError
+        if not isinstance(e, (RateLimitError, AuthenticationError)):
+            return False
+    except ImportError:
+        return False
+    code = getattr(e, "code", None) or getattr(getattr(e, "error", None), "code", None) or ""
+    if code:
+        return str(code) == "insufficient_quota"
+    return "insufficient_quota" in str(e)
+
+
 def _crm_openai_web_search(query: str, niche: str, location: str, max_results: int = 12) -> List[Dict[str, Any]]:
     """Use OpenAI with the web_search tool to find real businesses.
     Falls back silently if the model/account doesn't support web search.
     """
+    global _OPENAI_QUOTA_DEAD_UNTIL
     query = (query or '').strip()
     if not query:
         return []
     try:
         client = get_openai_client()
     except Exception:
+        return []
+    # The quota flag is about the platform key only; a user's own key is not affected.
+    try:
+        _on_platform_key = getattr(g, "openai_client", None) is None
+    except RuntimeError:
+        _on_platform_key = True
+    if _on_platform_key and time.time() < _OPENAI_QUOTA_DEAD_UNTIL:
         return []
 
     system = (
@@ -19957,6 +19984,10 @@ def _crm_openai_web_search(query: str, niche: str, location: str, max_results: i
             break
         except Exception as e:
             _last_err = e
+            if _is_openai_quota_error(e):
+                if _on_platform_key:
+                    _OPENAI_QUOTA_DEAD_UNTIL = time.time() + 900
+                break   # out of credits: the other tool name would fail the same way
     if resp is None:
         try:
             _diag_note("lead_web_search", f"{type(_last_err).__name__}: {_last_err}")
