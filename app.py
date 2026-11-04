@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.6")
+APP_VERSION = os.getenv("APP_VERSION", "21.7")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -3631,8 +3631,45 @@ def load_json(path: Path, default: Any) -> Any:
     with _json_file_lock(path):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except FileNotFoundError:
             return default
+        except Exception as exc:
+            _quarantine_corrupt_json(path, exc)
+            return default
+
+
+_JSON_QUARANTINED: set = set()
+
+def _quarantine_corrupt_json(path: Path, exc: Exception) -> None:
+    """V21.7: copy an unreadable JSON file aside as <name>.corrupt-<timestamp>
+    before a caller's default can be written over it. Once per file version."""
+    try:
+        st = path.stat()
+        key = (str(path), st.st_mtime_ns, st.st_size)
+        if key in _JSON_QUARANTINED:
+            return
+        _JSON_QUARANTINED.add(key)
+        dest = path.with_name(f"{path.name}.corrupt-{_utcnow().strftime('%Y%m%d_%H%M%S')}")
+        shutil.copy2(path, dest)
+        print(f"[JSON] CORRUPT {path} ({type(exc).__name__}) copied aside to {dest.name}", flush=True)
+    except Exception as qexc:
+        print(f"[JSON] CORRUPT {path} ({type(exc).__name__}) and copy aside failed: {qexc}", flush=True)
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    """Write tmp (<name>.tmp, same dir) then rename. No non-atomic fallback:
+    on failure the target is left untouched and the error is logged loudly."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        print(f"[JSON] WRITE FAILED {path}: {type(exc).__name__}: {exc}", flush=True)
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
 
 def save_json(path: Path, payload: Any) -> None:
     """Thread-safe atomic JSON write.
@@ -3640,20 +3677,9 @@ def save_json(path: Path, payload: Any) -> None:
     .tmp file and renames — so a crash mid-write never corrupts the target.
     """
     with _json_file_lock(path):
-        try:
-            # A missing parent dir is otherwise swallowed by the excepts below,
-            # so the write is silently lost — that is exactly how every Booking
-            # Link record vanished before BOOKINGS_DIR got its mkdir.
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            tmp.replace(path)
-        except Exception:
-            # Fallback to direct write if rename fails (e.g. cross-device)
-            try:
-                path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+        # The parent dir is created in _atomic_write_json; a missing one is how
+        # every Booking Link record vanished before BOOKINGS_DIR got its mkdir.
+        _atomic_write_json(path, payload)
 
 
 def update_json(path: Path, default: Any, mutate_fn) -> Any:
@@ -3668,20 +3694,15 @@ def update_json(path: Path, default: Any, mutate_fn) -> Any:
     with _json_file_lock(path):
         try:
             data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else copy.deepcopy(default)
-        except Exception:
+        except FileNotFoundError:
+            data = copy.deepcopy(default)
+        except Exception as exc:
+            _quarantine_corrupt_json(path, exc)
             data = copy.deepcopy(default)
         result = mutate_fn(data)
         if result is not None:
             data = result
-        try:
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            tmp.replace(path)
-        except Exception:
-            try:
-                path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+        _atomic_write_json(path, data)
         return data
 
 
