@@ -386,7 +386,7 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "21.5")
+APP_VERSION = os.getenv("APP_VERSION", "21.6")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page under "What's New in V{app_ver}".
@@ -5847,18 +5847,25 @@ def _user_gmail_oauth(u: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return _oauth_token_decrypt(settings.get("gmail_oauth"))
 
 def _save_user_gmail_oauth(u: Dict[str, Any], token_info: Optional[Dict[str, Any]]) -> None:
-    users = load_users()
+    # V21.6: single-row update_user() instead of load_users()/save_users(), which
+    # rewrote every user from a cached snapshot and could undo another request's save.
     uname = u.get("username")
-    rec = (users.get("users") or {}).get(uname) or u
-    rec.setdefault("settings", {})
-    if token_info:
-        rec["settings"]["gmail_oauth"] = _oauth_token_encrypt(token_info)
-    else:
-        if "gmail_oauth" in rec.get("settings", {}):
-            rec["settings"].pop("gmail_oauth", None)
-    rec["updated_at"] = now_iso()
-    users["users"][uname] = rec
-    save_users(users)
+    enc = _oauth_token_encrypt(token_info) if token_info else None
+
+    def _apply(rec: Dict[str, Any]) -> None:
+        settings = rec.setdefault("settings", {})
+        if not isinstance(settings, dict):
+            settings = rec["settings"] = {}
+        if enc is not None:
+            settings["gmail_oauth"] = enc
+        else:
+            settings.pop("gmail_oauth", None)
+
+    update_user(uname, _apply)
+    try:
+        _apply(u)   # keep the caller's copy in step, as the old in-place write did
+    except Exception:
+        pass
 
 # =========================
 # GOOGLE CALENDAR OAUTH
@@ -17145,8 +17152,9 @@ def stripe_webhook():
             return seen
         try:
             update_json(DATA / "stripe_events.json", {}, _mark)
-        except Exception:
-            pass
+        except Exception as _dedup_exc:
+            # V21.6: was a silent pass; a broken dedup store means retries get re-processed
+            print(f"[WEBHOOK] stripe_events dedup error: {type(_dedup_exc).__name__}: {_dedup_exc}", flush=True)
         if _already["hit"]:
             return jsonify({"ok": True, "duplicate": True})
 
@@ -17214,21 +17222,29 @@ Questions? Just reply to this email.
             sub_obj     = (event.get("data") or {}).get("object") or {}
             customer_id = sub_obj.get("customer") or ""
             if customer_id:
-                data  = _load_seats()
-                seats = data.get("seats") or {}
-                changed        = False
-                cancelled_email = ""
-                cancelled_plan  = ""
-                for code, seat in seats.items():
-                    if seat.get("stripe_customer_id") == customer_id:
-                        seats[code]["status"]       = "cancelled"
-                        seats[code]["cancelled_at"] = now_iso()
-                        cancelled_email = (seat.get("holder_email") or seat.get("stripe_email") or "").strip()
-                        cancelled_plan  = seat.get("plan_name", "Simply Agentic AI")
-                        changed = True
-                if changed:
-                    data["seats"] = seats
-                    _save_seats(data)
+                # V21.6: one locked read-modify-write; _load_seats() then _save_seats()
+                # could overwrite a seat change saved in between (lost update).
+                _cancel = {"email": "", "plan": ""}
+                def _cancel_seats(data):
+                    if not isinstance(data, dict):
+                        data = {"seats": {}, "updated_at": None}
+                    seats = data.get("seats") or {}
+                    changed = False
+                    for code, seat in seats.items():
+                        if seat.get("stripe_customer_id") == customer_id:
+                            seats[code]["status"]       = "cancelled"
+                            seats[code]["cancelled_at"] = now_iso()
+                            _cancel["email"] = (seat.get("holder_email") or seat.get("stripe_email") or "").strip()
+                            _cancel["plan"]  = seat.get("plan_name", "Simply Agentic AI")
+                            changed = True
+                    if changed:
+                        data["seats"] = seats
+                        data["updated_at"] = now_iso()
+                    return data
+                update_json(SEATS_PATH, {}, _cancel_seats)
+                _SEATS_CACHE["data"] = None  # invalidate cache after write
+                cancelled_email = _cancel["email"]
+                cancelled_plan  = _cancel["plan"]
                 append_log("stripe_subscription_cancelled", {"customer_id": customer_id, "at": now_iso()})
                 if cancelled_email:
                     _base = (PUBLIC_BASE_URL or "").rstrip("/") or "https://simplyagentic.ai"
