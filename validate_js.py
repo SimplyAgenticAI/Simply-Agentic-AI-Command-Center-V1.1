@@ -35,7 +35,7 @@ with app_module.app.test_client() as c:
 
 # 2) Unauthenticated pages (landing/login + a couple public routes) — their own scripts.
 with app_module.app.test_client() as c2:
-    for _route in ("/login", "/getting-started", "/pricing"):
+    for _route in ("/", "/showcase", "/login", "/getting-started", "/pricing"):
         try:
             r = c2.get(_route, follow_redirects=True)
             if r.status_code == 200:

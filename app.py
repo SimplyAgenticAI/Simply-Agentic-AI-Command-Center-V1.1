@@ -386,16 +386,15 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "22.0")
+APP_VERSION = os.getenv("APP_VERSION", "22.1")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
-# What's New — shown on the login page under "What's New in V{app_ver}".
-# Update this list alongside APP_VERSION on every patch so the banner
-# reflects what actually shipped, not a stale static blurb.
+# What's New — shown on the login page. Update this list alongside APP_VERSION
+# on every patch so the banner reflects what actually shipped.
 WHATS_NEW_ITEMS = [
-    "Teammates reliably take action when their tools are on, instead of sometimes just offering to",
-    "Teammate context now stays cached across a whole conversation, not just within a single reply",
-    "Claude teammates upgraded to the latest Opus and Sonnet — noticeably sharper, and cheaper to run",
+    "The public homepage is the product story, with Log in and Start still one click away",
+    "After you describe your business, one click starts a first mission: a morning brief, a lead list, or a weekly content pack",
+    "Round Table is labeled Discuss (talks only). Team Goal and Missions are labeled Do (real actions with tools)",
 ]
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -3037,15 +3036,15 @@ def sitemap_xml():
     base = (PUBLIC_BASE_URL or _PUBLIC_SITE_ORIGIN).rstrip("/")
     from datetime import date
     today = date.today().isoformat()
-    # Only pages that answer 200 to anonymous visitors. "/" 302s to /login
-    # (or /setup on a brand-new install), so it is not listed.
+    # Pages that answer 200 to anonymous visitors. "/" is the marketing
+    # homepage. /showcase serves the same page and canonicalizes to /.
     urls = [
+        ("/",         "1.0",  "weekly"),
         ("/login",    "0.6",  "monthly"),
         ("/register", "0.7",  "monthly"),
         ("/pricing",  "0.9",  "weekly"),
         ("/terms",    "0.5",  "monthly"),
         ("/privacy",  "0.5",  "monthly"),
-        ("/showcase", "0.8",  "weekly"),
     ]
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -3076,6 +3075,7 @@ def _public_page_meta(path: str, title: str, description: str) -> str:
     d = _html_escape(description)
     u = _html_escape(url)
     site = _html_escape(APP_NAME)
+    image = _html_escape(_PUBLIC_SITE_ORIGIN + "/static/og-image.png")
     return (
         f'<meta name="description" content="{d}"/>\n'
         f'<link rel="canonical" href="{u}"/>\n'
@@ -3085,7 +3085,9 @@ def _public_page_meta(path: str, title: str, description: str) -> str:
         f'<meta property="og:url" content="{u}"/>\n'
         f'<meta property="og:type" content="website"/>\n'
         f'<meta property="og:site_name" content="{site}"/>\n'
-        f'<meta name="twitter:card" content="summary"/>\n'
+        f'<meta property="og:image" content="{image}"/>\n'
+        f'<meta name="twitter:card" content="summary_large_image"/>\n'
+        f'<meta name="twitter:image" content="{image}"/>\n'
     )
 
 
@@ -3101,13 +3103,14 @@ The public showcase describes seven built-in teammates — Alex (Chief Marketing
 
 Plan names and current prices are on the pricing page. A free trial is offered when it is turned on. The pricing page says you can cancel anytime.
 
-The site root (/) sends visitors to sign in, or to first-time setup when no account exists yet. It is not a separate public page.
+The site root (/) is the public homepage: seven specialists in one command center, for small and local service businesses, creators, and agencies. Real estate is one example. Signed-in people still land in the app. Sign in at /login. First-time setup at /setup only when no account exists yet.
 
 ## Public pages
 
-- [Showcase]({origin}/showcase): See how it works
+- [Home]({origin}/): See how it works
+- [Showcase]({origin}/showcase): The same page, kept so older links still open. Canonical URL is the home page
 - [Pricing]({origin}/pricing): Plans
-- [Sign in]({origin}/login): Sign in to your command center
+- [Log in]({origin}/login): Log in to your command center
 - [Create account]({origin}/register): Create an account. An access code from a subscription is required once an account already exists
 - [Terms of Service]({origin}/terms)
 - [Privacy Policy]({origin}/privacy)
@@ -3654,6 +3657,10 @@ def _auth_guard() -> Optional[Any]:
     if request.path == "/" and not current_user():
         if not has_any_user():
             return redirect(url_for("setup"))
+        # Logged-out visitors get the marketing page. Signed-in people still
+        # fall through to the app. Other methods stay on the login gate.
+        if request.method in ("GET", "HEAD"):
+            return None
         return redirect(url_for("login"))
 
     # V19.7: a cancelled or unpaid account can only see the resubscribe page.
@@ -13294,7 +13301,7 @@ def public_booking_page(slug):
     username = _booking_resolve_slug(slug)
     if not username:
         return make_response(render_template_string(
-            BOOKING_HTML, state="not_found", app_title=APP_TITLE), 404)
+            BOOKING_HTML, state="not_found", app_title=APP_NAME), 404)
     user_rec = (load_users().get("users") or {}).get(username)
     settings = _booking_settings_for_user(user_rec)
     operator_name = (_load_operator_profile(username) or {}).get("display_name") or "This operator"
@@ -13302,9 +13309,9 @@ def public_booking_page(slug):
     active_types = [m for m in settings.get("meeting_types", []) if m.get("active")]
     if not settings.get("enabled") or not access_token or not active_types:
         return render_template_string(
-            BOOKING_HTML, state="unavailable", app_title=APP_TITLE, operator_name=operator_name)
+            BOOKING_HTML, state="unavailable", app_title=APP_NAME, operator_name=operator_name)
     return render_template_string(
-        BOOKING_HTML, state="ready", app_title=APP_TITLE, slug=slug,
+        BOOKING_HTML, state="ready", app_title=APP_NAME, slug=slug,
         operator_name=operator_name, custom_message=settings.get("custom_message", ""),
         meeting_types=active_types, timezone=settings.get("timezone", "UTC"),
         min_notice_hours=settings.get("min_notice_hours", 4),
@@ -13476,13 +13483,13 @@ def public_booking_cancel_page(slug, token):
     entry = _booking_cancel_index_lookup(token)
     if not entry:
         return make_response(render_template_string(
-            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+            BOOKING_CANCEL_HTML, app_title=APP_NAME, state="invalid"), 404)
     bkg = (_bookings_load(entry["username"]).get("bookings") or {}).get(entry["booking_id"])
     if not bkg or bkg.get("status") != "confirmed":
         return make_response(render_template_string(
-            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+            BOOKING_CANCEL_HTML, app_title=APP_NAME, state="invalid"), 404)
     return render_template_string(
-        BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="confirm", slug=slug, token=token, booking=bkg)
+        BOOKING_CANCEL_HTML, app_title=APP_NAME, state="confirm", slug=slug, token=token, booking=bkg)
 
 
 @app.post("/book/<slug>/cancel/<token>")
@@ -13493,10 +13500,10 @@ def public_booking_cancel_submit(slug, token):
     entry = _booking_cancel_index_lookup(token)
     if not entry:
         return make_response(render_template_string(
-            BOOKING_CANCEL_HTML, app_title=APP_TITLE, state="invalid"), 404)
+            BOOKING_CANCEL_HTML, app_title=APP_NAME, state="invalid"), 404)
     ok, err = _booking_cancel(entry["username"], entry["booking_id"])
     return render_template_string(
-        BOOKING_CANCEL_HTML, app_title=APP_TITLE, state=("cancelled" if ok else "invalid"), error=err)
+        BOOKING_CANCEL_HTML, app_title=APP_NAME, state=("cancelled" if ok else "invalid"), error=err)
 
 
 @app.post("/api/cal/tasks/<task_id>")
@@ -14080,8 +14087,7 @@ SHOWCASE_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<link rel="icon" href="/favicon.ico" type="image/x-icon"/>
-<title>Simply Agentic AI &mdash; See How It Works</title>
+{PUBLIC_HEAD}
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{--pu:#7c3aed;--pl:#a78bfa;--ac:#c4b5fd;--bg:#030511;--s1:rgba(8,12,30,.98);--s2:rgba(6,9,22,.98);--bd:rgba(255,255,255,.1);--tx:#e2e8f0;--mt:#64748b;}
@@ -14096,6 +14102,8 @@ nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-co
 .nav-r{display:flex;gap:6px;align-items:center;}
 .nav-a{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:color .2s;}
 .nav-a:hover{color:var(--ac);}
+.nav-login{color:var(--tx);font-size:13px;font-weight:700;text-decoration:none;padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.04);}
+.nav-login:hover{background:rgba(255,255,255,.1);}
 .nav-cta{background:linear-gradient(135deg,var(--pu),#4f46e5);color:#fff;padding:8px 18px;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;box-shadow:0 4px 18px rgba(124,58,237,.4);transition:opacity .2s,transform .15s;display:inline-block;}
 .nav-cta:hover{opacity:.88;transform:translateY(-1px);}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
@@ -14293,12 +14301,13 @@ footer a{color:var(--pl);text-decoration:none;}
 <body>
 <canvas id="sc"></canvas>
 <nav>
-  <a href="/showcase" class="logo"><div class="logo-dot"></div>Simply Agentic AI</a>
+  <a href="/" class="logo"><div class="logo-dot"></div>Simply Agentic AI</a>
   <div class="nav-r">
     <a href="#roundtable" class="nav-a">Round Table</a>
     <a href="#demos" class="nav-a">Tools</a>
     <a href="#teammates" class="nav-a">Teammates</a>
-    <a href="/pricing" class="nav-cta">View Plans &rarr;</a>
+    <a href="/login" class="nav-login">Log in</a>
+    <a href="/pricing" class="nav-cta">Start</a>
   </div>
 </nav>
 
@@ -14309,9 +14318,10 @@ footer a{color:var(--pl);text-decoration:none;}
   <h1 class="a2">7 Specialists.<br/>One Command Center.</h1>
   <p class="hero-p a3">Stop stitching tools together. Simply Agentic gives you a full team of specialized AI teammates, a built-in CRM, lead finding, content and video tools, email broadcast, calendar sync, and more &mdash; one interface, zero juggling.</p>
   <div class="hbtns a4">
-    <a href="/pricing" class="bp">&#128640; Start Free Trial</a>
-    <a href="#roundtable" class="bs">See the Interface &darr;</a>
+    <a href="/pricing" class="bp">Start</a>
+    <a href="/login" class="bs">Log in</a>
   </div>
+  <div class="a4" style="margin-top:14px;"><a href="#roundtable" style="color:#a78bfa;font-size:14px;font-weight:700;text-decoration:none;">See the interface</a></div>
 </section>
 
 <!-- STATS -->
@@ -14375,8 +14385,8 @@ footer a{color:var(--pl);text-decoration:none;}
         <div class="rsh"><div><div class="rsh-name">Alex</div><div class="rsh-role">Chief Marketing Officer (CMO)</div></div><div class="rsh-ref">Refresh</div></div>
         <div class="rsh-tabs"><div class="rtab ra">&#9888; Risk</div><div class="rtab rb">&#128202; Scale</div><div class="rtab">&#10022; Constraints</div><div class="rtab">&#9889; Optimize</div></div>
         <div class="rmsgs">
-          <div class="rmsg u"><div class="rmsg-who">You</div>Help me build a lead engine for NJ real estate agents.</div>
-          <div class="rmsg a"><div class="rmsg-who">Alex</div>Smart target. NJ real estate is high-volume and relationship-driven. Anchor the campaign on pain agents feel daily. Here is a 3-step engine to fix that...</div>
+          <div class="rmsg u"><div class="rmsg-who">You</div>Help me get more local clients. I run a small service business.</div>
+          <div class="rmsg a"><div class="rmsg-who">Alex</div>Good fit. Local services, creators, and agencies all live on follow-up. Real estate is one example. Here is a 3-step plan you can run this week...</div>
           <div class="rmsg u"><div class="rmsg-who">You</div>What scoring criteria should I use?</div>
           <div class="rmsg a"><div class="rmsg-who">Alex</div><span id="sideTyped"></span><span id="sideCursor" style="animation:blink .75s step-end infinite;">|</span></div>
         </div>
@@ -14398,10 +14408,10 @@ footer a{color:var(--pl);text-decoration:none;}
     <p class="sub">Animated demos of what your teammates and workspace do, running in real time.</p>
   </div>
   <div class="demos">
-    <div class="dc a5"><div class="dc-hdr"><span class="recdot"></span> &#128302; Ask a Teammate &mdash; Finding Leads</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:8px;"><div class="lf">real estate agents</div><div class="lf">New Jersey</div><div class="lf" style="flex:0 0 auto;">10 leads</div></div><div id="llBox"></div></div></div>
+    <div class="dc a5"><div class="dc-hdr"><span class="recdot"></span> &#128302; Ask a Teammate &mdash; Finding Leads</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:8px;"><div class="lf">local service businesses</div><div class="lf">your city</div><div class="lf" style="flex:0 0 auto;">10 leads</div></div><div id="llBox"></div></div></div>
     <div class="dc a6"><div class="dc-hdr"><span class="recdot"></span> &#128227; Ask a Teammate &mdash; Writing Posts</div><div class="dc-body"><div style="display:flex;gap:6px;margin-bottom:10px;"><div class="lf" style="flex:0 0 auto;">LinkedIn</div><div class="lf">Content pack</div></div><div class="ss-post"><div class="ss-lbl" id="ssLbl">&#129379; Hook Post</div><div class="ss-txt"><span id="ssTxt"></span><span id="ssCur" style="animation:blink .75s step-end infinite;">|</span></div></div><div style="display:flex;gap:6px;"><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128172; DM Script</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#127919; CTA Pack</div><div class="lf" style="font-size:10px;text-align:center;flex:1;">&#128640; Launch Set</div></div></div></div>
     <div class="dc a7"><div class="dc-hdr"><span class="recdot"></span> &#128203; CRM Pipeline &mdash; Moving Deals</div><div class="dc-body"><div class="pipeline"><div class="pstage"><div class="pslbl">Lead</div><div id="ps0"></div></div><div class="pstage"><div class="pslbl">Interested</div><div id="ps1"></div></div><div class="pstage"><div class="pslbl">Call Booked</div><div id="ps2"></div></div><div class="pstage"><div class="pslbl">Client</div><div id="ps3"></div></div></div><div style="margin-top:10px;font-size:11px;color:var(--pl);font-weight:600;" id="crmMsg">Watching Morgan Lee move through the pipeline...</div><div style="margin-top:8px;"><button style="width:100%;padding:7px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;font-size:11px;font-weight:700;cursor:default;">&#9889; AI Draft Outreach</button></div></div></div>
-    <div class="dc a8"><div class="dc-hdr"><span class="recdot"></span> &#127897; Group Console &mdash; All Teammates Reply</div><div class="dc-body"><div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#cbd5e1;margin-bottom:10px;">"Help me build a lead engine for NJ real estate &mdash; strategy, outreach, and automation."</div><div id="gcBox"></div></div></div>
+    <div class="dc a8"><div class="dc-hdr"><span class="recdot"></span> &#127897; Group Console &mdash; All Teammates Reply</div><div class="dc-body"><div style="background:rgba(7,10,20,.75);border:1px solid rgba(42,58,106,.7);border-radius:8px;padding:9px;font-size:11px;color:#cbd5e1;margin-bottom:10px;">"Help me get more clients for a local service business: strategy, outreach, and automation. Real estate is one example."</div><div id="gcBox"></div></div></div>
   </div>
 </section>
 
@@ -14445,14 +14455,14 @@ footer a{color:var(--pl);text-decoration:none;}
   <h2>Start Free. Scale at Your Pace.</h2>
   <p class="cta-p">{FREE_TRIAL_DAYS}-day free trial. Your card is collected at signup but not charged until day {FREE_TRIAL_DAYS + 1}. Cancel anytime.</p>
   <div class="cta-btns">
-    <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">&#128640; View Plans &amp; Start Free</a>
-    <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Already have an account &rarr;</a>
+    <a href="/pricing" class="bp" style="font-size:16px;padding:16px 38px;">Start</a>
+    <a href="/login" class="bs" style="font-size:15px;padding:16px 28px;">Log in</a>
   </div>
-  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Founder $27/mo &middot; Solo $47/mo &middot; <strong style="color:#fbbf24;">Teams $127/mo &mdash; unlimited teammates</strong></div>
+  <div style="margin-top:22px;font-size:13px;color:#334155;position:relative;">Founder $27/mo &middot; Solo $47/mo &middot; <strong style="color:#fbbf24;">Teams $127/mo: 7 custom teammates</strong></div>
 </section>
 
 <footer class="a6">
-  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;&middot;&nbsp; <a href="/login">Sign In</a> &nbsp;&middot;&nbsp; <a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
+  <a href="/pricing">Plans &amp; Pricing</a> &nbsp;&middot;&nbsp; <a href="/login">Log in</a> &nbsp;&middot;&nbsp; <a href="/terms">Terms</a> &nbsp;&middot;&nbsp; <a href="mailto:SimplyAgenticAI@gmail.com">Support</a>
   <div style="margin-top:10px;opacity:.4;">&copy; 2025–2026 MacRandle Acres. Simply Agentic AI is a product of MacRandle Acres, 1247 Johnson Rd, Salisbury, MD 21804. All rights reserved.</div>
 </footer>
 
@@ -14467,21 +14477,21 @@ footer a{color:var(--pl);text-decoration:none;}
   var ns=document.querySelectorAll('.stat-n[data-t]');
   ns.forEach(function(el){var t=parseInt(el.getAttribute('data-t')),pre=el.getAttribute('data-pre')||'',suf=el.getAttribute('data-suf')||'',s=null,d=1400;setTimeout(function(){(function step(ts){if(!s)s=ts;var p=Math.min((ts-s)/d,1),e=1-Math.pow(1-p,3);el.textContent=pre+Math.round(e*t)+suf;if(p<1)requestAnimationFrame(step);})(performance.now());},400);});
   // Sidebar typewriter
-  var stxt='Score by: recency of listings (past 90 days), active social presence, personal domain vs brokerage-only site, and online engagement rate. Minimum score of 65 to qualify for outreach.';
+  var stxt='Score by: how recently they showed up online, whether they reply, a real website versus a directory listing, and how often they post. Start outreach at a score of 65. Works for a plumber, a creator, an agency, or a real estate team.';
   var sel=document.getElementById('sideTyped'),scur=document.getElementById('sideCursor');
   if(sel){var si=0;setTimeout(function t(){if(si<stxt.length){sel.textContent+=stxt[si++];setTimeout(t,22+Math.random()*16);}else if(scur)scur.style.display='none';},1400);}
   // Lead finding demo
-  var leads=[{name:'Jamie Cole',co:'Garden State Realty - Broker',info:'(201) 555-0182 / jcole@gsrealty.com',score:92},{name:'Morgan Lee',co:'BrightPath Investors - Founder',info:'morgan@brightpath.com',score:85},{name:'Taylor Adams',co:'Northshore Lending - Loan Officer',info:'(973) 555-0247',score:78}];
+  var leads=[{name:'Jamie Cole',co:'Cole Plumbing - Owner',info:'(201) 555-0182 / jamie@coleplumbing.example',score:92},{name:'Morgan Lee',co:'BrightPath Studio - Creator',info:'morgan@brightpath.example',score:85},{name:'Taylor Adams',co:'Northshore Agency - Account lead',info:'(973) 555-0247',score:78}];
   var llb=document.getElementById('llBox');if(llb){var li=0;function addLead(){if(li>=leads.length){setTimeout(function(){llb.innerHTML='';li=0;setTimeout(addLead,600);},2200);return;}var l=leads[li++];var d=document.createElement('div');d.className='ll-lead';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;"><div><div class="ll-name">'+l.name+'</div><div class="ll-det">'+l.co+'</div><div class="ll-det" style="margin-top:2px;">'+l.info+'</div></div><div class="ll-score">'+l.score+'</div></div><div style="margin-top:7px;"><button class="lbtn">+ CRM</button><button class="lbtn2">Email</button><button class="lbtn2">Text</button></div>';llb.appendChild(d);setTimeout(addLead,1000);}setTimeout(addLead,600);}
   // Post writing demo
-  var posts=[{lbl:'Hook Post',txt:'Most real estate agents lose 3 hours a day chasing leads that never convert.\n\nHere is the system I use to only talk to buyers already warm.'},{lbl:'DM Script',txt:'Hey [Name] -- saw your post about Hoboken. Are most of your leads from referrals, or are you building an online channel too?'},{lbl:'CTA Post',txt:'If you are a NJ agent doing 10+ deals a year but spending more time on admin than relationships -- comment SYSTEM.'}];
+  var posts=[{lbl:'Hook Post',txt:'Local shops lose hours chasing leads that never call back.\\n\\nHere is the system I use to only talk to people already warm.'},{lbl:'DM Script',txt:'Hey [Name], saw your post this week. Are your leads mostly referrals, or are you building an online channel too?'},{lbl:'CTA Post',txt:'If you run a local service business, a creator brand, or a small agency and admin eats your week, comment SYSTEM.'}];
   var pi=0,ci=0,lbl=document.getElementById('ssLbl'),stxt2=document.getElementById('ssTxt'),scur2=document.getElementById('ssCur');
   if(stxt2){function nextPost(){var p=posts[pi%posts.length];pi++;if(lbl)lbl.textContent=p.lbl;ci=0;stxt2.textContent='';if(scur2)scur2.style.display='inline';var ps=p.txt;(function t(){if(ci<ps.length){stxt2.textContent+=ps[ci];ci++;setTimeout(t,20+Math.random()*14);}else{if(scur2)scur2.style.display='none';setTimeout(nextPost,3000);}})();}setTimeout(nextPost,600);}
   // CRM Pipeline demo
   var ps=[document.getElementById('ps0'),document.getElementById('ps1'),document.getElementById('ps2'),document.getElementById('ps3')];var cmsg=document.getElementById('crmMsg');
   if(ps[0]){var ph=0;function setState(p){if(p===0){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span><span class="pchip" style="background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.2);color:#fbbf24;">Morgan Lee</span>';ps[1].innerHTML='';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan Lee just entered as a new Lead.';}else if(p===1){ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span>';ps[1].innerHTML='<span class="pchip" style="background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fcd34d;">Morgan Lee</span>';ps[2].innerHTML='';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan showed interest -- moved to Interested!';}else{ps[0].innerHTML='<span class="pchip" style="background:rgba(255,255,255,.04);border:1px solid rgba(42,58,106,.4);color:#cbd5e1;">Jamie Cole</span>';ps[1].innerHTML='';ps[2].innerHTML='<span class="pchip" style="background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.25);color:#6ee7b7;">Morgan Lee</span>';ps[3].innerHTML='<span class="pchip" style="background:rgba(124,58,237,.12);border:1px solid rgba(124,58,237,.28);color:#c4b5fd;">Riley Park</span>';if(cmsg)cmsg.textContent='Morgan booked a call -- AI drafting follow-up now!';}setTimeout(function(){ph=(ph+1)%3;setState(ph);},2400);}setTimeout(function(){setState(0);},600);}
   // Group Console demo
-  var gcr=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: target agents with active listings but low digital presence. Score by recency and engagement rate.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name] -- I work with NJ agents converting online presence into booked calls. 10 min?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: weekly lead search, CRM import, Sunshine sequence. Zero manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Reframe to be about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: NJ has 43,000+ licensed agents. Top sub-niches: Bergen County luxury, Essex County investors.'}];
+  var gcr=[{av:'A',bg:'#1e3a8a',name:'Alex',txt:'Strategy: pick one niche you can name, like plumbers, a creator audience, or a local agency. Real estate works too. Score by how recently they showed up online.'},{av:'S',bg:'#9a3412',name:'Sunshine',txt:'First touch: "Hey [Name], I help local businesses turn online interest into booked calls. Got 10 minutes?"'},{av:'O',bg:'#374151',name:'Orion',txt:'Automation: a weekly lead search, a CRM import, then Sunshine\\'s sequence. No manual steps.'},{av:'W',bg:'#4c1d95',name:'Willow',txt:'Language note: lead with their result, not your process. Make it about them.'},{av:'A',bg:'#0f766e',name:'Ava',txt:'Research: pick a city and a niche. Local services, creators, and agencies are all searchable. Real estate is one lane.'}];
   var gcb=document.getElementById('gcBox');if(gcb){var gi=0;function addR(){if(gi>=gcr.length){setTimeout(function(){gcb.innerHTML='';gi=0;setTimeout(addR,800);},2000);return;}var r=gcr[gi++];var d=document.createElement('div');d.className='gc-rep';d.innerHTML='<div class="gc-rav" style="background:'+r.bg+';">'+r.av+'</div><div><div class="gc-rn">'+r.name+'</div><div class="gc-rt">'+r.txt+'</div></div>';gcb.appendChild(d);setTimeout(addR,1100);}setTimeout(addR,600);}
 })();
 </script>
@@ -15522,7 +15532,7 @@ resize();draw();
     <div class="muted">Sign in to your command center.</div>
     <div style="margin:10px 0 4px;display:flex;justify-content:center;">
       <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(99,102,241,.18));border:1px solid rgba(124,58,237,.45);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:0.04em;">
-        &#10024; What&#39;s New in V{{app_ver}} &nbsp;&middot;&nbsp; {% for item in whats_new %}{{item}}{% if not loop.last %} &nbsp;&middot;&nbsp; {% endif %}{% endfor %}
+        &#10024; What&#39;s New &nbsp;&middot;&nbsp; {% for item in whats_new %}{{item}}{% if not loop.last %} &nbsp;&middot;&nbsp; {% endif %}{% endfor %}
       </span>
     </div>
 
@@ -16005,7 +16015,7 @@ def pricing_page():
 <meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
 {pricing_meta}
-<title>Pricing — {APP_TITLE}</title>
+<title>Pricing | {APP_NAME}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0;}}
 body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 820px at 50% 22%,rgba(247,211,106,.13),transparent 56%),radial-gradient(1200px 900px at 50% 38%,rgba(124,58,237,.22),transparent 58%),linear-gradient(180deg,#090d19 0%,#0a1022 38%,#0b1226 100%);color:#e2e8f0;min-height:100vh;padding:48px 20px 80px;}}
@@ -16102,7 +16112,7 @@ body{{font-family:system-ui,Arial,sans-serif;background:radial-gradient(1200px 8
 </head>
 <body>
 
-<div class='brand'><div class='dot'></div>{APP_TITLE}</div>
+<div class='brand'><div class='dot'></div>{APP_NAME}</div>
 
 <div class='pg-header'>
   <h1>Every feature. Every AI teammate.</h1>
@@ -16221,12 +16231,26 @@ function startCheckout(plan){{
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
+def _showcase_html() -> str:
+    """Marketing page. Canonical URL is /. /showcase serves the same HTML."""
+    # Replace the longer token first so "{FREE_TRIAL_DAYS}" does not eat it.
+    html = SHOWCASE_HTML.replace("{FREE_TRIAL_DAYS + 1}", str(FREE_TRIAL_DAYS + 1))
+    html = html.replace("{FREE_TRIAL_DAYS}", str(FREE_TRIAL_DAYS))
+    head = _public_page_meta(
+        "/",
+        "Simply Agentic AI",
+        "7 specialists. One command center for small and local service businesses, creators, and agencies. Real estate is one example. AI teammates, CRM, leads, content, email, and calendar.",
+    )
+    html = html.replace("{PUBLIC_HEAD}", head + "\n<title>Simply Agentic AI</title>")
+    resp_html = html
+    return resp_html
+
+
 @app.get("/showcase")
 def showcase_page():
-    # Substitute dynamic values into the showcase HTML at request time
-    html = SHOWCASE_HTML.replace("{FREE_TRIAL_DAYS}", str(FREE_TRIAL_DAYS))
-    html = html.replace("{FREE_TRIAL_DAYS + 1}", str(FREE_TRIAL_DAYS + 1))
-    return html
+    resp = make_response(_showcase_html())
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
 
 
 _LEGAL_PAGE_CSS = """
@@ -16368,7 +16392,7 @@ def privacy_page():
 def setup():
     if has_any_user():
         return redirect(url_for("login"))
-    return render_template_string(SETUP_HTML, app_title=APP_TITLE, error=None)
+    return render_template_string(SETUP_HTML, app_title=APP_NAME, error=None)
 
 @app.post("/setup")
 def setup_post():
@@ -16379,12 +16403,12 @@ def setup_post():
     password = (request.form.get("password") or "").strip()
 
     if not username or not password:
-        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Missing username or password")
+        return render_template_string(SETUP_HTML, app_title=APP_NAME, error="Missing username or password")
 
     if len(username) < 3:
-        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters")
+        return render_template_string(SETUP_HTML, app_title=APP_NAME, error="Username must be at least 3 characters")
     if len(password) < 8:
-        return render_template_string(SETUP_HTML, app_title=APP_TITLE, error="Password must be at least 8 characters")
+        return render_template_string(SETUP_HTML, app_title=APP_NAME, error="Password must be at least 8 characters")
 
     data = load_users()
     data["users"][username] = _new_user(username=username, password=password, email=email)
@@ -16399,7 +16423,7 @@ def login():
     if current_user():
         return redirect("/")
     allow_setup = not has_any_user()
-    resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
+    resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_NAME, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -16414,7 +16438,7 @@ def login_post():
     # Check lockout before touching the password hash
     allowed, lock_msg = _check_login_allowed(username)
     if not allowed:
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=lock_msg, allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error=lock_msg, allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     data = load_users()
     u = (data.get("users") or {}).get(username)
@@ -16424,7 +16448,7 @@ def login_post():
         attempts_rec = _LOGIN_ATTEMPTS.get(_login_key(username)) or {}
         count = attempts_rec.get("count", 0)
         hint = f" ({_MAX_LOGIN_ATTEMPTS - count} attempt(s) remaining before lockout)" if 0 < count < _MAX_LOGIN_ATTEMPTS else ""
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error=f"Invalid username or password.{hint}", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error=f"Invalid username or password.{hint}", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
@@ -16467,7 +16491,7 @@ def login_post():
 _2FA_HTML = """<!doctype html>
 <html><head><meta charset='utf-8'/>
 <meta name='viewport' content='width=device-width,initial-scale=1'/>
-<title>Two-Factor Authentication — {app_title}</title>
+<title>Two-Factor Authentication | {app_title}</title>
 <style>
 body{{font-family:system-ui,sans-serif;background:#0a0f1e;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}}
 .box{{background:#0f172a;border:1px solid rgba(124,58,237,.35);border-radius:16px;padding:36px 40px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.5);}}
@@ -16495,7 +16519,7 @@ button{{width:100%;padding:11px;background:linear-gradient(135deg,#7c3aed,#4f46e
 def verify_2fa():
     if not _get_2fa_pending_user():
         return redirect(url_for("login"))
-    return _2FA_HTML.format(app_title=APP_TITLE, error="")
+    return _2FA_HTML.format(app_title=APP_NAME, error="")
 
 @app.post("/verify-2fa")
 def verify_2fa_post():
@@ -16506,14 +16530,14 @@ def verify_2fa_post():
     _2fa_key = f"2fa:{pending.lower().strip()}"
     _allowed, _lock_msg = _check_login_allowed(_2fa_key)
     if not _allowed:
-        return _2FA_HTML.format(app_title=APP_TITLE, error=f"<div class='err'>{_lock_msg}</div>")
+        return _2FA_HTML.format(app_title=APP_NAME, error=f"<div class='err'>{_lock_msg}</div>")
     code = (request.form.get("code") or "").strip()
     data = load_users()
     u = (data.get("users") or {}).get(pending)
     raw_secret = _decrypt_field((u.get("totp") or {}).get("secret", ""))
     if not u or not _totp_verify(raw_secret, code):
         _record_login_failure(_2fa_key)
-        return _2FA_HTML.format(app_title=APP_TITLE, error="<div class='err'>Invalid code. Please try again.</div>")
+        return _2FA_HTML.format(app_title=APP_NAME, error="<div class='err'>Invalid code. Please try again.</div>")
     _clear_login_failures(_2fa_key)
     # 2FA passed — complete login
     remember = session.pop("_2fa_remember", False)
@@ -16658,7 +16682,7 @@ def register_get():
 
     resp = make_response(render_template_string(
         REGISTER_HTML,
-        app_title=APP_TITLE,
+        app_title=APP_NAME,
         error=stripe_err,
         ok=("Payment verified! Your access code has been pre-filled below." if stripe_code else None),
         require_code=has_any_user(),
@@ -16676,12 +16700,12 @@ def register_get():
 @app.post("/register")
 def register_post():
     if not _signup_enabled():
-        return render_template_string(LOGIN_HTML, app_title=APP_TITLE, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
+        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
     # Rate limit registration attempts by IP — prevents spam account creation
     _ip_reg = _get_client_ip() or "unknown"
     _reg_ok, _reg_msg = _rate_limit_check(f"register:{_ip_reg}", 10)
     if not _reg_ok:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE,
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME,
             error="Too many registration attempts. Please wait before trying again.",
             ok=None, require_code=True, stripe_code=None, stripe_email=None,
             stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
@@ -16691,18 +16715,18 @@ def register_post():
     pw2 = (request.form.get("password2","") or "").strip()
 
     if not username or len(username) < 3:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="Username must be at least 3 characters.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if len(username) > 40:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="Username must be 40 characters or fewer.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if email and not EMAIL_RE.match(email):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="Please enter a valid email address.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     _pw_ok, _pw_err = _validate_password_strength(pw)
     if not _pw_ok:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error=_pw_err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if pw != pw2:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="Passwords do not match.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
     if not request.form.get("tos_accepted"):
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="You must accept the Terms of Service to create an account.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     # First user = admin, no code needed. All others need a valid seat code.
     is_first_user = not has_any_user()
@@ -16711,12 +16735,12 @@ def register_post():
         seat_code = (request.form.get("invite_code") or "").strip().upper()
         ok, err = _is_valid_seat_code(seat_code)
         if not ok:
-            return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+            return render_template_string(REGISTER_HTML, app_title=APP_NAME, error=err, ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     data = load_users()
     users = data.get("users") or {}
     if username in users:
-        return render_template_string(REGISTER_HTML, app_title=APP_TITLE, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
+        return render_template_string(REGISTER_HTML, app_title=APP_NAME, error="That username is already taken.", ok=None, require_code=True, stripe_code=None, stripe_email=None, stripe_enabled=_stripe_ready(), selected_plan=_default_signup_plan(), plan_name="")
 
     # ── Email verification ────────────────────────────────────────────────────
     # Skip for: first user (admin, no SMTP yet), or when SMTP is not configured,
@@ -16891,7 +16915,7 @@ def verify_email_page():
     if not rec:
         return redirect(url_for("register_get"))
     email = rec.get("email", "")
-    return render_template_string(_VERIFY_HTML, app_title=APP_TITLE, email=email, error=None)
+    return render_template_string(_VERIFY_HTML, app_title=APP_NAME, email=email, error=None)
 
 @app.post("/verify")
 def verify_email_post():
@@ -16904,12 +16928,12 @@ def verify_email_post():
     pending = _load_pending_verifications()
     rec = pending.get(token)
     if not rec:
-        return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+        return render_template_string(_VERIFY_HTML, app_title=APP_NAME,
             email="", error="Verification session expired. Please register again.")
 
     submitted = (request.form.get("code") or "").strip().replace(" ", "")
     if not hmac.compare_digest(submitted, str(rec.get("code", ""))):
-        return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+        return render_template_string(_VERIFY_HTML, app_title=APP_NAME,
             email=rec.get("email",""), error="Incorrect code. Please try again.")
 
     # Code matches — create the user
@@ -17003,7 +17027,7 @@ def verify_resend():
         )
     except Exception:
         pass
-    return render_template_string(_VERIFY_HTML, app_title=APP_TITLE,
+    return render_template_string(_VERIFY_HTML, app_title=APP_NAME,
         email=rec.get("email",""), error=None)
 
 
@@ -17017,7 +17041,7 @@ def subscription_ended_page():
     if not _account_lapsed(uname):
         return redirect("/")
     html = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Subscription ended · {_html_escape(APP_TITLE)}</title>
+<title>Subscription ended | {_html_escape(APP_NAME)}</title>
 <style>
 body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0b0f1a;color:#e2e8f0;
 font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;box-sizing:border-box}}
@@ -17029,7 +17053,7 @@ font-size:calc(16px * var(--fs,1.1));margin-top:20px}}
 a.out{{display:block;text-align:center;color:#94a3b8;margin-top:14px;font-size:calc(14px * var(--fs,1.1))}}
 </style></head><body><div class="card">
 <h1>Your subscription has ended</h1>
-<p>Your access to {_html_escape(APP_TITLE)} is paused because your subscription was cancelled or a payment didn't go through.</p>
+<p>Your access to {_html_escape(APP_NAME)} is paused because your subscription was cancelled or a payment didn't go through.</p>
 <p>Your teammates, contacts and content are saved for 30 days. Pick a plan to pick up right where you left off.</p>
 <a class="btn" href="/pricing">Choose a plan</a>
 <a class="out" href="/logout">Sign out</a>
@@ -17632,7 +17656,7 @@ def api_stripe_portal_url():
 
 @app.get("/reset")
 def reset():
-    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=None)
+    return render_template_string(RESET_HTML, app_title=APP_NAME, error=None, token=None, ok=None)
 
 @app.post("/reset")
 def reset_post():
@@ -17640,7 +17664,7 @@ def reset_post():
     _ip = _get_client_ip() or "unknown"
     _rl_ok, _rl_msg = _rate_limit_check(f"reset:{_ip}", 5)
     if not _rl_ok:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Too many reset attempts. Please wait before trying again.", token=None, ok=None)
+        return render_template_string(RESET_HTML, app_title=APP_NAME, error="Too many reset attempts. Please wait before trying again.", token=None, ok=None)
     username = _clean_username(request.form.get("username", ""))
 
     # Identical response whether or not the account exists, and we NEVER show the
@@ -17689,7 +17713,7 @@ def reset_post():
             _audit_log("password_reset_token_generated", {"note": f"token_hash={_hash_token(token)}"}, username=username)
             append_log("reset_token_no_email", {"username": username, "token_hash": _hash_token(token), "at": now_iso()})
 
-    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok=GENERIC_OK)
+    return render_template_string(RESET_HTML, app_title=APP_NAME, error=None, token=None, ok=GENERIC_OK)
 
 @app.get("/reset/confirm")
 def reset_confirm():
@@ -17711,10 +17735,10 @@ def reset_confirm():
                 except Exception:
                     valid = False
     if not valid:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE,
+        return render_template_string(RESET_HTML, app_title=APP_NAME,
             error="This reset link is invalid or has expired. Request a new one above.",
             ok=None, token=None, prefill_username="", prefill_token="")
-    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None,
+    return render_template_string(RESET_HTML, app_title=APP_NAME, error=None,
         ok="Reset link verified — choose your new password below.",
         token=None, prefill_username=username, prefill_token=token)
 
@@ -17727,23 +17751,23 @@ def reset_password_post():
 
     # New password must be entered twice and match
     if new_password != new_password2:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Passwords do not match.", token=None, ok=None, prefill_username=username, prefill_token=token)
+        return render_template_string(RESET_HTML, app_title=APP_NAME, error="Passwords do not match.", token=None, ok=None, prefill_username=username, prefill_token=token)
 
     _pw_ok, _pw_err = _validate_password_strength(new_password)
     if not _pw_ok:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_pw_err, token=None, ok=None, prefill_username=username, prefill_token=token)
+        return render_template_string(RESET_HTML, app_title=APP_NAME, error=_pw_err, token=None, ok=None, prefill_username=username, prefill_token=token)
 
     data = load_users()
     u = (data.get("users") or {}).get(username)
     # Same generic message for unknown-user and bad-token — prevents account enumeration
     _BAD = "Invalid or expired reset link/code. Request a new one above."
     if not u:
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
+        return render_template_string(RESET_HTML, app_title=APP_NAME, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
 
     th = ((u.get("reset") or {}).get("token_hash")) or ""
     computed = _hash_token(token)
     if not th or not hmac.compare_digest(computed, th):
-        return render_template_string(RESET_HTML, app_title=APP_TITLE, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
+        return render_template_string(RESET_HTML, app_title=APP_NAME, error=_BAD, token=None, ok=None, prefill_username="", prefill_token="")
 
     # Token expires after 1 hour
     token_created = ((u.get("reset") or {}).get("created_at")) or ""
@@ -17755,7 +17779,7 @@ def reset_password_post():
                 u["reset"]["created_at"] = None
                 data["users"][username] = u
                 save_users(data)
-                return render_template_string(RESET_HTML, app_title=APP_TITLE, error="Reset token has expired. Please request a new one.", token=None, ok=None)
+                return render_template_string(RESET_HTML, app_title=APP_NAME, error="Reset token has expired. Please request a new one.", token=None, ok=None)
         except Exception:
             pass
 
@@ -17767,7 +17791,7 @@ def reset_password_post():
     save_users(data)
     _audit_log("password_reset_completed", {}, username=username)
 
-    return render_template_string(RESET_HTML, app_title=APP_TITLE, error=None, token=None, ok="Password updated. You can log in now.")
+    return render_template_string(RESET_HTML, app_title=APP_NAME, error=None, token=None, ok="Password updated. You can log in now.")
 
 
 # =========================
@@ -18003,6 +18027,10 @@ def api_account_delete():
 
 @app.get("/")
 def index():
+    if not current_user():
+        resp = make_response(_showcase_html())
+        resp.headers["Cache-Control"] = "public, max-age=300"
+        return resp
     _uname = _get_session_username()
     _trial_banner = _trial_banner_html(_uname) if FREE_TRIAL_DAYS > 0 else ""
     # Mint the CSRF token with the page itself. Otherwise the burst of parallel
@@ -21840,7 +21868,7 @@ def _handle_404(e):
     page = (
         f"<!doctype html><html><head><meta charset='utf-8'/>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'/>"
-        f"<title>404 — {APP_TITLE}</title>"
+        f"<title>404 | {APP_NAME}</title>"
         f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
         f"<div class='box'>"
         f"<div class='icon'>🔭</div>"
@@ -21864,7 +21892,7 @@ def _handle_500(e):
     page = (
         f"<!doctype html><html><head><meta charset='utf-8'/>"
         f"<meta name='viewport' content='width=device-width,initial-scale=1'/>"
-        f"<title>500 — {APP_TITLE}</title>"
+        f"<title>500 | {APP_NAME}</title>"
         f"<style>{_ERROR_PAGE_CSS}</style></head><body>"
         f"<div class='box'>"
         f"<div class='icon'>⚡</div>"
@@ -24854,6 +24882,94 @@ def _tool_create_mission(uname: str, teammate: str, args: Dict[str, Any]) -> Dic
     return {"ok": True, "mission_id": m["id"],
             "summary": f"Mission set: {m['teammate']} will handle “{m['title']}” {_mission_when_text(m['schedule'])}. "
                        "You'll find it under Missions on Today; anything that leaves the app waits for your OK."}
+
+
+# First job after onboarding. The operator's click is the confirmation that
+# create_mission normally asks for, so this calls the same _mission_create path
+# the confirmed tool uses, then starts the run.
+DAY_ONE_CHOICES = ("morning_brief", "lead_list", "content_pack")
+
+
+def _day_one_mission_body(uname: str, choice: str) -> Dict[str, Any]:
+    op = _load_operator_profile(uname) or {}
+    business = (str(op.get("business") or "").strip() or "my business")[:180]
+    audience = (str(op.get("audience") or "").strip() or "my customers")[:180]
+    if choice == "morning_brief":
+        return {
+            "title": "Morning brief",
+            "teammate": "Alex",
+            "schedule": {"kind": "weekdays", "hour": 8, "days": []},
+            "instruction": (
+                f"Each weekday morning, review my business ({business}), who I sell to ({audience}), "
+                "my calendar, and my contacts. Write a short brief: what matters today, who to follow up with, "
+                "and one concrete next step. Do not send email or publish anything. Put the brief in your findings."
+            ),
+        }
+    if choice == "lead_list":
+        return {
+            "title": "Lead list",
+            "teammate": "Sunshine",
+            "schedule": {"kind": "weekdays", "hour": 8, "days": []},
+            "instruction": (
+                f"Find 5 real businesses that match who I sell to ({audience}) for {business}. "
+                "Add the ones with a real email using crm_add_client, then draft a short personal intro to each "
+                "with send_email (it waits for my approval). In your findings, name the 1 or 2 that look most promising and why."
+            ),
+        }
+    return {
+        "title": "Weekly content pack",
+        "teammate": "Willow",
+        "schedule": {"kind": "weekly", "hour": 9, "days": [0]},
+        "instruction": (
+            f"Draft a week of posts about {business} for {audience}: one tip, one story, and one offer, "
+            "using draft_social_post. In your findings, say which to post first and why. Do not publish them."
+        ),
+    }
+
+
+def _day_one_existing(uname: str, choice: str) -> Optional[Dict[str, Any]]:
+    for m in _agent_load(uname)["missions"].values():
+        if m.get("day_one") == choice:
+            return dict(m)
+    return None
+
+
+@app.post("/api/missions/day_one")
+def api_missions_day_one():
+    """One confirmed click after onboarding. Reuses _mission_create, then runs it."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = u.get("username", "")
+    choice = str((request.get_json(silent=True) or {}).get("choice") or "").strip()
+    if choice not in DAY_ONE_CHOICES:
+        return jsonify({"ok": False, "error": "Pick Morning brief, Lead list, or Weekly content pack."}), 400
+    m = _day_one_existing(uname, choice)
+    if not m:
+        created, err, code = _mission_create(uname, _day_one_mission_body(uname, choice))
+        if err:
+            return jsonify({"ok": False, "error": err}), code
+        tagged = _mission_update(uname, created["id"], lambda x, d: x.__setitem__("day_one", choice))
+        m = tagged or created
+    with _MISSION_RUNNING_LOCK:
+        already = (uname, m["id"]) in _MISSION_RUNNING
+    if already:
+        return jsonify({"ok": True, "mission": _mission_view(m), "started": True, "confirmed": True})
+    if not _check_msg_limit(uname, _get_user_plan(uname))[0]:
+        return jsonify({
+            "ok": False,
+            "mission_id": m["id"],
+            "error": "This month's AI messages are used up. The mission is saved under Missions. Try again when you have messages left.",
+        }), 429
+    try:
+        _mission_start_bg(uname, m["id"], "manual")
+    except Exception:
+        return jsonify({
+            "ok": False,
+            "mission_id": m["id"],
+            "error": "The mission was saved but did not start. Try again.",
+        }), 500
+    return jsonify({"ok": True, "mission": _mission_view(m), "started": True, "confirmed": True})
 
 
 @app.post("/api/missions/parse")
@@ -31201,7 +31317,7 @@ def team_join_page(token):
     <button class='btn' type='submit'>Create Account &amp; Join Team</button>
   </form>
   <div id='msg'></div>"""
-    html = JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body)
+    html = JOIN_PAGE_HTML.format(app_title=APP_NAME, body=body)
     resp = make_response(html)
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -31214,14 +31330,14 @@ def team_join_accept(token):
     inv = _get_invite(token)
     if not inv or inv.get("used"):
         body = "<div class='invalid'><h2>Invalid or Expired Invite</h2><p style='color:#64748b;margin-top:12px;'>This invite link has already been used.</p></div>"
-        return make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+        return make_response(JOIN_PAGE_HTML.format(app_title=APP_NAME, body=body))
     if password != password2:
         err = "Passwords don't match."
     else:
         ok, msg = _accept_invite(token, username, password)
         if ok:
             body = f"<h2>Welcome to the Team!</h2><div class='ok-box'>{msg}</div><div style='text-align:center;margin-top:20px;'><a href='/login' style='color:#a78bfa;font-size:14px;'>Sign in now →</a></div>"
-            resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+            resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_NAME, body=body))
             resp.headers["Cache-Control"] = "no-store"
             return resp
         err = msg
@@ -31242,7 +31358,7 @@ def team_join_accept(token):
     <button class='btn' type='submit'>Create Account &amp; Join Team</button>
   </form>
   <div class='err'>{err}</div>"""
-    resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_TITLE, body=body))
+    resp = make_response(JOIN_PAGE_HTML.format(app_title=APP_NAME, body=body))
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
@@ -37586,6 +37702,47 @@ def api_sp_connections():
                                 "accounts": lc.get("accounts") or [], "connected_at": lc.get("connected_at") or ""}
     return jsonify({"ok": True, "connections": summary})
 
+
+@app.get("/api/connections/readiness")
+def api_connections_readiness():
+    """Read-only: which existing integrations are connected. Does not connect anything."""
+    u = current_user()
+    if not u:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    uname = (u.get("username") if isinstance(u, dict) else None) or ""
+    settings = (u.get("settings") or {}) if isinstance(u, dict) else {}
+    smtp = settings.get("smtp") if isinstance(settings.get("smtp"), dict) else {}
+    email_on = bool(_user_gmail_oauth(u)) or bool((smtp.get("user") or "").strip() and (smtp.get("pass") or "").strip())
+    calendar_on = bool(_user_calendar_oauth(u))
+    try:
+        conns = _load_sp_conns(uname) or {}
+    except Exception:
+        conns = {}
+    if not isinstance(conns, dict):
+        conns = {}
+    lc = conns.get("leadconnector") if isinstance(conns.get("leadconnector"), dict) else {}
+    crm_on = bool(lc.get("token") and lc.get("location_id"))
+    social_on = False
+    for platform in ("facebook", "instagram", "youtube", "tiktok", "linkedin"):
+        c = conns.get(platform) if isinstance(conns.get(platform), dict) else {}
+        if c.get("access_token"):
+            social_on = True
+            break
+        if platform == "instagram":
+            try:
+                if _ig_accounts(conns):
+                    social_on = True
+                    break
+            except Exception:
+                pass
+    return jsonify({
+        "ok": True,
+        "email": bool(email_on),
+        "calendar": bool(calendar_on),
+        "crm": bool(crm_on),
+        "social": bool(social_on),
+    })
+
 @app.post("/api/social/disconnect/<platform>")
 def api_sp_disconnect(platform):
     u = current_user()
@@ -39713,7 +39870,7 @@ function buildEP2(container, id){
       }
       var body=container.querySelector('.ani-body'); if(!body)return;
       var bubble=div('ani-card slide-in-u'); bubble.style.cssText='width:100%;font-size:8.5px;border-color:rgba(124,58,237,.4);margin-top:3px;';
-      bubble.innerHTML='<span style="color:#a78bfa;font-weight:700;">You →</span> Build a lead engine for NJ agents';
+      bubble.innerHTML='<span style="color:#a78bfa;font-weight:700;">You →</span> Get more clients for a local service business';
       body.appendChild(bubble);
     }],
     [5000,function(){
