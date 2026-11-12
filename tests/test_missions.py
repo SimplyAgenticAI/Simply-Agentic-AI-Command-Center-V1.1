@@ -521,3 +521,103 @@ def test_tick_starts_due_missions_once_and_respects_pause_all(flask_app, monkeyp
         assert started == [mid]
     finally:
         _drop(name)
+
+
+def test_day_one_click_creates_and_starts_one_mission(flask_app, monkeypatch):
+    """The click is the create_mission confirmation. A retry reuses that mission."""
+    name = "dayoneuser"
+    _user(name)
+    started = []
+    monkeypatch.setattr(app_module, "_mission_start_bg", lambda u, mid, src, *a, **k: started.append((u, mid, src)))
+    app_module._save_operator_profile(name, {"business": "Websites for roofers", "audience": "roofers in Austin"})
+    try:
+        c, h = _client(flask_app, name)
+        assert c.post("/api/missions/day_one", headers=h, json={"choice": "nope"}).status_code == 400
+        anon = flask_app.test_client()
+        ah = {"X-CSRF-Token": anon.get("/api/csrf_token").get_json()["csrf_token"]}
+        assert anon.post("/api/missions/day_one", headers=ah, json={"choice": "morning_brief"}).status_code == 401
+        d = c.post("/api/missions/day_one", headers=h, json={"choice": "lead_list"}).get_json()
+        assert d["ok"] and d["started"] and d["confirmed"]
+        mid = d["mission"]["id"]
+        stored = app_module._agent_load(name)["missions"][mid]
+        assert stored["day_one"] == "lead_list"
+        assert stored["teammate"] == "Sunshine"
+        assert "roofers in Austin" in stored["instruction"]
+        assert stored["title"] == "Lead list"
+        assert started == [(name, mid, "manual")]
+        again = c.post("/api/missions/day_one", headers=h, json={"choice": "lead_list"}).get_json()
+        assert again["ok"] and again["mission"]["id"] == mid
+        assert len(app_module._agent_load(name)["missions"]) == 1
+        assert started == [(name, mid, "manual"), (name, mid, "manual")]
+        assert app_module._tool_risk("create_mission") == "confirm"
+    finally:
+        _drop(name)
+
+
+def test_day_one_start_failure_can_be_retried(flask_app, monkeypatch):
+    name = "dayoneretry"
+    _user(name)
+    calls = []
+
+    def flaky(u, mid, src, *a, **k):
+        calls.append(mid)
+        if len(calls) == 1:
+            raise RuntimeError("runner down")
+
+    monkeypatch.setattr(app_module, "_mission_start_bg", flaky)
+    try:
+        c, h = _client(flask_app, name)
+        bad = c.post("/api/missions/day_one", headers=h, json={"choice": "morning_brief"})
+        assert bad.status_code == 500 and "Try again" in bad.get_json()["error"]
+        mid = bad.get_json()["mission_id"]
+        ok = c.post("/api/missions/day_one", headers=h, json={"choice": "morning_brief"})
+        assert ok.status_code == 200 and ok.get_json()["started"]
+        assert ok.get_json()["mission"]["id"] == mid
+        assert len(app_module._agent_load(name)["missions"]) == 1
+        assert calls == [mid, mid]
+    finally:
+        _drop(name)
+
+
+def test_day_one_message_limit_keeps_the_mission_for_retry(flask_app, monkeypatch):
+    name = "dayonelimit"
+    _user(name)
+    started = []
+    monkeypatch.setattr(app_module, "_mission_start_bg", lambda u, mid, src, *a, **k: started.append(mid))
+    monkeypatch.setattr(app_module, "_check_msg_limit", lambda u, p: (False, 9, 9, 0, 0, False))
+    try:
+        c, h = _client(flask_app, name)
+        blocked = c.post("/api/missions/day_one", headers=h, json={"choice": "content_pack"})
+        assert blocked.status_code == 429
+        assert "saved under Missions" in blocked.get_json()["error"]
+        assert started == []
+        mid = blocked.get_json()["mission_id"]
+        monkeypatch.setattr(app_module, "_check_msg_limit", lambda u, p: (True, 0, 9, 0, 0, False))
+        ok = c.post("/api/missions/day_one", headers=h, json={"choice": "content_pack"}).get_json()
+        assert ok["started"] and ok["mission"]["id"] == mid
+        assert started == [mid]
+        assert len(app_module._agent_load(name)["missions"]) == 1
+    finally:
+        _drop(name)
+
+
+def test_connection_readiness_is_read_only(flask_app, monkeypatch):
+    name = "connready"
+    _user(name)
+    monkeypatch.setattr(app_module, "_user_gmail_oauth", lambda u: {"refresh_token": "x"})
+    monkeypatch.setattr(app_module, "_user_calendar_oauth", lambda u: {})
+    monkeypatch.setattr(app_module, "_load_sp_conns", lambda u: {
+        "leadconnector": {"token": "pit", "location_id": "loc123"},
+        "facebook": {},
+        "instagram": {"access_token": "ig-token"},
+    })
+    monkeypatch.setattr(app_module, "_ig_accounts", lambda conns: [])
+    try:
+        c, h = _client(flask_app, name)
+        d = c.get("/api/connections/readiness").get_json()
+        assert d == {"ok": True, "email": True, "calendar": False, "crm": True, "social": True}
+        assert c.post("/api/connections/readiness", headers=h).status_code == 405
+        anon = flask_app.test_client()
+        assert anon.get("/api/connections/readiness").status_code == 401
+    finally:
+        _drop(name)

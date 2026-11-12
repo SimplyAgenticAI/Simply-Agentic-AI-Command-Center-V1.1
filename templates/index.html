@@ -4536,6 +4536,71 @@ label {
     <!-- ===== END REDESIGNED NAV BAR ===== -->
   </div>
 
+  <div id="saConnBanner" class="saConnBanner" style="display:none;" role="status" aria-label="Connection readiness"></div>
+  <style>
+    .saConnBanner{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 16px;background:rgba(8,12,28,.92);border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;color:#cbd5e1;}
+    .saConnBanner .saConnLead{font-weight:800;color:#e2e8f0;margin-right:2px;}
+    .saConnChip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:#e2e8f0;font-weight:700;cursor:pointer;font-family:inherit;font-size:13px;}
+    .saConnChip.on{border-color:rgba(52,211,153,.45);color:#6ee7b7;}
+    .saConnChip.off{border-color:rgba(251,191,36,.4);color:#fcd34d;}
+    .saModeTag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:middle;}
+    .saModeTag.discuss{color:#93c5fd;border:1px solid rgba(147,197,253,.5);background:rgba(59,130,246,.12);}
+    .saModeTag.doo{color:#6ee7b7;border:1px solid rgba(110,231,183,.5);background:rgba(16,185,129,.12);}
+  </style>
+  <script>
+  (function(){
+    function openSettings(anchorId){
+      var b = document.getElementById('settingsBtn');
+      if(b) b.click();
+      setTimeout(function(){
+        var el = document.getElementById(anchorId);
+        if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'center'});
+      }, 400);
+    }
+    function openPlanner(anchorId){
+      if(typeof window.showContentPlannerModal === 'function') window.showContentPlannerModal();
+      setTimeout(function(){
+        var el = document.getElementById(anchorId);
+        if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'center'});
+      }, 450);
+    }
+    var LINKS = {
+      email: function(){ openSettings('gmailConnectBtn'); },
+      calendar: function(){ openSettings('calendarConnectBtn'); },
+      crm: function(){ openPlanner('cpLcStatus'); },
+      social: function(){ openPlanner('cpPlatformPills'); }
+    };
+    var LABELS = {
+      email: 'Email',
+      calendar: 'Calendar',
+      crm: 'CRM / LeadConnector',
+      social: 'Social'
+    };
+    function render(d){
+      var bar = document.getElementById('saConnBanner');
+      if(!bar || !d || !d.ok) return;
+      var html = '<span class="saConnLead">Connections</span>';
+      ['email','calendar','crm','social'].forEach(function(key){
+        var on = !!d[key];
+        html += '<button type="button" class="saConnChip '+(on?'on':'off')+'" data-conn="'+key+'" title="'+(on?'Connected. Opens the existing settings.':'Not connected. Opens the existing settings.')+'">'+
+          (on?'●':'○')+' '+LABELS[key]+(on?'':' · connect')+'</button>';
+      });
+      bar.innerHTML = html;
+      bar.style.display = 'flex';
+      bar.querySelectorAll('[data-conn]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var fn = LINKS[btn.getAttribute('data-conn')];
+          if(fn) fn();
+        });
+      });
+    }
+    fetch('/api/connections/readiness', {credentials:'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(render)
+      .catch(function(){});
+  })();
+  </script>
+
   <!-- stats strip removed -->
 
   <!-- ===== WELCOME OVERLAY ===== -->
@@ -4568,6 +4633,16 @@ label {
         <div style="font-size:calc(36px * var(--fs,1.1));margin-bottom:8px;" id="qsDoneIcon">✅</div>
         <h2 style="font-size:calc(20px * var(--fs,1.1));font-weight:700;color:#eef2ff;margin:0 0 8px;" id="qsDoneTitle"></h2>
         <p style="color:#cbd5e1;font-size:calc(15px * var(--fs,1.1));margin:0 0 18px;" id="qsDoneText"></p>
+        <div id="qsFirstJob" style="display:none;text-align:left;margin:0 0 16px;padding:12px 14px;border:1px solid rgba(124,58,237,.4);border-radius:12px;background:rgba(124,58,237,.08);">
+          <div style="font-weight:800;color:#eef2ff;margin-bottom:4px;">Start a first job</div>
+          <div style="color:#cbd5e1;font-size:calc(14px * var(--fs,1.1));margin-bottom:10px;line-height:1.45;">One click. Your team does the work. Progress and the result show under Today, then Your team, then Missions.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="wcSecondary" onclick="saDayOneStart('morning_brief', this)">Morning brief</button>
+            <button type="button" class="wcSecondary" onclick="saDayOneStart('lead_list', this)">Lead list</button>
+            <button type="button" class="wcSecondary" onclick="saDayOneStart('content_pack', this)">Weekly content pack</button>
+          </div>
+          <div id="qsFirstJobErr" style="display:none;color:#fca5a5;font-size:calc(14px * var(--fs,1.1));margin-top:8px;"></div>
+        </div>
         <button class="wcPrimary" id="qsDoneBtn" onclick="saQuickstartFinish()">Open Today →</button>
       </div>
     </div>
@@ -7020,7 +7095,7 @@ input[type="range"]::-moz-range-progress {
 
 
         <div class="tableWrap" id="tableWrap">
-          <div class="mobileTeamLabel">Your Team — tap to chat</div>
+          <div class="mobileTeamLabel" title="Discuss: talks only. Teammates do not take actions from here.">Your Team · Discuss</div>
           <div class="table" id="tableCore">
             <div class="runes"></div>
           </div>
@@ -7033,7 +7108,8 @@ input[type="range"]::-moz-range-progress {
             </svg>
             <div class="opHead">
               <div class="opTitle">
-                <div class="t1">Group Console</div>
+                <div class="t1">Round Table <span class="saModeTag discuss" title="Discuss: talks only. Teammates do not take actions from here.">Discuss</span></div>
+                <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-top:2px;">Talks only. No actions.</div>
               </div>
               <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
                 <button class="btn btnMini" id="assembleBtn2" title="Bring all teammates to the round table">Assemble</button>
@@ -7051,7 +7127,7 @@ input[type="range"]::-moz-range-progress {
                     <button id="gcClearAllBtn"      class="saMoreItem" style="color:#f7d36a;">✨ New session</button>
                     <button id="orchestraBtn"       class="saMoreItem" style="color:#c4b5fd;display:none;">🎻 Orchestra</button>
                     <button id="pipelineBtn"        class="saMoreItem" style="color:#a78bfa;" onclick="if(typeof _saOpenPipeline==='function')_saOpenPipeline()">⛓ Relay</button>
-                    <button id="teamGoalBtn" class="saMoreItem" style="color:#6ee7b7;" onclick="if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()">🧠 Team Goal</button>
+                    <button id="teamGoalBtn" class="saMoreItem" style="color:#6ee7b7;" title="Do: agents take real actions with tools." onclick="if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()">🧠 Team Goal <span class="saModeTag doo">Do</span></button>
                     <button id="fusionBtn"          class="saMoreItem" style="color:#93c5fd;display:none;">⚡ Fusion</button>
                   </div>
                 </div>
@@ -11469,9 +11545,9 @@ function makeSeat(defn, idx, totalSeats, isCustom, overflowIdx){
       ov.style.cssText = "position:fixed;left:24px;top:90px;z-index:99990;width:min(400px,92vw);max-height:80vh;overflow-y:auto;background:rgba(8,13,33,.97);border:1px solid rgba(110,231,183,.35);border-radius:18px;padding:18px 20px;box-shadow:0 24px 80px rgba(0,0,0,.7);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);";
       ov.innerHTML = '<div>'
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
-        + '<div style="font-size:calc(17px * var(--fs,1.1));font-weight:800;color:#6ee7b7;">🧠 Team Goal</div>'
+        + '<div style="font-size:calc(17px * var(--fs,1.1));font-weight:800;color:#6ee7b7;">🧠 Team Goal <span class="saModeTag doo" title="Do: agents take real actions with tools.">Do</span></div>'
         + '<button id="_tgClose" style="background:none;border:none;color:#94a3b8;font-size:calc(20px * var(--fs,1.1));cursor:pointer;line-height:1;">✕</button></div>'
-        + '<div style="font-size:calc(14.5px * var(--fs,1.1));color:#cbd5e1;opacity:.85;margin-bottom:12px;line-height:1.5;">Describe a goal. Your team plans it, each teammate handles their part — watch the table while they work.</div>'
+        + '<div style="font-size:calc(14.5px * var(--fs,1.1));color:#cbd5e1;opacity:.85;margin-bottom:12px;line-height:1.5;">Do. Agents take real actions with tools. Describe a goal. Your team plans it, each teammate handles their part, and you watch the table while they work.</div>'
         + '<textarea id="_tgGoal" placeholder="e.g. Plan and write a 5-email welcome sequence for new coaching clients" style="width:100%;min-height:84px;resize:vertical;padding:11px 13px;border-radius:11px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:#e6edff;font-size:calc(14.5px * var(--fs,1.1));font-family:inherit;line-height:1.5;box-sizing:border-box;"></textarea>'
         + '<button id="_tgRun" class="btn btnPrimary" style="width:100%;margin-top:12px;">▶ Run the team</button>'
         + '<div id="_tgResults" style="margin-top:16px;"></div></div>';
@@ -31526,6 +31602,37 @@ window._saPlReset=function(){
     if(ov){ ov.style.opacity='0'; ov.style.transition='opacity .35s'; setTimeout(function(){ ov.style.display='none'; }, 350); }
   }
   var _qsResult = null;
+  var _qsProfileSaved = false;
+  function qsOfferJob(show){
+    var box = qs$('qsFirstJob');
+    if(box) box.style.display = show ? '' : 'none';
+  }
+  window.saDayOneStart = async function(choice, btn){
+    var err = qs$('qsFirstJobErr');
+    var box = qs$('qsFirstJob');
+    var buttons = box ? box.querySelectorAll('button') : [];
+    [].forEach.call(buttons, function(b){ b.disabled = true; });
+    if(err) err.style.display = 'none';
+    try{
+      var r = await fetch('/api/missions/day_one', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({choice: choice})});
+      var d = await r.json();
+      if(!d.ok || !d.started) throw new Error((d && d.error) || 'Could not start that job');
+      qsClose();
+      setTimeout(function(){
+        if(window.saOpenToday) window.saOpenToday();
+        if(window.saTodayTab) window.saTodayTab('team');
+        setTimeout(function(){
+          var sec = document.getElementById('stMissionsSec');
+          if(sec && sec.scrollIntoView){ try{ sec.scrollIntoView({behavior:'smooth', block:'start'}); }catch(_){} }
+        }, 500);
+      }, 400);
+    }catch(e){
+      var msg = (e && e.message) ? String(e.message) : 'Could not start that job. Try again.';
+      if(msg.toLowerCase().indexOf('try again') < 0) msg += ' Try again.';
+      if(err){ err.textContent = msg; err.style.display = ''; }
+      [].forEach.call(buttons, function(b){ b.disabled = false; });
+    }
+  };
   window.saQuickstartSkip = function(){
     fetch('/api/quickstart/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).catch(function(){});
     qsClose(); setTimeout(function(){ if(window.saOpenToday) window.saOpenToday(); }, 400);
@@ -31541,6 +31648,7 @@ window._saPlReset=function(){
         body:JSON.stringify({business:(qs$('qsBusiness').value||'').trim(), customer:cust, location:loc})});
       var d = await r.json();
       if(!d.ok) throw new Error(d.error||'Could not start');
+      _qsProfileSaved = true;
       var j = {status:'working'};
       for(var t=0; t<120 && j.status==='working'; t++){
         await new Promise(function(res){ setTimeout(res, 2500); });
@@ -31561,11 +31669,12 @@ window._saPlReset=function(){
           : 'They have phone numbers you can call. Ask any teammate to find more anytime.';
         qs$('qsDoneBtn').textContent = j.with_email ? '✍ Draft my first hellos →' : 'Open Today →';
       }
+      qsOfferJob(true);
       qsShow('qsDone');
     }catch(e){
       qs$('qsDoneIcon').textContent='⚠️'; qs$('qsDoneTitle').textContent='That didn\'t work';
       qs$('qsDoneText').textContent=String(e.message||e); qs$('qsDoneBtn').textContent='Open Today →';
-      _qsResult = null; qsShow('qsDone');
+      _qsResult = null; qsOfferJob(_qsProfileSaved); qsShow('qsDone');
     }
   };
   window.saQuickstartFinish = function(){
@@ -33876,7 +33985,7 @@ function _saEsc(s){
     <div id="stMsNeeds"></div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div id="stTeamPane">
-    <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
+    <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span class="saModeTag doo" title="Do: agents take real actions with tools.">Do</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div class="st-sub" style="margin:-2px 0 8px;">Do. Agents take real actions with tools. Progress and results show up here.</div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
     <div class="st-sec" id="stInboxSec" style="display:none;"><div class="st-h"><span id="stInboxH">📥 Inbox</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stInboxScan" onclick="saInboxScan(this)">↻ Check inbox now</button></span></div><div id="stInboxFilters"></div><div id="stInbox"></div></div>
     <div class="st-sec" id="stWeekSec" style="display:none;"><div class="st-h"><span>📈 Your team this week</span></div><div id="stWeek"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
