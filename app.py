@@ -386,15 +386,15 @@ if not _SW_BUILD:
 # Single source of truth for the app version. Bump +0.1 every patch (3.1 → 3.2 → …).
 # Surfaced everywhere via APP_TITLE and the `app_ver` Jinja global, so all version
 # mentions update from this one constant.
-APP_VERSION = os.getenv("APP_VERSION", "22.1")
+APP_VERSION = os.getenv("APP_VERSION", "22.2")
 APP_TITLE = os.getenv("APP_TITLE", f"Simply Agentic AI V{APP_VERSION}")
 
 # What's New — shown on the login page. Update this list alongside APP_VERSION
 # on every patch so the banner reflects what actually shipped.
 WHATS_NEW_ITEMS = [
-    "The public homepage is the product story, with Log in and Start still one click away",
-    "After you describe your business, one click starts a first mission: a morning brief, a lead list, or a weekly content pack",
-    "Round Table is labeled Discuss (talks only). Team Goal and Missions are labeled Do (real actions with tools)",
+    "Connect CRM / LeadConnector from the Connections bar. Token and Location ID save in Settings.",
+    "Today still opens after you sign in, and the Connections bar stays visible above it.",
+    "Do: Team Goal is on the round table and next to Missions. Same team goal, easier to find.",
 ]
 APP_NAME  = re.split(r'\s+[Vv]\d', APP_TITLE)[0].strip()  # "Simply Agentic AI" — no version number
 MODEL = os.getenv("MODEL", "gpt-4o")
@@ -3242,7 +3242,7 @@ def pwa_icon_512():
 @app.get("/pwa-icon.svg")
 def pwa_icon_svg():
     """Neural Orb SVG icon — glowing network sphere above SA. Premium/luxury look."""
-    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
 <defs>
   <radialGradient id="bg" cx="50%" cy="38%" r="78%">
     <stop offset="0%" stop-color="#180430"/>
@@ -3284,7 +3284,7 @@ def pwa_icon_svg():
     <!-- Outer ring -->
     <line x1="256" y1="68" x2="344" y2="105"/>
     <line x1="344" y1="105" x2="381" y2="193"/>
-    <line x1="381" y2="193" x1="381" y2="193" x2="344" y2="281"/>
+    <line x1="381" y1="193" x2="344" y2="281"/>
     <line x1="344" y1="281" x2="256" y2="318"/>
     <line x1="256" y1="318" x2="168" y2="281"/>
     <line x1="168" y1="281" x2="131" y2="193"/>
@@ -3355,7 +3355,9 @@ def pwa_icon_svg():
 <!-- Accent bar -->
 <rect x="184" y="462" width="144" height="5" rx="2.5" fill="#9333ea" opacity="0.7"/>
 </svg>"""
-    resp = make_response(svg)
+    # Bytes, not a str: a text body makes Flask attach a charset, and Chrome then
+    # refuses the manifest icon ("can't be downloaded or isn't a valid image").
+    resp = make_response(svg.strip().encode("utf-8"))
     resp.headers["Content-Type"] = "image/svg+xml"
     resp.headers["Cache-Control"] = "no-cache, must-revalidate"
     return resp
