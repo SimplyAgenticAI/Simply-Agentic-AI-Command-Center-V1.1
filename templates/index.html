@@ -4567,7 +4567,7 @@ label {
     var LINKS = {
       email: function(){ openSettings('gmailConnectBtn'); },
       calendar: function(){ openSettings('calendarConnectBtn'); },
-      crm: function(){ openPlanner('cpLcStatus'); },
+      crm: function(){ openSettings('lcConnectCard'); },
       social: function(){ openPlanner('cpPlatformPills'); }
     };
     var LABELS = {
@@ -4576,13 +4576,33 @@ label {
       crm: 'CRM / LeadConnector',
       social: 'Social'
     };
+    var TITLES = {
+      email: 'Opens Gmail in Settings.',
+      calendar: 'Opens Calendar in Settings.',
+      crm: 'Opens LeadConnector in Settings.',
+      social: 'Opens Content Planner.'
+    };
+    // Today is a full-screen layer. Keep this bar in the page above that layer
+    // so signing in does not hide the connect actions.
+    window.saPinTodayBelowBanner = function(){
+      var today = document.getElementById('saToday');
+      if(!today || !today.classList.contains('open')) return;
+      var banner = document.getElementById('saConnBanner');
+      var top = 0;
+      if(banner && banner.style.display !== 'none'){
+        var rect = banner.getBoundingClientRect();
+        if(rect.height > 0 && rect.bottom > 0) top = Math.round(rect.bottom);
+      }
+      today.style.top = top > 0 ? (top + 'px') : '';
+    };
+    window.addEventListener('resize', function(){ window.saPinTodayBelowBanner(); });
     function render(d){
       var bar = document.getElementById('saConnBanner');
       if(!bar || !d || !d.ok) return;
       var html = '<span class="saConnLead">Connections</span>';
       ['email','calendar','crm','social'].forEach(function(key){
         var on = !!d[key];
-        html += '<button type="button" class="saConnChip '+(on?'on':'off')+'" data-conn="'+key+'" title="'+(on?'Connected. Opens the existing settings.':'Not connected. Opens the existing settings.')+'">'+
+        html += '<button type="button" class="saConnChip '+(on?'on':'off')+'" data-conn="'+key+'" title="'+(on?'Connected. ':'Not connected. ')+TITLES[key]+'">'+
           (on?'●':'○')+' '+LABELS[key]+(on?'':' · connect')+'</button>';
       });
       bar.innerHTML = html;
@@ -4593,11 +4613,15 @@ label {
           if(fn) fn();
         });
       });
+      requestAnimationFrame(function(){ window.saPinTodayBelowBanner(); });
     }
-    fetch('/api/connections/readiness', {credentials:'same-origin'})
-      .then(function(r){ return r.json(); })
-      .then(render)
-      .catch(function(){});
+    window.saRefreshConnBanner = function(){
+      fetch('/api/connections/readiness', {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(render)
+        .catch(function(){});
+    };
+    window.saRefreshConnBanner();
   })();
   </script>
 
@@ -5136,6 +5160,20 @@ label {
                         </div>
                       </div>
                       <div class="tiny" style="margin-top:6px;opacity:.7;">Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and PUBLIC_BASE_URL on your server to enable.</div>
+                    </div>
+
+                    <!-- CRM / LeadConnector (token + location id, same store the readiness check reads) -->
+                    <div id="lcConnectCard" style="border-top:0.5px solid rgba(255,255,255,.08);padding-top:14px;">
+                      <div class="tiny" style="margin-bottom:6px;font-weight:700;color:#c4b5fd;">CRM / LeadConnector</div>
+                      <div class="tiny" id="lcConnectStatus" style="margin-bottom:8px;">Checking...</div>
+                      <input id="lcToken" type="password" autocomplete="new-password" placeholder="Private Integration token" style="width:100%;margin-bottom:8px;">
+                      <input id="lcLocationId" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Location ID" style="width:100%;margin-bottom:8px;">
+                      <div class="tiny" style="opacity:.75;margin-bottom:8px;line-height:1.45;">Paste the Private Integration token and Location ID from your HighLevel sub-account. The token is saved with your other connection secrets.</div>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="btn btnMini btnPrimary" id="lcConnectBtn" type="button">Save connection</button>
+                        <button class="btn btnMini" id="lcTestBtn" type="button" style="display:none;">Test connection</button>
+                        <button class="btn btnMini" id="lcDisconnectBtn" type="button" style="display:none;">Disconnect</button>
+                      </div>
                     </div>
 
                     <!-- INBOX (read-only, V20.5) -->
@@ -7111,8 +7149,9 @@ input[type="range"]::-moz-range-progress {
                 <div class="t1">Round Table <span class="saModeTag discuss" title="Discuss: talks only. Teammates do not take actions from here.">Discuss</span></div>
                 <div style="font-size:11px;color:#94a3b8;font-weight:600;margin-top:2px;">Talks only. No actions.</div>
               </div>
-              <div style="display:flex; gap:6px; align-items:center; flex-wrap:nowrap;">
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
                 <button class="btn btnMini" id="assembleBtn2" title="Bring all teammates to the round table">Assemble</button>
+                <button class="btn btnMini" id="teamGoalOpenBtn" title="Do: agents take real actions with tools." onclick="if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()" style="border-color:rgba(110,231,183,.55);color:#6ee7b7;">Do: Team Goal</button>
                 <!-- ⋯ Tools overflow -->
                 <div style="position:relative;display:inline-block;" id="gcToolsWrap">
                   <button class="btn btnMini" id="gcToolsBtn" onclick="saToggleGcTools()" style="border-color:rgba(80,110,200,.5);">⋯ Tools</button>
@@ -16808,6 +16847,7 @@ $("draftWithSelected").onclick = async () => {
       if($("modalBody")) $("modalBody").style.display = "none";
       if($("modalImg")) $("modalImg").style.display = "none";
       loadSettings();
+      if(typeof window.lcRefreshStatus === 'function') window.lcRefreshStatus();
       // settingsLoadSmsSettings removed — SMS feature no longer active
       // Re-apply model lock after settings form renders (selects now in DOM)
       setTimeout(function(){ if(typeof window._saApplyModelLock==='function') window._saApplyModelLock(window._saHasOwnKey); }, 120);
@@ -23907,6 +23947,74 @@ $("settingsBtn").onclick = () => showSettingsModal();
       if(!confirm('Disconnect your inbox? Your team will no longer be able to read your email.')) return;
       await fetch('/api/inbox/disconnect', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
       showToast('Inbox disconnected'); window.inboxRefresh();
+    };
+
+    // LeadConnector: same /api/social/lc/* helpers and social-conns fields the
+    // readiness check already reads. The token is encrypted with the rest of
+    // that blob (_encrypt_field) when a field key is set.
+    function lcMsg(s){ return String(s || '').replace(/\u2014/g, '-'); }
+    window.lcRefreshStatus = async function(){
+      const st = $('lcConnectStatus'); if(!st) return;
+      try{
+        const d = await (await fetch('/api/social/connections')).json();
+        const lc = (d && d.connections && d.connections.leadconnector) || {};
+        const on = !!lc.connected;
+        const n = (lc.accounts || []).length;
+        st.textContent = on
+          ? ('Connected. Location ID ' + (lc.location_id || '') + (n ? ('. ' + n + ' account' + (n===1?'':'s') + ' found.') : '.'))
+          : 'Not connected. Paste a Private Integration token and Location ID.';
+        if($('lcLocationId') && on && !$('lcLocationId').value) $('lcLocationId').value = lc.location_id || '';
+        if($('lcTestBtn')) $('lcTestBtn').style.display = on ? '' : 'none';
+        if($('lcDisconnectBtn')) $('lcDisconnectBtn').style.display = on ? '' : 'none';
+      }catch(e){ st.textContent = 'Could not check LeadConnector.'; }
+    };
+    if($('lcConnectBtn')) $('lcConnectBtn').onclick = async () => {
+      const b = $('lcConnectBtn'); const st = $('lcConnectStatus');
+      const token = ($('lcToken').value || '').trim();
+      const locationId = ($('lcLocationId').value || '').trim();
+      if(!token || !locationId){ if(st) st.textContent = 'Paste both the token and the Location ID.'; return; }
+      b.disabled = true; b.textContent = 'Checking...';
+      try{
+        const r = await fetch('/api/social/lc/connect', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({token: token, location_id: locationId})});
+        const d = await r.json();
+        if(!d.ok) throw new Error(lcMsg(d.error || 'Could not connect'));
+        $('lcToken').value = '';
+        const n = (d.accounts || []).length;
+        if(st) st.textContent = 'Connected. Connection test passed' + (n ? ('. ' + n + ' account' + (n===1?'':'s') + ' found.') : '.');
+        if(typeof showToast === 'function') showToast('LeadConnector connected');
+        await window.lcRefreshStatus();
+        if(typeof window.saRefreshConnBanner === 'function') window.saRefreshConnBanner();
+      }catch(e){ if(st) st.textContent = lcMsg(e.message || e); }
+      b.disabled = false; b.textContent = 'Save connection';
+    };
+    if($('lcTestBtn')) $('lcTestBtn').onclick = async () => {
+      const b = $('lcTestBtn'); const st = $('lcConnectStatus');
+      b.disabled = true; const orig = b.textContent; b.textContent = 'Testing...';
+      try{
+        const r = await fetch('/api/social/lc/refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const d = await r.json();
+        if(!d.ok) throw new Error(lcMsg(d.error || 'Connection test failed'));
+        const n = (d.accounts || []).length;
+        if(st) st.textContent = 'Connection test passed. ' + n + ' account' + (n===1?'':'s') + ' found.';
+        if(typeof showToast === 'function') showToast('LeadConnector connection works');
+      }catch(e){ if(st) st.textContent = lcMsg(e.message || e); }
+      b.disabled = false; b.textContent = orig;
+    };
+    if($('lcDisconnectBtn')) $('lcDisconnectBtn').onclick = async () => {
+      if(!confirm('Disconnect LeadConnector? Scheduled posts that use it will stop until you connect again.')) return;
+      const st = $('lcConnectStatus');
+      try{
+        const r = await fetch('/api/social/disconnect/leadconnector', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+        const d = await r.json();
+        if(!d.ok) throw new Error(lcMsg(d.error || 'Could not disconnect'));
+        if($('lcToken')) $('lcToken').value = '';
+        if($('lcLocationId')) $('lcLocationId').value = '';
+        if(st) st.textContent = 'Disconnected.';
+        if(typeof showToast === 'function') showToast('LeadConnector disconnected');
+        await window.lcRefreshStatus();
+        if(typeof window.saRefreshConnBanner === 'function') window.saRefreshConnBanner();
+      }catch(e){ if(st) st.textContent = lcMsg(e.message || e); }
     };
 
     // ── Save & Exit handlers ────────────────────────────────────────
@@ -33877,7 +33985,7 @@ function _saEsc(s){
 .st-draft textarea{min-height:130px;resize:vertical;line-height:1.5;}
 .st-draft .st-btn{white-space:normal;overflow-wrap:anywhere;}
 /* Today tabs (V20.4): "Today" = what needs you; "Your team" = missions & reports */
-.st-tabs{display:flex;gap:6px;margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:8px;}
+.st-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:8px;}
 .st-tabs button{background:none;border:1px solid transparent;border-radius:999px;padding:7px 14px;color:#94a3b8;font-weight:700;cursor:pointer;font-size:calc(15px * var(--fs,1.1));font-family:inherit;}
 .st-tabs button.on{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.5);color:#f1f5f9;}
 #stTeamBadge{font-size:calc(14px * var(--fs,1.1));color:#6ee7b7;}
@@ -33964,6 +34072,7 @@ function _saEsc(s){
     <div class="st-tabs" role="tablist">
       <button id="stTabToday" class="on" role="tab" onclick="saTodayTab('today')">📋 Today</button>
       <button id="stTabTeam" role="tab" onclick="saTodayTab('team')">🎯 Your team <span id="stTeamBadge"></span></button>
+      <button type="button" id="stTeamGoalTab" title="Do: agents take real actions with tools." onclick="saCloseToday();if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()" style="color:#6ee7b7;border-color:rgba(110,231,183,.5);">Do: Team Goal</button>
     </div>
     <div id="stRecap" class="st-recap" style="display:none;"></div>
     <div id="stCelebrate" class="st-celebrate" style="display:none;">
@@ -33985,7 +34094,7 @@ function _saEsc(s){
     <div id="stMsNeeds"></div>
     <div class="st-sec" id="stReadySec" style="display:none;"><div class="st-h"><span id="stReadyH">✨ Ready for you</span></div><div id="stOffer"></div><div id="stReadyBulk"></div><div id="stReady"></div><div id="stSentForYou"></div></div>
     <div id="stTeamPane">
-    <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span class="saModeTag doo" title="Do: agents take real actions with tools.">Do</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div class="st-sub" style="margin:-2px 0 8px;">Do. Agents take real actions with tools. Progress and results show up here.</div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
+    <div class="st-sec" id="stMissionsSec"><div class="st-h"><span id="stMissionsH">🎯 Missions</span><span class="saModeTag doo" title="Do: agents take real actions with tools.">Do</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" id="stTeamGoalOpen" title="Do: agents take real actions with tools." onclick="saCloseToday();if(typeof _saOpenTeamGoal==='function')_saOpenTeamGoal()">Do: Team Goal</button><button id="stMsPause" onclick="saMsPauseAll()" style="display:none;">Pause all</button><button onclick="saMsNew()">+ New mission</button></span></div><div class="st-sub" style="margin:-2px 0 8px;">Do. Agents take real actions with tools. Progress and results show up here.</div><div id="stMsNew" style="display:none;"></div><div id="stMissions"></div></div>
     <div class="st-sec" id="stInboxSec" style="display:none;"><div class="st-h"><span id="stInboxH">📥 Inbox</span><span style="display:flex;gap:6px;flex-wrap:wrap;"><button id="stInboxScan" onclick="saInboxScan(this)">↻ Check inbox now</button></span></div><div id="stInboxFilters"></div><div id="stInbox"></div></div>
     <div class="st-sec" id="stWeekSec" style="display:none;"><div class="st-h"><span>📈 Your team this week</span></div><div id="stWeek"></div></div>
     <div class="st-sec" id="stDidSec" style="display:none;"><div class="st-h"><span>🧾 What your team did</span><button id="stDidAll" onclick="saTodayDidToggle()">Show lookups too</button></div><div id="stDid"></div></div>
@@ -34877,10 +34986,15 @@ function _saEsc(s){
 
   window.saOpenToday = function(){
     document.getElementById('saToday').classList.add('open');
+    if(window.saPinTodayBelowBanner) window.saPinTodayBelowBanner();
     try{ localStorage.setItem('saTodaySeen', localISO(new Date())); }catch(_){}
     load();
   };
-  window.saCloseToday = function(){ document.getElementById('saToday').classList.remove('open'); };
+  window.saCloseToday = function(){
+    var el = document.getElementById('saToday');
+    el.classList.remove('open');
+    el.style.top = '';
+  };
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && document.getElementById('saToday').classList.contains('open')) window.saCloseToday(); });
   document.getElementById('saToday').addEventListener('click', function(e){ if(e.target.id==='saToday') window.saCloseToday(); });
 
