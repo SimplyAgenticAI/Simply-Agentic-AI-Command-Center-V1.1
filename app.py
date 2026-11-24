@@ -25363,7 +25363,7 @@ def _agent_weekly_email_tick(uname: str, now_local: datetime) -> None:
     to = str(((load_users().get("users") or {}).get(uname) or {}).get("email") or "").strip()
     if not EMAIL_RE.match(to):
         return
-    w = _agent_weekly(uname, now=now_local)
+    w = _agent_weekly(uname)
     if not w["lines"] and not w["mission_runs"]:
         return                                     # nothing happened: don't send an empty report
     base = (PUBLIC_BASE_URL or "").rstrip("/")
