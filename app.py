@@ -43,6 +43,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import requests
 
+import seasonal
 from prompts import (
     VISUAL_CODEGEN_SYSTEM_PROMPT,
     visual_codegen_user_prompt,
@@ -13851,8 +13852,8 @@ AUTH_BASE_CSS = r"""
   .brand{ display:flex; gap:12px; align-items:center; font-weight:800; letter-spacing:.2px; margin-bottom: 14px; font-size: 28px; }
   .dot{
     width:16px;height:16px;border-radius:999px;
-    background: radial-gradient(circle at 30% 30%, #fff, #c4b5fd 28%, #7c3aed 72%);
-    box-shadow: 0 0 18px rgba(124,58,237,.62), 0 0 28px rgba(247,211,106,.18);
+    background: radial-gradient(circle at 30% 30%, #fff, var(--logo-mid, #c4b5fd) 28%, var(--logo-dot, #7c3aed) 72%);
+    box-shadow: 0 0 18px var(--logo-dot-glow, rgba(124,58,237,.62)), 0 0 28px rgba(247,211,106,.18);
     flex: 0 0 auto;
   }
   .muted{ color: var(--muted); font-size: 15px; line-height: 1.5; }
@@ -14085,7 +14086,7 @@ AUTH_BASE_CSS = r"""
 
 # ── Showcase / Learn More page ──────────────────────────────────────
 SHOWCASE_HTML = """<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="{SEASONAL_THEME}">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -14094,13 +14095,13 @@ SHOWCASE_HTML = """<!doctype html>
 *{margin:0;padding:0;box-sizing:border-box;}
 :root{--pu:#7c3aed;--pl:#a78bfa;--ac:#c4b5fd;--bg:#030511;--s1:rgba(8,12,30,.98);--s2:rgba(6,9,22,.98);--bd:rgba(255,255,255,.1);--tx:#e2e8f0;--mt:#64748b;}
 html{scroll-behavior:smooth;}
-body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;background-image:radial-gradient(ellipse 88% 58% at 94% 2%,rgba(14,165,233,.62) 0%,rgba(56,189,248,.26) 36%,transparent 60%),radial-gradient(ellipse 78% 58% at 4% 98%,rgba(124,58,237,.68) 0%,rgba(99,58,200,.30) 32%,transparent 58%),radial-gradient(ellipse 50% 36% at 50% 50%,rgba(79,50,180,.18) 0%,transparent 68%),radial-gradient(ellipse 32% 24% at 80% 70%,rgba(139,92,246,.24) 0%,transparent 54%),radial-gradient(ellipse 24% 20% at 20% 26%,rgba(6,182,212,.20) 0%,transparent 52%);background-attachment:fixed;}
+body{background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden;background-image:radial-gradient(ellipse 88% 58% at 94% 2%,var(--nebula-cyan-1,rgba(14,165,233,.62)) 0%,var(--nebula-cyan-2,rgba(56,189,248,.26)) 36%,transparent 60%),radial-gradient(ellipse 78% 58% at 4% 98%,var(--nebula-violet-1,rgba(124,58,237,.68)) 0%,var(--nebula-violet-2,rgba(99,58,200,.30)) 32%,transparent 58%),radial-gradient(ellipse 50% 36% at 50% 50%,var(--nebula-violet-3,rgba(79,50,180,.18)) 0%,transparent 68%),radial-gradient(ellipse 32% 24% at 80% 70%,var(--nebula-violet-4,rgba(139,92,246,.24)) 0%,transparent 54%),radial-gradient(ellipse 24% 20% at 20% 26%,var(--nebula-cyan-3,rgba(6,182,212,.20)) 0%,transparent 52%);background-attachment:fixed;}
 #sc{position:fixed;inset:0;z-index:0;pointer-events:none;}
 /* NAV */
 nav{position:sticky;top:0;z-index:999;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;background:rgba(8,12,32,.60);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);border-bottom:1px solid rgba(255,255,255,.12);box-shadow:0 1px 0 rgba(124,58,237,.18),0 4px 32px rgba(0,0,0,.38);}
 .logo{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;color:var(--ac);text-decoration:none;}
-.logo-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#4f46e5);animation:ld 2.5s ease-in-out infinite;box-shadow:0 0 10px #7c3aed;}
-@keyframes ld{0%,100%{box-shadow:0 0 10px #7c3aed;}50%{box-shadow:0 0 24px #7c3aed,0 0 48px rgba(124,58,237,.4);}}
+.logo-dot{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--logo-dot,#7c3aed),var(--logo-dot-2,#4f46e5));animation:ld 2.5s ease-in-out infinite;box-shadow:0 0 10px var(--logo-dot,#7c3aed);}
+@keyframes ld{0%,100%{box-shadow:0 0 10px var(--logo-dot,#7c3aed);}50%{box-shadow:0 0 24px var(--logo-dot,#7c3aed),0 0 48px var(--logo-dot-soft,rgba(124,58,237,.4));}}
 .nav-r{display:flex;gap:6px;align-items:center;}
 .nav-a{color:var(--mt);font-size:13px;text-decoration:none;padding:6px 12px;border-radius:8px;transition:color .2s;}
 .nav-a:hover{color:var(--ac);}
@@ -14299,11 +14300,12 @@ footer a{color:var(--pl);text-decoration:none;}
 @media(max-width:860px){.nav-r .nav-a{display:none;}.rt-side{display:none;}.demos{grid-template-columns:1fr;}.stats{gap:28px;}.rt-arena{grid-template-columns:1fr 1.2fr 1fr;gap:8px;padding:12px;}.av{width:32px;height:32px;font-size:13px;}.sn{font-size:11px;}}
 @media(max-width:560px){.rt-arena{grid-template-columns:1fr;padding:10px;}.rt-arena::before{display:none;}.sec{padding:52px 14px;}}
 </style>
+{SEASONAL_CSS}
 </head>
 <body>
 <canvas id="sc"></canvas>
 <nav>
-  <a href="/" class="logo"><div class="logo-dot"></div>Simply Agentic AI</a>
+  <a href="/" class="logo"><div class="logo-dot">{SEASONAL_MARK}</div>Simply Agentic AI</a>
   <div class="nav-r">
     <a href="#roundtable" class="nav-a">Round Table</a>
     <a href="#demos" class="nav-a">Tools</a>
@@ -14765,7 +14767,7 @@ BOOKING_CANCEL_HTML = r"""
 
 LOGIN_HTML = r"""
 <!doctype html>
-<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
+<html data-theme="{SEASONAL_THEME}"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"/>
 """ + _public_page_meta(
     "/login",
     "Sign in — Simply Agentic AI",
@@ -14988,7 +14990,7 @@ LOGIN_HTML = r"""
   .card{ transform:scale(0.82); transform-origin:center center; }
 }
 </style>
-
+{SEASONAL_CSS}
 </head><body>
 
 {% raw %}
@@ -15457,6 +15459,7 @@ function drawNebulaDrift(){
     var pulse=0.5+0.5*Math.sin(nb.phase);
     var cx=nb.x*W,cy=nb.y*H,rad=nb.r*Math.min(W,H);
     var h=(nb.hue+HUE*0.6)%360;
+    if(NB_TINT)h=NB_H_CYAN;
     var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rad);
     g.addColorStop(0,'hsla('+h+',75%,52%,'+(nb.alpha*(0.7+0.3*pulse))+')');
     g.addColorStop(0.45,'hsla('+h+',65%,40%,'+(nb.alpha*0.4)+')');
@@ -15481,19 +15484,31 @@ function resize(){
 }
 
 /* ── Main draw loop ── */
+var NB_H_VIOLET=255,NB_H_CYAN=210,NB_TINT=false,_nbOnce=false;
+function readNebulaHues(){
+  /* Seasonal pages set these hues. Unset, the wash stays 255 / 210. */
+  if(_nbOnce)return;
+  _nbOnce=true;
+  var cs=getComputedStyle(document.documentElement);
+  var v=parseFloat(cs.getPropertyValue('--nebula-h-violet'));
+  var c=parseFloat(cs.getPropertyValue('--nebula-h-cyan'));
+  if(!isNaN(v)){NB_H_VIOLET=v;NB_TINT=true;}
+  if(!isNaN(c)){NB_H_CYAN=c;NB_TINT=true;}
+}
 function draw(){
   /* Pause the whole animation while the tab/window is hidden (e.g. user is in
      the detached Picture-in-Picture window or another app) — big CPU/GPU save,
      zero visual change when the page is in front. Resumed on visibilitychange. */
   if(document.hidden){_cgPaused=true;return;}
+  readNebulaHues();
   T+=0.010;HUE=(HUE+0.14)%360;
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#02040c';ctx.fillRect(0,0,W,H);
 
   /* All themes get nebula wash + stars */
   drawNebula(DAY===6?[]:[ /* skip for nebula day — it has its own */
-    {fx:0.14+Math.sin(T*0.07)*0.06,fy:0.24+Math.cos(T*0.05)*0.06,h:255,r:0.55,a:0.08},
-    {fx:0.86+Math.cos(T*0.06)*0.05,fy:0.72+Math.sin(T*0.08)*0.05,h:210,r:0.50,a:0.07},
+    {fx:0.14+Math.sin(T*0.07)*0.06,fy:0.24+Math.cos(T*0.05)*0.06,h:NB_H_VIOLET,r:0.55,a:0.08},
+    {fx:0.86+Math.cos(T*0.06)*0.05,fy:0.72+Math.sin(T*0.08)*0.05,h:NB_H_CYAN,r:0.50,a:0.07},
     {fx:0.50+Math.sin(T*0.04)*0.08,fy:0.44+Math.cos(T*0.06)*0.07,h:(HUE+140)%360,r:0.75,a:0.05},
   ]);
   drawStars();
@@ -15530,7 +15545,7 @@ resize();draw();
 <!-- ===== END 7 COSMIC BACKGROUNDS ===== -->
 
 <div class="card" style="position:relative;z-index:1;">
-    <div class="brand"><div class="dot"></div><div>{{app_title}}</div></div>
+    <div class="brand"><div class="dot">{SEASONAL_MARK}</div><div>{{app_title}}</div></div>
     <div class="muted">Sign in to your command center.</div>
     <div style="margin:10px 0 4px;display:flex;justify-content:center;">
       <span style="display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(124,58,237,.18),rgba(99,102,241,.18));border:1px solid rgba(124,58,237,.45);border-radius:20px;padding:5px 14px;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:0.04em;">
@@ -16233,6 +16248,34 @@ function startCheckout(plan){{
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
+def _paint_public_html(html: str) -> str:
+    """Stamp the seasonal accent onto a public landing or login page.
+
+    Tokens are filled after Jinja so the seasonal CSS braces stay literal.
+    Other pages never contain the tokens, and the signed-in app does not
+    call this.
+    """
+    if "{SEASONAL_THEME}" not in html and "{SEASONAL_CSS}" not in html and "{SEASONAL_MARK}" not in html:
+        return html
+    query = ""
+    try:
+        query = request.args.get("theme") or ""
+    except Exception:
+        query = ""
+    theme = seasonal.current_theme(query=query)
+    if theme not in seasonal.THEMES:
+        theme = "default"
+    return (
+        html.replace("{SEASONAL_THEME}", theme)
+        .replace("{SEASONAL_CSS}", seasonal.public_theme_css())
+        .replace("{SEASONAL_MARK}", seasonal.mark_svg(theme))
+    )
+
+
+def _render_login(**kwargs):
+    return _paint_public_html(render_template_string(LOGIN_HTML, **kwargs))
+
+
 def _showcase_html() -> str:
     """Marketing page. Canonical URL is /. /showcase serves the same HTML."""
     # Replace the longer token first so "{FREE_TRIAL_DAYS}" does not eat it.
@@ -16244,8 +16287,7 @@ def _showcase_html() -> str:
         "7 specialists. One command center for small and local service businesses, creators, and agencies. Real estate is one example. AI teammates, CRM, leads, content, email, and calendar.",
     )
     html = html.replace("{PUBLIC_HEAD}", head + "\n<title>Simply Agentic AI</title>")
-    resp_html = html
-    return resp_html
+    return _paint_public_html(html)
 
 
 @app.get("/showcase")
@@ -16425,7 +16467,7 @@ def login():
     if current_user():
         return redirect("/")
     allow_setup = not has_any_user()
-    resp = make_response(render_template_string(LOGIN_HTML, app_title=APP_NAME, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
+    resp = make_response(_render_login( app_title=APP_NAME, error=None, allow_setup=allow_setup, allow_signup=_signup_enabled()))
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
@@ -16440,7 +16482,7 @@ def login_post():
     # Check lockout before touching the password hash
     allowed, lock_msg = _check_login_allowed(username)
     if not allowed:
-        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error=lock_msg, allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        return _render_login( app_title=APP_NAME, error=lock_msg, allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     data = load_users()
     u = (data.get("users") or {}).get(username)
@@ -16450,7 +16492,7 @@ def login_post():
         attempts_rec = _LOGIN_ATTEMPTS.get(_login_key(username)) or {}
         count = attempts_rec.get("count", 0)
         hint = f" ({_MAX_LOGIN_ATTEMPTS - count} attempt(s) remaining before lockout)" if 0 < count < _MAX_LOGIN_ATTEMPTS else ""
-        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error=f"Invalid username or password.{hint}", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
+        return _render_login( app_title=APP_NAME, error=f"Invalid username or password.{hint}", allow_setup=(not has_any_user()), allow_signup=_signup_enabled())
 
     # Successful login — clear any failure record
     _clear_login_failures(username)
@@ -16702,7 +16744,7 @@ def register_get():
 @app.post("/register")
 def register_post():
     if not _signup_enabled():
-        return render_template_string(LOGIN_HTML, app_title=APP_NAME, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
+        return _render_login( app_title=APP_NAME, error="Account creation is disabled.", allow_setup=(not has_any_user()), allow_signup=False)
     # Rate limit registration attempts by IP — prevents spam account creation
     _ip_reg = _get_client_ip() or "unknown"
     _reg_ok, _reg_msg = _rate_limit_check(f"register:{_ip_reg}", 10)
